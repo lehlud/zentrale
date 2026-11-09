@@ -11,13 +11,25 @@ import {
 import type { AgentInput } from "../src/generated";
 
 async function connectionFixture(page: Page) {
-  const state = { offline: false, failures: 0, mutations: 0, queryError: "" };
+  const state = {
+    offline: false,
+    failures: 0,
+    mutations: 0,
+    queryError: "",
+    configDelay: 0,
+    configReads: 0,
+    projectName: project.name,
+  };
   const receiptIDs: string[] = [];
   const accepted: AgentInput[] = [];
+  const streamURLs: string[] = [];
   let socket: WebSocketRoute | undefined;
   let eventId = 0;
   await page.routeWebSocket("**/events?*", (connection) => {
     socket = connection;
+    streamURLs.push(connection.url());
+    if (connection.url().endsWith("after=latest"))
+      connection.send(JSON.stringify({ id: 0, type: "sync" }));
   });
   await page.route("**/graphql", async (route) => {
     const { query, variables = {} } = route.request().postDataJSON();
@@ -64,18 +76,86 @@ async function connectionFixture(page: Page) {
           ? { project, agents }
           : config;
 
+    if (data === config) {
+      state.configReads++;
+      const snapshot = {
+        ...config,
+        projects: config.projects.map((item) => ({
+          ...item,
+          name: state.projectName,
+        })),
+      };
+      await new Promise((resolve) => setTimeout(resolve, state.configDelay));
+      return route.fulfill({ json: { data: snapshot } });
+    }
     return route.fulfill({ json: { data } });
   });
 
   return {
     state,
     receiptIDs,
+    streamURLs,
+    disconnect: () => socket!.close(),
     refresh: async () => {
       await expect.poll(() => Boolean(socket)).toBe(true);
       socket!.send(JSON.stringify({ id: ++eventId }));
     },
   };
 }
+
+test("authenticated reload completes slow reads during an event burst without cancelling them", async ({
+  page,
+}) => {
+  const fixture = await connectionFixture(page);
+  fixture.state.configDelay = 500;
+  const cancelled: string[] = [];
+  page.on("requestfailed", (request) => {
+    if (request.url().endsWith("/graphql"))
+      cancelled.push(request.failure()?.errorText ?? "failed");
+  });
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    else await page.goto("/");
+    await expect.poll(() => fixture.state.configReads).toBeGreaterThan(0);
+    fixture.state.projectName = reload ? "Reload updated" : "Initial updated";
+    // Space events across tasks, while the first configuration read is pending.
+    for (let i = 0; i < 30; i++) {
+      await fixture.refresh();
+      await page.waitForTimeout(5);
+    }
+    await expect(
+      page.getByRole("heading", { name: "Projekte", exact: true }),
+    ).toBeVisible();
+    await page.waitForTimeout(1100);
+    await expect(
+      page.getByText(fixture.state.projectName, { exact: true }).first(),
+    ).toBeVisible();
+    expect(cancelled).toEqual([]);
+    // One initial read plus at most one trailing read per subscriber, not one
+    // replacement request for each of the 30 invalidations. The page mounts
+    // three config subscribers (sidebar, projects, new-conversation dialog).
+    expect(fixture.state.configReads).toBeLessThanOrEqual(6);
+    fixture.state.configReads = 0;
+  }
+});
+
+test("fresh loads request a watermark and reconnects resume at the last event", async ({
+  page,
+}) => {
+  const fixture = await connectionFixture(page);
+  await page.goto("/");
+  await expect.poll(() => fixture.streamURLs.length).toBe(1);
+  expect(fixture.streamURLs[0]).toMatch(/after=latest$/);
+  // Even an empty store's watermark (zero) is a known cursor, not a fresh load.
+  fixture.disconnect();
+  await expect.poll(() => fixture.streamURLs.length).toBe(2);
+  expect(fixture.streamURLs[1]).toMatch(/after=0$/);
+  await fixture.refresh();
+  await page.waitForTimeout(100);
+  fixture.disconnect();
+  await expect.poll(() => fixture.streamURLs.length).toBe(3);
+  expect(fixture.streamURLs[2]).toMatch(/after=1$/);
+});
 
 for (const variant of [
   {
@@ -152,7 +232,8 @@ for (const variant of [
         name: english ? "Start ↑" : "Starten ↑",
         exact: true,
       })
-      .click();
+      // The outage toast can overlap the composer; exercise keyboard submit.
+      .press("Enter");
 
     await expect.poll(() => fixture.state.mutations).toBe(1);
 

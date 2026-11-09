@@ -253,6 +253,16 @@ func (i *Instance) AppendEvent(kind, agentID, data string) (domain.Event, error)
 	return e, err
 }
 
+func (i *Instance) LatestEventID() (int64, error) {
+	if i == nil || i.Closed() {
+		return 0, errClosed
+	}
+
+	var id int64
+	err := i.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id)
+	return id, err
+}
+
 func (i *Instance) Events(after int64, limit int) ([]domain.Event, error) {
 	if i == nil || i.Closed() {
 		return nil, errClosed
