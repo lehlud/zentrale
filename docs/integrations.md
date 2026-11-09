@@ -1,0 +1,74 @@
+# Model and Git connections
+
+[← Documentation](README.md)
+
+## Choose your models
+
+A provider is an account or endpoint, rather than a fixed model. Connect it in
+Settings, then choose defaults for the main agent and auto-approver independently.
+New conversations inherit those defaults; existing ones retain their selections.
+
+| Provider        | Connection                                         |
+| --------------- | -------------------------------------------------- |
+| OpenAI          | API key or ChatGPT device login with token renewal |
+| OpenRouter      | API key or browser login with PKCE                 |
+| Anthropic       | API key                                            |
+| Google / Gemini | API key                                            |
+| Mistral         | API key                                            |
+| OpenCode        | API key                                            |
+| LiteLLM         | Configurable API endpoint, optional key            |
+
+Model lists come from the connected account. Refresh or search them in the UI.
+For OpenAI device login, device authentication must be enabled by the ChatGPT
+account or workspace. Zentrale uses native
+[OpenAI login](https://developers.openai.com/codex/auth) and
+[OpenRouter PKCE](https://openrouter.ai/docs/guides/overview/auth/oauth), without
+importing local CLI sessions.
+
+Missing context sizes use a marked 32,000-token estimate. Context sizes and
+prices can be edited from the model's menu; overrides survive catalog refreshes.
+Prices are USD per million tokens. Usage separates metered costs from
+API-equivalent costs for fixed-price accounts and marks estimated or missing
+token and cache data.
+
+## Connect GitHub or GitLab
+
+Git connections use device login, available in Settings or directly in the
+project/source repository picker. Register your own OAuth application first:
+
+- **GitHub:** enable Device Flow and provide the client ID. Requested scopes are
+  `repo read:org`.
+- **GitLab:** provide a client ID, `api` scope, and a client secret for confidential
+  applications. The instance must support Device Flow. Self-hosted HTTPS
+  instances can be configured.
+
+Enter app configuration in the UI or through `GITHUB_CLIENT_ID`,
+`GITLAB_CLIENT_ID`, optional `GITHUB_CLIENT_SECRET` / `GITLAB_CLIENT_SECRET`, and
+`GITLAB_BASE_URL`. Tokens remain in the backend. One account can be connected per
+service. See the application setup documentation for
+[GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow)
+and [GitLab](https://docs.gitlab.com/api/oauth2/#device-authorization-grant-flow).
+
+## Repositories and keys
+
+Select an existing repository or create one when adding a project or source.
+The picker requires permission to manage deploy keys and respects organization
+policies. New repositories are private. Selecting a repository does not overwrite
+working files; agents use `clone_source` and `source_git` for Git operations.
+
+Zentrale generates a dedicated read/write deploy key per repository. Projects
+using the same repository share its binding. Interrupted key registration stays
+pending and is checked on retry. SSH host-key verification still applies.
+
+The Keys page lists machine, pool, and repository uses. Referenced keys cannot be
+deleted. Removing a source releases its reference without revoking a key needed
+by another project. After all references are gone, **Revoke repository access
+and delete key** removes the remote key and then its local identity. The original
+Git account must be connected.
+
+## Commit identity
+
+Set a global name and email in Settings. A project can override both, or leave
+both empty to inherit the default. Agent Git commands use these values for author
+and committer without changing the SSH user's global Git configuration. Reopen
+an existing editor after changing the identity so its processes get the new values.
