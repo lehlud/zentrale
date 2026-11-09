@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,8 +134,16 @@ fi`
 	}, err
 }
 
-func dialEditor(ctx context.Context, session *editorSession) (net.Conn, error) {
+func dialEditorPort(ctx context.Context, session *editorSession, port int) (net.Conn, error) {
 	if session.runtime.address == "" {
+		if port != 0 {
+			connection, err := session.connection.Client.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			if err == nil || ctx.Err() != nil {
+				return connection, err
+			}
+			return session.connection.Client.DialContext(ctx, "tcp", net.JoinHostPort("::1", strconv.Itoa(port)))
+		}
+
 		return session.connection.Client.DialContext(ctx, "unix", session.socketPath)
 	}
 
@@ -151,7 +160,12 @@ func dialEditor(ctx context.Context, session *editorSession) (net.Conn, error) {
 	stop := context.AfterFunc(authentication, func() { _ = connection.Close() })
 	defer stop()
 
-	if _, err := io.Copy(connection, strings.NewReader(session.runtime.token+"\n")); err != nil {
+	authenticationLine := session.runtime.token
+	if port != 0 {
+		authenticationLine += " " + strconv.Itoa(port)
+	}
+
+	if _, err := io.Copy(connection, strings.NewReader(authenticationLine+"\n")); err != nil {
 		connection.Close()
 		return nil, err
 	}

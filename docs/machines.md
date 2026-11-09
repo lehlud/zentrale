@@ -43,6 +43,12 @@ dedicated SSH identity for a new pool; key IDs cannot be supplied. Copy its publ
 key from the pool card into the members' `authorized_keys`. Updating the same
 pool keeps its identity.
 
+**Check connection** on a pool tests a fresh random sample: 10% of its members,
+rounded up, with a minimum of 3 and a maximum of 8. Pools with fewer than 3 members
+are checked in full. Each selected member gets its own SSH and sandbox result.
+Retrying a failed member or confirming its host key checks that same machine;
+checking the whole pool draws a new sample.
+
 The workspace root must identify the same shared filesystem on every member.
 Zentrale checks a project marker on failover and rejects a missing share rather
 than creating an empty replacement. Pool limits count concurrent host use across

@@ -267,6 +267,19 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		}),
 	}
 
+	mutations["testPool"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.PoolConnectionCheck]()),
+		Args: strArg("id"),
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			result, err := server.Engine.CheckPoolConnection(params.Context, params.Args["id"].(string))
+			if err != nil {
+				return nil, err
+			}
+
+			return mapOf(result), nil
+		}),
+	}
+
 	mutations["prepareAgent"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.MachineConnectionCheck]()), Args: strArg("agentId"),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {

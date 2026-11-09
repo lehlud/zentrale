@@ -53,12 +53,20 @@ and [GitLab](https://docs.gitlab.com/api/oauth2/#device-authorization-grant-flow
 
 Select an existing repository or create one when adding a project or source.
 The picker requires permission to manage deploy keys and respects organization
-policies. New repositories are private. Selecting a repository does not overwrite
-working files; agents use `clone_source` and `source_git` for Git operations.
+policies. New repositories are private. Before the agent's first model request
+or the editor opens, Zentrale clones the selected repository into the project
+directory and additional sources into their named subdirectories. Existing
+checkouts are reused without fetching, pulling or resetting; local changes stay
+intact. A nonempty directory without a checkout or with a different origin stops
+preparation with an error. Checkout failures keep the submitted task available
+for retry. Agents use `source_git` for subsequent Git operations.
 
 Zentrale generates a dedicated read/write deploy key per repository. Projects
 using the same repository share its binding. Interrupted key registration stays
-pending and is checked on retry. SSH host-key verification still applies.
+pending and is checked on retry. SSH host-key verification still applies. For
+GitHub, Zentrale loads host keys over HTTPS from the official
+[metadata API](https://docs.github.com/en/rest/meta/meta#get-github-meta-information)
+and scopes them to GitHub's SSH host; other Git hosts use explicitly trusted keys.
 
 The Keys page lists machine, pool, and repository uses. Referenced keys cannot be
 deleted. Removing a source releases its reference without revoking a key needed

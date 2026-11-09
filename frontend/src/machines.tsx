@@ -1,10 +1,9 @@
-import { Button, Card, Tabs } from "@heroui/react";
+import { Button, Tabs } from "@heroui/react";
 import { useState } from "react";
 
-import { ActionsMenu } from "./actions-menu";
 import { MachineCard } from "./machine-card";
 import { MachineAccess } from "./machine-access";
-import { PoolAccess } from "./pool-access";
+import { PoolCard } from "./pool-card";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
 import type { Config } from "./config";
@@ -208,36 +207,14 @@ export function Machines() {
             {!data && error ? null : !data?.pools.length ? (
               <Empty>{t("Keine Pools")}</Empty>
             ) : (
-              pools.items.map((p) => (
-                <Card key={p.id} variant="secondary">
-                  <Card.Content className="flex-row flex-wrap items-center justify-between gap-4">
-                    <div className="min-w-0 flex-1 basis-64">
-                      <h2 className="break-words font-medium">{p.name}</h2>
-                      <p className="text-sm text-muted mt-1">
-                        {t("{count} Maschinen · maximal {max} gleichzeitig", {
-                          count: p.machines.length,
-                          max: p.maxMachines,
-                        })}
-                      </p>
-                      <p className="break-all text-sm text-muted">
-                        {p.workspaceRoot || "~/.local/share/zentrale/projects"}
-                      </p>
-                    </div>
-                    <ActionsMenu
-                      label={t("Aktionen für {name}", { name: p.name })}
-                      isDisabled={action.busy}
-                      actions={[
-                        {
-                          id: "remove",
-                          label: t("Entfernen"),
-                          destructive: true,
-                          onAction: () => remove("pool", p.id),
-                        },
-                      ]}
-                    />
-                  </Card.Content>
-                  <PoolAccess keys={data?.sshKeys ?? []} keyId={p.keyId} />
-                </Card>
+              pools.items.map((pool) => (
+                <PoolCard
+                  key={JSON.stringify(pool)}
+                  pool={pool}
+                  keys={data?.sshKeys ?? []}
+                  busy={action.busy}
+                  onRemove={() => void remove("pool", pool.id)}
+                />
               ))
             )}
           </div>

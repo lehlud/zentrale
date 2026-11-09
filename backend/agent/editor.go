@@ -191,6 +191,10 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 		return domain.EditorSession{}, errors.New(status.Error)
 	}
 
+	if err := engine.prepareProjectSources(ctx, connection, machine, project, scope); err != nil {
+		return domain.EditorSession{}, err
+	}
+
 	return engine.Editors.StartFor(
 		ctx,
 		project,

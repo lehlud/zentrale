@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"path"
@@ -137,6 +138,10 @@ func (server *Server) serve(socket net.Conn, configuration *ssh.ServerConfig) {
 			server.workers.Go(func() { forwardUnixSocket(incoming) })
 			continue
 		}
+		if incoming.ChannelType() == "direct-tcpip" && server.allowUnixForwarding {
+			server.workers.Go(func() { forwardLoopback(incoming) })
+			continue
+		}
 
 		if incoming.ChannelType() != "session" {
 			_ = incoming.Reject(ssh.UnknownChannelType, "test peer supports sessions only")
@@ -220,6 +225,30 @@ func forwardUnixSocket(request ssh.NewChannel) {
 		_ = request.Reject(ssh.ConnectionFailed, err.Error())
 		return
 	}
+	forwardSocket(request, target)
+}
+
+func forwardLoopback(request ssh.NewChannel) {
+	var destination struct {
+		Host       string
+		Port       uint32
+		OriginHost string
+		OriginPort uint32
+	}
+	if err := ssh.Unmarshal(request.ExtraData(), &destination); err != nil ||
+		(destination.Host != "127.0.0.1" && destination.Host != "::1") || destination.Port > 65535 {
+		_ = request.Reject(ssh.ConnectionFailed, "only loopback test ports are allowed")
+		return
+	}
+	target, err := net.Dial("tcp", net.JoinHostPort(destination.Host, fmt.Sprint(destination.Port)))
+	if err != nil {
+		_ = request.Reject(ssh.ConnectionFailed, err.Error())
+		return
+	}
+	forwardSocket(request, target)
+}
+
+func forwardSocket(request ssh.NewChannel, target net.Conn) {
 	defer target.Close()
 
 	channel, requests, err := request.Accept()

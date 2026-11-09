@@ -47,11 +47,19 @@ export const english: Record<string, string> = {
   "Nachricht übernommen …": "Message accepted …",
   "Verbindung zur Maschine wird hergestellt …": "Connecting to the machine …",
   "Projektverzeichnis wird vorbereitet …": "Preparing project directory …",
+  "Repository wird vorbereitet …": "Preparing repository …",
   "Sandbox wird geprüft …": "Checking sandbox …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
   Subagent: "Subagent",
 
   // Machines, pools and workspace setup.
+  "Zufällige Stichprobe: 10 % der Rechner, mindestens 3, höchstens 8. Kleine Pools werden vollständig geprüft.":
+    "Random sample: 10% of machines, at least 3, at most 8. Small pools are checked in full.",
+  "Verbindungen werden geprüft …": "Checking connections …",
+  "Pool-Verbindungsprüfung": "Pool connection check",
+  "Stichprobe geprüft": "Sample checked",
+  "{successful} von {checked} geprüften Rechnern bereit ({total} im Pool).":
+    "{successful} of {checked} checked machines ready ({total} in the pool).",
   "VM-Typ": "VM type",
   "MicroVM (CPU)": "MicroVM (CPU)",
   "q35 (PCI/GPU)": "q35 (PCI/GPU)",
@@ -732,6 +740,11 @@ Object.assign(english, {
   "Editor öffnen": "Open editor",
   "Neu verbinden": "Reconnect",
   "Editor beenden": "Stop editor",
+  "Webapp-Vorschau": "Web app preview",
+  "Dev-Server-Port": "Dev server port",
+  "Vorschau öffnen ↗": "Open preview ↗",
+  "Starte den Dev-Server im VS-Code-Terminal und öffne seinen Port hier. Die Vorschau verwendet dieselbe HTTPS-Adresse wie Zentrale.":
+    "Start the dev server in the VS Code terminal and open its port here. The preview uses the same HTTPS address as Zentrale.",
   "VS Code wird über SSH vorbereitet …": "Preparing VS Code over SSH …",
   "VS Code wird geladen …": "Loading VS Code …",
   "Editor wirklich beenden? Nicht gespeicherte Änderungen können verloren gehen.":

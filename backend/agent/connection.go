@@ -235,6 +235,11 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 		return domain.MachineConnectionCheck{Error: status.Error, Sandbox: status}
 	}
 
+	engine.setRunState(agentID, "repository", nil)
+	if err := engine.prepareProjectSources(ctx, connection, machine, project, record.ID); err != nil {
+		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}
+	}
+
 	return domain.MachineConnectionCheck{Connected: true, Sandbox: status}
 }
 

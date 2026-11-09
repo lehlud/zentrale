@@ -295,6 +295,20 @@ func (editors *Editors) CurrentFor(project domain.Project, agentID string) domai
 // Transport pins remote-agent requests to their SSH session. Static workbench
 // assets never use this transport or fall back to a remote web server.
 func (editors *Editors) Transport(project domain.Project, sessionID string) (*http.Transport, func(), error) {
+	return editors.transport(project, sessionID, 0)
+}
+
+// PortTransport reaches only loopback in the editor's own environment. A guest
+// service must never fall back to a similarly numbered port on the SSH host.
+func (editors *Editors) PortTransport(project domain.Project, sessionID string, port int) (*http.Transport, func(), error) {
+	if port < 1 || port > 65535 || port == 9842 {
+		return nil, nil, errors.New("invalid preview port")
+	}
+
+	return editors.transport(project, sessionID, port)
+}
+
+func (editors *Editors) transport(project domain.Project, sessionID string, port int) (*http.Transport, func(), error) {
 	editors.mutex.Lock()
 	defer editors.mutex.Unlock()
 
@@ -330,7 +344,7 @@ func (editors *Editors) Transport(project domain.Project, sessionID string) (*ht
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialEditor(ctx, session)
+			return dialEditorPort(ctx, session, port)
 		},
 		ResponseHeaderTimeout: 5 * time.Minute,
 	}

@@ -12,7 +12,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/lehlud/zentrale/domain"
 )
@@ -21,6 +24,10 @@ type Client struct {
 	HTTP          *http.Client
 	GitHubAuthURL string
 	GitHubAPIURL  string
+
+	hostKeyMu sync.Mutex
+	hostKeys  []ssh.PublicKey
+	hostKeyAt time.Time
 }
 
 func NewClient() *Client {

@@ -93,6 +93,17 @@ live in `docs/images`.
 
 ## Live checks and model evaluations
 
+The preview browser check uses isolated SSH, HTTP services and a local TLS
+terminating proxy, with no external machines or accounts:
+
+```sh
+cd backend
+ZENTRALE_PREVIEW_BROWSER=1 go test ./webapi -run '^TestPreview' -count=1
+```
+
+It exercises root imports, localhost API requests, POST bodies, XHR, SSE,
+WebSockets, cookie isolation, navigation and service-worker scope in Chromium.
+
 Live tests need the actual infrastructure. Use disposable database snapshots and
 test directories, and read each test's setup before running it:
 

@@ -26,6 +26,59 @@ specification.loader.exec_module(editor)
 
 
 class EditorBootstrapTests(unittest.TestCase):
+    def test_dev_server_can_listen_only_on_ipv6_loopback(self):
+        try:
+            server = socket.socket(socket.AF_INET6)
+            server.bind(("::1", 0))
+        except OSError:
+            self.skipTest("IPv6 loopback is unavailable")
+        self.addCleanup(server.close)
+        server.listen()
+        with editor.connect_loopback(server.getsockname()[1]) as client:
+            with server.accept()[0] as accepted:
+                client.sendall(b"IPv6 preview")
+                self.assertEqual(accepted.recv(64), b"IPv6 preview")
+
+    def test_guest_relay_authenticates_and_forwards_only_a_loopback_port(self):
+        server = socket.socket()
+        self.addCleanup(server.close)
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        target_port = server.getsockname()[1]
+        accepted = threading.Event()
+
+        def echo():
+            with server.accept()[0] as connection:
+                accepted.set()
+                while data := connection.recv(65536):
+                    connection.sendall(data)
+
+        threading.Thread(target=echo, daemon=True).start()
+        relay = editor.GuestRelay("/does/not/exist", "session-secret", port=0)
+        self.addCleanup(relay.close)
+        relay.start()
+        address = ("127.0.0.1", relay.listener.getsockname()[1])
+        for authentication in [
+            f"wrong-secret {target_port}\n",
+            "session-secret 0\n",
+            "session-secret 65536\n",
+            "session-secret 9842\n",
+            "session-secret example.org:1235\n",
+        ]:
+            with self.subTest(authentication=authentication):
+                with socket.create_connection(address, timeout=2) as client:
+                    client.sendall(authentication.encode())
+                    self.assertEqual(client.recv(3), b"")
+        self.assertFalse(accepted.is_set())
+
+        with socket.create_connection(address, timeout=2) as client:
+            client.sendall(f"session-secret {target_port}\n".encode())
+            self.assertEqual(client.recv(3), b"OK\n")
+            payload = b"GET /api/example HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            client.sendall(payload)
+            self.assertEqual(client.recv(65536), payload)
+        self.assertTrue(accepted.wait(2))
+
     def test_guest_relay_authenticates_before_forwarding_binary_streams(self):
         with tempfile.TemporaryDirectory() as directory:
             socket_path = str(Path(directory) / "server.sock")

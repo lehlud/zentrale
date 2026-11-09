@@ -77,11 +77,13 @@ export function LiveAssistantResponse({
                       ? "Projektverzeichnis wird vorbereitet …"
                       : phase === "sandbox"
                         ? "Sandbox wird vorbereitet …"
-                        : generating
-                          ? text
-                            ? "Schreibt …"
-                            : "Antwort wird vorbereitet …"
-                          : "Arbeitet …",
+                        : phase === "repository"
+                          ? "Repository wird vorbereitet …"
+                          : generating
+                            ? text
+                              ? "Schreibt …"
+                              : "Antwort wird vorbereitet …"
+                            : "Arbeitet …",
           )}
         />
       )}

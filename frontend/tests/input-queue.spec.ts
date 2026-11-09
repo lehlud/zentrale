@@ -195,6 +195,16 @@ for (const english of [false, true]) {
         ),
       ).toBeVisible();
 
+      phase = "repository";
+      update();
+
+      await expect(
+        page.getByText(
+          label("Repository wird vorbereitet …", "Preparing repository …"),
+          { exact: true },
+        ),
+      ).toBeVisible();
+
       await mkdir("artifacts/ui", { recursive: true });
       await page.screenshot({
         path: `artifacts/ui/input-queue-${variant}.png`,

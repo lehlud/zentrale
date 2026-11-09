@@ -265,7 +265,7 @@ def main():
 
 
 class GuestRelay:
-    """Forward authenticated streams to the guest-local server Unix socket.
+    """Forward authenticated streams to VS Code or a guest-loopback dev port.
 
     A loopback QEMU forward is reachable by other SSH-host users. Keep the
     server behind a separate random session secret without exposing that secret
@@ -294,7 +294,7 @@ class GuestRelay:
             ).start()
 
     def forward(self, connection):
-        with connection, socket.socket(socket.AF_UNIX) as server:
+        with connection:
             try:
                 connection.settimeout(5)
                 received = bytearray()
@@ -303,20 +303,41 @@ class GuestRelay:
                     if not byte or byte == b"\n":
                         break
                     received.extend(byte)
-                if not hmac.compare_digest(received, self.token):
+                secret, _, port = received.partition(b" ")
+                if not hmac.compare_digest(secret, self.token):
                     return
 
-                server.connect(self.socket_path)
-                connection.sendall(b"OK\n")
-                connection.settimeout(None)
+                if port:
+                    if (
+                        not port.isdigit()
+                        or not 1 <= int(port) <= 65535
+                        or int(port) == 9842
+                    ):
+                        return
+                    server = connect_loopback(int(port))
+                else:
+                    server = socket.socket(socket.AF_UNIX)
+                    server.settimeout(5)
+                    try:
+                        server.connect(self.socket_path)
+                    except OSError:
+                        server.close()
+                        raise
 
-                while not self.stopped.is_set():
-                    readable, _, _ = select.select([connection, server], [], [], 1)
-                    for source in readable:
-                        data = source.recv(65536)
-                        if not data:
-                            return
-                        (server if source is connection else connection).sendall(data)
+                with server:
+                    server.settimeout(None)
+                    connection.sendall(b"OK\n")
+                    connection.settimeout(None)
+
+                    while not self.stopped.is_set():
+                        readable, _, _ = select.select([connection, server], [], [], 1)
+                        for source in readable:
+                            data = source.recv(65536)
+                            if not data:
+                                return
+                            (server if source is connection else connection).sendall(
+                                data
+                            )
             except OSError:
                 return
 
@@ -327,6 +348,22 @@ class GuestRelay:
         except OSError:
             pass
         self.listener.close()
+
+
+def connect_loopback(port):
+    # Node dev servers often bind only ::1 when started on "localhost".
+    # Try literal loopback addresses; never resolve an arbitrary hostname.
+    failure = None
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        connection = socket.socket(family)
+        try:
+            connection.settimeout(2)
+            connection.connect((host, port))
+            return connection
+        except OSError as error:
+            connection.close()
+            failure = error
+    raise failure
 
 
 def terminate(_signal, _frame):

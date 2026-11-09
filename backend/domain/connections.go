@@ -17,6 +17,24 @@ type MachineConnectionCheck struct {
 	Sandbox   SandboxStatus `json:"sandbox"`
 }
 
+type PoolConnectionCheck struct {
+	PoolID        string                       `json:"poolId"`
+	TotalMachines int                          `json:"totalMachines"`
+	Machines      []PoolMachineConnectionCheck `json:"machines"`
+}
+
+type PoolMachineConnectionCheck struct {
+	MachineID string `json:"machineId"`
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+
+	Connected bool          `json:"connected"`
+	Error     string        `json:"error"`
+	HostKey   SSHHostKey    `json:"hostKey"`
+	Sandbox   SandboxStatus `json:"sandbox"`
+}
+
 // SandboxStatus is the last observed selection, separate from configuration.
 // An empty Level means detection failed; it never means execution without isolation.
 type SandboxStatus struct {

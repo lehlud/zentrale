@@ -105,3 +105,7 @@ Cache paths can be changed through `ZENTRALE_VSCODE_CACHE` on the server and
 `ZENTRALE_VSCODE_SERVER_CACHE` / `ZENTRALE_VSCODE_SERVER_DATA` on SSH hosts.
 VM setup diagnostics are kept in the private runtime directory at
 `/var/tmp/zentrale-microvm-<uid>`.
+
+HTTP servers started in the editor can be opened through the authenticated
+[HTTPS preview gateway](preview.md), including a frontend and API on different
+guest ports. No additional public host or container ports are required.

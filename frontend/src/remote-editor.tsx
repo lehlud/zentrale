@@ -1,5 +1,13 @@
-import { Button, Card, Link, buttonVariants } from "@heroui/react";
-import { useEffect } from "react";
+import {
+  Button,
+  Card,
+  Input,
+  Label,
+  Link,
+  TextField,
+  buttonVariants,
+} from "@heroui/react";
+import { useEffect, useState } from "react";
 
 import { useAPI, useQuery } from "./api";
 import type { EditorSession, Project } from "./generated";
@@ -22,6 +30,13 @@ export function RemoteEditor({
   );
   const session = data?.editorSession?.id ? data.editorSession : undefined;
   const action = useAction();
+  const [previewPort, setPreviewPort] = useState("1234");
+  const portNumber = Number(previewPort);
+  const validPort =
+    /^\d+$/.test(previewPort) &&
+    portNumber >= 1 &&
+    portNumber <= 65535 &&
+    portNumber !== 9842;
 
   useEffect(() => {
     const refresh = () => api.refresh();
@@ -77,6 +92,43 @@ export function RemoteEditor({
             </Button>
           )}
         </div>
+        {session && (
+          <div className="space-y-3 border-t border-border pt-4">
+            <h3 className="text-sm font-medium">{t("Webapp-Vorschau")}</h3>
+            <p className="text-sm text-muted">
+              {t(
+                "Starte den Dev-Server im VS-Code-Terminal und öffne seinen Port hier. Die Vorschau verwendet dieselbe HTTPS-Adresse wie Zentrale.",
+              )}
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <TextField
+                value={previewPort}
+                onChange={setPreviewPort}
+                className="w-32 gap-2"
+                isInvalid={!validPort}
+              >
+                <Label>{t("Dev-Server-Port")}</Label>
+                <Input
+                  inputMode="numeric"
+                  maxLength={5}
+                  className="min-h-11 font-mono"
+                />
+              </TextField>
+              <Link
+                className={buttonVariants({
+                  variant: "secondary",
+                  className: "min-h-11 no-underline",
+                })}
+                isDisabled={!validPort}
+                href={`/preview/${encodeURIComponent(project.id)}/${encodeURIComponent(session.id)}/${portNumber}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t("Vorschau öffnen ↗")}
+              </Link>
+            </div>
+          </div>
+        )}
         <Failure
           message={error || action.error}
           onRetry={() => api.refresh()}

@@ -179,6 +179,8 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.GET("/events", server.events)
 	e.POST("/mcp", server.mcp)
 	e.Any("/ide/:project/:session/*", server.ide)
+	e.Any("/preview/:project/:session/:port/*", server.preview)
+	e.Any("/preview/:project/:session/:port", server.preview)
 
 	e.GET("/*", func(requestContext echo.Context) error {
 		root, err := filepath.Abs(server.Frontend)

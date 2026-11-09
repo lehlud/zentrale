@@ -308,6 +308,7 @@ export type Mutation = {
   stopJob: boolean | null;
   submitInput: AgentInput | null;
   testMachine: MachineConnectionCheck | null;
+  testPool: PoolConnectionCheck | null;
   testProvider: boolean | null;
   trustHostKey: boolean | null;
 };
@@ -331,6 +332,21 @@ export type Pool = {
   storage: Array<StorageVolume>;
   vmType: string;
   workspaceRoot: string;
+};
+export type PoolConnectionCheck = {
+  machines: Array<PoolMachineConnectionCheck>;
+  poolId: string;
+  totalMachines: number;
+};
+export type PoolMachineConnectionCheck = {
+  connected: boolean;
+  error: string;
+  host: string;
+  hostKey: SSHHostKey;
+  machineId: string;
+  name: string;
+  port: number;
+  sandbox: SandboxStatus;
 };
 export type Project = {
   commitEmail: string;

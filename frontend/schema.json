@@ -623,6 +623,14 @@
               "name": "Boolean",
               "ofType": null
             }
+          },
+          {
+            "name": "testPool",
+            "type": {
+              "kind": "OBJECT",
+              "name": "PoolConnectionCheck",
+              "ofType": null
+            }
           }
         ],
         "inputFields": null,
@@ -5793,6 +5801,159 @@
         "inputFields": null,
         "kind": "OBJECT",
         "name": "ProviderKind"
+      },
+      {
+        "fields": [
+          {
+            "name": "machines",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "OBJECT",
+                    "name": "PoolMachineConnectionCheck"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "poolId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "totalMachines",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "PoolConnectionCheck"
+      },
+      {
+        "fields": [
+          {
+            "name": "connected",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "error",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "host",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "hostKey",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "SSHHostKey",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "machineId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "port",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "sandbox",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "SandboxStatus",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "PoolMachineConnectionCheck"
       }
     ]
   }

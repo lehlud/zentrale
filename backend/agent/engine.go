@@ -100,6 +100,8 @@ type Engine struct {
 	configMu  sync.Mutex
 	sandboxMu sync.Mutex
 
+	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
+
 	connections     map[string]*agentConnection
 	preparing       map[string]int
 	editorPreparing map[string]int

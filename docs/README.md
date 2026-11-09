@@ -10,6 +10,7 @@ come later.
 | [Getting started](getting-started.md)                | Build, first project, authentication, and server configuration |
 | [Machines and pools](machines.md)                    | SSH identities, YAML, shared workspaces, storage, and quota    |
 | [Sandboxes, GPUs, and editor](sandbox-and-editor.md) | Fedora guests, q35 prerequisites, and browser VS Code          |
+| [Web app previews](preview.md)                       | Same-host HTTPS previews, localhost APIs, and hot reload       |
 | [Agents and tools](agents.md)                        | Steering, queues, goals, approvals, jobs, and MCP              |
 | [Model and Git connections](integrations.md)         | Provider accounts, repository access, and commits              |
 | [Development](development.md)                        | Local workflow, architecture, tests, and live checks           |

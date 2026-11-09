@@ -84,11 +84,64 @@ function createSSHSocket(address) {
   };
 }
 
+const previewRoot = settings.prefix.replace(/^\/ide\//, "/preview/") + "/";
+function previewAddress(host, port, path = "/", query = "", fragment = "") {
+  if (
+    !["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].includes(host) ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535 ||
+    port === 9842
+  )
+    return undefined;
+  const url = new URL(
+    `${previewRoot}${port}${path.startsWith("/") ? path : `/${path}`}`,
+    location.origin,
+  );
+  url.search = query;
+  url.hash = fragment;
+  return url.href;
+}
+
 create(document.body, {
   remoteAuthority: settings.remoteAuthority,
   serverBasePath: settings.prefix,
   connectionToken: "",
   webSocketFactory: { create: createSSHSocket },
+  resolveExternalUri: async (uri) => {
+    if (uri.scheme !== "http") return uri;
+    const url = new URL(uri.toString());
+    const forwarded = previewAddress(
+      url.hostname,
+      Number(url.port || 80),
+      url.pathname,
+      url.search,
+      url.hash,
+    );
+    return forwarded ? URI.parse(forwarded) : uri;
+  },
+  tunnelProvider: {
+    tunnelFactory(options) {
+      if (options.protocol === "https") return undefined;
+      const address = previewAddress(
+        options.remoteAddress.host,
+        options.remoteAddress.port,
+      );
+      if (!address) return undefined;
+      const disposed = new Emitter();
+      return Promise.resolve({
+        remoteAddress: options.remoteAddress,
+        localAddress: address,
+        protocol: location.protocol.slice(0, -1),
+        privacy: "private",
+        onDidDispose: disposed.event,
+        dispose() {
+          disposed.fire();
+          disposed.dispose();
+        },
+      });
+    },
+  },
   resourceUriProvider: (uri) =>
     URI.from({
       scheme: location.protocol.slice(0, -1),
