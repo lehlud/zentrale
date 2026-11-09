@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="{{LANGUAGE}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta id="zentrale-workbench" data-settings="{{CONFIGURATION}}" />
+    <title>VS Code · Zentrale</title>
+    <link rel="icon" href="{{ASSETS}}/favicon.ico" />
+    <link
+      rel="stylesheet"
+      href="{{ASSETS}}/out/vs/workbench/workbench.web.main.internal.css"
+    />
+    <style nonce="{{NONCE}}">
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+      #startup {
+        padding: 32px;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+    </style>
+    <script nonce="{{NONCE}}">
+      globalThis._VSCODE_FILE_ROOT = new URL(
+        "{{ASSETS}}/out/",
+        location.origin,
+      ).href;
+    </script>
+    <script src="{{ASSETS}}/out/nls.messages.js"></script>
+    {{NLS_OVERRIDE}}
+  </head>
+  <body>
+    <div id="startup" role="status">{{LOADING}}</div>
+    <script type="module" src="{{PREFIX}}/workbench.js"></script>
+  </body>
+</html>

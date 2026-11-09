@@ -1,0 +1,26 @@
+{
+  "version": "1.145.0",
+  "commit": "a717861c07586a53d83b80d742cd3f59b20a6273",
+  "web": {
+    "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/a717861c07586a53d83b80d742cd3f59b20a6273/vscode-web.tar.gz",
+    "sha256": "c5577e1372bc2b2f45483acfce39ee267bc39549e2d68bb56bd5d557ceb44077"
+  },
+  "servers": {
+    "server-linux-x64": {
+      "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/a717861c07586a53d83b80d742cd3f59b20a6273/vscode-server-linux-x64.tar.gz",
+      "sha256": "53a8e2707f27b3dfc08f8aef536f9595f4c479922fc13f9644e723b3b1abab37"
+    },
+    "server-linux-arm64": {
+      "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/a717861c07586a53d83b80d742cd3f59b20a6273/vscode-server-linux-arm64.tar.gz",
+      "sha256": "8f274df57f996dd0ab6828b459b0e88034a7dff5c2cce1faa74e4dccade5d68a"
+    },
+    "server-darwin": {
+      "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/a717861c07586a53d83b80d742cd3f59b20a6273/vscode-server-darwin-x64.zip",
+      "sha256": "404b268a2db4690bd4e7554916de23cc0a49cf212cc1432c641da43dd494ace6"
+    },
+    "server-darwin-arm64": {
+      "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/a717861c07586a53d83b80d742cd3f59b20a6273/vscode-server-darwin-arm64.zip",
+      "sha256": "37e5850973b7f6cb2c18b15b911ac2306a5ca930a6af1a8cdb5d7afe676b06fe"
+    }
+  }
+}

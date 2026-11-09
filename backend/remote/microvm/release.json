@@ -1,0 +1,33 @@
+{
+  "version": "virtme-ng-1.42-busybox-1.37.0-r20",
+  "runtime": {
+    "url": "https://files.pythonhosted.org/packages/d1/41/838216899c6b1af87b1f32823589619cb1ed95b29e45b616482f84b45988/virtme_ng-1.42-py3-none-any.whl",
+    "sha256": "99589f1f5d74249038fe3c52aad9d3c33cb82a2d9617997511d4489fc709a707",
+    "source": "https://github.com/arighi/virtme-ng/tree/v1.42",
+    "license": "GPL-2.0-only"
+  },
+  "busybox": {
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/busybox-static-1.37.0-r20.apk",
+    "sha256": "488ad6efd04b5a722719e79f8e0dcc2c24afd6758867af3ce41b04839e60c74b",
+    "member": "bin/busybox.static",
+    "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/busybox",
+    "license": "GPL-2.0-only"
+  },
+  "kernel": {
+    "version": "6.12.115-0-virt",
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/linux-virt-6.12.115-r0.apk",
+    "sha256": "2c0146b71bb15b1dbfe3056d430ddcdb6f99ed937db51be0a2a7760db6a9b3fc",
+    "member": "boot/vmlinuz-virt",
+    "config": "boot/config-6.12.115-0-virt",
+    "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/linux-lts",
+    "license": "GPL-2.0-only"
+  },
+  "fedora": {
+    "version": "45",
+    "url": "https://registry.fedoraproject.org/v2/fedora-minimal/blobs/sha256:aa1a4fb33d92703e3e22ebda17b958a9ee77c524755cec488853f40ac918141a",
+    "sha256": "aa1a4fb33d92703e3e22ebda17b958a9ee77c524755cec488853f40ac918141a",
+    "manifest": "sha256:1ed8d85ef60c86f1e8065167c598574d0fe363975e0e373b76cfc8dbd1ce27d1",
+    "source": "https://fedoraproject.org/en/misc/",
+    "license": "Fedora-License-Data"
+  }
+}

@@ -1,0 +1,52 @@
+/* Source and diff colors use the GitHub syntax palette, independent of controls. */
+.syntax-highlight {
+  color: var(--foreground);
+}
+
+.syntax-highlight .hljs-comment,
+.syntax-highlight .hljs-quote {
+  color: light-dark(#57606a, #8b949e);
+}
+
+.syntax-highlight .hljs-keyword,
+.syntax-highlight .hljs-selector-tag,
+.syntax-highlight .hljs-doctag {
+  color: light-dark(#cf222e, #ff7b72);
+}
+
+.syntax-highlight .hljs-string,
+.syntax-highlight .hljs-regexp,
+.syntax-highlight .hljs-meta .hljs-string {
+  color: light-dark(#0a3069, #a5d6ff);
+}
+
+.syntax-highlight .hljs-title,
+.syntax-highlight .hljs-section {
+  color: light-dark(#8250df, #d2a8ff);
+}
+
+.syntax-highlight .hljs-number,
+.syntax-highlight .hljs-literal,
+.syntax-highlight .hljs-attr,
+.syntax-highlight .hljs-attribute,
+.syntax-highlight .hljs-variable {
+  color: light-dark(#0550ae, #79c0ff);
+}
+
+.syntax-highlight .hljs-built_in,
+.syntax-highlight .hljs-type,
+.syntax-highlight .hljs-name {
+  color: light-dark(#116329, #7ee787);
+}
+
+.syntax-highlight .hljs-symbol,
+.syntax-highlight .hljs-meta {
+  color: light-dark(#953800, #ffa657);
+}
+
+.syntax-highlight .hljs-emphasis {
+  font-style: italic;
+}
+.syntax-highlight .hljs-strong {
+  font-weight: 600;
+}

@@ -1,0 +1,548 @@
+// Generated from the Go GraphQL schema. Run make generate.
+export type Agent = {
+  approverId: string;
+  contextStart: number;
+  contextTokens: number;
+  error: string;
+  id: string;
+  machineId: string;
+  modelId: string;
+  name: string;
+  parentId: string;
+  projectId: string;
+  providerId: string;
+  role: string;
+  status: string;
+  summary: string;
+};
+export type AgentInput = {
+  agentId: string;
+  createdAt: string;
+  deliveredAt: string;
+  id: string;
+  mode: string;
+  projectId: string;
+  status: string;
+  text: string;
+};
+export type AgentRunState = {
+  agentId: string;
+  error: string;
+  hostKey: SSHHostKey;
+  phase: string;
+};
+export type Approval = {
+  agentId: string;
+  allowed: boolean;
+  arguments: string;
+  blanket: boolean;
+  callId: string;
+  createdAt: string;
+  id: string;
+  reason: string;
+  tool: string;
+  toolName: string;
+  wire: string;
+};
+export type CommitIdentity = {
+  email: string;
+  name: string;
+};
+export type CommitIdentityInput = {
+  email?: string | null;
+  name?: string | null;
+};
+export type EditorSession = {
+  agentId: string;
+  directory: string;
+  id: string;
+  machineId: string;
+  machineName: string;
+  projectId: string;
+  sandbox: string;
+  url: string;
+};
+export type EditorStartResult = {
+  error: string;
+  hostKey: SSHHostKey;
+  session: EditorSession;
+};
+export type FileChange = {
+  added: number;
+  agentId: string;
+  createdAt: string;
+  id: string;
+  kind: string;
+  messageId: string;
+  notice: string;
+  patch: string;
+  path: string;
+  removed: number;
+  truncated: boolean;
+};
+export type GitConnection = {
+  baseUrl: string;
+  clientId: string;
+  configured: boolean;
+  connected: boolean;
+  id: string;
+  kind: string;
+  userName: string;
+};
+export type GitConnectionConfigInput = {
+  baseUrl?: string | null;
+  clientId?: string | null;
+  clientSecret?: string | null;
+  kind?: string | null;
+};
+export type GitLogin = {
+  connectionId: string;
+  error: string;
+  expiresAt: string;
+  id: string;
+  interval: number;
+  status: string;
+  userCode: string;
+  verificationUrl: string;
+};
+export type GitNamespace = {
+  id: string;
+  name: string;
+  personal: boolean;
+};
+export type GitRepository = {
+  canManageDeployKeys: boolean;
+  fullName: string;
+  id: string;
+  identity: string;
+  name: string;
+  private: boolean;
+  sshUrl: string;
+  webUrl: string;
+};
+export type GitRepositoryInputInput = {
+  connectionId?: string | null;
+  description?: string | null;
+  name?: string | null;
+  namespaceId?: string | null;
+  private?: boolean | null;
+};
+export type GitRepositoryPage = {
+  hasMore: boolean;
+  items: Array<GitRepository>;
+  nextOffset: number;
+};
+export type Goal = {
+  agentId: string;
+  blockedAttempts: number;
+  blocker: string;
+  continuations: number;
+  createdAt: string;
+  evidence: string;
+  id: string;
+  objective: string;
+  origin: string;
+  reason: string;
+  requestedStatus: string;
+  requestReason: string;
+  revision: number;
+  sourceInputIds: Array<string>;
+  status: string;
+  updatedAt: string;
+};
+export type GoalReview = {
+  agentId: string;
+  approverId: string;
+  blocker: string;
+  createdAt: string;
+  evidence: string;
+  goalId: string;
+  id: string;
+  messageId: string;
+  nextStep: string;
+  reason: string;
+  status: string;
+};
+export type Job = {
+  agentId: string;
+  command: string;
+  error: string;
+  id: string;
+  machineId: string;
+  output: string;
+  startedAt: string;
+  status: string;
+};
+export type LanguageModel = {
+  cachedPrice: number;
+  contextWindow: number;
+  id: string;
+  inputPrice: number;
+  metadataEstimated: boolean;
+  name: string;
+  outputPrice: number;
+  pricesKnown: boolean;
+  providerId: string;
+};
+export type Machine = {
+  containers: boolean;
+  gpuDevices: Array<string>;
+  host: string;
+  id: string;
+  jumps: Array<string>;
+  keyId: number;
+  microVMCommand: string;
+  name: string;
+  port: number;
+  properties: Array<string>;
+  quotaCommand: Array<string>;
+  sandbox: string;
+  singleUser: boolean;
+  storage: Array<StorageVolume>;
+  user: string;
+  vmType: string;
+  workspaceRoot: string;
+};
+export type MachineConnectionCheck = {
+  connected: boolean;
+  error: string;
+  hostKey: SSHHostKey;
+  sandbox: SandboxStatus;
+};
+export type MachineInput = {
+  containers?: boolean | null;
+  gpuDevices?: Array<string> | null;
+  host?: string | null;
+  id?: string | null;
+  jumps?: Array<string> | null;
+  keyId?: number | null;
+  microVMCommand?: string | null;
+  name?: string | null;
+  port?: number | null;
+  properties?: Array<string> | null;
+  quotaCommand?: Array<string> | null;
+  sandbox?: string | null;
+  singleUser?: boolean | null;
+  storage?: Array<StorageVolumeInput> | null;
+  user?: string | null;
+  vmType?: string | null;
+  workspaceRoot?: string | null;
+};
+export type Message = {
+  activities: Array<ToolActivity>;
+  agentId: string;
+  callId: string;
+  change: FileChange | null;
+  changes: Array<FileChange>;
+  content: string;
+  createdAt: string;
+  id: string;
+  role: string;
+  toolName: string;
+  wire: string;
+};
+export type ModelChoice = {
+  modelId: string;
+  providerId: string;
+};
+export type ModelChoiceInput = {
+  modelId?: string | null;
+  providerId?: string | null;
+};
+export type ModelDefaults = {
+  approver: ModelChoice;
+  main: ModelChoice;
+};
+export type ModelDefaultsInput = {
+  approver?: ModelChoiceInput | null;
+  main?: ModelChoiceInput | null;
+};
+export type ModelMetadataInput = {
+  cachedPrice?: number | null;
+  contextWindow?: number | null;
+  inputPrice?: number | null;
+  outputPrice?: number | null;
+  pricesKnown?: boolean | null;
+};
+export type Mutation = {
+  answerQuestion: boolean | null;
+  beginGitLogin: GitLogin | null;
+  beginProviderLogin: ProviderLogin | null;
+  cancelGoal: boolean | null;
+  cancelInput: boolean | null;
+  cancelProviderLogin: boolean | null;
+  configureGitConnection: GitConnection | null;
+  connectRepository: Source | null;
+  createAgent: Agent | null;
+  createGitRepository: GitRepository | null;
+  deleteResource: boolean | null;
+  deleteSSHKey: boolean | null;
+  disconnectGitConnection: boolean | null;
+  disconnectProvider: boolean | null;
+  generateSSHKey: SSHKey | null;
+  login: boolean | null;
+  logout: boolean | null;
+  pollGitLogin: GitLogin | null;
+  pollProviderLogin: ProviderLogin | null;
+  prepareAgent: MachineConnectionCheck | null;
+  prompt: boolean | null;
+  refreshGitRepositories: boolean | null;
+  refreshModels: boolean | null;
+  renameAgent: boolean | null;
+  resumeInputs: boolean | null;
+  revokeRepositoryKey: boolean | null;
+  saveMachine: Machine | null;
+  saveModelMetadata: boolean | null;
+  savePool: Pool | null;
+  saveProject: Project | null;
+  saveProvider: Provider | null;
+  saveSource: Source | null;
+  setCommitIdentity: boolean | null;
+  setGitHubToken: boolean | null;
+  setModelDefaults: boolean | null;
+  setup: boolean | null;
+  startEditor: EditorStartResult | null;
+  stopAgent: boolean | null;
+  stopAgentVM: boolean | null;
+  stopEditor: boolean | null;
+  stopJob: boolean | null;
+  submitInput: AgentInput | null;
+  testMachine: MachineConnectionCheck | null;
+  testProvider: boolean | null;
+  trustHostKey: boolean | null;
+};
+export type Note = {
+  agentId: string;
+  content: string;
+  id: string;
+  title: string;
+};
+export type Pool = {
+  id: string;
+  keyId: number;
+  knownHosts: string;
+  machines: Array<Machine>;
+  maxMachines: number;
+  name: string;
+  quotaCommand: Array<string>;
+  sandbox: string;
+  sharedHome: boolean;
+  singleUser: boolean;
+  storage: Array<StorageVolume>;
+  vmType: string;
+  workspaceRoot: string;
+};
+export type Project = {
+  commitEmail: string;
+  commitName: string;
+  directory: string;
+  gitConnectionId: string;
+  id: string;
+  machineIds: Array<string>;
+  managedWorkspace: boolean;
+  name: string;
+  poolIds: Array<string>;
+  repositoryId: string;
+  repositoryName: string;
+};
+export type ProjectInput = {
+  commitEmail?: string | null;
+  commitName?: string | null;
+  directory?: string | null;
+  gitConnectionId?: string | null;
+  id?: string | null;
+  machineIds?: Array<string> | null;
+  managedWorkspace?: boolean | null;
+  name?: string | null;
+  poolIds?: Array<string> | null;
+  repositoryId?: string | null;
+  repositoryName?: string | null;
+};
+export type Provider = {
+  accountLabel: string;
+  authMode: string;
+  baseUrl: string;
+  billingMode: string;
+  catalogError: string;
+  catalogStatus: string;
+  connected: boolean;
+  id: string;
+  kind: string;
+  modelCount: number;
+  name: string;
+};
+export type ProviderInput = {
+  authMode?: string | null;
+  baseUrl?: string | null;
+  billingMode?: string | null;
+  credential?: string | null;
+  id?: string | null;
+  kind?: string | null;
+  name?: string | null;
+};
+export type ProviderKind = {
+  authMethods: Array<string>;
+  id: string;
+  name: string;
+};
+export type ProviderLogin = {
+  error: string;
+  expiresAt: string;
+  id: string;
+  interval: number;
+  method: string;
+  providerId: string;
+  status: string;
+  userCode: string;
+  verificationUrl: string;
+};
+export type Query = {
+  agent: Agent | null;
+  agentInputs: Array<AgentInput | null> | null;
+  agentRunState: AgentRunState | null;
+  agents: Array<Agent | null> | null;
+  approvals: Array<Approval | null> | null;
+  commitIdentity: CommitIdentity | null;
+  editorSession: EditorSession | null;
+  gitConnections: Array<GitConnection | null> | null;
+  gitNamespaces: Array<GitNamespace | null> | null;
+  gitRepositories: GitRepositoryPage | null;
+  goal: Goal | null;
+  goalReviews: Array<GoalReview | null> | null;
+  jobs: Array<Job | null> | null;
+  machines: Array<Machine | null> | null;
+  messages: Array<Message | null> | null;
+  model: LanguageModel | null;
+  modelDefaults: ModelDefaults | null;
+  models: Array<LanguageModel> | null;
+  notes: Array<Note | null> | null;
+  pools: Array<Pool | null> | null;
+  project: Project | null;
+  projects: Array<Project | null> | null;
+  providerKinds: Array<ProviderKind | null> | null;
+  providers: Array<Provider | null> | null;
+  questions: Array<Question | null> | null;
+  recentMessages: Array<Message | null> | null;
+  sandboxStatuses: Array<SandboxStatus | null> | null;
+  sources: Array<Source | null> | null;
+  sshKeys: Array<SSHKey | null> | null;
+  status: Status | null;
+  trustedKeys: Array<SSHKey | null> | null;
+  usage: Array<Usage | null> | null;
+  usageSummary: UsageSummary | null;
+};
+export type Question = {
+  agentId: string;
+  answer: string;
+  id: string;
+  options: Array<string>;
+  status: string;
+  title: string;
+};
+export type SandboxStatus = {
+  checkedAt: string;
+  error: string;
+  level: string;
+  machineId: string;
+  mode: string;
+};
+export type Source = {
+  bindingId: string;
+  id: string;
+  keyId: number;
+  name: string;
+  projectId: string;
+  projectRoot: boolean;
+  readOnly: boolean;
+  repositoryName: string;
+  url: string;
+};
+export type SourceInput = {
+  bindingId?: string | null;
+  id?: string | null;
+  keyId?: number | null;
+  name?: string | null;
+  projectId?: string | null;
+  projectRoot?: boolean | null;
+  readOnly?: boolean | null;
+  repositoryName?: string | null;
+  url?: string | null;
+};
+export type SSHHostKey = {
+  fingerprint: string;
+  host: string;
+  publicKey: string;
+};
+export type SSHKey = {
+  canDelete: boolean | null;
+  canRevoke: boolean | null;
+  fingerprint: string | null;
+  id: number | null;
+  publicKey: string | null;
+  purpose: string | null;
+  purposeId: string | null;
+  usages: Array<SSHKeyUsage | null> | null;
+};
+export type SSHKeyUsage = {
+  id: string;
+  kind: string;
+  name: string;
+  projectId: string;
+};
+export type Status = {
+  authenticated: boolean;
+  githubConnected: boolean;
+  needsSetup: boolean;
+};
+export type StorageVolume = {
+  description: string;
+  id: string;
+  path: string;
+  shared: boolean;
+};
+export type StorageVolumeInput = {
+  description?: string | null;
+  id?: string | null;
+  path?: string | null;
+  shared?: boolean | null;
+};
+export type ToolActivity = {
+  arguments: string;
+  content: string;
+  justification: string;
+  name: string;
+  network: boolean;
+};
+export type Usage = {
+  agentId: string;
+  cachedTokens: number;
+  cacheReadKnown: boolean;
+  cacheWriteKnown: boolean;
+  cacheWriteLongTokens: number;
+  cacheWriteTokens: number;
+  costKnown: boolean;
+  estimated: boolean;
+  fictionalCost: number;
+  id: string;
+  inputTokens: number;
+  modelId: string;
+  outputTokens: number;
+  providerId: string;
+  realCost: number;
+  tokensKnown: boolean;
+};
+export type UsageSummary = {
+  cachedTokens: number;
+  cacheInputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  estimated: boolean;
+  fictionalCost: number;
+  inputTokens: number;
+  outputTokens: number;
+  realCost: number;
+  requestCount: number;
+  unknownCacheWrites: number;
+  unknownPrices: number;
+  unknownTokenCounts: number;
+};

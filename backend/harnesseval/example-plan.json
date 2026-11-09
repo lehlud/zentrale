@@ -1,0 +1,13 @@
+{
+  "label": "interactive-and-cursor-harness",
+  "machineId": "YOUR_CONFIGURED_MACHINE",
+  "models": [
+    { "providerId": "YOUR_FIRST_PROVIDER", "modelId": "YOUR_FIRST_MODEL" },
+    { "providerId": "YOUR_SECOND_PROVIDER", "modelId": "YOUR_SECOND_MODEL" }
+  ],
+  "approver": { "providerId": "YOUR_APPROVER_PROVIDER", "modelId": "YOUR_APPROVER_MODEL" },
+  "cases": ["focused-edit", "interactive-input", "large-job-output"],
+  "repetitions": 3,
+  "runTimeoutSeconds": 180,
+  "maxModelRequests": 40
+}

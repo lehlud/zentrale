@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* Use HeroUI's field tokens so every control has a visible boundary without
+   relying on a shadow. Focus, invalid and disabled states stay with HeroUI. */
+:root {
+  --field-border-width: 1px;
+  --field-border: color-mix(
+    in oklab,
+    var(--foreground) 50%,
+    var(--surface) 50%
+  );
+  --field-shadow: 0 0 0 0 transparent;
+  --surface-shadow: 0 0 0 0 transparent;
+}
+
+/* Keep HeroUI's hues; adjust only the text/action contrast required by the UI. */
+:root:not(.dark):not([data-theme="dark"]) {
+  --accent: oklch(0.55 0.195 253.83);
+  --danger: oklch(0.57 0.2328 25.74);
+  --muted: oklch(0.51 0.0138 285.94);
+}
+
+:root.dark {
+  --accent-foreground: var(--eclipse);
+  --danger: oklch(0.69 0.1967 24.63);
+  --danger-foreground: var(--eclipse);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+/* Tool logs and model output must wrap even when they contain long identifiers. */
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* One quiet activity signal, including a static reduced-motion variant. */
+.working-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+}
+.working-indicator > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: working-pulse 1.2s ease-in-out infinite;
+}
+.working-indicator > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.working-indicator > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes working-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-indicator > span {
+    animation: none;
+    opacity: 0.7;
+  }
+}
