@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   agent,
   agents,
@@ -22,23 +23,29 @@ for (const english of [false, true]) {
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      if (query.includes("status{"))
+      if (query.includes("status{")) {
         return route.fulfill({
           json: {
             data: { status: { authenticated: true, needsSetup: false } },
           },
         });
+      }
+
       if (query.includes("saveMachine")) {
-        if (variables.input.vmType !== "q35")
+        if (variables.input.vmType !== "q35") {
           return route.fulfill({
             json: { errors: [{ message: "gpu_devices requires vm_type q35" }] },
           });
+        }
+
         saved = variables.input;
         Object.assign(state.machines[0], variables.input);
+
         return route.fulfill({
           json: { data: { saveMachine: { id: state.machines[0].id } } },
         });
       }
+
       return route.fulfill({ json: { data: state } });
     });
     await page.goto("/#/machines");
@@ -60,10 +67,12 @@ for (const english of [false, true]) {
     await dialog
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(
       dialog.getByText("gpu_devices requires vm_type q35", { exact: true }),
     ).toBeVisible();
     await expect(devices).toHaveValue("0000:01:00.0, 0000:01:00.1");
+
     await dialog
       .getByRole("button", {
         name: new RegExp(label("VM-Typ", "VM type") + "$"),
@@ -72,21 +81,26 @@ for (const english of [false, true]) {
     await page
       .getByRole("option", { name: "q35 (PCI/GPU)", exact: true })
       .click();
+
     await expect(
       page.getByRole("dialog", {
         name: label("VM-Typ", "VM type"),
         exact: true,
       }),
     ).not.toBeVisible();
+
     await page.screenshot({ path: test.info().outputPath("q35-machine.png") });
     await dialog
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(dialog).not.toBeVisible();
     expect(saved?.vmType).toBe("q35");
     expect(saved?.gpuDevices).toEqual(["0000:01:00.0", "0000:01:00.1"]);
     expect(saved).not.toHaveProperty("gpuDevicesText");
+
     await chooseContextAction(page, owner, label("Bearbeiten", "Edit"));
+
     await expect(devices).toHaveValue("0000:01:00.0, 0000:01:00.1");
   });
 
@@ -103,13 +117,16 @@ for (const english of [false, true]) {
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
-      if (query.includes("status{"))
+      if (query.includes("status{")) {
         return send({ status: { authenticated: true, needsSetup: false } });
+      }
+
       if (query.includes("stopAgentVM")) {
         stopped = variables.agentId;
         return send({ stopAgentVM: true });
       }
-      if (query.includes("recentMessages"))
+
+      if (query.includes("recentMessages")) {
         return send({
           ...transcript,
           agent: { ...agent, status },
@@ -117,11 +134,15 @@ for (const english of [false, true]) {
           jobs: [],
           questions: [],
         });
-      if (query.includes("agents(projectId:"))
+      }
+
+      if (query.includes("agents(projectId:")) {
         return send({
           project,
           agents: agents.map((entry) => ({ ...entry, status })),
         });
+      }
+
       return send(config);
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -138,10 +159,13 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect.poll(() => stopped).toBe(agent.id);
+
     status = "running";
     await page.reload();
     await actions.click();
+
     await expect(
       page.getByRole("menuitem", {
         name: label("VM stoppen", "Stop VM"),

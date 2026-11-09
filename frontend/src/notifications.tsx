@@ -1,5 +1,6 @@
 import { Toast, ToastQueue } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { useAPI } from "./api";
 import { useI18n } from "./preferences";
 
@@ -15,9 +16,13 @@ export function Notifications() {
 
     const updateConnection = () => {
       if (api.connection.snapshot()) {
-        if (wasInterrupted) return;
+        if (wasInterrupted) {
+          return;
+        }
+
         wasInterrupted = true;
         if (successToast) queue.close(successToast);
+
         networkToast = queue.add(
           {
             title: t("Verbindung unterbrochen"),
@@ -35,6 +40,7 @@ export function Notifications() {
       } else if (wasInterrupted) {
         wasInterrupted = false;
         if (networkToast) queue.close(networkToast);
+
         successToast = queue.add(
           {
             title: t("Wieder verbunden"),
@@ -48,7 +54,10 @@ export function Notifications() {
       }
     };
     const announceSuccess = (event: Event) => {
-      if (api.connection.snapshot()) return;
+      if (api.connection.snapshot()) {
+        return;
+      }
+
       const content = {
         title: t((event as CustomEvent<string>).detail),
         variant: "success" as const,
@@ -68,6 +77,7 @@ export function Notifications() {
     window.addEventListener("offline", offline);
     window.addEventListener("online", online);
     window.addEventListener("zentrale:notice", announceSuccess);
+
     return () => {
       unsubscribe();
       api.connection.pause();

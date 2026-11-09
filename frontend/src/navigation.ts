@@ -8,26 +8,32 @@ const pages = new Set([
   "settings",
   "editor",
 ]);
+
 function subscribe(listener: () => void) {
   window.addEventListener("hashchange", listener);
   return () => window.removeEventListener("hashchange", listener);
 }
+
 function snapshot() {
   return location.hash;
 }
+
 export function useRoute() {
   const hash = useSyncExternalStore(subscribe, snapshot);
   const [pathname, query = ""] = hash.replace(/^#\/?/, "").split("?");
   const [requestedPage, projectId = ""] = pathname.split("/");
+
   return {
     page: pages.has(requestedPage) ? requestedPage : "projects",
     projectId: decodeURIComponent(projectId),
     params: new URLSearchParams(query),
   };
 }
+
 export function navigate(page: string, projectId = "") {
   location.hash = `/${page}${projectId ? `/${encodeURIComponent(projectId)}` : ""}`;
 }
+
 export function setRouteParameter(key: string, value: string) {
   const [pathname, query = ""] = location.hash.split("?");
   const params = new URLSearchParams(query);

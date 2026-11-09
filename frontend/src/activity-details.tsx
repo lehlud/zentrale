@@ -1,4 +1,5 @@
 import { Chip } from "@heroui/react";
+
 import { MoreButton, useBatch } from "./batches";
 import { CodeSnippet } from "./code-snippet";
 import {
@@ -76,7 +77,9 @@ const toolLabels: Record<string, string> = {
 export function toolLabel(name: string, input?: unknown) {
   if (name === "write_stdin" && input !== undefined) {
     const args = record(structured(input));
-    if (!args.chars && !args.eof) return "Prozessausgabe abrufen";
+    if (!args.chars && !args.eof) {
+      return "Prozessausgabe abrufen";
+    }
   }
   return toolLabels[name] ?? name.replaceAll("_", " ");
 }
@@ -97,7 +100,7 @@ export function ActivityRequest({
   const { t, showDiagnostics } = useI18n();
   const decoded = structured(input);
   const args = record(decoded);
-  if (["create_goal", "get_goal", "update_goal"].includes(name))
+  if (["create_goal", "get_goal", "update_goal"].includes(name)) {
     return (
       <div className="space-y-2 text-sm">
         {typeof args.objective === "string" && (
@@ -111,12 +114,15 @@ export function ActivityRequest({
         )}
       </div>
     );
+  }
+
   if (name === "write_stdin") {
     const input = typeof args.chars === "string" ? args.chars : "";
     const visible = input
       .replaceAll("\u0003", "[Ctrl+C]")
       .replaceAll("\u0004", "[Ctrl+D]")
       .replaceAll("\u001b", "[Esc]");
+
     return (
       <div className="min-w-0 space-y-3">
         {visible && (
@@ -136,8 +142,11 @@ export function ActivityRequest({
       </div>
     );
   }
-  if (name.startsWith("mcp_"))
+
+  if (name.startsWith("mcp_")) {
     return <MCPRequest name={name} args={args} network={network} />;
+  }
+
   const packages = Array.isArray(args.packages) ? args.packages : undefined;
   const content = typeof args.content === "string" ? args.content : undefined;
   const command = typeof args.command === "string" ? args.command : undefined;
@@ -151,6 +160,7 @@ export function ActivityRequest({
       ([key]) => !["command", "code", "content", "packages"].includes(key),
     ),
   );
+
   return (
     <div
       className="min-w-0 space-y-3"
@@ -251,6 +261,7 @@ function TaskPlan({ steps }: { steps: unknown[] }) {
 function FileEntries({ entries }: { entries: unknown[] }) {
   const { t } = useI18n();
   const batch = useBatch(entries, "", 30);
+
   return (
     <div className="min-w-0">
       <p className="mb-2 text-xs text-muted">
@@ -277,6 +288,7 @@ function FileEntries({ entries }: { entries: unknown[] }) {
               : file.directory
                 ? t("Verzeichnis")
                 : t("Datei");
+
             return (
               <li
                 key={index}
@@ -312,8 +324,10 @@ function JobResult({
     !showDiagnostics &&
     !value.error &&
     !value.exitCode
-  )
+  ) {
     return null;
+  }
+
   return (
     <div className="min-w-0 space-y-3">
       {name.startsWith("job_") && typeof value.command === "string" && (
@@ -384,7 +398,11 @@ export function ActivityResult({
       </div>
     );
   }
-  if (name.startsWith("mcp_")) return <MCPResult name={name} value={decoded} />;
+
+  if (name.startsWith("mcp_")) {
+    return <MCPResult name={name} value={decoded} />;
+  }
+
   const metadata = showDiagnostics && (
     <ActivityFields
       value={result}
@@ -401,10 +419,15 @@ export function ActivityResult({
       ]}
     />
   );
-  if (name === "update_plan" && Array.isArray(result.plan))
+  if (name === "update_plan" && Array.isArray(result.plan)) {
     return <TaskPlan steps={result.plan} />;
-  if (name === "apply_patch" && !showDiagnostics) return null;
-  if (result.job && typeof result.job === "object")
+  }
+
+  if (name === "apply_patch" && !showDiagnostics) {
+    return null;
+  }
+
+  if (result.job && typeof result.job === "object") {
     return (
       <div className="space-y-3">
         {showDiagnostics && (
@@ -413,16 +436,22 @@ export function ActivityResult({
         <JobResult value={record(result.job)} name={name} />
       </div>
     );
-  if (typeof result.output === "string")
+  }
+
+  if (typeof result.output === "string") {
     return <JobResult value={result} name={name} />;
-  if (Array.isArray(result.entries))
+  }
+
+  if (Array.isArray(result.entries)) {
     return (
       <div className="space-y-3">
         {metadata}
         <FileEntries entries={result.entries} />
       </div>
     );
-  if (name === "read_file" && typeof result.content === "string")
+  }
+
+  if (name === "read_file" && typeof result.content === "string") {
     return (
       <div className="space-y-3">
         {metadata}
@@ -445,11 +474,13 @@ export function ActivityResult({
         />
       </div>
     );
+  }
+
   if (
     result.written === true ||
     result.deleted === true ||
     result.saved === true
-  )
+  ) {
     return !showDiagnostics ? null : (
       <div className="space-y-3">
         <p className="text-sm">
@@ -464,22 +495,32 @@ export function ActivityResult({
         {metadata}
       </div>
     );
-  if (decoded === true)
+  }
+
+  if (decoded === true) {
     return !showDiagnostics ? null : (
       <p className="text-sm">{t("Aktion abgeschlossen.")}</p>
     );
-  if (decoded === false)
+  }
+
+  if (decoded === false) {
     return <p className="text-sm">{t("Aktion nicht ausgeführt.")}</p>;
-  if (failed && !Object.keys(result).filter((key) => key !== "error").length)
+  }
+
+  if (failed && !Object.keys(result).filter((key) => key !== "error").length) {
     return null;
+  }
+
   if (
     decoded === undefined ||
     decoded === null ||
     (typeof decoded === "object" &&
       !Array.isArray(decoded) &&
       !Object.keys(result).length)
-  )
+  ) {
     return <p className="text-xs text-muted">{t("Keine weiteren Angaben.")}</p>;
+  }
+
   return (
     <div className="min-w-0 text-sm">
       <ActivityValue
@@ -514,7 +555,7 @@ export function ActivityContent({ content }: { content: string }) {
   const { t } = useI18n();
   const value = structured(content);
   const decision = record(value);
-  if (typeof decision.allowed === "boolean")
+  if (typeof decision.allowed === "boolean") {
     return (
       <div className="space-y-2">
         <Chip
@@ -529,6 +570,8 @@ export function ActivityContent({ content }: { content: string }) {
         )}
       </div>
     );
+  }
+
   return typeof value === "string" ? (
     <MessageMarkdown content={value} />
   ) : (
@@ -539,15 +582,17 @@ export function ActivityContent({ content }: { content: string }) {
 export function ActivityOutput({ content }: { content: string }) {
   const { t } = useI18n();
   const value = structured(content);
-  if (value !== null && typeof value === "object")
+  if (value !== null && typeof value === "object") {
     return <ActivityValue value={value} />;
+  }
+
   // The Git helper appends a structured receipt after ordinary terminal output.
   const lines = content.trimEnd().split("\n");
   const receipt = record(structured(lines.at(-1)));
   if (
     typeof receipt.directory === "string" &&
     typeof receipt.readOnly === "boolean"
-  )
+  ) {
     return (
       <div className="space-y-3">
         {lines.length > 1 && (
@@ -560,5 +605,7 @@ export function ActivityOutput({ content }: { content: string }) {
         <ActivityFields value={receipt} />
       </div>
     );
+  }
+
   return <CodeSnippet text={content} label={t("Ausgabe")} wrap />;
 }

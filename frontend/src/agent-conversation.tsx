@@ -1,4 +1,5 @@
 import { Accordion, Button } from "@heroui/react";
+
 import {
   parseJSON,
   correlateToolCalls,
@@ -51,6 +52,7 @@ function ToolEntry({
   const { t, showDiagnostics } = useI18n();
   const outcome = toolOutcome(message.content);
   const resultRecord = record(outcome.result);
+
   const hasJob = Boolean(
     resultRecord.jobId || resultRecord.id || record(resultRecord.job).id,
   );
@@ -58,12 +60,14 @@ function ToolEntry({
     !outcome.error &&
     !hasJob &&
     ["running", "waiting"].includes(outcome.status);
+
   const denied = outcome.error.startsWith("auto-approval denied:");
   const errorMessage = denied
     ? outcome.error.slice("auto-approval denied:".length).trim()
     : outcome.error.startsWith("MCP tool reported an error:")
       ? outcome.error.slice("MCP tool reported an error:".length).trim()
       : outcome.error;
+
   const job = record(resultRecord.job ?? resultRecord);
   const processOutput = typeof job.output === "string" ? job.output.trim() : "";
   // Process failures often repeat stdout/stderr inside their error string.
@@ -74,11 +78,13 @@ function ToolEntry({
     ? errorMessage.trimEnd().slice(0, -processOutput.length).trim() ||
       errorMessage.split("\n")[0]
     : errorMessage;
+
   const changes = message.changes?.length
     ? message.changes
     : message.change
       ? [message.change]
       : [];
+
   return (
     <li className="my-1 min-w-0 border-l border-border pl-3 sm:pl-4">
       <Accordion hideSeparator className="min-w-0">
@@ -231,7 +237,7 @@ function MessageContent({ message }: { message: Message }) {
   const { t } = useI18n();
   if (message.role === "event") {
     const feedback = record(parseJSON(message.content));
-    if (feedback.kind === "goal_feedback")
+    if (feedback.kind === "goal_feedback") {
       return (
         <div className="space-y-2 text-sm leading-6">
           <p className="font-medium">
@@ -243,13 +249,17 @@ function MessageContent({ message }: { message: Message }) {
           )}
         </div>
       );
+    }
   }
-  if (message.role === "user")
+
+  if (message.role === "user") {
     return (
       <p className="whitespace-pre-wrap break-words leading-7 [overflow-wrap:anywhere]">
         {message.content}
       </p>
     );
+  }
+
   const value = parseJSON(message.content);
   if (
     value &&
@@ -260,12 +270,13 @@ function MessageContent({ message }: { message: Message }) {
     if (
       ("reason" in value && typeof value.reason !== "string") ||
       ("blanket" in value && typeof value.blanket !== "boolean")
-    )
+    ) {
       return (
         <p className="text-sm text-muted">
           {t("Keine gültige Prüfentscheidung erhalten.")}
         </p>
       );
+    }
     return (
       <p className="text-sm leading-7">
         {t(value.allowed ? "Genehmigt" : "Abgelehnt")}
@@ -275,6 +286,7 @@ function MessageContent({ message }: { message: Message }) {
       </p>
     );
   }
+
   if (
     value &&
     typeof value === "object" &&
@@ -325,8 +337,11 @@ function MessageContent({ message }: { message: Message }) {
       </Accordion>
     );
   }
-  if (value !== null && typeof value === "object")
+
+  if (value !== null && typeof value === "object") {
     return <ActivityValue value={value} />;
+  }
+
   return <MessageMarkdown content={message.content} />;
 }
 
@@ -342,6 +357,7 @@ export function AgentConversation({
   const { t, showDiagnostics } = useI18n();
   const { callsByMessage, resultCalls, completed } =
     correlateToolCalls(messages);
+
   return (
     <ol className="min-w-0" aria-label={t("Nachrichten und Werkzeugaktivität")}>
       {messages.map((message) => {
@@ -356,9 +372,10 @@ export function AgentConversation({
             />
           );
         }
+
         if (!message.content) {
           const pending = calls.filter((call) => !completed.has(call));
-          if (pending.length)
+          if (pending.length) {
             return (
               <li
                 key={message.id}
@@ -395,7 +412,12 @@ export function AgentConversation({
                 )}
               </li>
             );
-          if (calls.length || !message.wire || !showDiagnostics) return null;
+          }
+
+          if (calls.length || !message.wire || !showDiagnostics) {
+            return null;
+          }
+
           return (
             <li key={message.id}>
               <Button
@@ -409,7 +431,9 @@ export function AgentConversation({
             </li>
           );
         }
+
         const user = message.role === "user";
+
         return (
           <li
             key={message.id}

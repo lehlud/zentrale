@@ -32,10 +32,13 @@ class MicroVMRunnerTests(unittest.TestCase):
 
     def test_missing_guest_kernel_support_stops_before_boot_without_downgrade(self):
         result = subprocess.CompletedProcess([], 1, "", "modprobe: Module 9p not found")
-        with patch.object(runner.shutil, "which", return_value="/usr/sbin/modprobe"), patch.object(
-            runner.subprocess, "run", return_value=result
-        ) as probe:
-            with self.assertRaisesRegex(RuntimeError, "required kernel support is missing: 9p") as failure:
+        with (
+            patch.object(runner.shutil, "which", return_value="/usr/sbin/modprobe"),
+            patch.object(runner.subprocess, "run", return_value=result) as probe,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "required kernel support is missing: 9p"
+            ) as failure:
                 runner.check_guest_kernel_modules()
             self.assertNotIsInstance(failure.exception, runner.UnavailableError)
             arguments = probe.call_args.args[0]
@@ -45,8 +48,9 @@ class MicroVMRunnerTests(unittest.TestCase):
 
     def test_builtin_and_installed_guest_modules_are_supported(self):
         result = subprocess.CompletedProcess([], 0, "builtin virtio_console\n", "")
-        with patch.object(runner.shutil, "which", return_value="/usr/sbin/modprobe"), patch.object(
-            runner.subprocess, "run", return_value=result
+        with (
+            patch.object(runner.shutil, "which", return_value="/usr/sbin/modprobe"),
+            patch.object(runner.subprocess, "run", return_value=result),
         ):
             runner.check_guest_kernel_modules()
 
@@ -55,9 +59,13 @@ class MicroVMRunnerTests(unittest.TestCase):
         control.mkdir()
         boot = control / "boot.log"
         boot.write_bytes(b"x" * 20000 + b"\nKernel panic: fs-9p unavailable\n\xff")
-        error = runner.bootstrap_failure(self.cache, control, "Fedora initialization failed", 255)
+        error = runner.bootstrap_failure(
+            self.cache, control, "Fedora initialization failed", 255
+        )
         boot.unlink()
-        diagnostic = json.loads((self.cache / "fedora-bootstrap-failure.json").read_text())
+        diagnostic = json.loads(
+            (self.cache / "fedora-bootstrap-failure.json").read_text()
+        )
         self.assertEqual(diagnostic["exit"], 255)
         self.assertIn("Kernel panic: fs-9p unavailable", diagnostic["log"])
         self.assertLessEqual(len(diagnostic["log"]), 10000)
@@ -142,6 +150,7 @@ class MicroVMRunnerTests(unittest.TestCase):
             runtime = runner.install_runtime(self.cache, release)
             self.assertEqual(runner.install_runtime(self.cache, release), runtime)
             self.assertEqual(download.call_count, 2)
+
         self.assertEqual((runtime / "busybox").read_bytes(), b"busybox")
         self.assertEqual(stat.S_IMODE((runtime / "busybox").stat().st_mode), 0o700)
         self.assertEqual(json.loads((runtime / "installed.json").read_text()), release)
@@ -164,7 +173,13 @@ class MicroVMRunnerTests(unittest.TestCase):
         request.update(agentId="agent-a", projectId="project-a")
         scope = runner.scope_directory(self.cache, request)
         control = scope / "session"
-        configuration = {"guest": "guest", "init": "init", "streams": "streams", "terminal": "terminal", "runnerHash": "fixture"}
+        configuration = {
+            "guest": "guest",
+            "init": "init",
+            "streams": "streams",
+            "terminal": "terminal",
+            "runnerHash": "fixture",
+        }
         runner.prepare_control(control, configuration, runtime, request)
         with patch.object(runner, "ensure_session", return_value=control):
             invocation = runner.stage(
@@ -187,6 +202,7 @@ class MicroVMRunnerTests(unittest.TestCase):
         # The persistent VM has a NIC. Per-action network namespaces enforce
         # individual approvals without rebooting or inheriting a past grant.
         self.assertIn("--net", arguments)
+
         request["provision"] = True
         with patch.object(
             runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"

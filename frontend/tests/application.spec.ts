@@ -1,21 +1,32 @@
 import { expect, test, type Page } from "@playwright/test";
+
 import {
   chooseContextAction,
   chooseProviderAccount,
 } from "./fixtures/context-actions";
 import type { Server } from "node:http";
 import { createServer } from "node:http";
+
 import { startSSHPeer, type SSHPeer } from "./fixtures/ssh-peer";
 
 async function openNavigation(page: Page) {
   const drawer = page.locator('[data-slot="drawer-dialog"]');
-  if (await drawer.isVisible()) return;
-  if ((page.viewportSize()?.width ?? 1280) >= 1024) return;
+  if (await drawer.isVisible()) {
+    return;
+  }
+
+  if ((page.viewportSize()?.width ?? 1280) >= 1024) {
+    return;
+  }
+
   const trigger = page.getByRole("button", {
     name: /^(Menü öffnen|Open menu)$/,
   });
+
   await expect(trigger).toBeVisible();
+
   await trigger.click();
+
   await expect(drawer).toBeVisible();
 }
 
@@ -63,6 +74,7 @@ async function navigateToPage(page: Page, name: string) {
       })
       .click();
   }
+
   await expect(page.locator('[data-slot="drawer-dialog"]')).not.toBeVisible();
 }
 
@@ -83,23 +95,29 @@ async function selectPreference(page: Page, label: RegExp, value: string) {
       .click();
     appearance = true;
   }
+
   const controlId = await control.getAttribute("id");
   await control.click();
   await page
     .locator('[data-slot="select-popover"]:not([data-exiting])')
     .getByRole("option", { name: value, exact: true })
     .click();
+
   await expect(page.locator('[data-slot="select-popover"]')).toHaveCount(0);
   await expect(page.locator(`[id="${controlId}"]`)).toBeFocused();
+
   if (appearance) {
     await page.keyboard.press("Escape");
     await expect(page.locator('[data-slot="modal-dialog"]')).toHaveCount(0);
   }
+
   await closeNavigation(page);
 }
 
 let provider: Server;
+
 let providerURL: string;
+
 let sshPeer: SSHPeer;
 
 test.beforeAll(async () => {
@@ -123,8 +141,10 @@ test.beforeAll(async () => {
           ],
         }),
       );
+
       return;
     }
+
     if (request.method === "GET" && request.url === "/large/models") {
       response.setHeader("Content-Type", "application/json");
       response.end(
@@ -136,10 +156,13 @@ test.beforeAll(async () => {
           })),
         }),
       );
+
       return;
     }
+
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
+
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const isApprover = body.instructions?.includes("independent auto-approval");
     const hasResults = body.input?.some(
@@ -215,6 +238,7 @@ test.beforeAll(async () => {
         },
       ];
     }
+
     response.setHeader("Content-Type", "application/json");
     response.end(
       JSON.stringify({
@@ -231,8 +255,10 @@ test.beforeAll(async () => {
     provider.listen(0, "127.0.0.1", resolve),
   );
   const address = provider.address();
-  if (!address || typeof address === "string")
+  if (!address || typeof address === "string") {
     throw new Error("No mock provider address");
+  }
+
   providerURL = `http://127.0.0.1:${address.port}`;
 });
 
@@ -249,9 +275,11 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
+
   await expect(
     page.getByRole("heading", { name: "Zentrale einrichten" }),
   ).toBeVisible();
+
   await page
     .getByLabel("Passwort", { exact: true })
     .fill("browser test password");
@@ -264,9 +292,11 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .getByLabel("E-Mail für Commits", { exact: true })
     .fill("browser-agent@example.test");
   await page.getByRole("button", { name: "Einrichtung abschließen" }).click();
+
   await expect(
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
+
   await page.request.post("/graphql", {
     data: {
       query:
@@ -277,6 +307,7 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
 
   await navigateToPage(page, "Schlüssel");
   await page.getByRole("button", { name: "SSH-Schlüssel erzeugen" }).click();
+
   await expect(
     page.getByRole("heading", { name: "Schlüssel 1" }),
   ).toBeVisible();
@@ -301,15 +332,20 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .click();
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "Testserver" })).toBeVisible();
+
   await page
     .getByRole("button", { name: "Verbindung prüfen", exact: true })
     .click();
+
   await expect(
     page.getByText("Sandbox: Automatisch → Ohne Sandbox", { exact: true }),
   ).toBeVisible();
+
   await page.reload();
+
   await expect(
     page.getByText("Sandbox: Automatisch → Ohne Sandbox", { exact: true }),
   ).toBeVisible();
@@ -318,17 +354,21 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await page.getByRole("button", { name: "Provider hinzufügen" }).click();
   dialog = page.locator('[data-slot="modal-dialog"]');
   await dialog.getByLabel("Name", { exact: true }).fill("Testmodell");
+
   await expect(dialog.getByLabel("Modell-ID")).toHaveCount(0);
+
   await dialog
     .getByRole("button", { name: "Erweiterte Einstellungen" })
     .click();
   await dialog.getByLabel("API-Basis-URL").fill(providerURL);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog).not.toBeVisible();
 
   await expect(
     page.getByText("2 Sprachmodelle", { exact: true }),
   ).toBeVisible();
+
   await navigateToPage(page, "Einstellungen");
   for (const [role, model] of [
     ["Hauptmodell", "Fixture Main"],
@@ -341,15 +381,18 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
       .getByRole("option", { name: new RegExp(model) })
       .click();
   }
+
   await page.getByRole("button", { name: "Modell-Defaults speichern" }).click();
 
   await navigateToPage(page, "Projekte");
   await page.getByRole("button", { name: "Projekt anlegen" }).click();
   dialog = page.locator('[data-slot="modal-dialog"]');
   await dialog.getByLabel("Name", { exact: true }).fill("Mein Projekt");
+
   await expect(
     dialog.getByLabel("Projektverzeichnis auf der Fernmaschine"),
   ).toHaveCount(0);
+
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
   await dialog.getByRole("button", { name: /Fernmaschinen/ }).click();
   await page
@@ -362,37 +405,47 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await dialog
     .getByRole("button", { name: "Projekt anlegen", exact: true })
     .click();
+
   await expect(dialog).not.toBeVisible();
+
   await page
     .getByRole("main")
     .getByRole("link", { name: "Mein Projekt", exact: true })
     .click();
+
   await expect(
     page.getByRole("heading", { name: "Mein Projekt" }),
   ).toBeVisible();
+
   await page
     .getByRole("main")
     .getByRole("button", { name: "Neue Unterhaltung", exact: true })
     .click();
+
   await expect(page.getByLabel("Aufgabe oder neue Instruktion")).toBeVisible();
+
   await page
     .getByLabel("Aufgabe oder neue Instruktion")
     .fill("Prüfe den Ablauf und speichere eine Notiz.");
   await page.getByRole("button", { name: "Starten" }).click();
+
   await expect(
     page.getByText("Die Aufgabe ist abgeschlossen.", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
   ).toBeVisible();
+
   await page.getByRole("button", { name: /^Agentendetails/ }).click();
   const detailsDialog = page.locator('[data-slot="modal-dialog"]').last();
+
   await expect(
     detailsDialog.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
   ).toHaveCount(0);
   await expect(
     detailsDialog.getByRole("heading", { name: "Arbeitsplan", exact: true }),
   ).toBeVisible();
+
   await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Projektaktionen", exact: true })
@@ -400,18 +453,22 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await page
     .getByRole("menuitem", { name: "Auto-Approver ↗", exact: true })
     .click();
+
   await expect(
     page.getByLabel("Aufgabe oder neue Instruktion"),
   ).not.toBeVisible();
+
   await page
     .getByRole("button", { name: "Projektaktionen", exact: true })
     .click();
+
   await expect(
     page.getByRole("menuitem", {
       name: "← Prüfe den Ablauf und speichere eine Notiz.",
       exact: true,
     }),
   ).toBeVisible();
+
   await page.keyboard.press("Escape");
   await page.screenshot({
     path: testInfo.outputPath("desktop.png"),
@@ -420,6 +477,7 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await navigateToPage(page, "Projekte");
+
   await expect(
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
@@ -441,26 +499,34 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
       return [];
     }),
   ).toEqual([]);
+
   await page.screenshot({
     path: testInfo.outputPath("mobile.png"),
     fullPage: true,
   });
   // Preferences keep the current task and survive browser navigation.
   await selectPreference(page, /Sprache/, "English");
+
   await expect(
     page.getByRole("heading", { name: "Projects", exact: true }),
   ).toBeVisible();
+
   await navigateToPage(page, "Machines");
   await page.goBack();
+
   await expect(
     page.getByRole("heading", { name: "Projects", exact: true }),
   ).toBeVisible();
+
   await selectPreference(page, /Theme/, "Light");
+
   await expect(page.locator("html")).toHaveClass(/light/);
   await expect(page.locator('[data-slot="select-popover"]')).toHaveCount(0);
+
   await page.evaluate(() => {
     document.body.style.zoom = "2";
   });
+
   expect(
     await page.evaluate(() => {
       if (document.documentElement.scrollWidth > window.innerWidth) {
@@ -479,6 +545,7 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
       return [];
     }),
   ).toEqual([]);
+
   await page.evaluate(() => {
     document.body.style.zoom = "";
   });
@@ -489,9 +556,11 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await usedKey
     .getByRole("button", { name: "Actions for Key 1", exact: true })
     .click();
+
   await expect(
     page.getByRole("menuitem", { name: "Remove", exact: true }),
   ).toBeDisabled();
+
   await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Generate SSH key", exact: true })
@@ -499,12 +568,18 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   const unusedKey = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Key 2", exact: true }) });
+
   await expect(unusedKey).toBeVisible();
+
   await chooseContextAction(page, unusedKey, "Remove");
+
   await expect(page.locator('[data-slot="modal-dialog"]')).toBeVisible();
+
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
   await expect(page.locator('[data-slot="modal-dialog"]')).not.toBeVisible();
   await expect(unusedKey).toBeVisible();
+
   await navigateToPage(page, "Projects");
   await page
     .getByRole("main")
@@ -520,19 +595,24 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .locator('[data-slot="modal-dialog"]')
     .getByRole("button", { name: "Remove", exact: true })
     .click();
+
   await expect(page.getByText("No agents yet", { exact: true })).toBeVisible();
+
   await openNavigation(page);
   await page
     .getByRole("button", { name: "Open settings", exact: true })
     .click();
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+
   await expect(
     page.getByRole("heading", { name: "Sign in", exact: true }),
   ).toBeVisible();
+
   await page.screenshot({
     path: testInfo.outputPath("login-mobile.png"),
     fullPage: true,
   });
+
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -602,6 +682,7 @@ test("provider forms preserve errors, guided login and inline model catalog", as
     .click();
   await dialog.getByLabel("API-Basis-URL").fill("http://remote.example/v1");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog.getByLabel("API-Basis-URL")).toBeFocused();
   await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
     "Invalid endpoint test",
@@ -609,11 +690,14 @@ test("provider forms preserve errors, guided login and inline model catalog", as
   await expect(
     dialog.getByText("Für entfernte Provider eine HTTPS-Adresse verwenden."),
   ).toBeVisible();
+
   await page.keyboard.press("Escape");
+
   await expect(dialog).not.toBeVisible();
   await expect(
     page.getByRole("button", { name: "Provider hinzufügen", exact: true }),
   ).toBeFocused();
+
   await page.route("**/graphql", async (route) => {
     const request = route.request().postDataJSON();
     if (request.query.includes("beginProviderLogin"))
@@ -641,22 +725,32 @@ test("provider forms preserve errors, guided login and inline model catalog", as
     .click();
   await dialog.getByLabel("Name", { exact: true }).fill("ChatGPT subscription");
   await dialog.getByText("ChatGPT-Konto", { exact: true }).click();
+
   await expect(dialog.getByLabel("API-Basis-URL")).toHaveCount(0);
   await expect(dialog.getByLabel("Modell-ID")).toHaveCount(0);
+
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog.getByText("ABCD-1234", { exact: true })).toBeVisible();
   await expect(
     dialog.getByRole("link", { name: "Anmeldeseite öffnen ↗" }),
   ).toHaveAttribute("href", "https://auth.openai.com/codex/device");
+
   await page.keyboard.press("Escape");
+
   await expect(dialog).not.toBeVisible();
+
   const account = await chooseProviderAccount(page, "ChatGPT subscription");
   await account.getByRole("button", { name: "Anmelden", exact: true }).click();
+
   await expect(dialog.getByText("ABCD-1234", { exact: true })).toBeVisible();
+
   await page.keyboard.press("Escape");
+
   await expect(
     account.getByRole("button", { name: "Anmelden", exact: true }),
   ).toBeFocused();
+
   await page.unroute("**/graphql");
   await page
     .getByRole("button", { name: "Modelle ansehen", exact: true })
@@ -666,10 +760,12 @@ test("provider forms preserve errors, guided login and inline model catalog", as
     name: "Sprachmodelle",
     exact: true,
   });
+
   await expect(
     catalog.getByRole("heading", { name: "Fixture Main", exact: true }),
   ).toBeVisible();
   await expect(dialog).toHaveCount(0);
+
   const modelActions = await chooseContextAction(
     page,
     catalog.locator('[data-slot="card"]').filter({
@@ -679,6 +775,7 @@ test("provider forms preserve errors, guided login and inline model catalog", as
   );
   await dialog.getByLabel("Kontextfenster (Tokens)").fill("200000");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog).toHaveCount(0);
   await expect(catalog.getByText(/200.000|200,000/)).toBeVisible();
   await expect(modelActions).toBeFocused();
@@ -723,6 +820,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
           "settings",
         ]) {
           await page.goto(`/#/${route}`);
+
           await expect(page.locator("main h1")).toBeVisible();
           await expect(page.getByRole("main").getByRole("alert")).toHaveCount(
             0,
@@ -736,15 +834,18 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
       }
     }
   }
+
   await page.screenshot({
     path: testInfo.outputPath("settings-mobile-light-english.png"),
     fullPage: true,
   });
   // A failed refresh keeps already visible results and offers a recovery action.
   await page.goto("/#/providers");
+
   await expect(
     page.getByRole("heading", { name: "Testmodell", exact: true }),
   ).toBeVisible();
+
   await page.route("**/graphql", async (route) => {
     if (route.request().postDataJSON().query.includes("machines(limit:500)"))
       await route.fulfill({
@@ -757,6 +858,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
     await chooseProviderAccount(page, "Testmodell"),
     "Refresh models",
   );
+
   await expect(
     page
       .getByRole("main")
@@ -766,10 +868,14 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
   await expect(
     page.getByRole("heading", { name: "Testmodell", exact: true }),
   ).toBeVisible();
+
   await page.unroute("**/graphql");
   await page.getByRole("button", { name: "Try again" }).first().click();
+
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+
   await page.keyboard.press("Tab");
+
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe(
     "BODY",
   );
@@ -793,7 +899,9 @@ test("model batches preserve results beyond 500 entries and reset on search", as
       },
     },
   });
+
   expect((await saved.json()).errors).toBeUndefined();
+
   await page.request.post("/graphql", {
     data: { query: 'mutation{refreshModels(providerId:"large-catalog")}' },
   });
@@ -807,21 +915,29 @@ test("model batches preserve results beyond 500 entries and reset on search", as
     exact: true,
   });
   const headings = dialog.getByRole("heading", { name: /Catalog model / });
+
   await expect(headings).toHaveCount(50);
+
   for (let count = 100; count <= 650; count += 50) {
     await dialog
       .getByRole("button", { name: "Mehr anzeigen", exact: true })
       .click();
     await expect(headings).toHaveCount(count);
   }
+
   await expect(
     dialog.getByRole("button", { name: "Mehr anzeigen", exact: true }),
   ).not.toBeVisible();
+
   await dialog.getByLabel("Modelle suchen").fill("0649");
+
   await expect(headings).toHaveCount(1);
   await expect(headings).toHaveText("Catalog model 0649");
+
   await dialog.getByLabel("Modelle suchen").fill("");
+
   await expect(headings).toHaveCount(50);
+
   await page.keyboard.press("Escape");
 });
 
@@ -841,8 +957,11 @@ test("mobile navigation traps focus, closes on Escape and restores its trigger",
   });
   await trigger.focus();
   await page.keyboard.press("Enter");
+
   await expect(drawer).toBeVisible();
+
   await page.keyboard.press("Shift+Tab");
+
   expect(
     await drawer.evaluate((element) =>
       element.contains(document.activeElement),
@@ -851,27 +970,37 @@ test("mobile navigation traps focus, closes on Escape and restores its trigger",
   await expect(
     page.locator('[data-slot="drawer-content"][data-entering="true"]'),
   ).toHaveCount(0);
+
   const bounds = await drawer.boundingBox();
+
   expect(bounds?.x).toBe(0);
   expect(bounds?.width).toBeGreaterThanOrEqual(240);
   expect(bounds?.width).toBeLessThan(390);
+
   await page.screenshot({
     path: testInfo.outputPath("navigation-mobile.png"),
     fullPage: true,
   });
   await page.keyboard.press("Escape");
+
   await expect(drawer).not.toBeVisible();
   await expect(trigger).toBeFocused();
+
   await navigateToPage(page, "Schlüssel");
+
   await expect(
     page.getByRole("heading", { name: "Schlüssel", exact: true }),
   ).toBeVisible();
   await expect(drawer).not.toBeVisible();
+
   await page.goBack();
+
   await expect(
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
+
   await page.setViewportSize({ width: 1280, height: 900 });
+
   await expect(trigger).not.toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Hauptnavigation" }),

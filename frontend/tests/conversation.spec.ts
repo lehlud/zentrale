@@ -1,5 +1,6 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import type { Message } from "../src/generated";
 import {
   agent,
@@ -179,7 +180,7 @@ for (const variant of [
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
-      if (query.includes("prepareAgent"))
+      if (query.includes("prepareAgent")) {
         return send({
           prepareAgent: {
             connected: true,
@@ -187,6 +188,8 @@ for (const variant of [
             hostKey: { publicKey: "", host: "", fingerprint: "" },
           },
         });
+      }
+
       if (query.includes("submitInput(agentId:")) {
         prompts.push(variables.text);
         return failPrompt
@@ -204,7 +207,8 @@ for (const variant of [
             })
           : send({ submitInput: { ...variables, status: "active" } });
       }
-      if (query.includes("status{"))
+
+      if (query.includes("status{")) {
         return send({
           status: {
             needsSetup: false,
@@ -212,7 +216,9 @@ for (const variant of [
             githubConnected: false,
           },
         });
-      if (query.includes("recentMessages"))
+      }
+
+      if (query.includes("recentMessages")) {
         return send({
           ...transcript,
           agent:
@@ -222,7 +228,12 @@ for (const variant of [
           jobs: [],
           recentMessages: [],
         });
-      if (query.includes("agents(projectId:")) return send({ project, agents });
+      }
+
+      if (query.includes("agents(projectId:")) {
+        return send({ project, agents });
+      }
+
       return send(config);
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -233,6 +244,7 @@ for (const variant of [
     const input = page.getByRole("textbox", {
       name: label("Aufgabe oder neue Instruktion", "Task or new instruction"),
     });
+
     await expect(
       output.getByRole("heading", { name: "Quicksort", exact: true }),
     ).toBeVisible();
@@ -245,6 +257,7 @@ for (const variant of [
     await expect(
       page.getByText(label("Agentenansicht", "Agent view"), { exact: true }),
     ).toHaveCount(0);
+
     const header = page.getByRole("group", {
       name: label("Agentensteuerung", "Agent controls"),
       exact: true,
@@ -258,24 +271,31 @@ for (const variant of [
     const selection = page.getByRole("menu", {
       name: new RegExp("^" + label("Agent wechseln", "Switch agent")),
     });
+
     await expect(
       selection.getByRole("menuitemradio", { name: /Auto-Approver/ }),
     ).toHaveCount(0);
     await expect(
       selection.getByRole("menuitemradio", { name: new RegExp(agent.name) }),
     ).toHaveAttribute("aria-checked", "true");
+
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
+
     await expect(page).toHaveURL(/agent=research/);
     await expect(switcher()).toContainText("Recherche");
     await expect(input).toHaveValue("");
     await expect(switcher()).toBeFocused();
+
     await switcher().press("Enter");
     await page.keyboard.press("Home");
     await page.keyboard.press("Enter");
+
     await expect(page).toHaveURL(/agent=main/);
     await expect(input).toHaveValue("Entwurf beim Agentenwechsel erhalten");
+
     await input.fill("");
+
     await expect(
       output
         .getByRole("list", {
@@ -286,12 +306,14 @@ for (const variant of [
         })
         .locator(":scope > li"),
     ).toHaveCount(6);
+
     const command = output.getByRole("button", {
       name: /python3 -m unittest -v/,
     });
     await command.scrollIntoViewIfNeeded();
     await command.focus();
     await page.keyboard.press("Enter");
+
     await expect(
       output.getByText("Ran 8 tests. OK", { exact: false }),
     ).toBeVisible();
@@ -314,14 +336,18 @@ for (const variant of [
         ),
       }),
     ).toBeVisible();
+
     await command.press("Enter");
+
     await expect(
       output.getByText("Ran 8 tests. OK", { exact: false }),
     ).not.toBeVisible();
+
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await output
       .getByRole("button", { name: label("Kopieren", "Copy"), exact: true })
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       code,
     );
@@ -333,9 +359,11 @@ for (const variant of [
     ).toBeVisible();
 
     const captures: { name: string; file: string }[] = [];
+
     async function capture(name: string, atEnd = false) {
       await page.evaluate(() => document.fonts.ready);
       if (!atEnd) await page.evaluate(() => window.scrollTo(0, 0));
+
       await mkdir("artifacts/ui", { recursive: true });
       const file = `conversation-${variant.name}-${name}.png`;
       await page.screenshot({
@@ -357,6 +385,7 @@ for (const variant of [
       exact: true,
     });
     await diff.scrollIntoViewIfNeeded();
+
     await expect(
       diff.getByRole("row").filter({ hasText: "TODO" }),
     ).toContainText("−");
@@ -370,25 +399,34 @@ for (const variant of [
         .getByRole("cell")
         .nth(1),
     ).toHaveText("3");
+
     await capture("diff", true);
     const diffToggle = output.getByRole("button", {
       name: /README.md.*\+2.*−1/,
     });
     await diffToggle.press("Enter");
+
     await expect(diff).not.toBeVisible();
+
     await diffToggle.press("Enter");
+
     await expect(diff).toBeVisible();
 
     await input.fill("Erste Zeile");
     await input.press("Shift+Enter");
     await input.pressSequentially("Zweite Zeile");
+
     expect(prompts).toEqual([]);
+
     await input.press("Enter");
+
     await expect(input).toHaveValue("");
     await expect.poll(() => prompts).toEqual(["Erste Zeile\nZweite Zeile"]);
+
     failPrompt = true;
     await input.fill("Diesen Entwurf behalten");
     await input.press("Enter");
+
     await expect(page.getByRole("main").getByRole("alert")).toContainText(
       label(
         "Auftrag konnte nicht gespeichert werden.",
@@ -397,24 +435,29 @@ for (const variant of [
     );
     await expect(input).toHaveValue("");
     await expect(input).toBeFocused();
+
     failPrompt = false;
     await page
       .getByRole("button", {
         name: label("Nachricht erneut senden", "Retry sending message"),
       })
       .click();
+
     await expect(input).toHaveValue("");
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 
     await expect.poll(() => Boolean(socket)).toBe(true);
+
     await page.evaluate(() =>
       window.scrollTo(0, document.documentElement.scrollHeight),
     );
+
     await expect(
       page.getByRole("button", {
         name: label("Zu neuesten Einträgen ↓", "Latest entries ↓"),
       }),
     ).toHaveCount(0);
+
     // Live output follows the bottom, but a reader who scrolls up keeps their place.
     for (let index = 0; index < 25; index++)
       messages.push(
@@ -423,24 +466,33 @@ for (const variant of [
           `Step ${index + 1}: ${"checking project files and test results. ".repeat(5)}`,
         ),
       );
+
     socket!.send(JSON.stringify({ id: ++eventId }));
+
     await expect(output.getByText(/^Step 25:/)).toBeInViewport();
     await expect.poll(async () => (await header.boundingBox())?.y).toBe(0);
     await expect(switcher()).toBeInViewport();
     expect((await header.boundingBox())!.height).toBeLessThan(160);
+
     await page.evaluate(() => window.scrollTo(0, 0));
     const latest = page.getByRole("button", {
       name: label("Zu neuesten Einträgen ↓", "Latest entries ↓"),
     });
+
     await expect(latest).toBeVisible();
+
     messages.push(message("assistant", "Live update at the end."));
     socket!.send(JSON.stringify({ id: ++eventId }));
+
     await expect(output.getByText("Live update at the end.")).toBeAttached();
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
     await capture("latest-control");
     await latest.click();
+
     await expect(output.getByText("Live update at the end.")).toBeInViewport();
     await expect(input).toBeInViewport();
+
     await capture("sticky", true);
 
     const failureOutput =
@@ -482,9 +534,11 @@ for (const variant of [
       ),
     );
     socket!.send(JSON.stringify({ id: ++eventId }));
+
     await expect(
       output.getByText("Process exited with status 1", { exact: true }),
     ).toBeVisible();
+
     const failedStep = output
       .locator("li")
       .filter({ hasText: "Process exited with status 1" });
@@ -494,11 +548,13 @@ for (const variant of [
       label("Codeblock: Ausgabe", "Code block: Output"),
       { exact: true },
     );
+
     await expect(failureLog).toBeVisible();
     expect(await failureLog.textContent()).toBe(failureOutput);
     expect(
       (await failedStep.innerText()).match(/benchmark_sorting\.f90:7:84:/g),
     ).toHaveLength(1);
+
     await failedStep.scrollIntoViewIfNeeded();
     await capture("process-error", true);
     await failureToggle.click();
@@ -509,23 +565,30 @@ for (const variant of [
       ),
       exact: true,
     });
+
     await expect(largeDiff.getByRole("row")).toHaveCount(81);
+
     const more = largeDiff
       .locator("../..")
       .getByRole("button", { name: /^(Mehr anzeigen|Show more)/ });
     await more.click();
+
     await expect(largeDiff.getByRole("row")).toHaveCount(122);
     await expect(
       largeDiff.getByText("print(120)", { exact: true }),
     ).toBeVisible();
+
     await largeDiff.scrollIntoViewIfNeeded();
     await largeDiff.focus();
+
     expect(
       await largeDiff.evaluate(
         (element) => element.scrollWidth > element.clientWidth,
       ),
     ).toBe(true);
+
     await page.keyboard.press("ArrowRight");
+
     await expect
       .poll(() => largeDiff.evaluate((element) => element.scrollLeft))
       .toBeGreaterThan(0);
@@ -535,6 +598,7 @@ for (const variant of [
       await page.setViewportSize({ width: 720, height: 500 });
       await expect(input).toBeInViewport();
     }
+
     const nestedScrolling = await page.getByRole("main").evaluate((root) =>
       Array.from(root.querySelectorAll("*"))
         .filter((element) => {
@@ -547,13 +611,16 @@ for (const variant of [
         })
         .map((element) => element.tagName + "." + element.className),
     );
+
     expect(nestedScrolling).toEqual([]);
+
     await writeFile(
       `artifacts/ui/conversation-${variant.name}.json`,
       JSON.stringify({
         captures,
       }),
     );
+
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,

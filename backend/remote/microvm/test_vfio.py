@@ -14,7 +14,9 @@ from unittest.mock import Mock, patch
 from test_runner import runner
 
 
-spec = importlib.util.spec_from_file_location("vfio", Path(__file__).with_name("vfio.py"))
+spec = importlib.util.spec_from_file_location(
+    "vfio", Path(__file__).with_name("vfio.py")
+)
 vfio = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vfio)
 
@@ -36,10 +38,15 @@ class VFIOTests(unittest.TestCase):
         self.gpu, self.audio = "0000:01:00.0", "0000:01:00.1"
         self.add_device(self.gpu, "0x030000")
         self.add_device(self.audio, "0x040300")
+
         self.ioctl = patch.object(vfio.fcntl, "ioctl", side_effect=self.query)
         self.ioctl.start()
         self.addCleanup(self.ioctl.stop)
-        self.limit = patch.object(vfio.resource, "getrlimit", return_value=(resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+        self.limit = patch.object(
+            vfio.resource,
+            "getrlimit",
+            return_value=(resource.RLIM_INFINITY, resource.RLIM_INFINITY),
+        )
         self.limit.start()
         self.addCleanup(self.limit.stop)
 
@@ -65,11 +72,15 @@ class VFIOTests(unittest.TestCase):
         self.fail("preflight attempted a non-query VFIO ioctl")
 
     def inspect(self, addresses=None):
-        return vfio.inspect_devices(addresses or [self.gpu, self.audio], self.pci, self.dev)
+        return vfio.inspect_devices(
+            addresses or [self.gpu, self.audio], self.pci, self.dev
+        )
 
     def test_prepared_complete_gpu_group_is_accepted(self):
         devices = self.inspect()
-        self.assertEqual([entry["address"] for entry in devices], [self.gpu, self.audio])
+        self.assertEqual(
+            [entry["address"] for entry in devices], [self.gpu, self.audio]
+        )
         self.assertEqual({entry["group"] for entry in devices}, {"7"})
         self.assertTrue(devices[0]["gpu"])
         self.assertFalse(devices[1]["gpu"])
@@ -112,20 +123,31 @@ class VFIOTests(unittest.TestCase):
                 self.inspect()
 
     def test_inspection_of_a_running_vm_does_not_reopen_its_exclusive_vfio_group(self):
-        with patch.object(vfio, "group_status", side_effect=RuntimeError("group already open in QEMU")) as probe:
-            devices = vfio.inspect_devices([self.gpu, self.audio], self.pci, self.dev, probe_groups=False)
+        with patch.object(
+            vfio, "group_status", side_effect=RuntimeError("group already open in QEMU")
+        ) as probe:
+            devices = vfio.inspect_devices(
+                [self.gpu, self.audio], self.pci, self.dev, probe_groups=False
+            )
             self.assertEqual(len(devices), 2)
             probe.assert_not_called()
             with self.assertRaisesRegex(RuntimeError, "already open"):
                 self.inspect()
 
     def test_external_qemu_exclusive_open_has_a_clear_error(self):
-        with patch.object(vfio.os, "open", side_effect=OSError(errno.EBUSY, "Device or resource busy")):
+        with patch.object(
+            vfio.os, "open", side_effect=OSError(errno.EBUSY, "Device or resource busy")
+        ):
             with self.assertRaisesRegex(RuntimeError, "already open in a running VM"):
                 vfio.group_status("7", self.dev)
 
     def test_pci_addresses_cannot_inject_paths_options_or_nonexistent_functions(self):
-        for value in ["../../etc/passwd", "0000:01:00.0,romfile=/tmp/evil", "0000:01:20.0", "0000:01:00.8"]:
+        for value in [
+            "../../etc/passwd",
+            "0000:01:00.0,romfile=/tmp/evil",
+            "0000:01:20.0",
+            "0000:01:00.8",
+        ]:
             with self.subTest(value=value), self.assertRaises(RuntimeError):
                 vfio.validate_addresses([value])
         with self.assertRaisesRegex(RuntimeError, "duplicate"):
@@ -150,8 +172,12 @@ class VFIOTests(unittest.TestCase):
             owner = vfio.reserve_groups(self.cache, [{"group": "8"}], {"agentId": "a"})
             try:
                 with self.assertRaises(RuntimeError):
-                    vfio.reserve_groups(self.cache, [{"group": "7"}, {"group": "8"}], {"agentId": "b"})
-                remaining = vfio.reserve_groups(self.cache, [{"group": "7"}], {"agentId": "c"})
+                    vfio.reserve_groups(
+                        self.cache, [{"group": "7"}, {"group": "8"}], {"agentId": "b"}
+                    )
+                remaining = vfio.reserve_groups(
+                    self.cache, [{"group": "7"}], {"agentId": "c"}
+                )
                 for descriptor in remaining:
                     os.close(descriptor)
             finally:
@@ -173,49 +199,101 @@ class Q35ArgumentTests(unittest.TestCase):
     def test_general_preflight_can_run_while_qemu_owns_the_gpu(self):
         probe = Mock()
         configuration = {"vmType": "q35", "gpuDevices": ["0000:01:00.0"]}
-        available = subprocess.CompletedProcess([], 0, 'q35 PC Q35\nname "vfio-pci"\n', '')
-        with patch.object(runner.platform, "system", return_value="Linux"), patch.object(
-            runner.platform, "machine", return_value="x86_64"
-        ), patch.object(runner.os, "open", return_value=123), patch.object(runner.os, "close"), patch.object(
-            runner.fcntl, "ioctl", return_value=12
-        ), patch.object(runner.shutil, "which", return_value="/usr/bin/qemu"), patch.object(
-            runner.subprocess, "run", return_value=available
-        ), patch.object(runner, "compatible_host_kernel", return_value=Path("/boot/kernel")), patch.object(
-            runner, "vfio_helpers", return_value={"inspect_devices": probe}
+        available = subprocess.CompletedProcess(
+            [], 0, 'q35 PC Q35\nname "vfio-pci"\n', ""
+        )
+        with (
+            patch.object(runner.platform, "system", return_value="Linux"),
+            patch.object(runner.platform, "machine", return_value="x86_64"),
+            patch.object(runner.os, "open", return_value=123),
+            patch.object(runner.os, "close"),
+            patch.object(runner.fcntl, "ioctl", return_value=12),
+            patch.object(runner.shutil, "which", return_value="/usr/bin/qemu"),
+            patch.object(runner.subprocess, "run", return_value=available),
+            patch.object(
+                runner, "compatible_host_kernel", return_value=Path("/boot/kernel")
+            ),
+            patch.object(
+                runner, "vfio_helpers", return_value={"inspect_devices": probe}
+            ),
         ):
             self.assertEqual(runner.prerequisites(configuration), Path("/boot/kernel"))
         probe.assert_called_once_with(configuration["gpuDevices"], probe_groups=False)
 
     def arguments(self, request):
-        with patch.object(runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"):
-            return runner.virtme_arguments(Path("/cache/runtime"), Path("/boot/kernel"), Path("/cache/control"), request)
+        with patch.object(
+            runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"
+        ):
+            return runner.virtme_arguments(
+                Path("/cache/runtime"),
+                Path("/boot/kernel"),
+                Path("/cache/control"),
+                request,
+            )
 
     def test_q35_uses_pci_transports_and_fixed_gpu_root_ports(self):
-        arguments = self.arguments({"vmType": "q35", "editorPort": 12345, "gpuDevices": ["0000:01:00.1", "0000:01:00.0"]})
+        arguments = self.arguments(
+            {
+                "vmType": "q35",
+                "editorPort": 12345,
+                "gpuDevices": ["0000:01:00.1", "0000:01:00.0"],
+            }
+        )
         self.assertEqual(arguments[arguments.index("--arch") + 1], "x86_64")
-        for option in ("q35,accel=kvm", "-nodefaults", "-no-user-config", "virtio-blk-pci,drive=fedora", "virtio-net-pci,netdev=zentrale"):
+        for option in (
+            "q35,accel=kvm",
+            "-nodefaults",
+            "-no-user-config",
+            "virtio-blk-pci,drive=fedora",
+            "virtio-net-pci,netdev=zentrale",
+        ):
             self.assertIn(option, arguments)
-        self.assertTrue(any(option.startswith("vfio-pci,host=0000:01:00.0,bus=zentrale-gpu-0") for option in arguments))
-        self.assertTrue(any(option.startswith("vfio-pci,host=0000:01:00.1,bus=zentrale-gpu-0") for option in arguments))
-        self.assertEqual(sum(option.startswith("pcie-root-port,") for option in arguments), 1)
+        self.assertTrue(
+            any(
+                option.startswith("vfio-pci,host=0000:01:00.0,bus=zentrale-gpu-0")
+                for option in arguments
+            )
+        )
+        self.assertTrue(
+            any(
+                option.startswith("vfio-pci,host=0000:01:00.1,bus=zentrale-gpu-0")
+                for option in arguments
+            )
+        )
+        self.assertEqual(
+            sum(option.startswith("pcie-root-port,") for option in arguments), 1
+        )
         functions = [option for option in arguments if option.startswith("vfio-pci,")]
         self.assertIn("host=0000:01:00.0,", functions[0])
         self.assertIn("multifunction=on", functions[0])
 
     def test_base_image_provisioning_never_claims_a_gpu(self):
-        arguments = self.arguments({"vmType": "q35", "gpuDevices": ["0000:01:00.0"], "provision": True})
+        arguments = self.arguments(
+            {"vmType": "q35", "gpuDevices": ["0000:01:00.0"], "provision": True}
+        )
         self.assertFalse(any(option.startswith("vfio-pci,") for option in arguments))
 
-    def test_gpu_requirements_cannot_be_passed_to_microvm_or_arbitrary_qemu_options(self):
-        for request in [{"gpuDevices": ["0000:01:00.0"]}, {"vmType": "q35", "gpuDevices": ["0000:01:00.0,romfile=evil"]}]:
+    def test_gpu_requirements_cannot_be_passed_to_microvm_or_arbitrary_qemu_options(
+        self,
+    ):
+        for request in [
+            {"gpuDevices": ["0000:01:00.0"]},
+            {"vmType": "q35", "gpuDevices": ["0000:01:00.0,romfile=evil"]},
+        ]:
             with self.assertRaises(RuntimeError):
                 self.arguments(request)
 
     def test_q35_probes_pci_instead_of_requiring_mmio_modules(self):
         import subprocess
-        with patch.object(runner.shutil, "which", return_value="modprobe"), patch.object(
-            runner.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")
-        ) as probe:
+
+        with (
+            patch.object(runner.shutil, "which", return_value="modprobe"),
+            patch.object(
+                runner.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ) as probe,
+        ):
             runner.check_guest_kernel_modules(vm_type="q35")
         modules = [call.args[0][-1] for call in probe.call_args_list]
         self.assertIn("virtio_pci", modules)

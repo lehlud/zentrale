@@ -56,23 +56,29 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 	var processedRevision uint64
 	consecutiveCommentary := 0
 	firstRound := true
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return processedRevision, err
 		}
+
+		// Admit queued input only at the boundary between complete tool batches.
 		engine.configMu.Lock()
 		_, inputError := engine.deliverInputs(agentID, firstRound)
 		firstRound = false
 		engine.mu.Lock()
 		processedRevision = engine.inputRevisions[agentID]
+
 		if wake := engine.wake[agentID]; wake != nil {
 			select {
 			case <-wake:
 			default:
 			}
 		}
+
 		engine.mu.Unlock()
 		engine.configMu.Unlock()
+
 		if inputError != nil {
 			return processedRevision, inputError
 		}
@@ -81,14 +87,17 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		if err := engine.Store.Load("agent", agentID, &agentRecord); err != nil {
 			return processedRevision, err
 		}
+
 		// No model request or context compaction is allowed before the SSH
 		// workspace connection has been established and checked for this turn.
 		if err := engine.requireConnection(ctx, agentID); err != nil {
 			return processedRevision, err
 		}
+
 		if err := engine.Store.Load("agent", agentID, &agentRecord); err != nil {
 			return processedRevision, err
 		}
+
 		configuration, err := engine.inferenceConfiguration(ctx, agentRecord)
 		if err != nil {
 			return processedRevision, err
@@ -100,104 +109,152 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		if err != nil {
 			return processedRevision, err
 		}
+
 		if len(messages) == 0 {
-			messages = []domain.Message{{Role: "user", Content: "Continue the pending task from your summary."}}
+			messages = []domain.Message{
+				{
+					Role:    "user",
+					Content: "Continue the pending task from your summary.",
+				},
+			}
 		}
+
 		engine.mu.Lock()
 		changedDuringPreparation := engine.inputRevisions[agentID] > processedRevision
 		engine.mu.Unlock()
+
 		if changedDuringPreparation {
 			continue
 		}
+
 		result, assistant, err := engine.completeVisible(ctx, agentID, providers.Request{
 			Config: configuration.Provider,
-			Model:  configuration.Model, System: system, Messages: messages,
-			Tools: tools, CacheKey: agentRecord.ID,
+
+			Model:    configuration.Model,
+			System:   system,
+			Messages: messages,
+
+			Tools:    tools,
+			CacheKey: agentRecord.ID,
 		})
 		if err != nil {
 			return processedRevision, err
 		}
+
 		if err := engine.recordUsage(agentRecord, configuration, result, messages, estimatedPromptTokens(system, tools)); err != nil {
 			return processedRevision, err
 		}
+
 		engine.mu.Lock()
 		newInput := engine.inputRevisions[agentID] > processedRevision
 		engine.mu.Unlock()
+
 		// A new instruction that arrived during generation is read before a
 		// fresh batch starts. Once a batch starts, it runs to its normal boundary.
 		if newInput && len(result.Calls) > 0 {
 			if assistant.Content != "" {
 				assistant.Wire = ""
+
 				if err := engine.persistMessage(assistant, nil, nil); err != nil {
 					return processedRevision, err
 				}
 			}
+
 			continue
 		}
+
 		if err := engine.persistMessage(assistant, nil, nil); err != nil {
 			return processedRevision, err
 		}
+
+		// Commentary may continue; a final response must also pass the goal audit.
 		if len(result.Calls) == 0 {
 			if result.Phase == "commentary" {
 				consecutiveCommentary++
+
 				if consecutiveCommentary < 3 {
 					continue
 				}
 			}
+
 			if newInput {
 				continue
 			}
+
 			completed, err := engine.checkGoalCompletion(ctx, agentRecord, processedRevision, assistant)
 			if err != nil {
 				return processedRevision, err
 			}
+
 			if completed {
 				return processedRevision, nil
 			}
+
 			consecutiveCommentary = 0
 			continue
 		}
+
 		consecutiveCommentary = 0
 		engine.setRunState(agentID, "tools", nil)
+
 		if err := engine.executeCalls(ctx, agentRecord, result.Calls); err != nil {
 			return processedRevision, err
 		}
 	}
 }
 
-func (engine *Engine) executeCalls(ctx context.Context, agentRecord domain.Agent, calls []providers.Call) error {
+func (engine *Engine) executeCalls(
+	ctx context.Context,
+	agentRecord domain.Agent,
+	calls []providers.Call,
+) error {
 	for _, call := range calls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+
 		result, toolError := engine.dispatch(ctx, agentRecord, call)
 		changes, err := extractFileChanges(result)
 		if err != nil {
 			return err
 		}
+
 		var activities []domain.ToolActivity
+
 		if values, ok := result.(map[string]any); ok && values["_activities"] != nil {
 			if err := decode(JSON(values["_activities"]), &activities); err != nil {
 				return err
 			}
+
 			delete(values, "_activities")
 		}
+
 		content := JSON(map[string]any{"result": result})
+
 		if toolError != nil {
 			content = JSON(map[string]any{"error": toolError.Error(), "result": result})
 		}
+
 		message := domain.Message{
-			ID: NewID(), AgentID: agentRecord.ID, Role: "tool", Content: content,
-			CallID: call.ID, ToolName: call.Name, CreatedAt: time.Now().UTC(),
+			ID:      NewID(),
+			AgentID: agentRecord.ID,
+			Role:    "tool",
+			Content: content,
+
+			CallID:    call.ID,
+			ToolName:  call.Name,
+			CreatedAt: time.Now().UTC(),
 		}
 		if err := engine.persistMessage(message, changes, activities); err != nil {
 			return err
 		}
+
 		var connectionFailure *ProjectConnectionError
 		if errors.As(toolError, &connectionFailure) {
 			return toolError
 		}
 	}
+
 	return nil
 }
 
@@ -206,20 +263,26 @@ func extractFileChanges(result any) ([]domain.FileChange, error) {
 	if !ok {
 		return nil, nil
 	}
+
 	changes := []domain.FileChange{}
+
 	if values["_change"] != nil {
 		var change domain.FileChange
 		if err := decode(JSON(values["_change"]), &change); err != nil {
 			return nil, err
 		}
+
 		delete(values, "_change")
 		changes = append(changes, change)
 	}
+
 	if values["_changes"] != nil {
 		if err := decode(JSON(values["_changes"]), &changes); err != nil {
 			return nil, err
 		}
+
 		delete(values, "_changes")
 	}
+
 	return changes, nil
 }

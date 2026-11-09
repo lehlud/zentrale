@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -61,6 +62,7 @@ for (const variant of [
           },
         });
       }
+
       const data = query.includes("status{")
         ? {
             status: {
@@ -74,6 +76,7 @@ for (const variant of [
           : query.includes("agents(projectId:")
             ? { project, agents }
             : { ...config, sandboxStatuses: selection ? [observation()] : [] };
+
       return route.fulfill({ json: { data } });
     });
     const errors: string[] = [];
@@ -83,20 +86,25 @@ for (const variant of [
     const badge = (label: string) =>
       page.getByText(`Sandbox: ${automatic}${label}`, { exact: true });
     await page.goto("/#/machines");
+
     await expect(
       badge(english ? " · not checked yet" : " · noch nicht ermittelt"),
     ).toBeVisible();
+
     await page
       .getByRole("button", {
         name: english ? "Test connection" : "Verbindung prüfen",
         exact: true,
       })
       .click();
+
     await expect(badge(" → Bubblewrap")).toBeVisible();
     await expect(
       page.getByText(english ? /Last checked:/ : /Zuletzt ermittelt:/),
     ).toBeVisible();
+
     await page.reload();
+
     await expect(badge(" → Bubblewrap")).toBeVisible();
 
     const captures: { name: string; file: string }[] = [];
@@ -115,38 +123,48 @@ for (const variant of [
             ? "/#/machines"
             : `/#/projects/${project.id}?agent=${agent.id}`,
         );
+
         await expect(badge(label)).toBeVisible();
+
         if (view === "machines" && level === "error")
           await expect(page.getByRole("main").getByRole("alert")).toContainText(
             "Sandbox probe unavailable",
           );
+
         expect(
           await page.evaluate(
             () => document.documentElement.scrollWidth - innerWidth,
           ),
         ).toBeLessThanOrEqual(1);
+
         await page.evaluate(() => document.fonts.ready);
         const file = `sandbox-${view}-${level}-${variant.name}.png`;
         await page.screenshot({ path: `artifacts/ui/${file}` });
         captures.push({ name: `sandbox-${view}-${level}`, file });
       }
     }
+
     // A successful retry replaces the previous detection error immediately,
     // including before any background configuration refresh has completed.
     await page.goto("/#/machines");
+
     await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
+
     await page
       .getByRole("button", {
         name: english ? "Test connection" : "Verbindung prüfen",
         exact: true,
       })
       .click();
+
     await expect(badge(" → Bubblewrap")).toBeVisible();
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+
     await writeFile(
       `artifacts/ui/sandbox-${variant.name}.json`,
       JSON.stringify({ captures }),
     );
+
     expect(errors).toEqual([]);
   });
 }

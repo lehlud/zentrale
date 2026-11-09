@@ -18,35 +18,45 @@ export class LiveResponses {
   get(agentId: string) {
     return this.responses.get(agentId);
   }
+
   subscribe(agentId: string, listener: () => void) {
     const listeners = this.listeners.get(agentId) ?? new Set();
     listeners.add(listener);
     this.listeners.set(agentId, listeners);
+
     return () => {
       listeners.delete(listener);
       if (!listeners.size) this.listeners.delete(agentId);
     };
   }
+
   private notify(agentId: string) {
     this.listeners.get(agentId)?.forEach((listener) => listener());
   }
+
   receive(update: LiveResponse) {
     if (
       typeof update.id !== "string" ||
       typeof update.agentId !== "string" ||
       typeof update.text !== "string"
-    )
+    ) {
       return;
+    }
+
     const previous = this.responses.get(update.agentId);
     if (
       !update.snapshot &&
       (!previous ||
         previous.id !== update.id ||
         previous.revision + 1 !== update.revision)
-    )
+    ) {
       return;
-    if (previous?.id === update.id && previous.revision > update.revision)
+    }
+
+    if (previous?.id === update.id && previous.revision > update.revision) {
       return;
+    }
+
     this.responses.set(update.agentId, {
       ...update,
       text: update.snapshot
@@ -55,11 +65,16 @@ export class LiveResponses {
     });
     this.notify(update.agentId);
   }
+
   acknowledge(agentId: string, messageId: string) {
-    if (this.responses.get(agentId)?.id !== messageId) return;
+    if (this.responses.get(agentId)?.id !== messageId) {
+      return;
+    }
+
     this.responses.delete(agentId);
     this.notify(agentId);
   }
+
   reset() {
     const agents = [...this.responses.keys()];
     this.responses.clear();

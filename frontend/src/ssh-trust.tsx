@@ -1,4 +1,5 @@
 import { Alert, Button } from "@heroui/react";
+
 import { useAPI } from "./api";
 import type { SSHHostKey } from "./generated";
 import { useI18n } from "./preferences";
@@ -14,6 +15,7 @@ export function HostKeyTrust({
   const api = useAPI();
   const { t } = useI18n();
   const action = useAction();
+
   return (
     <Alert status="warning" className="min-w-0">
       <Alert.Indicator />

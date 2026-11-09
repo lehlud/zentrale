@@ -18,5 +18,6 @@ python3 -c 'import base64, hashlib, json, os, shutil, sys, tempfile; assert sys.
 	if _, err := Run(ctx, connection.Client, probe); err != nil {
 		return fmt.Errorf("remote runtime is not ready: %w", err)
 	}
+
 	return nil
 }

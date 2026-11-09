@@ -25,7 +25,12 @@ import select
 
 
 def server_platform():
-    architecture = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
+    architecture = {
+        "x86_64": "x64",
+        "amd64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(platform.machine().lower())
     system = {"Linux": "linux", "Darwin": "darwin"}.get(platform.system())
     if not architecture or not system:
         raise RuntimeError("VS Code remote agent requires 64-bit Linux or macOS")
@@ -57,7 +62,10 @@ def extract_server(archive, directory):
             return
         if link is not None:
             destination = os.path.abspath(os.path.join(os.path.dirname(target), link))
-            if os.path.isabs(link) or os.path.commonpath([directory, destination]) != directory:
+            if (
+                os.path.isabs(link)
+                or os.path.commonpath([directory, destination]) != directory
+            ):
                 raise RuntimeError("Remote agent archive contains an external link")
             links.append((target, link))
             return
@@ -77,23 +85,44 @@ def extract_server(archive, directory):
             for entry in bundle.infolist():
                 mode = entry.external_attr >> 16
                 if stat.S_ISLNK(mode):
-                    extract(entry.filename, 0, mode, None, bundle.read(entry).decode("utf-8"))
+                    extract(
+                        entry.filename,
+                        0,
+                        mode,
+                        None,
+                        bundle.read(entry).decode("utf-8"),
+                    )
                 else:
-                    extract(entry.filename, entry.file_size, mode, None if entry.is_dir() else bundle.open(entry))
+                    extract(
+                        entry.filename,
+                        entry.file_size,
+                        mode,
+                        None if entry.is_dir() else bundle.open(entry),
+                    )
     else:
         with tarfile.open(archive, "r:gz") as bundle:
             for entry in bundle:
                 if entry.issym():
                     extract(entry.name, 0, entry.mode, None, entry.linkname)
                 elif entry.isdir() or entry.isfile():
-                    extract(entry.name, entry.size, entry.mode, bundle.extractfile(entry) if entry.isfile() else None)
+                    extract(
+                        entry.name,
+                        entry.size,
+                        entry.mode,
+                        bundle.extractfile(entry) if entry.isfile() else None,
+                    )
                 else:
-                    raise RuntimeError("Remote agent archive contains an unsupported special file")
+                    raise RuntimeError(
+                        "Remote agent archive contains an unsupported special file"
+                    )
+
     # Deferred links prevent a later archive member from writing through one.
     for target, destination in links:
         parent = os.path.realpath(os.path.dirname(target))
         if os.path.commonpath([directory, parent]) != directory:
-            raise RuntimeError("Remote agent archive link parent leaves the installation")
+            raise RuntimeError(
+                "Remote agent archive link parent leaves the installation"
+            )
         os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
         os.symlink(destination, target)
     for target, _ in links:
@@ -106,7 +135,11 @@ def install_server(release):
     distribution = release["servers"].get(target)
     if not distribution:
         raise RuntimeError("No matching remote agent for " + target)
-    cache_root = os.environ.get("ZENTRALE_VSCODE_SERVER_CACHE", os.path.expanduser("~/.cache/zentrale/vscode-server"))
+
+    cache_root = os.environ.get(
+        "ZENTRALE_VSCODE_SERVER_CACHE",
+        os.path.expanduser("~/.cache/zentrale/vscode-server"),
+    )
     cache = os.path.join(cache_root, release["commit"], target)
     os.makedirs(cache, mode=0o700, exist_ok=True)
     installed = os.path.join(cache, "server")
@@ -119,7 +152,10 @@ def install_server(release):
         with tempfile.TemporaryDirectory(prefix="download-", dir=cache) as download:
             archive = os.path.join(download, "server.archive")
             digest = hashlib.sha256()
-            with urllib.request.urlopen(distribution["url"], timeout=60) as response, open(archive, "wb") as output:
+            with (
+                urllib.request.urlopen(distribution["url"], timeout=60) as response,
+                open(archive, "wb") as output,
+            ):
                 total = 0
                 while True:
                     chunk = response.read(1024 * 1024)
@@ -127,17 +163,22 @@ def install_server(release):
                         break
                     total += len(chunk)
                     if total > 512 * 1024 * 1024:
-                        raise RuntimeError("Remote agent download exceeds the size limit")
+                        raise RuntimeError(
+                            "Remote agent download exceeds the size limit"
+                        )
                     digest.update(chunk)
                     output.write(chunk)
             if digest.hexdigest() != distribution["sha256"]:
                 raise RuntimeError("VS Code remote agent checksum mismatch")
+
             extracted = os.path.join(download, "server")
             os.makedirs(extracted, mode=0o700)
             extract_server(archive, extracted)
             with open(os.path.join(extracted, "product.json")) as source:
                 if json.load(source).get("commit") != release["commit"]:
-                    raise RuntimeError("VS Code workbench and remote agent versions differ")
+                    raise RuntimeError(
+                        "VS Code workbench and remote agent versions differ"
+                    )
             if not os.path.isfile(os.path.join(extracted, "bin", "code-server")):
                 raise RuntimeError("Remote agent archive has no executable")
             if os.path.exists(installed):
@@ -162,30 +203,51 @@ def main():
     threading.Thread(target=watch_connection, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix="ze-", dir="/tmp") as runtime:
         socket_path = os.path.join(runtime, "vscode.sock")
-        data_directory = os.environ.get("ZENTRALE_VSCODE_SERVER_DATA", os.path.expanduser("~/.local/share/zentrale/vscode"))
-        command = [binary, "--start-server", "--socket-path", socket_path,
-                   "--server-base-path", base_path, "--without-connection-token",
-                   "--server-data-dir", data_directory,
-                   "--accept-server-license-terms"]
-        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, start_new_session=True)
+        data_directory = os.environ.get(
+            "ZENTRALE_VSCODE_SERVER_DATA",
+            os.path.expanduser("~/.local/share/zentrale/vscode"),
+        )
+        command = [
+            binary,
+            "--start-server",
+            "--socket-path",
+            socket_path,
+            "--server-base-path",
+            base_path,
+            "--without-connection-token",
+            "--server-data-dir",
+            data_directory,
+            "--accept-server-license-terms",
+        ]
+        process = subprocess.Popen(
+            command, stdin=subprocess.DEVNULL, start_new_session=True
+        )
         try:
             deadline = time.monotonic() + 180
             while not stopped.is_set():
                 if process.poll() is not None:
-                    raise RuntimeError("VS Code remote agent exited before becoming ready")
+                    raise RuntimeError(
+                        "VS Code remote agent exited before becoming ready"
+                    )
                 try:
                     with socket.socket(socket.AF_UNIX) as probe:
                         probe.connect(socket_path)
                     break
                 except OSError:
                     if time.monotonic() > deadline:
-                        raise RuntimeError("VS Code remote agent did not become ready within three minutes")
+                        raise RuntimeError(
+                            "VS Code remote agent did not become ready within three minutes"
+                        )
                     stopped.wait(0.1)
+
             if not stopped.is_set() and guest:
                 relay = GuestRelay(socket_path, guest["token"])
                 relay.start()
             if not stopped.is_set():
-                print("ZENTRALE_EDITOR_READY " + json.dumps({"socketPath": socket_path}), flush=True)
+                print(
+                    "ZENTRALE_EDITOR_READY " + json.dumps({"socketPath": socket_path}),
+                    flush=True,
+                )
             while not stopped.wait(0.5):
                 if process.poll() is not None:
                     raise RuntimeError("VS Code remote agent stopped unexpectedly")
@@ -227,7 +289,9 @@ class GuestRelay:
                 connection, _ = self.listener.accept()
             except OSError:
                 return
-            threading.Thread(target=self.forward, args=(connection,), daemon=True).start()
+            threading.Thread(
+                target=self.forward, args=(connection,), daemon=True
+            ).start()
 
     def forward(self, connection):
         with connection, socket.socket(socket.AF_UNIX) as server:
@@ -241,9 +305,11 @@ class GuestRelay:
                     received.extend(byte)
                 if not hmac.compare_digest(received, self.token):
                     return
+
                 server.connect(self.socket_path)
                 connection.sendall(b"OK\n")
                 connection.settimeout(None)
+
                 while not self.stopped.is_set():
                     readable, _, _ = select.select([connection, server], [], [], 1)
                     for source in readable:
@@ -273,5 +339,9 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        print("VS Code remote agent startup failed: " + str(error), file=sys.stderr, flush=True)
+        print(
+            "VS Code remote agent startup failed: " + str(error),
+            file=sys.stderr,
+            flush=True,
+        )
         raise SystemExit(1)

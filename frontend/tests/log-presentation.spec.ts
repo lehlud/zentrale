@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -139,6 +140,7 @@ for (const english of [false, true]) {
           : query.includes("agents(projectId:")
             ? { project, agents }
             : config;
+
       return route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -157,34 +159,43 @@ for (const english of [false, true]) {
       label("Codeblock: test_bubblesort.py", "Code block: test_bubblesort.py"),
       { exact: true },
     );
+
     await expect(source).toHaveText(code);
+
     const keyword = source.getByText("def", { exact: true });
+
     await expect(keyword).toBeVisible();
     expect(await keyword.evaluate((el) => getComputedStyle(el).color)).not.toBe(
       await source.evaluate((el) => getComputedStyle(el).color),
     );
+
     const diff = output.getByRole("region", {
       name: label(
         "Dateiänderungen: test_bubblesort.py",
         "File changes: test_bubblesort.py",
       ),
     });
+
     await expect(diff.getByText("def", { exact: true })).toBeVisible();
     await expect(page.locator("img")).toHaveCount(0);
+
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await source
       .locator("..")
       .getByRole("button", { name: label("Kopieren", "Copy"), exact: true })
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       code,
     );
+
     const packages = output.getByRole("button", {
       name: new RegExp(
         label("Pakete installieren", "Install packages") + ".*gcc-gfortran",
       ),
     });
     await packages.click();
+
     await expect(
       output.getByText("gcc-gfortran", { exact: true }).last(),
     ).toBeVisible();
@@ -193,6 +204,7 @@ for (const english of [false, true]) {
         exact: true,
       }),
     ).toBeVisible();
+
     for (const text of [
       "MACHINE_DIAGNOSTIC_ONLY",
       "JOB_DIAGNOSTIC_ONLY",
@@ -200,6 +212,7 @@ for (const english of [false, true]) {
       label("Installiert", "Installed"),
     ])
       await expect(output.getByText(text, { exact: true })).toHaveCount(0);
+
     await expect(
       output.getByRole("button", {
         name: label("Schrittdetails", "Step details"),
@@ -215,7 +228,9 @@ for (const english of [false, true]) {
         { exact: true },
       ),
     ).toHaveCount(0);
+
     await setLogDiagnostics(page, true);
+
     await expect(
       output.getByText("MACHINE_DIAGNOSTIC_ONLY", { exact: true }).first(),
     ).toBeVisible();
@@ -227,10 +242,13 @@ for (const english of [false, true]) {
         })
         .first(),
     ).toBeVisible();
+
     await setLogDiagnostics(page, false);
+
     await expect(
       output.getByText("MACHINE_DIAGNOSTIC_ONLY", { exact: true }),
     ).toHaveCount(0);
+
     await mkdir("artifacts/ui", { recursive: true });
     await page.screenshot({
       path: `artifacts/ui/focused-logs-${english ? "mobile" : "desktop"}.png`,

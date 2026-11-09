@@ -30,7 +30,10 @@ func CurrentRelease() Release {
 	if err := json.Unmarshal([]byte(releaseJSON), &release); err != nil {
 		panic(err)
 	}
+
 	return release
 }
 
-func RemoteManifest() string { return releaseJSON }
+func RemoteManifest() string {
+	return releaseJSON
+}

@@ -11,6 +11,7 @@ import (
 )
 
 type requestKey struct{}
+
 type requestState struct {
 	authenticated bool
 	login         func(string) (bool, error)
@@ -23,31 +24,40 @@ func state(ctx context.Context) *requestState {
 	if server == nil {
 		return &requestState{}
 	}
+
 	return server
 }
+
 func authenticated(fn graphql.FieldResolveFn) graphql.FieldResolveFn {
 	return func(params graphql.ResolveParams) (any, error) {
 		if !state(params.Context).authenticated {
 			return nil, errors.New("authentication required")
 		}
+
 		return fn(params)
 	}
 }
+
 func mapOf(value any) map[string]any {
 	b, _ := json.Marshal(value)
 	var result map[string]any
 	_ = json.Unmarshal(b, &result)
+
 	return result
 }
+
 func convert[T any](input any) (T, error) {
 	var v T
 	b, err := json.Marshal(input)
 	if err != nil {
 		return v, err
 	}
+
 	err = json.Unmarshal(b, &v)
+
 	return v, err
 }
+
 func (server *Server) Schema() (graphql.Schema, error) {
 	builder := newSchemaBuilder(server)
 	return graphql.NewSchema(graphql.SchemaConfig{

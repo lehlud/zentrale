@@ -45,12 +45,17 @@ type interaction struct {
 	Network       bool
 }
 
-func (engine *Engine) approve(ctx context.Context, agentRecord domain.Agent, request interaction) (bool, error) {
+func (engine *Engine) approve(
+	ctx context.Context,
+	agentRecord domain.Agent,
+	request interaction,
+) (bool, error) {
 	revision := engine.instructionRevision(agentRecord.ProjectID)
 	var approver domain.Agent
 	if err := engine.Store.Load("agent", agentRecord.ApproverID, &approver); err != nil {
 		return false, err
 	}
+
 	configuration, err := engine.inferenceConfiguration(ctx, approver)
 	if err != nil {
 		return false, err
@@ -60,10 +65,13 @@ func (engine *Engine) approve(ctx context.Context, agentRecord domain.Agent, req
 	if err != nil {
 		return false, err
 	}
+
 	if err := engine.appendMessage(approver.ID, "event", JSON(reviewContext), "", "", ""); err != nil {
 		return false, err
 	}
+
 	approver.Status = "running"
+
 	if err := engine.saveAgent(approver); err != nil {
 		return false, err
 	}
@@ -73,12 +81,14 @@ func (engine *Engine) approve(ctx context.Context, agentRecord domain.Agent, req
 		if err := engine.Store.Load("agent", approver.ID, &approver); err != nil {
 			return false, err
 		}
+
 		system := approverInstructions
 		tools := []providers.Tool{inspectTool()}
 		approver, messages, err := engine.prepareContext(ctx, approver, configuration, false, estimatedPromptTokens(system, tools))
 		if err != nil {
 			return false, err
 		}
+
 		result, err := engine.Provider.Complete(ctx, providers.Request{
 			Config:   configuration.Provider,
 			Model:    configuration.Model,
@@ -90,22 +100,28 @@ func (engine *Engine) approve(ctx context.Context, agentRecord domain.Agent, req
 		if err != nil {
 			return false, err
 		}
+
 		if err := engine.recordUsage(approver, configuration, result, messages, estimatedPromptTokens(system, tools)); err != nil {
 			return false, err
 		}
+
 		if err := engine.appendMessage(approver.ID, "assistant", result.Text, result.Wire, "", ""); err != nil {
 			return false, err
 		}
+
 		if len(result.Calls) == 0 {
 			if engine.instructionRevision(agentRecord.ProjectID) != revision {
 				return false, errors.New("user instructions changed during review; request approval again")
 			}
+
 			return engine.recordApproval(agentRecord, request, parseApprovalDecision(result.Text))
 		}
+
 		if err := engine.inspectForApprover(ctx, agentRecord, approver, result.Calls); err != nil {
 			return false, err
 		}
 	}
+
 	return false, errors.New("auto-approver inspection limit reached; action denied")
 }
 
@@ -114,33 +130,51 @@ func (engine *Engine) approvalContext(agentRecord domain.Agent, request interact
 	if err != nil {
 		return nil, err
 	}
+
 	sources, err := engine.listAll("source", &agentRecord.ProjectID)
 	if err != nil {
 		return nil, err
 	}
+
 	project, err := engine.project(agentRecord)
 	if err != nil {
 		return nil, err
 	}
+
 	goal, err := engine.CurrentGoal(agentRecord.ID)
 	if err != nil {
 		return nil, err
 	}
+
 	extra := map[string]any{}
+
 	if request.Action == "storage_quota" {
 		machine, err := engine.quotaMachine(agentRecord, stringArg(request.Arguments, "machineId"))
 		if err != nil {
 			return nil, err
 		}
-		extra["fixedHostQuotaQuery"] = map[string]any{"machineId": machine.ID, "command": machine.QuotaCommand}
+
+		extra["fixedHostQuotaQuery"] = map[string]any{
+			"machineId": machine.ID,
+			"command":   machine.QuotaCommand,
+		}
 	}
-	if request.Action == "exec" && (boolArg(request.Arguments, "gpu") || stringArg(request.Arguments, "machineId") != "") {
+
+	if request.Action == "exec" &&
+		(boolArg(request.Arguments, "gpu") ||
+			stringArg(request.Arguments, "machineId") != "") {
 		extra["executionResources"], err = engine.Remote.ResourceState(project)
 		if err != nil {
 			return nil, err
 		}
-		extra["jobTarget"] = map[string]any{"machineId": stringArg(request.Arguments, "machineId"), "gpu": boolArg(request.Arguments, "gpu"), "defaultMachineUnchanged": true}
+
+		extra["jobTarget"] = map[string]any{
+			"machineId":               stringArg(request.Arguments, "machineId"),
+			"gpu":                     boolArg(request.Arguments, "gpu"),
+			"defaultMachineUnchanged": true,
+		}
 	}
+
 	return map[string]any{
 		"environment":      extra,
 		"mainAgentId":      agentRecord.ID,
@@ -155,29 +189,43 @@ func (engine *Engine) approvalContext(agentRecord domain.Agent, request interact
 	}, nil
 }
 
-func (engine *Engine) inspectForApprover(ctx context.Context, mainAgent, approver domain.Agent, calls []providers.Call) error {
+func (engine *Engine) inspectForApprover(
+	ctx context.Context,
+	mainAgent, approver domain.Agent,
+	calls []providers.Call,
+) error {
 	for _, call := range calls {
 		value, inspectionError := engine.executeInspection(ctx, mainAgent, approver, call)
 		content := JSON(value)
+
 		if inspectionError != nil {
 			content = JSON(map[string]any{"error": inspectionError.Error()})
 		}
+
 		if err := engine.appendMessage(approver.ID, "tool", content, "", call.ID, call.Name); err != nil {
 			return fmt.Errorf("persist inspection result: %w", err)
 		}
 	}
+
 	return nil
 }
 
-func (engine *Engine) executeInspection(ctx context.Context, mainAgent, approver domain.Agent, call providers.Call) (any, error) {
+func (engine *Engine) executeInspection(
+	ctx context.Context,
+	mainAgent, approver domain.Agent,
+	call providers.Call,
+) (any, error) {
 	if call.Name != "inspect" {
 		return nil, errors.New("approver has read-only tools")
 	}
+
 	var arguments map[string]any
 	if err := decode(stringArg(call.Arguments, "arguments"), &arguments); err != nil {
 		return nil, err
 	}
+
 	action := stringArg(call.Arguments, "action")
+
 	switch action {
 	case "tool_output":
 		return engine.toolOutput(approver, arguments)

@@ -1,6 +1,7 @@
 import { Button, Drawer, Dropdown, Label } from "@heroui/react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
+
 import { useAPI } from "./api";
 import { useRoute } from "./navigation";
 import {
@@ -22,7 +23,9 @@ type SidebarState = {
   newConversation: (projectId?: string) => void;
   preferences: () => void;
 };
+
 const SidebarContext = createContext<SidebarState | null>(null);
+
 export function useSidebar() {
   return useContext(SidebarContext);
 }
@@ -30,7 +33,10 @@ export function useSidebar() {
 export function SidebarToggle({ iconOnly = false }: { iconOnly?: boolean }) {
   const state = useSidebar();
   const { t } = useI18n();
-  if (!state || (!state.compact && !state.collapsed)) return null;
+  if (!state || (!state.compact && !state.collapsed)) {
+    return null;
+  }
+
   return (
     <Button
       id="sidebar-toggle"
@@ -60,6 +66,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { page, projectId } = useRoute();
   const api = useAPI();
   const sidebar = useSidebar()!;
+
   return (
     <nav
       aria-label={t("Hauptnavigation")}
@@ -158,22 +165,27 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
   const [appearance, setAppearance] = useState(false);
   const { page, projectId, params } = useRoute();
   const isConversation = page === "projects" && Boolean(projectId);
+
   useEffect(
     () => setMenuOpen(false),
     [page, projectId, params.get("agent"), compact],
   );
+
   const toggle = () => {
     if (compact) {
       setMenuOpen(!menuOpen);
       return;
     }
+
     const value = !collapsed;
     setCollapsed(value);
+
     try {
       localStorage.setItem("zentrale-sidebar-collapsed", String(value));
     } catch {
       /* Preferences remain usable without storage. */
     }
+
     requestAnimationFrame(() =>
       document.getElementById("sidebar-toggle")?.focus(),
     );
@@ -190,6 +202,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
       <LogDiagnosticsControl />
     </Inspect>
   );
+
   return (
     <SidebarContext.Provider
       value={{

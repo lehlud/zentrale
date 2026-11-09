@@ -1,4 +1,5 @@
 import { Accordion, Chip } from "@heroui/react";
+
 import {
   ActivityContent,
   ActivityRequest,
@@ -64,7 +65,9 @@ export function ApprovalsPanel({ approvals }: { approvals: Approval[] }) {
     </div>
   );
 }
+
 export { JobsPanel } from "./jobs-panel";
+
 export function ContextPanel({
   current,
   notes,

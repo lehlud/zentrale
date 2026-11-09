@@ -1,5 +1,6 @@
 import { Accordion, Chip } from "@heroui/react";
 import { useMemo } from "react";
+
 import { useAPI, useQuery } from "./api";
 import { parseJSON, toolSummary } from "./agent-activity";
 import { ActivityRequest, toolLabel } from "./activity-details";
@@ -11,6 +12,7 @@ import { useI18n } from "./preferences";
 import { Empty, Failure } from "./ui";
 
 type Decision = { allowed: boolean; reason?: string; blanket?: boolean };
+
 type Review = {
   id: string;
   request?: Message;
@@ -34,8 +36,10 @@ function decisionFrom(content: string): Decision | undefined {
     typeof value.allowed !== "boolean" ||
     (value.reason !== undefined && typeof value.reason !== "string") ||
     (value.blanket !== undefined && typeof value.blanket !== "boolean")
-  )
+  ) {
     return;
+  }
+
   return value as Decision;
 }
 
@@ -58,6 +62,7 @@ function reviewsFrom(messages: Message[]): Review[] {
         current = undefined;
         continue;
       }
+
       const decision =
         message.role === "assistant"
           ? decisionFrom(message.content)
@@ -67,24 +72,31 @@ function reviewsFrom(messages: Message[]): Review[] {
           current = { id: message.id, context: {}, steps: [] };
           reviews.push(current);
         }
+
         current.decision = decision;
         current.finishedAt = message.createdAt;
         current = undefined;
       } else if (current) current.steps.push(message);
     }
   }
+
   return reviews;
 }
 
 function canonical(value: unknown): string {
   function normalize(item: unknown): unknown {
-    if (Array.isArray(item)) return item.map(normalize);
-    if (item && typeof item === "object")
+    if (Array.isArray(item)) {
+      return item.map(normalize);
+    }
+
+    if (item && typeof item === "object") {
       return Object.fromEntries(
         Object.entries(item)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([key, child]) => [key, normalize(child)]),
       );
+    }
+
     return item;
   }
   return JSON.stringify(normalize(structured(value)));
@@ -96,7 +108,10 @@ function recordedDecisions(reviews: Review[], approvals: Approval[]) {
   const assigned = new Set<string>();
   const matches = new Map<string, Approval>();
   for (const [index, review] of reviews.entries()) {
-    if (!review.request) continue;
+    if (!review.request) {
+      continue;
+    }
+
     const start = Date.parse(review.request.createdAt);
     const next = reviews.slice(index + 1).find((item) => item.request)?.request;
     const end = next ? Date.parse(next.createdAt) : Infinity;
@@ -113,6 +128,7 @@ function recordedDecisions(reviews: Review[], approvals: Approval[]) {
       matches.set(review.id, approval);
     }
   }
+
   return matches;
 }
 
@@ -141,8 +157,10 @@ export function ApproverLog({
     () => recordedDecisions(reviews, data?.approvals ?? []),
     [reviews, data],
   );
-  if (!reviews.length)
+  if (!reviews.length) {
     return <Empty>{t("Noch keine Aktionen geprüft.")}</Empty>;
+  }
+
   return (
     <div className="space-y-4">
       <Failure message={error} onRetry={() => api.refresh()} />
@@ -161,6 +179,7 @@ export function ApproverLog({
               (item) => item.id === review.id,
             );
             const goal = record(review.context.goal);
+
             return (
               <li key={review.id} className="min-w-0 space-y-3 py-5 first:pt-0">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -226,6 +245,7 @@ export function ApproverLog({
               </li>
             );
           }
+
           const approval = recorded.get(review.id);
           const pending =
             !approval &&
@@ -244,6 +264,7 @@ export function ApproverLog({
             approval?.createdAt ||
             review.finishedAt ||
             review.request?.createdAt;
+
           return (
             <li key={review.id} className="min-w-0 space-y-3 py-5 first:pt-0">
               <div className="flex flex-wrap items-center justify-between gap-3">

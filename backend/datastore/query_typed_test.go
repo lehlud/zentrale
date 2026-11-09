@@ -19,6 +19,7 @@ func TestTypedInsertResults(t *testing.T) {
 	row, err := i.insertOne[typedQueryItem]("items", map[string]any{
 		"label": "typed", "payload": payload,
 	})
+
 	want := typedQueryItem{ID: 1, Label: "typed", Payload: payload, Active: true}
 	if err != nil || !reflect.DeepEqual(row, want) {
 		t.Fatalf("struct insert result: row=%#v err=%v", row, err)
@@ -28,6 +29,7 @@ func TestTypedInsertResults(t *testing.T) {
 	pointer, err := i.insertOne[*typedQueryItem]("items", struct {
 		Note string `db:"note"`
 	}{Note: note})
+
 	want = typedQueryItem{ID: 2, Label: "default label", Note: &note, Active: true}
 	if err != nil || pointer == nil || !reflect.DeepEqual(*pointer, want) {
 		t.Fatalf("pointer insert result: row=%#v err=%v", pointer, err)
@@ -37,6 +39,7 @@ func TestTypedInsertResults(t *testing.T) {
 		{Label: "first batch row"},
 		{Label: "second batch row"},
 	})
+
 	wantRows := []typedQueryItem{
 		{ID: 3, Label: "first batch row", Active: true},
 		{ID: 4, Label: "second batch row", Active: true},
@@ -72,6 +75,7 @@ func TestTypedUpdateResults(t *testing.T) {
 	rows, err := i.update[typedQueryItem]("items", map[string]any{
 		"note": nil, "active": false,
 	}, "label = ?", "first")
+
 	want := []typedQueryItem{{ID: 1, Label: "first", Payload: payload, Active: false}}
 	if err != nil || !reflect.DeepEqual(rows, want) {
 		t.Fatalf("struct update results: rows=%#v err=%v", rows, err)
@@ -81,6 +85,7 @@ func TestTypedUpdateResults(t *testing.T) {
 	pointers, err := i.update[*typedQueryItem]("items", &struct {
 		Note string `db:"note"`
 	}{Note: note}, "id = ?", 2)
+
 	wantPointer := typedQueryItem{ID: 2, Label: "second", Note: &note, Active: true}
 	if err != nil || len(pointers) != 1 || pointers[0] == nil ||
 		!reflect.DeepEqual(*pointers[0], wantPointer) {
@@ -112,6 +117,7 @@ func TestMutationDecodeFailuresRollBack(t *testing.T) {
 		ID    int64 `db:"id"`
 		Label int   `db:"label"`
 	}
+
 	row, err := i.insertOne[numericLabel]("items", map[string]any{"label": "not a number"})
 	if err == nil || row != (numericLabel{}) {
 		t.Fatalf("failed struct decode returned a partial row: row=%#v err=%v", row, err)
@@ -126,6 +132,7 @@ func TestMutationDecodeFailuresRollBack(t *testing.T) {
 		ID   int64 `db:"id"`
 		Note int   `db:"note"`
 	}
+
 	// The NULL note decodes successfully; the second row must roll back both.
 	rows, err := i.insertMany[numericNote]("items", []map[string]any{
 		{"label": "must roll back first"},

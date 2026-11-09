@@ -30,6 +30,8 @@ npm ci --prefix frontend
 make run
 ```
 
+Prefer containers? Follow the [Docker setup](docs/getting-started.md#docker).
+
 Open **[localhost:8080](http://localhost:8080)**. Set up your login, connect a model
 provider and an SSH machine, then create a project and start a conversation.
 

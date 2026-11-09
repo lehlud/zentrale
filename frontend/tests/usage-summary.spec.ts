@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   agent,
   agents,
@@ -17,6 +18,7 @@ test("usage shows reported cache counts separately from missing measurements", a
     if (query.includes("recentMessages")) {
       expect(query).toContain("cacheInputTokens");
       expect(query).toContain("unknownTokenCounts");
+
       return route.fulfill({
         json: {
           data: {
@@ -30,6 +32,7 @@ test("usage shows reported cache counts separately from missing measurements", a
         },
       });
     }
+
     return route.fulfill({
       json: {
         data: query.includes("status{")
@@ -47,6 +50,7 @@ test("usage shows reported cache counts separately from missing measurements", a
     .filter({ has: page.locator("summary", { hasText: "Tokens" }) })
     .first();
   await summary.locator("summary").click();
+
   await expect(summary).toContainText("75% Cache gelesen (gemeldete Tokens)");
   await expect(summary).toContainText("6.000 Cache-Tokens geschrieben");
   await expect(summary).toContainText(

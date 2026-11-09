@@ -10,6 +10,7 @@ func TestSSHCommandPreservesPayloadAcrossLoginShells(t *testing.T) {
 	if err != nil {
 		t.Fatal("Python 3 is required for remote command tests")
 	}
+
 	compiler := "import sys; compile(sys.argv[1], '<ssh-editor>', 'exec'); sys.stdout.buffer.write(sys.argv[1].encode())"
 	tests := []struct {
 		name, command, expected string
@@ -30,22 +31,27 @@ func TestSSHCommandPreservesPayloadAcrossLoginShells(t *testing.T) {
 			expected: "single' double\" \\ \\\\ \\' \\n \\t $HOME $(exit 17) `exit 18`\nGrüße\t",
 		},
 	}
+
 	for _, shell := range []string{"sh", "bash", "fish"} {
 		t.Run(shell, func(t *testing.T) {
 			binary, err := exec.LookPath(shell)
 			if err != nil {
 				t.Skipf("%s is not installed", shell)
 			}
+
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					arguments := []string{"-c", shellCommand(test.command)}
+
 					if shell == "fish" {
 						arguments = append([]string{"--no-config"}, arguments...)
 					}
+
 					output, err := exec.Command(binary, arguments...).CombinedOutput()
 					if err != nil {
 						t.Fatalf("SSH login shell changed the command: %v\n%s", err, output)
 					}
+
 					if string(output) != test.expected {
 						t.Fatal("SSH login shell changed the payload bytes")
 					}

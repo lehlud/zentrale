@@ -23,6 +23,7 @@ func Open(path string) (*Instance, error) {
 			return nil, err
 		}
 	}
+
 	db, err := sql.Open("duckdb", path)
 	if err != nil {
 		return nil, err
@@ -31,13 +32,17 @@ func Open(path string) (*Instance, error) {
 	if path != "" && path != ":memory:" {
 		if err := db.Ping(); err != nil {
 			_ = db.Close()
+
 			return nil, err
 		}
+
 		if err := os.Chmod(path, 0600); err != nil {
 			_ = db.Close()
+
 			return nil, err
 		}
 	}
+
 	db.SetMaxOpenConns(1)
 	i := &Instance{
 		path: path,
@@ -46,6 +51,7 @@ func Open(path string) (*Instance, error) {
 
 	if err = initializeSchema(db); err != nil {
 		_ = db.Close()
+
 		return nil, fmt.Errorf("failed to open datastore %s: %v", path, err)
 	}
 
@@ -56,8 +62,10 @@ func (i *Instance) Close() error {
 	if i == nil || i.db == nil {
 		return nil
 	}
+
 	err := i.db.Close()
 	i.db = nil
+
 	return err
 }
 

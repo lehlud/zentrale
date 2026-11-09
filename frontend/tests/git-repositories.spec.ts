@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import { config, gitConnections } from "./fixtures/visual-data";
 
 for (const english of [false, true]) {
@@ -53,8 +54,11 @@ for (const english of [false, true]) {
         };
         return send({ configureGitConnection: connections[0] });
       }
-      if (query.includes("beginGitLogin"))
+
+      if (query.includes("beginGitLogin")) {
         return send({ beginGitLogin: login });
+      }
+
       if (query.includes("pollGitLogin")) {
         connections[0] = {
           ...connections[0],
@@ -63,11 +67,13 @@ for (const english of [false, true]) {
         };
         return send({ pollGitLogin: { ...login, status: "connected" } });
       }
+
       if (query.includes("createGitRepository")) {
         expect(variables.input.namespaceId).toBe("team");
         expect(variables.input.private).toBe(true);
+
         createAttempts++;
-        if (createAttempts === 1)
+        if (createAttempts === 1) {
           return route.fulfill({
             json: {
               errors: [
@@ -78,6 +84,8 @@ for (const english of [false, true]) {
               ],
             },
           });
+        }
+
         const repository = {
           ...repos[0],
           id: "team/new-project",
@@ -86,13 +94,17 @@ for (const english of [false, true]) {
           fullName: "team/new-project",
         };
         repos.unshift(repository);
+
         return send({ createGitRepository: repository });
       }
+
       if (query.includes("saveProject")) {
         submittedIds.push(variables.input.id);
+
         expect(variables.input.repositoryId).toBe("team/new-project");
+
         saveAttempts++;
-        if (saveAttempts === 1)
+        if (saveAttempts === 1) {
           return route.fulfill({
             json: {
               errors: [
@@ -103,10 +115,14 @@ for (const english of [false, true]) {
               ],
             },
           });
+        }
+
         data.projects.push(variables.input);
+
         return send({ saveProject: { id: variables.input.id } });
       }
-      if (query.includes("status"))
+
+      if (query.includes("status")) {
         return send({
           status: {
             needsSetup: false,
@@ -114,21 +130,31 @@ for (const english of [false, true]) {
             githubConnected: true,
           },
         });
-      if (query.includes("machines(limit:500)")) return send(data);
-      if (query.includes("gitConnections"))
+      }
+
+      if (query.includes("machines(limit:500)")) {
+        return send(data);
+      }
+
+      if (query.includes("gitConnections")) {
         return send({ gitConnections: connections });
-      if (query.includes("gitNamespaces"))
+      }
+
+      if (query.includes("gitNamespaces")) {
         return send({
           gitNamespaces: [
             { id: "gunter", name: "gunter", personal: true },
             { id: "team", name: "team", personal: false },
           ],
         });
+      }
+
       if (query.includes("gitRepositories")) {
         const items = repos.filter((repository) =>
           repository.fullName.includes(variables.search ?? ""),
         );
         const offset = variables.offset ?? 0;
+
         return send({
           gitRepositories: {
             items: items.slice(offset, offset + 50),
@@ -137,7 +163,11 @@ for (const english of [false, true]) {
           },
         });
       }
-      if (query.includes("sidebarAgents")) return send({ sidebarAgents: [] });
+
+      if (query.includes("sidebarAgents")) {
+        return send({ sidebarAgents: [] });
+      }
+
       return send({});
     });
     await mkdir("artifacts/ui", { recursive: true });
@@ -151,7 +181,9 @@ for (const english of [false, true]) {
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,
       );
+
       expect(overflow).toBeLessThanOrEqual(1);
+
       captures.push({ name, file, overflow });
     };
     await page.goto("/#/projects");
@@ -166,6 +198,7 @@ for (const english of [false, true]) {
     );
     const project = dialogs.first();
     await project.getByLabel("Name", { exact: true }).fill("New project");
+
     await expect(
       project.getByLabel(
         label(
@@ -174,6 +207,7 @@ for (const english of [false, true]) {
         ),
       ),
     ).toHaveCount(0);
+
     await project
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
       .click();
@@ -204,11 +238,14 @@ for (const english of [false, true]) {
       })
       .click();
     const signIn = dialogs.last();
+
     await expect(signIn.getByText("ABCD-EFGH", { exact: true })).toBeVisible();
     await expect(
       page.getByText(label("Erfolgreich", "Success"), { exact: true }),
     ).toHaveCount(0);
+
     await capture("device-login");
+
     await expect(
       signIn.getByRole("link", {
         name: label("Anmeldeseite öffnen ↗", "Open sign-in page ↗"),
@@ -220,9 +257,11 @@ for (const english of [false, true]) {
         exact: true,
       }),
     ).toBeVisible({ timeout: 12000 });
+
     await signIn
       .getByRole("button", { name: label("Fertig", "Done"), exact: true })
       .click();
+
     await expect(
       project.getByRole("heading", {
         name: label(
@@ -232,22 +271,29 @@ for (const english of [false, true]) {
         exact: true,
       }),
     ).toBeVisible();
+
     const list = project.getByRole("list", {
       name: label("Repositories", "Repositories"),
       exact: true,
     });
+
     await expect(list.getByRole("button")).toHaveCount(50);
+
     await project
       .getByRole("button", {
         name: label("Mehr anzeigen", "Show more"),
         exact: true,
       })
       .click();
+
     await expect(list.getByRole("button")).toHaveCount(51);
+
     await project
       .getByLabel(label("Repositories suchen", "Search repositories"))
       .fill("demo-50");
+
     await expect(list.getByRole("button")).toHaveCount(1);
+
     await list.getByRole("button").click();
     await project
       .getByRole("button", {
@@ -278,20 +324,24 @@ for (const english of [false, true]) {
       })
       .click();
     await capture("create-error");
+
     await expect(create.getByRole("alert")).toContainText(
       "Organization policy",
     );
     await expect(
       create.getByLabel(label("Repository-Name", "Repository name")),
     ).toHaveValue("new-project");
+
     await create
       .getByRole("button", {
         name: label("Repository erstellen", "Create repository"),
         exact: true,
       })
       .click();
+
     await expect(dialogs).toHaveCount(1);
     await expect(project.getByRole("status")).toContainText("team/new-project");
+
     await capture("project-selection");
     await project
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
@@ -302,18 +352,22 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect(project.getByRole("alert")).toContainText(
       "Deploy key registration interrupted",
     );
+
     await project
       .getByRole("button", {
         name: label("Projekt anlegen", "Create project"),
         exact: true,
       })
       .click();
+
     await expect(dialogs).toHaveCount(0);
     expect(submittedIds).toHaveLength(2);
     expect(submittedIds[0]).toBe(submittedIds[1]);
+
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const repositoryName = "research-team/" + "long-repository-name-".repeat(5);
     data.sshKeys.push({
@@ -346,6 +400,7 @@ for (const english of [false, true]) {
       ],
     });
     await page.goto("/#/keys");
+
     await expect(
       page.getByRole("heading", { name: repositoryName, exact: true }),
     ).toBeVisible();
@@ -358,6 +413,7 @@ for (const english of [false, true]) {
         { exact: true },
       ),
     ).toBeVisible();
+
     const key = page.locator("section").filter({
       has: page.getByRole("heading", {
         name: label("Schlüssel 1", "Key 1"),
@@ -370,15 +426,18 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       data.sshKeys[0].publicKey,
     );
+
     await key
       .getByRole("button", {
         name: label("Aktionen für Schlüssel 1", "Actions for Key 1"),
         exact: true,
       })
       .click();
+
     await expect(
       page.getByRole("menuitem", {
         name: label("Entfernen", "Remove"),
@@ -391,6 +450,7 @@ for (const english of [false, true]) {
         exact: true,
       }),
     ).toHaveCount(0);
+
     await page.keyboard.press("Escape");
     await mkdir("artifacts/ui", { recursive: true });
     await page.screenshot({
@@ -402,6 +462,7 @@ for (const english of [false, true]) {
       `artifacts/ui/git-${english ? "mobile-en-dark" : "desktop-de-light"}.json`,
       JSON.stringify({ captures, errors: [] }, null, 2),
     );
+
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,

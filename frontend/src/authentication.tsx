@@ -7,6 +7,7 @@ import {
   TextField,
 } from "@heroui/react";
 import { useRef, useState } from "react";
+
 import { useAPI } from "./api";
 import { PreferenceControls, useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
@@ -24,13 +25,16 @@ export function Authentication({ setup }: { setup: boolean }) {
   const [step, setStep] = useState(0);
   const confirmationField = useRef<HTMLInputElement>(null);
   const action = useAction();
+
   async function authenticate() {
     if (setup && password !== confirmation) {
       setMismatch(true);
       confirmationField.current?.focus();
       throw new Error(t("Die Passwörter stimmen nicht überein."));
     }
+
     setMismatch(false);
+
     try {
       await api.mutate(
         setup
@@ -43,6 +47,7 @@ export function Authentication({ setup }: { setup: boolean }) {
       throw failure;
     }
   }
+
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <div className="flex flex-wrap justify-end gap-4 px-4 py-3 sm:px-6">
@@ -60,12 +65,16 @@ export function Authentication({ setup }: { setup: boolean }) {
                     if (password !== confirmation) {
                       setMismatch(true);
                       confirmationField.current?.focus();
+
                       return;
                     }
+
                     action.clearError();
                     setStep(1);
+
                     return;
                   }
+
                   void action.run(authenticate);
                 }}
               >
@@ -177,7 +186,6 @@ export function Authentication({ setup }: { setup: boolean }) {
                   <Button
                     className="min-h-11"
                     type="submit"
-
                     isPending={action.busy}
                   >
                     {setup

@@ -8,6 +8,7 @@ import {
   Select,
 } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+
 import { ActionsMenu, type MenuAction } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
@@ -40,13 +41,18 @@ export function Providers() {
     ) ??
     data?.providers.find((provider) => provider.connected) ??
     data?.providers[0];
+
   useEffect(() => {
-    if (!catalogRequest || selected?.id !== catalogRequest) return;
+    if (!catalogRequest || selected?.id !== catalogRequest) {
+      return;
+    }
+
     // In the stacked layout the catalog can be far below the account list.
     catalogHeading.current?.scrollIntoView({ block: "start" });
     catalogHeading.current?.focus({ preventScroll: true });
     setCatalogRequest(undefined);
   }, [catalogRequest, selected?.id]);
+
   const create = () =>
     setEditing({
       name: "",
@@ -63,6 +69,7 @@ export function Providers() {
       setSigningIn(provider);
     else setCatalogRequest(provider.id);
   };
+
   function accountActions(provider: Provider): MenuAction[] {
     const actions: MenuAction[] = [
       {
@@ -89,6 +96,7 @@ export function Providers() {
         label: t("Erneut anmelden"),
         onAction: () => setSigningIn(provider),
       });
+
     if (provider.connected)
       actions.push({
         id: "disconnect",
@@ -101,6 +109,7 @@ export function Providers() {
             ),
           ),
       });
+
     actions.push({
       id: "remove",
       label: t("Entfernen"),
@@ -113,6 +122,7 @@ export function Providers() {
           ),
         ),
     });
+
     return actions;
   }
   const account = (provider: Provider) => (
@@ -127,6 +137,7 @@ export function Providers() {
       onSelect={() => selectAccount(provider)}
     />
   );
+
   return (
     <>
       <Title
@@ -334,7 +345,7 @@ function ProviderAccount({
       <Icon name="arrow" />
     </Button>
   );
-  if (compact)
+  if (compact) {
     return (
       <Card variant="transparent" data-provider-account>
         <Card.Content className="gap-1 p-0">
@@ -352,6 +363,8 @@ function ProviderAccount({
         </Card.Content>
       </Card>
     );
+  }
+
   return (
     <Card
       className={`min-w-0 border ${selected ? "border-accent" : "border-border"}`}

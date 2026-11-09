@@ -1,5 +1,6 @@
 import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+
 import { CONFIG, useAPI, useQuery } from "./api";
 import type { Config } from "./config";
 import type { CommitIdentity } from "./generated";
@@ -22,10 +23,12 @@ export function CommitIdentityFields({
   const email = useRef<HTMLInputElement>(null);
   const nameError = /commit name/i.test(error) ? error : "";
   const emailError = /commit email/i.test(error) ? error : "";
+
   useEffect(() => {
     if (nameError) name.current?.focus();
     else if (emailError) email.current?.focus();
   }, [nameError, emailError]);
+
   return (
     <div className="space-y-4">
       <TextField
@@ -80,10 +83,12 @@ export function CommitIdentitySettings() {
   const dirty = Boolean(
     draft && (draft.name !== saved?.name || draft.email !== saved?.email),
   );
+
   useEffect(() => {
     if (draft && saved?.name === draft.name && saved.email === draft.email)
       setDraft(undefined);
   }, [draft, saved]);
+
   return (
     <section
       aria-labelledby="commit-identity-title"

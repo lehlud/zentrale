@@ -9,6 +9,7 @@ import {
   Link,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
@@ -63,9 +64,11 @@ export function Projects() {
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const action = useAction();
   const { params } = useRoute();
+
   useEffect(() => {
     setEditing(params.get("new") === "1" ? newProject() : null);
   }, [params.get("new")]);
+
   const [search, setSearch] = useState("");
   const needle = search.trim().toLocaleLowerCase();
   const projects = useBatch(
@@ -78,6 +81,7 @@ export function Projects() {
   );
   const fields = projectFields(data, t);
   const create = () => setEditing(newProject());
+
   return (
     <>
       <Title
@@ -231,14 +235,16 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const { params } = useRoute();
   const projectDialog = params.get("view") ?? "";
   const setProjectDialog = (value: string) => setRouteParameter("view", value);
-  if (loading)
+  if (loading) {
     return (
       <>
         <SidebarToggle />
         <Loading />
       </>
     );
-  if (!data?.project)
+  }
+
+  if (!data?.project) {
     return (
       <>
         <SidebarToggle />
@@ -248,6 +254,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
         />
       </>
     );
+  }
+
   const selectedAgent =
     data.agents.find((agent) => agent.id === params.get("agent")) ??
     data.agents.find((agent) => agent.role === "main");
@@ -255,6 +263,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
     selectedAgent?.role === "approver"
       ? selectedAgent.parentId
       : selectedAgent?.id;
+
   return (
     <div className="min-w-0">
       <Failure message={error} onRetry={() => api.refresh()} />
@@ -336,7 +345,10 @@ function Sources({ projectId }: { projectId: string }) {
     },
     { key: "readOnly", label: t("Nur lesend einbinden"), type: "check" },
   ];
-  if (loading) return <Loading />;
+  if (loading) {
+    return <Loading />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -569,6 +581,7 @@ function ProjectSettings({
   const { t } = useI18n();
   const api = useAPI();
   const { data } = useQuery<Config>(CONFIG);
+
   return (
     <Editor
       title={t("Projekteinstellungen")}

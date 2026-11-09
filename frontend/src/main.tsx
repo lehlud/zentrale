@@ -1,6 +1,7 @@
 import React from "react";
 import { I18nProvider } from "react-aria-components";
 import ReactDOM from "react-dom/client";
+
 import App from "./App";
 import { ConfirmationProvider } from "./confirmation";
 import { Notifications } from "./notifications";
@@ -10,6 +11,7 @@ import { API, Services } from "./api";
 import "./index.css";
 
 const api = new API();
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <PreferencesProvider>

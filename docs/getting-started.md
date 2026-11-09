@@ -2,6 +2,31 @@
 
 [← Documentation](README.md)
 
+## Docker
+
+Build and start from the repository root:
+
+```sh
+docker build -t zentrale .
+docker run -d --name zentrale --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v zentrale-data:/data \
+  zentrale
+```
+
+Open [localhost:8080](http://localhost:8080). The image builds both frontend and
+backend; you do not need Go or Node installed on the host.
+
+The container runs as UID/GID `10001`. Its database, WAL, and downloaded browser
+editor cache live under `/data`; the named volume preserves them when the
+container is replaced. For a bind mount, make the directory writable by that UID.
+Treat the volume as private: it contains account credentials and SSH keys.
+
+Agent commands and VMs still run on your configured SSH machines. The Zentrale
+container needs neither privileged mode nor the Docker socket. Additional server
+flags can be appended after the image name, for example
+`-origin https://zentrale.example -secure-cookie` behind an HTTPS reverse proxy.
+
 ## Build and run
 
 Install Go 1.27.3 or newer with CGO and a C/C++ toolchain, Node.js 22.12 or newer,

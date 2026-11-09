@@ -8,6 +8,7 @@ import {
   TextField,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { useAPI, useQuery } from "./api";
 import type { LanguageModel, ModelChoice, Provider } from "./generated";
 import { ModelMetadataEditor } from "./model-metadata";
@@ -33,13 +34,18 @@ export function useModels(providerId: string, totalModels?: number) {
     models: LanguageModel[];
     hasMore: boolean;
   }>();
+
   useEffect(() => {
-    if (!result.data) return;
+    if (!result.data) {
+      return;
+    }
+
     const page = result.data.models;
     setCollection((previous) => {
       const items = offset > 0 && previous?.key === key ? previous.models : [];
       const merged = new Map(items.map((model) => [model.id, model]));
       for (const model of page) merged.set(model.id, model);
+
       return {
         key,
         models: [...merged.values()],
@@ -47,7 +53,9 @@ export function useModels(providerId: string, totalModels?: number) {
       };
     });
   }, [result.data, key, offset]);
+
   const current = collection?.key === key ? collection : undefined;
+
   return {
     error: result.error,
     data: current ? { models: current.models } : undefined,
@@ -85,6 +93,7 @@ export function ModelChooser({
       ? value.providerId
       : providers[0]?.id || "",
   );
+
   return (
     <Inspect title={title} onClose={onClose} placement="top">
       <div className="space-y-5">
@@ -145,6 +154,7 @@ function ModelChoiceList({
   const { t, numberLocale } = useI18n();
   const api = useAPI();
   const models = useModels(providerId);
+
   return (
     <div className="space-y-4">
       <TextField
@@ -177,7 +187,10 @@ function ModelChoiceList({
             )
           }
           onSelectionChange={(keys) => {
-            if (keys === "all") return;
+            if (keys === "all") {
+              return;
+            }
+
             const [key] = keys;
             if (key !== undefined)
               onChoose({ providerId, modelId: String(key) });
@@ -227,6 +240,7 @@ export function ProviderModels({ provider }: { provider: Provider }) {
   const models = useModels(provider.id, provider.modelCount);
   const action = useAction();
   const [editing, setEditing] = useState<LanguageModel | null>(null);
+
   return (
     <section aria-label={t("Sprachmodelle")} className="min-w-0">
       <div className="space-y-4">

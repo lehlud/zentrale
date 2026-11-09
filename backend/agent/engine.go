@@ -29,6 +29,7 @@ func JSON(value any) string {
 	if err != nil {
 		panic(fmt.Errorf("encode internal domain value: %w", err))
 	}
+
 	return string(encoded)
 }
 
@@ -36,24 +37,28 @@ type grant struct {
 	Path      string
 	Hash      string
 	MachineID string
-	watchID   string
-	cancel    context.CancelFunc
+
+	watchID string
+	cancel  context.CancelFunc
 }
 
 type runningJob struct {
-	cancel              context.CancelFunc
-	done                chan struct{}
-	mu                  sync.Mutex
-	job                 domain.Job
-	terminationReason   string
-	input               *jobInput
-	output              *remote.OutputBuffer
-	changed             chan struct{}
-	execution           executionRequest
-	sandbox             string
-	yielded             bool
-	connection          *remote.Connection
-	project             domain.Project
+	cancel context.CancelFunc
+	done   chan struct{}
+
+	mu                sync.Mutex
+	job               domain.Job
+	terminationReason string
+	input             *jobInput
+	output            *remote.OutputBuffer
+	changed           chan struct{}
+
+	execution  executionRequest
+	sandbox    string
+	yielded    bool
+	connection *remote.Connection
+	project    domain.Project
+
 	inputHistory        []string
 	inputHistoryOmitted bool
 }
@@ -62,13 +67,14 @@ type runningJob struct {
 // lifecycle transitions; mu protects only the short-lived in-memory registries.
 // mu is never held while a provider request or remote command is running.
 type Engine struct {
-	Store            *datastore.Instance
-	Remote           *remote.Manager
-	Editors          *remote.Editors
-	Provider         providers.Client
-	Catalog          *modelcatalog.Client
-	AccountLogin     *providerlogin.Client
-	GitForge         *gitforge.Service
+	Store        *datastore.Instance
+	Remote       *remote.Manager
+	Editors      *remote.Editors
+	Provider     providers.Client
+	Catalog      *modelcatalog.Client
+	AccountLogin *providerlogin.Client
+	GitForge     *gitforge.Service
+
 	accountMu        sync.Mutex
 	catalogMu        sync.Mutex
 	catalogRevisions map[string]uint64
@@ -83,14 +89,17 @@ type Engine struct {
 	inputRevisions       map[string]uint64
 	instructionRevisions map[string]uint64
 	stopRequested        map[string]bool
-	jobs                 map[string]*runningJob
-	mcpServers           map[string]*mcpServer
-	grants               map[string]map[string]grant
-	subscribers          map[chan domain.Event]bool
-	liveResponses        map[string]domain.LiveResponse
 
-	configMu        sync.Mutex
-	sandboxMu       sync.Mutex
+	jobs       map[string]*runningJob
+	mcpServers map[string]*mcpServer
+	grants     map[string]map[string]grant
+
+	subscribers   map[chan domain.Event]bool
+	liveResponses map[string]domain.LiveResponse
+
+	configMu  sync.Mutex
+	sandboxMu sync.Mutex
+
 	connections     map[string]*agentConnection
 	preparing       map[string]int
 	editorPreparing map[string]int
@@ -126,11 +135,14 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		cancel()
 		return nil, err
 	}
+
 	engine.Editors = remote.NewEditors(engine.Remote)
+
 	if err := engine.recoverInputs(); err != nil {
 		engine.Close()
 		return nil, err
 	}
+
 	return engine, nil
 }
 
@@ -142,44 +154,55 @@ func (engine *Engine) recoverInterruptedWork() error {
 		if err != nil {
 			return fmt.Errorf("recover %s resources: %w", kind, err)
 		}
+
 		for _, resource := range resources {
 			status := stringArg(resource, "status")
 			if status != "running" && status != "waiting" {
 				continue
 			}
+
 			resource["status"] = "interrupted"
 			resource["error"] = "service restarted"
 			parentID := stringArg(resource, "projectId")
+
 			if kind == "job" {
 				parentID = stringArg(resource, "agentId")
 			}
+
 			if err := engine.Store.Save(kind, stringArg(resource, "id"), parentID, resource); err != nil {
 				return fmt.Errorf("recover %s state: %w", kind, err)
 			}
 		}
 	}
+
 	return nil
 }
 
 func (engine *Engine) Close() {
 	engine.cancel()
 	engine.mu.Lock()
+
 	for _, cancel := range engine.running {
 		cancel()
 	}
+
 	for _, job := range engine.jobs {
 		job.cancel()
 	}
+
 	engine.mu.Unlock()
 	engine.closeMCPServers("")
 	engine.Editors.Close()
 	engine.workers.Wait()
 	engine.mu.Lock()
 	ids := make([]string, 0, len(engine.connections))
+
 	for id := range engine.connections {
 		ids = append(ids, id)
 	}
+
 	engine.mu.Unlock()
+
 	for _, id := range ids {
 		engine.releaseConnection(id)
 	}

@@ -17,6 +17,7 @@ func (client *Client) beginOpenRouter(providerID string) Transaction {
 		"code_challenge_method": {"S256"},
 		"key_label":             {"Zentrale"},
 	}
+
 	return Transaction{
 		Session: domain.ProviderLogin{
 			ProviderID:      providerID,
@@ -29,16 +30,23 @@ func (client *Client) beginOpenRouter(providerID string) Transaction {
 	}
 }
 
-func (client *Client) CompleteBrowser(ctx context.Context, transaction Transaction, code string) (string, error) {
+func (client *Client) CompleteBrowser(
+	ctx context.Context,
+	transaction Transaction,
+	code string,
+) (string, error) {
 	if transaction.Session.Method != "browser" || transaction.CodeVerifier == "" {
 		return "", errors.New("invalid browser login transaction")
 	}
+
 	if time.Now().After(transaction.Session.ExpiresAt) {
 		return "", errors.New("provider login expired")
 	}
+
 	if code == "" {
 		return "", errors.New("authorization code is required")
 	}
+
 	response, status, err := client.post(ctx, normalizeAuthRoot(client.OpenRouterURL)+"/api/v1/auth/keys", map[string]any{
 		"code":                  code,
 		"code_verifier":         transaction.CodeVerifier,
@@ -47,12 +55,15 @@ func (client *Client) CompleteBrowser(ctx context.Context, transaction Transacti
 	if err != nil {
 		return "", err
 	}
+
 	if status != http.StatusOK {
 		return "", tokenError(status)
 	}
+
 	credential := stringValue(response["key"])
 	if credential == "" {
 		return "", errors.New("provider returned no account credential")
 	}
+
 	return credential, nil
 }

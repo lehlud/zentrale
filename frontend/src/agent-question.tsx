@@ -1,5 +1,6 @@
 import { Button, FieldError, Label, TextArea, TextField } from "@heroui/react";
 import { useState } from "react";
+
 import { useAPI } from "./api";
 import type { Question } from "./generated";
 import { useI18n } from "./preferences";
@@ -18,6 +19,7 @@ export function AgentQuestion({ question }: { question: Question }) {
         { id: question.id, answer: text, status },
       ),
     );
+
   return (
     <section
       aria-labelledby={`question-${question.id}`}
@@ -51,7 +53,6 @@ export function AgentQuestion({ question }: { question: Question }) {
         <Button
           className="min-h-11"
           size="sm"
-
           isDisabled={!answer.trim() || action.busy}
           onPress={() => respond(answer)}
         >

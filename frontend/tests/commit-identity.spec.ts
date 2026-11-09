@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import { chooseContextAction } from "./fixtures/context-actions";
 
 test("commit identity settings preserve errors and project overrides can return to inheritance", async ({
@@ -16,7 +17,9 @@ test("commit identity settings preserve errors and project overrides can return 
       data: { query, variables },
     });
     const result = await response.json();
+
     expect(result.errors).toBeUndefined();
+
     return result.data;
   };
   const status = await query("query{status{needsSetup}}");
@@ -27,6 +30,7 @@ test("commit identity settings preserve errors and project overrides can return 
   } else {
     await query('mutation{login(password:"browser test password")}');
   }
+
   await page.goto("/#/settings");
   const settings = page.getByRole("region", {
     name: "Standard-Identität für Commits",
@@ -39,13 +43,16 @@ test("commit identity settings preserve errors and project overrides can return 
   await settings
     .getByRole("button", { name: "Commit-Identität speichern", exact: true })
     .click();
+
   await expect(settings.getByText(/Einen Commit-Namen mit/)).toBeVisible();
   await expect(name).toBeFocused();
   await expect(email).toHaveValue("global@example.test");
+
   await name.fill("  Globales Projektteam  ");
   await settings
     .getByRole("button", { name: "Commit-Identität speichern", exact: true })
     .click();
+
   await expect(
     settings.getByRole("button", {
       name: "Commit-Identität speichern",
@@ -57,12 +64,15 @@ test("commit identity settings preserve errors and project overrides can return 
   ).toEqual({ name: "Globales Projektteam", email: "global@example.test" });
 
   await name.fill("Nur ein Entwurf");
+
   await expect(settings.getByRole("status")).toHaveText(
     "Nicht gespeicherte Änderungen",
   );
+
   await settings
     .getByRole("button", { name: "Verwerfen", exact: true })
     .click();
+
   await expect(name).toHaveValue("Globales Projektteam");
   await expect(email).toHaveValue("global@example.test");
   await expect(settings.getByRole("status")).toHaveCount(0);
@@ -111,7 +121,9 @@ test("commit identity settings preserve errors and project overrides can return 
     .getByLabel("Commit-E-Mail (optional)", { exact: true })
     .fill("project@example.test");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog).toHaveCount(0);
+
   const loadProject = async () =>
     (
       await query(
@@ -119,14 +131,17 @@ test("commit identity settings preserve errors and project overrides can return 
         { id: projectId },
       )
     ).project;
+
   expect(await loadProject()).toEqual({
     commitName: "Projektteam",
     commitEmail: "project@example.test",
   });
+
   await chooseContextAction(page, project, "Bearbeiten");
   await dialog.getByLabel("Commit-Name (optional)", { exact: true }).fill("");
   await dialog.getByLabel("Commit-E-Mail (optional)", { exact: true }).fill("");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+
   await expect(dialog).toHaveCount(0);
   expect(await loadProject()).toEqual({ commitName: "", commitEmail: "" });
 });

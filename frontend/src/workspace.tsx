@@ -1,5 +1,6 @@
 import { Button, Link, buttonVariants } from "@heroui/react";
 import { useRef, useState } from "react";
+
 import { CONFIG, useQuery } from "./api";
 import { AgentControls } from "./agent-controls";
 import { AgentView } from "./agent-view";
@@ -9,6 +10,7 @@ import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { Empty, Loading, useAction } from "./ui";
 import { useSidebar } from "./shell";
+
 export function Workspace({
   project,
   agents,
@@ -53,6 +55,7 @@ export function Workspace({
     config?.modelDefaults.main.modelId &&
     config?.modelDefaults.approver.modelId,
   );
+
   return (
     <div className="min-w-0">
       {!mainAgents.length ? (

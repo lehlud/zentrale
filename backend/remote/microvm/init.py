@@ -45,13 +45,20 @@ def initialize_filesystems():
     ]:
         os.makedirs(target, exist_ok=True)
         mount(filesystem, target, filesystem, NOSUID | NOEXEC, options)
+
     exports = []
     for part in Path("/proc/cmdline").read_text().split():
-        match = re.fullmatch(r"virtme_initmount([0-9]+)=(/run/zentrale-(workspace|temporary|control|kernel|storage-[0-7]))", part)
+        match = re.fullmatch(
+            r"virtme_initmount([0-9]+)=(/run/zentrale-(workspace|temporary|control|kernel|storage-[0-7]))",
+            part,
+        )
         if match:
             exports.append((int(match[1]), match[2], match[3] == "kernel"))
-    if not {"/run/zentrale-workspace", "/run/zentrale-temporary", CONTROL}.issubset({entry[1] for entry in exports}):
+    if not {"/run/zentrale-workspace", "/run/zentrale-temporary", CONTROL}.issubset(
+        {entry[1] for entry in exports}
+    ):
         raise RuntimeError("required VM exports are missing")
+
     for index, target, readonly in sorted(exports):
         os.makedirs(target, exist_ok=True)
         flags = NOSUID | NODEV | (READONLY if readonly else 0)
@@ -65,14 +72,20 @@ def initialize_filesystems():
 
 
 def load_module(name):
-    root = "/run/zentrale-kernel" if Path("/run/zentrale-kernel/lib/modules").is_dir() else "/"
+    root = (
+        "/run/zentrale-kernel"
+        if Path("/run/zentrale-kernel/lib/modules").is_dir()
+        else "/"
+    )
     result = subprocess.run(
         ["/usr/sbin/modprobe", "--config", "/dev/null", "--dirname", root, "--", name],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError("load guest module " + name + ": " + result.stderr.strip()[-2000:])
+        raise RuntimeError(
+            "load guest module " + name + ": " + result.stderr.strip()[-2000:]
+        )
 
 
 def discover_ports():
@@ -101,6 +114,7 @@ def discover_ports():
             "MicroVM I/O ports did not appear: "
             + ", ".join(sorted(expected - ports.keys()))
         )
+
     directory = Path("/dev/virtio-ports")
     directory.mkdir(exist_ok=True)
     for name, device in ports.items():
@@ -127,6 +141,7 @@ def configure_network(enabled):
         if time.monotonic() >= deadline:
             raise RuntimeError("MicroVM network device did not appear")
         time.sleep(0.02)
+
     commands = [
         ["link", "set", "eth0", "up"],
         ["addr", "add", "10.0.2.15/24", "dev", "eth0"],
@@ -134,6 +149,7 @@ def configure_network(enabled):
     ]
     for arguments in commands:
         subprocess.run([busybox, "ip"] + arguments, check=True)
+
     resolver = Path("/run/zentrale-resolv.conf")
     resolver.write_text("nameserver 10.0.2.3\n", encoding="ascii")
     resolver.chmod(0o644)
@@ -145,7 +161,11 @@ def configure_network(enabled):
 
 
 FEDORA = "/run/fedora"
-GUEST_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LANG": "C.UTF-8"}
+GUEST_ENV = {
+    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+    "HOME": "/root",
+    "LANG": "C.UTF-8",
+}
 STANDARD_PACKAGES = {
     "fish": ("fish",),
     "git": ("git",),
@@ -201,6 +221,8 @@ def prepare_fedora(request):
         )
         (Path(CONTROL) / "provisioned").touch()
         return
+
+    # Mount the persistent Fedora disk into the task filesystem view.
     root = Path(FEDORA)
     for name in ("proc", "sys", "dev", "run", "tmp", "home/zentrale"):
         (root / name).mkdir(parents=True, exist_ok=True)
@@ -212,7 +234,13 @@ def prepare_fedora(request):
         target.touch()
         mount("/dev/" + name, str(target), flags=BIND)
     (root / "dev/pts").mkdir()
-    mount("devpts", str(root / "dev/pts"), "devpts", NOSUID | NOEXEC, "newinstance,ptmxmode=0666,mode=0620")
+    mount(
+        "devpts",
+        str(root / "dev/pts"),
+        "devpts",
+        NOSUID | NOEXEC,
+        "newinstance,ptmxmode=0666,mode=0620",
+    )
     (root / "dev/ptmx").symlink_to("pts/ptmx")
     (root / "dev/fd").symlink_to("/proc/self/fd")
     for number, name in enumerate(("stdin", "stdout", "stderr")):
@@ -221,10 +249,14 @@ def prepare_fedora(request):
     for source, destination in [
         ("workspace", request["workspace"]),
         ("temporary", request["temporaryDirectory"]),
-    ] + [("storage-" + str(index), entry["guestPath"]) for index, entry in enumerate(request.get("storage") or [])]:
+    ] + [
+        ("storage-" + str(index), entry["guestPath"])
+        for index, entry in enumerate(request.get("storage") or [])
+    ]:
         target = root / destination.lstrip("/")
         target.mkdir(parents=True, exist_ok=True)
         mount("/run/zentrale-" + source, str(target), flags=BIND)
+
     home = root / "home/zentrale"
     os.chown(home, request["uid"], request["gid"])
     passwd = root / "etc/passwd"
@@ -239,44 +271,71 @@ def prepare_fedora(request):
             )
         with (root / "etc/group").open("a") as output:
             output.write("zentrale:x:{gid}:\n".format(**request))
+
     resolver = root / "etc/resolv.conf"
     resolver.unlink(missing_ok=True)
     resolver.write_text("nameserver 10.0.2.3\n")
     LIBC.prctl(4, 0, 0, 0, 0)  # PR_SET_DUMPABLE: task roots cannot inspect PID 1.
 
 
-
 def enter_guest(root):
     def enter():
         os.chroot(root)
         os.chdir("/")
+
     return enter
 
 
 def install_guest_packages(root, packages):
-    manager = next((name for name in ("microdnf", "dnf5", "dnf")
-                    if (root / "usr/bin" / name).is_file()), None)
+    manager = next(
+        (
+            name
+            for name in ("microdnf", "dnf5", "dnf")
+            if (root / "usr/bin" / name).is_file()
+        ),
+        None,
+    )
     if manager is None:
-        raise RuntimeError("Fedora package manager is missing; cannot install " + ", ".join(packages))
+        raise RuntimeError(
+            "Fedora package manager is missing; cannot install " + ", ".join(packages)
+        )
+
     mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
     subprocess.run(
         ["/usr/bin/" + manager, "-y", "install", *packages],
-        check=True, timeout=240, preexec_fn=enter_guest(root), env=GUEST_ENV,
+        check=True,
+        timeout=240,
+        preexec_fn=enter_guest(root),
+        env=GUEST_ENV,
     )
 
 
 def missing_standard_packages(root):
     # Resolve commands inside the chroot too: a guest's absolute symlink must
     # never be mistaken for a working executable in the host tooling root.
-    arguments = [item for package, commands in STANDARD_PACKAGES.items()
-                 for command in commands for item in (package, command)]
+    arguments = [
+        item
+        for package, commands in STANDARD_PACKAGES.items()
+        for command in commands
+        for item in (package, command)
+    ]
     result = subprocess.run(
-        ["/bin/sh", "-c", '''while [ "$#" -gt 0 ]; do
+        [
+            "/bin/sh",
+            "-c",
+            """while [ "$#" -gt 0 ]; do
     package=$1; command=$2; shift 2
     command -v "$command" >/dev/null 2>&1 || printf '%s\\n' "$package"
-done''', "standard-packages", *arguments],
-        check=True, capture_output=True, text=True, timeout=15,
-        preexec_fn=enter_guest(root), env=GUEST_ENV,
+done""",
+            "standard-packages",
+            *arguments,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        preexec_fn=enter_guest(root),
+        env=GUEST_ENV,
     )
     missing = set(result.stdout.splitlines())
     if missing.difference(STANDARD_PACKAGES):
@@ -291,9 +350,12 @@ def prepare_standard_packages(root):
     # Keep working providers such as curl-minimal, rather than replacing them
     # just because their RPM name differs from the default package name.
     install_guest_packages(root, ["ca-certificates", *missing])
+
     remaining = missing_standard_packages(root)
     if remaining:
-        raise RuntimeError("Fedora standard tools are still missing: " + ", ".join(remaining))
+        raise RuntimeError(
+            "Fedora standard tools are still missing: " + ", ".join(remaining)
+        )
 
 
 def prepare_user_shell(root):
@@ -303,15 +365,21 @@ def prepare_user_shell(root):
         install_guest_packages(root, ["fish"])
         if not fish.is_file():
             raise RuntimeError("Fedora fish installation did not provide /usr/bin/fish")
+
     passwd = root / "etc/passwd"
     accounts = passwd.read_text().splitlines()
     for index, account in enumerate(accounts):
         fields = account.split(":")
         # Migrate the previous default; retain a deliberately selected other shell.
-        if len(fields) == 7 and fields[0] == "zentrale" and fields[6] in ("/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"):
+        if (
+            len(fields) == 7
+            and fields[0] == "zentrale"
+            and fields[6] in ("/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh")
+        ):
             fields[6] = "/usr/bin/fish"
             accounts[index] = ":".join(fields)
     passwd.write_text("\n".join(accounts) + "\n")
+
     shells = root / "etc/shells"
     allowed = shells.read_text().splitlines() if shells.exists() else []
     if "/usr/bin/fish" not in allowed:
@@ -347,7 +415,10 @@ def prepare_tooling(request):
     for source, destination in [
         ("workspace", request["workspace"]),
         ("temporary", request["temporaryDirectory"]),
-    ] + [("storage-" + str(index), entry["guestPath"]) for index, entry in enumerate(request.get("storage") or [])]:
+    ] + [
+        ("storage-" + str(index), entry["guestPath"])
+        for index, entry in enumerate(request.get("storage") or [])
+    ]:
         target = root / destination.lstrip("/")
         target.mkdir(parents=True, exist_ok=True)
         mount("/run/zentrale-" + source, str(target), flags=BIND)
@@ -363,7 +434,9 @@ def run_job(job):
     process = None
     try:
         request = json.loads((job / "request.json").read_text())
-        MailboxStream = runpy.run_path(str(Path(CONTROL, "streams.py")))["MailboxStream"]
+        MailboxStream = runpy.run_path(str(Path(CONTROL, "streams.py")))[
+            "MailboxStream"
+        ]
         cancelled = lambda: (job / "cancel").exists() or Path(CONTROL, "stop").exists()
         process = subprocess.Popen(
             ["/usr/bin/python3", "-I", CONTROL + "/guest.py", str(job)],
@@ -426,6 +499,7 @@ def run_job(job):
             )
         for thread in threads:
             thread.start()
+
         while process.poll() is None:
             if (job / "cancel").exists() or Path(CONTROL, "stop").exists():
                 # The launcher forwards this to the PID-namespace init. Killing
@@ -437,6 +511,7 @@ def run_job(job):
                     process.kill()
                 break
             time.sleep(0.05)
+
         code = process.wait()
         for thread in threads[1:]:
             thread.join()
@@ -465,7 +540,10 @@ def serve_jobs(request):
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
         "vmType": request.get("vmType", "microvm"),
         "gpuDevices": request.get("gpuDevices", []),
-        "storage": [{"id": entry["id"], "path": entry["guestPath"]} for entry in request.get("storage") or []],
+        "storage": [
+            {"id": entry["id"], "path": entry["guestPath"]}
+            for entry in request.get("storage") or []
+        ],
     }
     if proof["gpuDevices"]:
         proof["guestGPUs"] = guest_gpus()
@@ -474,6 +552,7 @@ def serve_jobs(request):
     temporary = Path(CONTROL, "ready.new")
     temporary.write_text(json.dumps(proof))
     os.replace(temporary, Path(CONTROL, "ready.json"))
+
     workers = {}
     while not Path(CONTROL, "stop").exists():
         for job in Path(CONTROL, "requests").iterdir():
@@ -501,12 +580,14 @@ def guest_gpus():
     for device in Path("/sys/bus/pci/devices").iterdir():
         if int((device / "class").read_text().strip(), 16) >> 16 == 0x03:
             driver = device / "driver"
-            devices.append({
-                "address": device.name,
-                "vendor": (device / "vendor").read_text().strip(),
-                "device": (device / "device").read_text().strip(),
-                "driver": driver.resolve().name if driver.exists() else "none",
-            })
+            devices.append(
+                {
+                    "address": device.name,
+                    "vendor": (device / "vendor").read_text().strip(),
+                    "device": (device / "device").read_text().strip(),
+                    "driver": driver.resolve().name if driver.exists() else "none",
+                }
+            )
     return devices
 
 

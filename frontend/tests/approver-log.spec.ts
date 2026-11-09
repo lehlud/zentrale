@@ -1,5 +1,6 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import { agents, config, project, transcript } from "./fixtures/visual-data";
 
 for (const english of [false, true]) {
@@ -126,6 +127,7 @@ for (const english of [false, true]) {
             : query.includes("agents(projectId:")
               ? { project, agents: [agents[0], approver] }
               : config;
+
       return route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${approver.id}`);
@@ -137,6 +139,7 @@ for (const english of [false, true]) {
     const selection = page.getByRole("menu", {
       name: label("Agent wechseln", "Switch agent"),
     });
+
     await expect(
       selection.getByRole("menuitemradio", { name: /Auto-Approver/ }),
     ).toHaveCount(0);
@@ -145,11 +148,13 @@ for (const english of [false, true]) {
         name: new RegExp(agents[0].name),
       }),
     ).toBeChecked();
+
     await page.keyboard.press("Escape");
     const list = page.getByRole("list", {
       name: label("Freigabeprüfungen", "Approval reviews"),
     });
     const rows = list.locator(":scope > li");
+
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText("python3 -m unittest -v");
     await expect(rows.nth(0)).toContainText(label("Genehmigt", "Approved"));
@@ -167,6 +172,7 @@ for (const english of [false, true]) {
       }),
     ).toHaveCount(0);
     await expect(list.getByText("DO_NOT_SHOW")).toHaveCount(0);
+
     // A model proposal must not appear as a permission if it was not recorded.
     messages.push(
       message(
@@ -177,11 +183,15 @@ for (const english of [false, true]) {
       ),
     );
     approver.status = "idle";
+
     await expect.poll(() => Boolean(socket)).toBe(true);
+
     socket!.send(JSON.stringify({ id: ++event }));
+
     await expect(rows.nth(2)).toContainText(
       label("Keine Freigabe erfasst", "No approval recorded"),
     );
+
     approvals.push({
       id: "three",
       tool: "packages_install",
@@ -192,7 +202,9 @@ for (const english of [false, true]) {
       createdAt: "2026-11-06T12:05:01Z",
     });
     socket!.send(JSON.stringify({ id: ++event }));
+
     await expect(rows.nth(2)).toContainText(label("Genehmigt", "Approved"));
+
     await rows
       .nth(2)
       .getByRole("button", {
@@ -200,6 +212,7 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect(
       rows.nth(2).getByText("gcc-gfortran", { exact: true }).last(),
     ).toBeVisible();
@@ -211,6 +224,7 @@ for (const english of [false, true]) {
     expect(
       (await list.locator("pre:visible").allTextContents()).join("\n"),
     ).not.toContain('"arguments"');
+
     await mkdir("artifacts/ui", { recursive: true });
     await page.screenshot({
       path: `artifacts/ui/approver-${english ? "mobile" : "desktop"}.png`,

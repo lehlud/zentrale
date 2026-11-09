@@ -1,6 +1,7 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  // Goals and completion review.
   Aktiv: "Active",
   Arbeitsziel: "Goal",
   "Der Auto-Approver hat noch offene Arbeit festgestellt.":
@@ -29,6 +30,8 @@ export const english: Record<string, string> = {
   "Die unabhängige Abschlussprüfung steht noch aus.":
     "Independent completion review is still pending.",
   "Keine Abschlussprüfung erfasst": "No completion review recorded",
+
+  // Input delivery and execution progress.
   Nachrichtenwarteschlange: "Message queue",
   "Wartende Nachrichten": "Pending messages",
   "Wird gesendet …": "Sending …",
@@ -47,6 +50,8 @@ export const english: Record<string, string> = {
   "Sandbox wird geprüft …": "Checking sandbox …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
   Subagent: "Subagent",
+
+  // Machines, pools and workspace setup.
   "VM-Typ": "VM type",
   "MicroVM (CPU)": "MicroVM (CPU)",
   "q35 (PCI/GPU)": "q35 (PCI/GPU)",
@@ -87,6 +92,8 @@ export const english: Record<string, string> = {
     "Enter an absolute directory other than /, or a directory below ~/.",
   "workspace root contains invalid characters":
     "The project directory contains invalid characters.",
+
+  // Guided setup.
   Weiter: "Continue",
   Zurück: "Back",
   "Commit-Identität anpassen": "Customize commit identity",
@@ -122,6 +129,8 @@ export const english: Record<string, string> = {
     "Set the password for access to Zentrale.",
   "Mit welchem Namen und welcher E-Mail sollen Agenten ihre Commits erstellen?":
     "Which name and email should agents use for their commits?",
+
+  // Tool activity and repository access.
   "Prozess fortsetzen": "Continue process",
   Prozesseingabe: "Process input",
   "Eingabe beenden (EOF)": "End input (EOF)",
@@ -221,6 +230,8 @@ export const english: Record<string, string> = {
   "Git login expired; start again": "The sign-in has expired. Start again.",
   "Git account session could not be refreshed; reconnect":
     "The Git session could not be renewed. Connect the account again.",
+
+  // Conversation, editor and application controls.
   Agent: "Agent",
   "Aktionen für {name}": "Actions for {name}",
   Agentensteuerung: "Agent controls",
@@ -636,6 +647,7 @@ Object.assign(english, {
   "stop the agent and its jobs before removing it":
     "Stop the agent and its jobs before removing it.",
 });
+
 Object.assign(germanErrors, {
   "stop the agent and its jobs before removing it":
     "Vor dem Entfernen den Agenten und seine Jobs stoppen.",
@@ -671,6 +683,7 @@ Object.assign(english, {
   failed: "Failed",
   interrupted: "Interrupted",
 });
+
 Object.assign(germanErrors, {
   failed: "Fehlgeschlagen",
   interrupted: "Unterbrochen",
@@ -730,6 +743,7 @@ Object.assign(english, {
   "editor disconnected; reconnect the editor":
     "The editor connection was interrupted. Reconnect the editor.",
 });
+
 Object.assign(germanErrors, {
   "remote editor disconnected; reconnect the editor":
     "Die Editor-Verbindung wurde unterbrochen. Den Editor erneut verbinden.",
@@ -1069,6 +1083,7 @@ Object.assign(english, {
 Object.assign(english, {
   "Gespeicherten API-Token entfernen": "Remove saved API token",
 });
+
 Object.assign(germanErrors, {
   "OAuth client ID is required": "Die Client-ID der OAuth-App eingeben.",
   "configure the OAuth app client ID first":

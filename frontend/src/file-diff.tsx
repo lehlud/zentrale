@@ -1,5 +1,6 @@
 import { Accordion, Button } from "@heroui/react";
 import { useState } from "react";
+
 import type { FileChange } from "./generated";
 import { useI18n } from "./preferences";
 import { DiffSyntax, SyntaxTokens, type SyntaxToken } from "./syntax";
@@ -19,20 +20,30 @@ function patchLines(patch: string): DiffLine[] {
   let inHunk = false;
   const lines = patch.split("\n");
   if (lines.at(-1) === "") lines.pop();
+
   return lines.flatMap((line): DiffLine[] => {
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk) {
       oldLine = Number(hunk[1]);
       newLine = Number(hunk[2]);
       inHunk = true;
+
       return [{ kind: "hunk", text: line }];
     }
-    if (!inHunk) return [];
-    if (line.startsWith("+"))
+
+    if (!inHunk) {
+      return [];
+    }
+
+    if (line.startsWith("+")) {
       return [{ kind: "added", text: line.slice(1), newLine: newLine++ }];
-    if (line.startsWith("-"))
+    }
+
+    if (line.startsWith("-")) {
       return [{ kind: "removed", text: line.slice(1), oldLine: oldLine++ }];
-    if (line.startsWith(" "))
+    }
+
+    if (line.startsWith(" ")) {
       return [
         {
           kind: "context",
@@ -41,6 +52,8 @@ function patchLines(patch: string): DiffLine[] {
           newLine: newLine++,
         },
       ];
+    }
+
     return [{ kind: "note", text: line }];
   });
 }
@@ -52,6 +65,7 @@ const notices: Record<string, string> = {
   directory:
     "Verzeichnis entfernt. Für Verzeichnisse ist kein Text-Diff verfügbar.",
 };
+
 const kinds: Record<string, string> = {
   created: "Erstellt",
   modified: "Geändert",
@@ -108,6 +122,7 @@ export function FileDiff({ change }: { change: FileChange }) {
         </td>
       </tr>
     ));
+
   return (
     <Accordion
       hideSeparator

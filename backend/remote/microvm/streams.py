@@ -26,11 +26,13 @@ class MailboxStream:
     def write(self, data):
         for offset in range(0, len(data), self.CHUNK_BYTES):
             # The reader removes each chunk only after copying its bytes.
-            while self.sequence >= self.QUEUED_CHUNKS and self.chunk(
-                self.sequence - self.QUEUED_CHUNKS
-            ).exists():
+            while (
+                self.sequence >= self.QUEUED_CHUNKS
+                and self.chunk(self.sequence - self.QUEUED_CHUNKS).exists()
+            ):
                 self.check_cancelled()
                 time.sleep(0.005)
+
             self.check_cancelled()
             destination = self.chunk(self.sequence)
             temporary = destination.with_suffix(".new")
@@ -47,6 +49,7 @@ class MailboxStream:
             if (self.directory / (self.name + ".eof")).exists():
                 return b""
             return None
+
         source.unlink()
         self.sequence += 1
         return data

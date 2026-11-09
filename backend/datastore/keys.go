@@ -25,10 +25,12 @@ func (i *Instance) GenerateSSHKey() (*SSHPrivKey, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	key, err := i.insertOne[*SSHPrivKey]("private_ssh_keys", SSHPrivKey{X509Data: data})
 	if err != nil {
 		return nil, fmt.Errorf("GenerateSSHKey(): db insertion failed: %w", err)
 	}
+
 	return key, nil
 }
 
@@ -74,7 +76,10 @@ func (i *Instance) DropPrivSSHKey(keyId int) error {
 func (i *Instance) IsTrustedSSHKey(data []byte) (bool, error) {
 	result, err := i.query[struct {
 		Trusted bool `db:"trusted"`
-	}]("SELECT EXISTS (SELECT 1 FROM known_ssh_keys WHERE x509_data = ?) AS trusted", data)
+	}](
+		"SELECT EXISTS (SELECT 1 FROM known_ssh_keys WHERE x509_data = ?) AS trusted",
+		data,
+	)
 
 	if err != nil {
 		return false, fmt.Errorf("IsTrustedSSHKey(): db retrieval failed: %w", err)

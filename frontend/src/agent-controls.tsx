@@ -1,5 +1,6 @@
 import { Button, Dropdown, Label, Link, buttonVariants } from "@heroui/react";
 import type { RefObject } from "react";
+
 import { useAPI } from "./api";
 import { statusLabels } from "./agent-format";
 import type { Agent, Project } from "./generated";
@@ -49,6 +50,7 @@ export function AgentControls({
     Boolean(current) &&
     current?.role !== "approver" &&
     current?.status !== "running";
+
   return (
     <div
       ref={headerRef}

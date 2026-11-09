@@ -8,6 +8,7 @@ export async function chooseProviderAccount(page: Page, name: string) {
     await selector.click();
     await page.getByRole("option", { name, exact: true }).click();
   }
+
   return page.locator("[data-provider-account]:visible").filter({
     has: page.getByRole("heading", { name, exact: true }),
   });
@@ -36,6 +37,7 @@ export async function chooseContextAction(
     .getByRole("menu", { name: label!, exact: true })
     .getByRole("menuitem", { name, exact: true })
     .click();
+
   return trigger;
 }
 
@@ -49,6 +51,7 @@ export async function setLogDiagnostics(page: Page, enabled: boolean) {
         name: /^(Menü öffnen|Open menu|Seitenleiste öffnen|Open sidebar)$/,
       })
       .click();
+
   await settings.click();
   await page
     .getByRole("menuitem", {
@@ -62,6 +65,7 @@ export async function setLogDiagnostics(page: Page, enabled: boolean) {
     await toggle.focus();
     await page.keyboard.press("Space");
   }
+
   await page.keyboard.press("Escape");
   await page
     .locator('[data-slot="modal-dialog"]')

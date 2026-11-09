@@ -52,6 +52,7 @@ pre {
   gap: 3px;
   height: 16px;
 }
+
 .working-indicator > span {
   width: 4px;
   height: 4px;
@@ -59,12 +60,15 @@ pre {
   background: currentColor;
   animation: working-pulse 1.2s ease-in-out infinite;
 }
+
 .working-indicator > span:nth-child(2) {
   animation-delay: 0.15s;
 }
+
 .working-indicator > span:nth-child(3) {
   animation-delay: 0.3s;
 }
+
 @keyframes working-pulse {
   0%,
   70%,
@@ -72,11 +76,13 @@ pre {
     opacity: 0.35;
     transform: translateY(0);
   }
+
   35% {
     opacity: 1;
     transform: translateY(-2px);
   }
 }
+
 @media (prefers-reduced-motion: reduce) {
   .working-indicator > span {
     animation: none;

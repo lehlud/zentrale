@@ -13,6 +13,7 @@ func (instance *Instance) ProjectWorkspaceToken(projectID string) (string, error
 	if instance == nil || instance.Closed() {
 		return "", ErrClosed
 	}
+
 	_, err := instance.db.Exec(
 		"INSERT INTO settings(name,value) VALUES ('workspace_identity',?) ON CONFLICT(name) DO NOTHING",
 		rand.Text(),
@@ -20,11 +21,14 @@ func (instance *Instance) ProjectWorkspaceToken(projectID string) (string, error
 	if err != nil {
 		return "", err
 	}
+
 	secret, err := instance.Setting("workspace_identity")
 	if err != nil {
 		return "", err
 	}
+
 	signature := hmac.New(sha256.New, []byte(secret))
 	_, _ = signature.Write([]byte(projectID))
+
 	return hex.EncodeToString(signature.Sum(nil)), nil
 }

@@ -1,5 +1,6 @@
 import { Alert, Button, Card, Chip } from "@heroui/react";
 import { useRef, useState } from "react";
+
 import { useAPI } from "./api";
 import type {
   Machine,
@@ -31,12 +32,17 @@ export function MachineCard({
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const observedSandbox = result?.connected ? result.sandbox : sandboxStatus;
+
   async function check() {
-    if (pending.current) return;
+    if (pending.current) {
+      return;
+    }
+
     pending.current = true;
     setBusy(true);
     setError("");
     setResult(undefined);
+
     try {
       const data = await api.query<{ testMachine: MachineConnectionCheck }>(
         "mutation($id:String!){testMachine(id:$id){connected error hostKey{host fingerprint publicKey} sandbox{machineId mode level checkedAt error}}}",
@@ -50,6 +56,7 @@ export function MachineCard({
       setBusy(false);
     }
   }
+
   return (
     <Card variant="secondary">
       <Card.Content className="gap-4">

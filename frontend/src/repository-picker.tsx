@@ -13,6 +13,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
 import { useAPI, useQuery } from "./api";
 import type {
   GitConnection,
@@ -30,8 +31,10 @@ export type RepositoryChoice = {
   repositoryId: string;
   repositoryName: string;
 };
+
 const repositoryFields =
   "id identity name fullName sshUrl webUrl private canManageDeployKeys";
+
 const repositoriesQuery = `query($connectionId:String!,$search:String!,$offset:Int!){gitRepositories(connectionId:$connectionId,search:$search,offset:$offset){items{${repositoryFields}} hasMore nextOffset}}`;
 
 export function RepositoryPicker({
@@ -65,6 +68,7 @@ export function RepositoryPicker({
       setExpanded(false);
     }
   };
+
   return (
     <section
       className="min-w-0 space-y-4"
@@ -219,11 +223,13 @@ function RepositoryList({
   const page = result?.key === requestKey ? result.page : undefined;
   const visibleCount = useRef({ key: "", count: 0 });
   visibleCount.current = { key: requestKey, count: page?.items.length ?? 0 };
+
   useEffect(() => {
     const controller = new AbortController();
     setError("");
     const retainCount =
       visibleCount.current.key === requestKey ? visibleCount.current.count : 0;
+
     async function refresh() {
       let refreshed = (
         await api.query<{ gitRepositories: GitRepositoryPage }>(
@@ -246,17 +252,24 @@ function RepositoryList({
         ).gitRepositories;
         refreshed = { ...next, items: [...refreshed.items, ...next.items] };
       }
+
       if (!controller.signal.aborted)
         setResult({ key: requestKey, page: refreshed });
     }
     void refresh().catch((failure: Error) => {
       if (!controller.signal.aborted) setError(failure.message);
     });
+
     return () => controller.abort();
   }, [api, connection.id, needle, requestKey, version, retry]);
+
   async function more() {
-    if (!page || busy) return;
+    if (!page || busy) {
+      return;
+    }
+
     setBusy(true);
+
     try {
       const next = await api.query<{ gitRepositories: GitRepositoryPage }>(
         repositoriesQuery,
@@ -292,9 +305,14 @@ function RepositoryList({
       setBusy(false);
     }
   }
+
   async function refreshCatalog() {
-    if (busy) return;
+    if (busy) {
+      return;
+    }
+
     setBusy(true);
+
     try {
       await api.mutate(
         "mutation($connectionId:String!){refreshGitRepositories(connectionId:$connectionId)}",
@@ -307,6 +325,7 @@ function RepositoryList({
       setBusy(false);
     }
   }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -383,6 +402,7 @@ function CreateRepository({
     "query($connectionId:String!){gitNamespaces(connectionId:$connectionId){id name personal}}",
     { connectionId: connection.id },
   );
+
   return (
     <Editor
       title={t("Repository erstellen")}

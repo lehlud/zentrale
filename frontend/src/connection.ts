@@ -11,6 +11,7 @@ export class ConnectionError extends Error {
 export class ConnectionMonitor {
   private interrupted = false;
   private listeners = new Set<() => void>();
+
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pending: Promise<void> | undefined;
   private controller: AbortController | undefined;
@@ -50,8 +51,14 @@ export class ConnectionMonitor {
   }
 
   retry = (): Promise<void> => {
-    if (this.pending) return this.pending;
-    if (!this.interrupted || !this.active) return Promise.resolve();
+    if (this.pending) {
+      return this.pending;
+    }
+
+    if (!this.interrupted || !this.active) {
+      return Promise.resolve();
+    }
+
     clearTimeout(this.timer);
     this.timer = undefined;
     const controller = new AbortController();
@@ -60,7 +67,10 @@ export class ConnectionMonitor {
     this.pending = (async () => {
       try {
         await this.check(controller.signal);
-        if (controller.signal.aborted || !this.active) return;
+        if (controller.signal.aborted || !this.active) {
+          return;
+        }
+
         this.interrupted = false;
         this.delay = 2000;
         this.listeners.forEach((listener) => listener());
@@ -76,11 +86,14 @@ export class ConnectionMonitor {
         this.schedule();
       }
     })();
+
     return this.pending;
   };
 
   private schedule() {
-    if (!this.active || !this.interrupted || this.timer || this.pending) return;
+    if (!this.active || !this.interrupted || this.timer || this.pending) {
+      return;
+    }
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.retry();

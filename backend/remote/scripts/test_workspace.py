@@ -48,10 +48,14 @@ class PersistentWorkspaceTests(unittest.TestCase):
             marker.write_text(json.dumps({"token": self.configuration["token"]}))
             raise FileExistsError("another connection already published the receipt")
 
-        with mock.patch.object(workspace.os, "link", side_effect=publish_from_another_connection):
+        with mock.patch.object(
+            workspace.os, "link", side_effect=publish_from_another_connection
+        ):
             result = workspace.prepare(self.configuration)
         self.assertTrue(Path(result["directory"]).is_dir())
-        self.assertEqual(json.loads(marker.read_text()), {"token": self.configuration["token"]})
+        self.assertEqual(
+            json.loads(marker.read_text()), {"token": self.configuration["token"]}
+        )
         self.assertEqual(list(marker.parent.iterdir()), [marker])
 
     def test_another_installation_cannot_claim_the_directory(self):
@@ -77,10 +81,16 @@ class PersistentWorkspaceTests(unittest.TestCase):
 
     def test_home_is_expanded_on_the_remote_and_pinned_locations_are_retained(self):
         self.configuration["root"] = "~/.local/share/zentrale/projects"
-        with mock.patch.object(workspace.os.path, "expanduser", return_value=str(self.root)):
+        with mock.patch.object(
+            workspace.os.path, "expanduser", return_value=str(self.root)
+        ):
             first = workspace.prepare(self.configuration)
         self.configuration.update(initialized=True, directory=first["directory"])
-        with mock.patch.object(workspace.os.path, "expanduser", side_effect=AssertionError("pinned path changed")):
+        with mock.patch.object(
+            workspace.os.path,
+            "expanduser",
+            side_effect=AssertionError("pinned path changed"),
+        ):
             self.assertEqual(first, workspace.prepare(self.configuration))
 
 

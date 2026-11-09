@@ -28,14 +28,17 @@ type SandboxStatus struct {
 }
 
 type EditorSession struct {
-	Directory   string `json:"directory"`
+	Directory string `json:"directory"`
+
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
 	MachineID   string `json:"machineId"`
 	MachineName string `json:"machineName"`
-	URL         string `json:"url"`
-	AgentID     string `json:"agentId"`
-	Sandbox     string `json:"sandbox"`
+
+	URL string `json:"url"`
+
+	AgentID string `json:"agentId"`
+	Sandbox string `json:"sandbox"`
 }
 
 type EditorStartResult struct {

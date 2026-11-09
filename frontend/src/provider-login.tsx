@@ -10,6 +10,7 @@ import {
   buttonVariants,
 } from "@heroui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useAPI } from "./api";
 import type { Provider, ProviderLogin } from "./generated";
 import { useI18n } from "./preferences";
@@ -43,6 +44,7 @@ export function ProviderSignIn({
         .catch(() => {}),
     [api],
   );
+
   useEffect(() => {
     let active = true;
     let sessionId = "";
@@ -63,14 +65,18 @@ export function ProviderSignIn({
       .catch((error: Error) => {
         if (active) setError(error.message);
       });
+
     return () => {
       active = false;
       if (sessionId) void cancel(sessionId);
     };
   }, [api, provider.id, attempt, cancel]);
+
   useEffect(() => {
-    if (login?.method !== "device" || login.status !== "pending" || error)
+    if (login?.method !== "device" || login.status !== "pending" || error) {
       return;
+    }
+
     let active = true;
     const timer = setTimeout(
       () => {
@@ -80,7 +86,10 @@ export function ProviderSignIn({
             { id: login.id },
           )
           .then((result) => {
-            if (!active) return;
+            if (!active) {
+              return;
+            }
+
             setLogin(result.pollProviderLogin);
             if (result.pollProviderLogin.status === "connected") api.refresh();
           })
@@ -90,11 +99,13 @@ export function ProviderSignIn({
       },
       Math.max(5, login.interval) * 1000,
     );
+
     return () => {
       active = false;
       clearTimeout(timer);
     };
   }, [api, login, error]);
+
   const failed = Boolean(
     error || login?.status === "error" || login?.status === "expired",
   );
@@ -166,6 +177,7 @@ export function ProviderSignIn({
                   codeInput.current?.focus();
                   return;
                 }
+
                 void action.run(async () => {
                   const result = await api.query<{
                     pollProviderLogin: ProviderLogin;
@@ -244,6 +256,7 @@ export function ProviderSignIn({
       </div>
     </div>
   );
+
   return embedded ? (
     body
   ) : (

@@ -17,54 +17,67 @@ func (server *Server) attachFileChanges(messages []map[string]any, info graphql.
 				ids = append(ids, id)
 			}
 		}
+
 		rows, err := server.Store.ResourcesByID("tool_activity", ids, []string{"id", "activities"})
 		if err != nil {
 			return err
 		}
+
 		byID := map[string]any{}
 		for _, row := range rows {
 			id, _ := row["id"].(string)
 			byID[id] = row["activities"]
 		}
+
 		for _, message := range messages {
 			id, _ := message["id"].(string)
 			message["activities"] = byID[id]
 		}
 	}
+
 	fields := nestedResourceFields(info, "change")
 	allFields := nestedResourceFields(info, "changes")
 	if fields == nil && allFields == nil {
 		return nil
 	}
+
 	for _, field := range allFields {
 		if !slices.Contains(fields, field) {
 			fields = append(fields, field)
 		}
 	}
+
 	ids := make([]string, 0, len(messages))
+
 	for _, message := range messages {
 		if id, ok := message["id"].(string); ok {
 			ids = append(ids, id)
 		}
 	}
+
 	if !slices.Contains(fields, "id") {
 		fields = append(fields, "id")
 	}
+
 	if !slices.Contains(fields, "messageId") {
 		fields = append(fields, "messageId")
 	}
+
 	changes, err := server.Store.MessageFileChanges(ids, fields)
 	if err != nil {
 		return err
 	}
+
 	byID := map[string][]map[string]any{}
 	for _, change := range changes {
 		id, _ := change["messageId"].(string)
 		if id == "" {
 			id, _ = change["id"].(string)
 		}
+
 		byID[id] = append(byID[id], change)
 	}
+
 	for _, message := range messages {
 		id, _ := message["id"].(string)
 		if changes := byID[id]; len(changes) > 0 {
@@ -72,6 +85,7 @@ func (server *Server) attachFileChanges(messages []map[string]any, info graphql.
 			message["changes"] = changes
 		}
 	}
+
 	return nil
 }
 
@@ -84,6 +98,7 @@ func nestedResourceFields(info graphql.ResolveInfo, name string) []string {
 		if selection == nil {
 			return
 		}
+
 		for _, entry := range selection.Selections {
 			switch field := entry.(type) {
 			case *ast.Field:
@@ -95,6 +110,7 @@ func nestedResourceFields(info graphql.ResolveInfo, name string) []string {
 			case *ast.FragmentSpread:
 				if !visited[field.Name.Value] {
 					visited[field.Name.Value] = true
+
 					if fragment, ok := info.Fragments[field.Name.Value].(*ast.FragmentDefinition); ok {
 						visit(fragment.SelectionSet)
 					}
@@ -102,11 +118,14 @@ func nestedResourceFields(info graphql.ResolveInfo, name string) []string {
 			}
 		}
 	}
+
 	for _, field := range info.FieldASTs {
 		visit(field.SelectionSet)
 	}
+
 	if len(nested.FieldASTs) == 0 {
 		return nil
 	}
+
 	return requestedResourceFields(nested, false)
 }

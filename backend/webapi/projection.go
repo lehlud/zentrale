@@ -18,6 +18,7 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 		if selection == nil {
 			return
 		}
+
 		for _, item := range selection.Selections {
 			switch node := item.(type) {
 			case *ast.Field:
@@ -30,19 +31,24 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 				if visited[node.Name.Value] {
 					continue
 				}
+
 				visited[node.Name.Value] = true
+
 				if fragment, valid := info.Fragments[node.Name.Value].(*ast.FragmentDefinition); valid {
 					visit(fragment.SelectionSet)
 				}
 			}
 		}
 	}
+
 	for _, field := range info.FieldASTs {
 		visit(field.SelectionSet)
 	}
+
 	if selected["change"] || selected["changes"] || selected["activities"] {
 		selected["id"] = true
 	}
+
 	if provider {
 		// These private fields are consumed by the resolver and removed before
 		// output. Neither is present in the public GraphQL type.
@@ -51,14 +57,19 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 			selected["oauth"] = true
 			selected["catalogStatus"] = true
 		}
+
 		if selected["accountLabel"] {
 			selected["oauth"] = true
 		}
 	}
+
 	fields := make([]string, 0, len(selected))
+
 	for field := range selected {
 		fields = append(fields, field)
 	}
+
 	sort.Strings(fields)
+
 	return fields
 }

@@ -44,9 +44,11 @@ func initializeSchema(db *sql.DB) error {
 		return fmt.Errorf("begin schema initialization: %w", err)
 	}
 	defer tx.Rollback()
+
 	if _, err := tx.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("initialize current schema: %w", err)
 	}
+
 	// CREATE IF NOT EXISTS does not validate pre-existing column layouts.
 	for _, query := range []string{
 		"SELECT id,x509_data,purpose,purpose_id FROM private_ssh_keys LIMIT 0",
@@ -60,5 +62,6 @@ func initializeSchema(db *sql.DB) error {
 			return fmt.Errorf("incompatible development database schema; no data was changed: %w", err)
 		}
 	}
+
 	return tx.Commit()
 }

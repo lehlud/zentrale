@@ -40,6 +40,7 @@ export function ModelMetadataEditor({
       type: "check",
     },
   ];
+
   return (
     <Editor
       title={`${t("Modell-Metadaten ergänzen")} · ${model.name}`}

@@ -14,11 +14,13 @@ export async function measureThemeContrast(page: Page) {
       context.clearRect(0, 0, 1, 1);
       context.fillStyle = getComputedStyle(probe).color;
       context.fillRect(0, 0, 1, 1);
+
       return Array.from(
         context.getImageData(0, 0, 1, 1).data,
         (value) => value / 255,
       );
     }
+
     function composite(foreground: number[], background: number[]) {
       return foreground
         .slice(0, 3)
@@ -27,6 +29,7 @@ export async function measureThemeContrast(page: Page) {
             channel * foreground[3] + background[index] * (1 - foreground[3]),
         );
     }
+
     function luminance(channels: number[]) {
       const linear = channels
         .slice(0, 3)
@@ -68,6 +71,7 @@ export async function measureThemeContrast(page: Page) {
         const foreground = composite(color(foregroundToken), background);
         const first = luminance(foreground);
         const second = luminance(background);
+
         return {
           name,
           minimum,
@@ -77,6 +81,7 @@ export async function measureThemeContrast(page: Page) {
       },
     );
     probe.remove();
+
     return measurements;
   });
 }

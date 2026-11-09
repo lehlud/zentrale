@@ -1,4 +1,5 @@
 import { Accordion, Button, Card, Chip } from "@heroui/react";
+
 import type { Goal } from "./generated";
 import { useAPI } from "./api";
 import { goalStatusLabels } from "./goal-format";
@@ -20,6 +21,7 @@ export function AgentGoal({
   const status =
     reviewing && goal.status === "active" ? "reviewing" : goal.status;
   const terminal = goal.status === "complete" || goal.status === "cancelled";
+
   return (
     <Card
       variant="secondary"

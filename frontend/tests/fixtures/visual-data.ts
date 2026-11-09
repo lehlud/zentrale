@@ -28,6 +28,7 @@ export const machine = {
   containers: false,
   microVMCommand: "",
 };
+
 export const project = {
   id: "forecast",
   name: "Modelltraining & Evaluation",
@@ -37,6 +38,7 @@ export const project = {
   commitName: "",
   commitEmail: "",
 };
+
 const provider = {
   id: "openai",
   name: "OpenAI · Forschung",
@@ -50,6 +52,7 @@ const provider = {
   catalogError: "",
   modelCount: 3,
 };
+
 export const models = [
   "Hauptmodell",
   "Schnelle Freigaben",
@@ -65,6 +68,7 @@ export const models = [
   pricesKnown: true,
   metadataEstimated: false,
 }));
+
 export const config = {
   gitConnections,
   commitIdentity: { name: "Entwicklungsteam", email: "dev@example.org" },
@@ -154,6 +158,7 @@ export const config = {
     { id: "litellm", name: "LiteLLM", authMethods: ["api"] },
   ],
 };
+
 export const agent = {
   id: "main",
   name: "Trainingsplanung",
@@ -170,6 +175,7 @@ export const agent = {
   summary:
     "Training mit Checkpoints fortsetzen. Nach einem Maschinenwechsel wird der Agent informiert und startet den Prozess selbst neu.",
 };
+
 export const agents = [
   agent,
   {
@@ -188,7 +194,9 @@ export const agents = [
     parentId: agent.id,
   },
 ];
+
 const createdAt = "2026-11-03T13:45:00Z";
+
 export const transcript = {
   agent,
   messages: [
@@ -306,6 +314,7 @@ export const transcript = {
     requestCount: 6,
   },
 };
+
 export const sources = [
   {
     id: "source",

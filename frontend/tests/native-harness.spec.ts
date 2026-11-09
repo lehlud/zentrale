@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -205,6 +206,7 @@ for (const english of [false, true]) {
           : query.includes("agents(projectId:")
             ? { project, agents }
             : config;
+
       return route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -217,6 +219,7 @@ for (const english of [false, true]) {
         name: new RegExp(label("Datei lesen", "Read file") + ".*existing.py"),
       })
       .click();
+
     await expect(
       output.getByText(
         label(
@@ -226,6 +229,7 @@ for (const english of [false, true]) {
         { exact: true },
       ),
     ).toBeVisible();
+
     await output
       .getByRole("button", {
         name: new RegExp(label("Plan aktualisieren", "Update plan")),
@@ -235,13 +239,16 @@ for (const english of [false, true]) {
       name: label("Arbeitsplan", "Work plan"),
       exact: true,
     });
+
     await expect(steps.getByRole("listitem")).toHaveCount(2);
     await expect(steps).toContainText(label("In Arbeit", "In progress"));
+
     await output
       .getByRole("button", {
         name: new RegExp(label("Dateien ändern", "Edit files")),
       })
       .click();
+
     await expect(output.getByRole("table")).toHaveCount(2);
     await expect(
       output.getByRole("button", { name: /^answer\.py / }),
@@ -255,6 +262,7 @@ for (const english of [false, true]) {
     await expect(
       output.getByText("*** Begin Patch", { exact: false }),
     ).toHaveCount(0);
+
     await output
       .getByRole("button", {
         name: new RegExp(
@@ -262,9 +270,11 @@ for (const english of [false, true]) {
         ),
       })
       .click();
+
     await expect(
       output.getByText("2 tests passed", { exact: true }).first(),
     ).toBeVisible();
+
     await output
       .getByRole("button", {
         name: new RegExp(label("Werkzeuge kombinieren", "Combine tools")),
@@ -274,29 +284,37 @@ for (const english of [false, true]) {
       name: label("Ausgeführte Werkzeuge", "Executed tools"),
       exact: true,
     });
+
     await expect(activity.getByRole("listitem")).toHaveCount(2);
+
     const innerRead = activity.getByRole("button", {
       name: new RegExp(label("Datei lesen", "Read file") + ".*answer.py"),
     });
     await innerRead.scrollIntoViewIfNeeded();
     await innerRead.focus();
     await page.keyboard.press("Enter");
+
     await expect(innerRead).toBeInViewport();
     await expect(
       activity.getByText("return 42", { exact: false }),
     ).toBeVisible();
     await expect(output.getByText("true", { exact: true })).toBeVisible();
+
     await activity.scrollIntoViewIfNeeded();
+
     await expect(
       output.getByRole("button", {
         name: label("Schrittdetails", "Step details"),
         exact: true,
       }),
     ).toHaveCount(0);
+
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - innerWidth,
     );
+
     expect(overflow).toBeLessThanOrEqual(1);
+
     await mkdir("artifacts/ui", { recursive: true });
     const variant = english ? "mobile-en-dark" : "desktop-de-light";
     const file = `native-harness-${variant}.png`;

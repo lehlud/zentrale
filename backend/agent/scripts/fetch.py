@@ -1,4 +1,5 @@
 """Fetch a document on the remote machine and return text or a remote temp file."""
+
 import html.parser
 import json
 import os
@@ -41,17 +42,22 @@ def fetch_document(address, raw):
         body = response.read(MAXIMUM_RESPONSE_BYTES + 1)
         if len(body) > MAXIMUM_RESPONSE_BYTES:
             raise ValueError("response exceeds 8 MiB")
-        content = body.decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+
+        content = body.decode(
+            response.headers.get_content_charset() or "utf-8", errors="replace"
+        )
         if not raw and "html" in response.headers.get("Content-Type", ""):
             parser = DocumentText()
             parser.feed(content)
             content = "".join(parser.parts)
+
         return response.url, content
 
 
 def main():
     address, raw, temporary_directory = sys.argv[1:]
     resolved_address, content = fetch_document(address, raw == "true")
+
     result = {"url": resolved_address}
     if len(content) > INLINE_CHARACTER_LIMIT:
         descriptor, filename = tempfile.mkstemp(
@@ -62,6 +68,7 @@ def main():
         result.update(path=filename, characters=len(content), preview=content[:1000])
     else:
         result["content"] = content
+
     print(json.dumps(result))
 
 

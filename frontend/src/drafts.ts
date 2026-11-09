@@ -6,6 +6,7 @@ export function useDraft(key: string): [string, (value: string) => void] {
   const [value, setValue] = useState(
     () => sessionStorage.getItem(storageKey) ?? "",
   );
+
   return [
     value,
     (next) => {

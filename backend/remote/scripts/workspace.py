@@ -23,7 +23,9 @@ def prepare(configuration):
     marker = metadata / (project_name + ".json")
 
     if metadata.is_symlink() or marker.is_symlink() or directory.is_symlink():
-        raise ValueError("managed workspace metadata and project directories must not be symlinks")
+        raise ValueError(
+            "managed workspace metadata and project directories must not be symlinks"
+        )
     if configuration["initialized"]:
         if not marker.is_file() or not directory.is_dir():
             raise ValueError(
@@ -35,11 +37,15 @@ def prepare(configuration):
         metadata.mkdir(mode=0o700, exist_ok=True)
         if not marker.exists():
             if directory.exists() and any(directory.iterdir()):
-                raise ValueError("refusing to adopt an existing non-empty project directory")
+                raise ValueError(
+                    "refusing to adopt an existing non-empty project directory"
+                )
             directory.mkdir(mode=0o700, exist_ok=True)
             # Publish a complete receipt atomically. A canceled SSH command
             # must never leave a half-written marker that prevents recovery.
-            with tempfile.NamedTemporaryFile(mode="w", dir=metadata, delete=False) as output:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=metadata, delete=False
+            ) as output:
                 temporary = Path(output.name)
                 try:
                     json.dump({"token": configuration["token"]}, output)
@@ -57,7 +63,9 @@ def prepare(configuration):
     with marker.open() as source:
         receipt = json.load(source)
     if receipt.get("token") != configuration["token"]:
-        raise ValueError("project workspace belongs to a different installation or project")
+        raise ValueError(
+            "project workspace belongs to a different installation or project"
+        )
     if not directory.is_dir() or not os.access(directory, os.R_OK | os.W_OK | os.X_OK):
         raise ValueError("project workspace is not readable and writable")
     return {"directory": str(directory)}

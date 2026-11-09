@@ -1,10 +1,13 @@
 import { Label, ListBox, Select, Switch } from "@heroui/react";
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
+
 import { english, germanErrors } from "./messages";
 
 type Locale = "de" | "en";
+
 type Theme = "light" | "dark";
+
 type Preferences = {
   locale: Locale;
   theme: Theme;
@@ -13,6 +16,7 @@ type Preferences = {
   showDiagnostics: boolean;
   setShowDiagnostics: (show: boolean) => void;
 };
+
 const PreferencesContext = createContext<Preferences | null>(null);
 
 function savedPreference(key: string, fallback: string) {
@@ -38,11 +42,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [showDiagnostics, setShowDiagnostics] = useState(
     () => savedPreference("zentrale-log-diagnostics", "false") === "true",
   );
+
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.classList.toggle("light", theme === "light");
+
     try {
       localStorage.setItem("zentrale-locale", locale);
       localStorage.setItem("zentrale-theme", theme);
@@ -51,6 +57,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       /* Storage may be disabled by browser policy. */
     }
   }, [locale, theme, showDiagnostics]);
+
   return (
     <PreferencesContext.Provider
       value={{
@@ -87,7 +94,10 @@ export function LogDiagnosticsControl() {
 
 export function useI18n() {
   const preferences = useContext(PreferencesContext);
-  if (!preferences) throw new Error("Preferences provider missing");
+  if (!preferences) {
+    throw new Error("Preferences provider missing");
+  }
+
   const { locale } = preferences;
   const t = (text: string, values: Record<string, string | number> = {}) => {
     let translated =
@@ -100,6 +110,7 @@ export function useI18n() {
     ) {
       translated = `Die Modellanfrage ist fehlgeschlagen${text.slice(modelFailure.length)}`;
     }
+
     const gitFailure = /^Git provider returned HTTP (\d+):\s*(.*)$/.exec(text);
     if (locale === "de" && gitFailure) {
       const status = Number(gitFailure[1]);
@@ -113,10 +124,13 @@ export function useI18n() {
               : "Die Anfrage an den Git-Dienst ist fehlgeschlagen. Erneut versuchen.";
       translated = `${recovery} (HTTP ${status}) ${gitFailure[2]}`;
     }
+
     for (const [key, value] of Object.entries(values))
       translated = translated.replaceAll(`{${key}}`, String(value));
+
     return translated;
   };
+
   return {
     ...preferences,
     t,

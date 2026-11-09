@@ -48,31 +48,39 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 	if err != nil {
 		return nil, err
 	}
+
 	switch request.Action {
 	case "write_stdin":
 		return engine.writeStdin(ctx, agentRecord, request)
 	case "mcp_connect", "mcp_list", "mcp_tools", "mcp_call", "mcp_disconnect":
 		return engine.mcpTool(ctx, agentRecord, request)
 	}
+
 	if result, handled, err := engine.internalTool(ctx, agentRecord, request); handled {
 		return result, err
 	}
+
 	policy, exists := reviewedTools[request.Action]
 	if !exists {
 		return nil, errors.New("unknown action")
 	}
+
 	if policy.RequiresNetwork && !request.Network {
 		return nil, errors.New("request network=true for this individual interaction")
 	}
+
 	if boolArg(request.Arguments, "outsideSandbox") && request.Justification == "" {
 		return nil, errors.New("outsideSandbox requires justification and script inspection")
 	}
+
 	if request.Action == "read_file" {
 		return engine.approvedRead(ctx, agentRecord, request.Arguments, request.Justification, request.Network)
 	}
+
 	if _, err := engine.approve(ctx, agentRecord, request); err != nil {
 		return nil, err
 	}
+
 	return engine.reviewedTool(ctx, agentRecord, request)
 }
 
@@ -80,10 +88,12 @@ func decodeInteraction(call providers.Call) (interaction, error) {
 	if call.Name != "harness" {
 		return decodeNativeInteraction(call)
 	}
+
 	var arguments map[string]any
 	if err := decode(stringArg(call.Arguments, "arguments"), &arguments); err != nil || arguments == nil {
 		return interaction{}, errors.New("arguments must encode a JSON object")
 	}
+
 	return interaction{
 		Action:        stringArg(call.Arguments, "action"),
 		Arguments:     arguments,
@@ -94,21 +104,26 @@ func decodeInteraction(call providers.Call) (interaction, error) {
 
 func decodeNativeInteraction(call providers.Call) (interaction, error) {
 	arguments := make(map[string]any, len(call.Arguments))
+
 	for key, value := range call.Arguments {
 		if key != "justification" && key != "network" {
 			arguments[key] = value
 		}
 	}
+
 	action := call.Name
 	requiredArgument := "path"
+
 	switch call.Name {
 	case "exec_command":
 		action, requiredArgument = "exec", "command"
 		arguments["command"] = stringArg(arguments, "cmd")
 		delete(arguments, "cmd")
+
 		if _, exists := arguments["yield_time_ms"]; !exists {
 			arguments["yield_time_ms"] = float64(10000)
 		}
+
 		if _, err := outputInteger(arguments, "yield_time_ms", 10000, 1000, 30000); err != nil {
 			return interaction{}, err
 		}
@@ -134,9 +149,11 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 	default:
 		return interaction{}, errors.New("unknown tool")
 	}
+
 	if requiredArgument != "" && stringArg(arguments, requiredArgument) == "" {
 		return interaction{}, errors.New(requiredArgument + " is required")
 	}
+
 	return interaction{
 		Action:        action,
 		Arguments:     arguments,
@@ -172,26 +189,37 @@ func (engine *Engine) internalTool(ctx context.Context, agentRecord domain.Agent
 	default:
 		return nil, false, nil
 	}
+
 	return result, true, err
 }
 
 func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent, request interaction) (any, error) {
 	arguments := request.Arguments
+
 	switch request.Action {
 	case "list_files", "write_file", "delete_file", "apply_patch":
 		if request.Action != "list_files" {
 			engine.invalidate(agentRecord.ID)
 		}
+
 		return engine.file(ctx, agentRecord, request.Action, arguments, false, false)
 	case "exec":
-		yield, err := outputInteger(arguments, "yield_time_ms", int(foregroundCommandLimit.Milliseconds()), 1000, int(foregroundCommandLimit.Milliseconds()))
+		yield, err := outputInteger(
+			arguments,
+			"yield_time_ms",
+			int(foregroundCommandLimit.Milliseconds()),
+			1000,
+			int(foregroundCommandLimit.Milliseconds()),
+		)
 		if err != nil {
 			return nil, err
 		}
+
 		outputLimit, err := outputInteger(arguments, "max_output_bytes", 8000, 256, 64000)
 		if err != nil {
 			return nil, err
 		}
+
 		return engine.executeRemote(ctx, agentRecord, executionRequest{
 			MachineID:      stringArg(arguments, "machineId"),
 			GPU:            boolArg(arguments, "gpu"),
@@ -232,6 +260,7 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 		if err != nil {
 			return nil, err
 		}
+
 		return engine.Remote.ResourceState(project)
 	case "storage_list":
 		return engine.storageList(ctx, agentRecord)

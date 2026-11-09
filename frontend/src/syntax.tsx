@@ -1,6 +1,7 @@
 import { Fragment, lazy, Suspense, type ReactNode } from "react";
 
 export type SyntaxToken = { text: string; className?: string };
+
 export type DiffSourceLine = { kind: string; text: string };
 
 const HighlightedSource = lazy(() =>
@@ -8,6 +9,7 @@ const HighlightedSource = lazy(() =>
     default: module.HighlightedSource,
   })),
 );
+
 const HighlightedDiff = lazy(() =>
   import("./syntax-highlight").then((module) => ({
     default: module.HighlightedDiff,

@@ -2,6 +2,7 @@ import { Link } from "@heroui/react";
 import { isValidElement, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
 import { useI18n } from "./preferences";
 import { CodeSnippet } from "./code-snippet";
 
@@ -14,6 +15,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     : undefined;
   const text = String(code?.children ?? "").replace(/\n$/, "");
   const language = code?.className?.replace("language-", "") || t("Code");
+
   return <CodeSnippet text={text} label={language} />;
 }
 

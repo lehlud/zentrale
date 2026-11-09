@@ -10,9 +10,11 @@ import (
 // batch currently displayed in the browser.
 func (instance *Instance) UsageSummary(agentID string) (domain.UsageSummary, error) {
 	var result domain.UsageSummary
+
 	if instance == nil || instance.Closed() {
 		return result, errClosed
 	}
+
 	err := instance.db.QueryRow(`SELECT
         coalesce(sum((data->>'inputTokens')::BIGINT),0),
         coalesce(sum((data->>'outputTokens')::BIGINT),0),
@@ -28,11 +30,21 @@ func (instance *Instance) UsageSummary(agentID string) (domain.UsageSummary, err
         count(*) FILTER (WHERE NOT coalesce((data->>'costKnown')::BOOLEAN,false)),
         count(*)
         FROM resources WHERE kind='usage' AND parent_id=?`, agentID).Scan(
-		&result.InputTokens, &result.OutputTokens, &result.CachedTokens,
-		&result.CacheInputTokens, &result.CacheReadTokens, &result.CacheWriteTokens, &result.UnknownTokenCounts, &result.UnknownCacheWrites,
+		&result.InputTokens,
+		&result.OutputTokens,
+		&result.CachedTokens,
+		&result.CacheInputTokens,
+		&result.CacheReadTokens,
+		&result.CacheWriteTokens,
+		&result.UnknownTokenCounts,
+		&result.UnknownCacheWrites,
 		&result.RealCost,
-		&result.FictionalCost, &result.Estimated, &result.UnknownPrices, &result.RequestCount,
+		&result.FictionalCost,
+		&result.Estimated,
+		&result.UnknownPrices,
+		&result.RequestCount,
 	)
+
 	return result, err
 }
 
@@ -40,25 +52,35 @@ func (instance *Instance) RecentMessages(agentID string, limit int) ([]map[strin
 	if instance == nil || instance.Closed() {
 		return nil, errClosed
 	}
+
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
-	rows, err := instance.db.Query(`SELECT data::VARCHAR FROM resources WHERE kind='message' AND parent_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, agentID, limit)
+
+	rows, err := instance.db.Query(
+		`SELECT data::VARCHAR FROM resources WHERE kind='message' AND parent_id=? ORDER BY created_at DESC,id DESC LIMIT ?`,
+		agentID,
+		limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	result := []map[string]any{}
 	for rows.Next() {
 		var encoded string
 		if err := rows.Scan(&encoded); err != nil {
 			return nil, err
 		}
+
 		var message map[string]any
 		if err := json.Unmarshal([]byte(encoded), &message); err != nil {
 			return nil, err
 		}
+
 		result = append(result, message)
 	}
+
 	return result, rows.Err()
 }

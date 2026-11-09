@@ -1,6 +1,7 @@
 import { Description, Label, TextArea } from "@heroui/react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { editor } from "monaco-editor/editor/editor.api";
+
 import { useI18n } from "./preferences";
 import { loadMonaco } from "./load-monaco";
 
@@ -39,7 +40,10 @@ export function YamlEditor(props: YamlEditorProps) {
     // Read the latest draft when loading finishes, including edits made meanwhile.
     loadMonaco(latest.current.locale)
       .then((module) => {
-        if (disposed || !host.current) return;
+        if (disposed || !host.current) {
+          return;
+        }
+
         runtime.current = module;
         const current = latest.current;
         const restoreFocus = document.activeElement === fallback.current;
@@ -76,6 +80,7 @@ export function YamlEditor(props: YamlEditorProps) {
       .catch(() => {
         if (!disposed) setFailed(true);
       });
+
     return () => {
       disposed = true;
       changeSubscription?.dispose();
@@ -88,8 +93,12 @@ export function YamlEditor(props: YamlEditorProps) {
 
   useEffect(() => {
     const codeEditor = instance.current;
-    if (!ready || !codeEditor) return;
+    if (!ready || !codeEditor) {
+      return;
+    }
+
     if (codeEditor.getValue() !== props.value) codeEditor.setValue(props.value);
+
     codeEditor.updateOptions({
       readOnly: props.disabled,
       ariaLabel: props.label,

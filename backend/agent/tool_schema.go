@@ -11,6 +11,7 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 	if required == nil {
 		required = []string{}
 	}
+
 	return map[string]any{
 		"type":       "object",
 		"properties": properties,
@@ -22,6 +23,7 @@ func toolsForModel(model domain.LanguageModel) []providers.Tool {
 	if model.ContextWindow > 0 && model.ContextWindow < 8192 {
 		return []providers.Tool{mainTool()}
 	}
+
 	return mainTools()
 }
 
@@ -53,11 +55,17 @@ func mainTools() []providers.Tool {
 				"Use print(value) or text(value) for model-visible output. Tool results are objects; failures contain error. " +
 				"Calls run in invocation order, including Promise.all. No filesystem/network/process access in JavaScript. " +
 				"32 calls, 64 KiB code, 16 KB output, 2 minutes. Context changes and recursive code_mode are unavailable.",
-			Schema: objectSchema(map[string]any{"code": textProperty("JavaScript body; top-level await is supported.")}, "code"),
+			Schema: objectSchema(map[string]any{
+				"code": textProperty("JavaScript body; top-level await is supported."),
+			}, "code"),
 		},
 		{
-			Name: "tool_search", Description: "Find less common tool actions and their argument forms. Use returned actions through tools.<action> in code_mode or the harness dispatcher.",
-			Schema: objectSchema(map[string]any{"query": textProperty("Terms such as packages, git, job or machine.")}, "query"),
+			Name:        "tool_search",
+			Description: "Find less common tool actions and their argument forms. Use returned actions through tools.<action> in code_mode or the harness dispatcher.",
+
+			Schema: objectSchema(map[string]any{
+				"query": textProperty("Terms such as packages, git, job or machine."),
+			}, "query"),
 		},
 		executionTool(),
 		stdinTool(),
@@ -65,12 +73,29 @@ func mainTools() []providers.Tool {
 		fileListTool(),
 		patchTool(),
 		planTool(),
-		{Name: "create_goal", Description: "Create a persistent goal for the user's task. One unfinished goal per conversation. Preserve the full original scope; this never authorizes new work.", Schema: objectSchema(map[string]any{"objective": textProperty("Concrete objective covering the complete user task.")}, "objective")},
-		{Name: "get_goal", Description: "Read the current persistent goal, its status, review evidence and blocked-audit progress.", Schema: objectSchema(map[string]any{})},
-		{Name: "update_goal", Description: "Request completion, a genuine blocker, or an explicit user-requested pause. An independent audit verifies the request when the turn ends; the goal stays active until then. Blocked requires the same impasse in three consecutive goal turns.", Schema: objectSchema(map[string]any{
-			"status": map[string]any{"type": "string", "enum": []string{"complete", "blocked", "paused"}},
-			"reason": textProperty("Evidence for completion, the blocker, or the user's explicit pause request."),
-		}, "status")},
+		{
+			Name:        "create_goal",
+			Description: "Create a persistent goal for the user's task. One unfinished goal per conversation. Preserve the full original scope; this never authorizes new work.",
+			Schema: objectSchema(
+				map[string]any{
+					"objective": textProperty("Concrete objective covering the complete user task."),
+				},
+				"objective",
+			),
+		},
+		{
+			Name:        "get_goal",
+			Description: "Read the current persistent goal, its status, review evidence and blocked-audit progress.",
+			Schema:      objectSchema(map[string]any{}),
+		},
+		{
+			Name:        "update_goal",
+			Description: "Request completion, a genuine blocker, or an explicit user-requested pause. An independent audit verifies the request when the turn ends; the goal stays active until then. Blocked requires the same impasse in three consecutive goal turns.",
+			Schema: objectSchema(map[string]any{
+				"status": map[string]any{"type": "string", "enum": []string{"complete", "blocked", "paused"}},
+				"reason": textProperty("Evidence for completion, the blocker, or the user's explicit pause request."),
+			}, "status"),
+		},
 		mainTool(),
 	}
 }
@@ -91,10 +116,16 @@ func executionTool() providers.Tool {
 			"Long commands return a jobId. Set interactive=true to keep stdin open, or tty=true for a real terminal. " +
 			"Use write_stdin for input or polling. job_wait/job_logs return only unread output with nextCursor.",
 		Schema: objectSchema(map[string]any{
-			"cmd":              textProperty("Shell command. Batch independent inspections when their inputs are already known."),
-			"machineId":        textProperty("Optional exact assigned machine for this job; does not change the agent's default machine."),
-			"gpu":              map[string]any{"type": "boolean", "description": "Reserve a configured GPU host for this job. Without machineId, choose a free GPU host within pool limits; never use CPU fallback."},
-			"background":       map[string]any{"type": "boolean", "description": "Return immediately with a jobId so independent jobs can overlap, including on different GPU hosts."},
+			"cmd":       textProperty("Shell command. Batch independent inspections when their inputs are already known."),
+			"machineId": textProperty("Optional exact assigned machine for this job; does not change the agent's default machine."),
+			"gpu": map[string]any{
+				"type":        "boolean",
+				"description": "Reserve a configured GPU host for this job. Without machineId, choose a free GPU host within pool limits; never use CPU fallback.",
+			},
+			"background": map[string]any{
+				"type":        "boolean",
+				"description": "Return immediately with a jobId so independent jobs can overlap, including on different GPU hosts.",
+			},
 			"yield_time_ms":    integerProperty(1000, 30000),
 			"interactive":      map[string]any{"type": "boolean"},
 			"tty":              map[string]any{"type": "boolean"},
@@ -178,6 +209,7 @@ func planTool() providers.Tool {
 			"enum": []string{"pending", "in_progress", "completed"},
 		},
 	}, "step", "status")
+
 	return providers.Tool{
 		Name: "update_plan",
 		Description: "Maintain a short persistent plan for a multi-step task. Skip this for simple tasks. " +

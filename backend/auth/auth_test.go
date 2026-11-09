@@ -15,7 +15,9 @@ func testStore(t *testing.T) *datastore.Instance {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() { _ = store.Close() })
+
 	return store
 }
 
@@ -24,29 +26,37 @@ func TestPasswordAndRevocableSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	needsSetup, err := service.NeedsSetup()
 	if err != nil || !needsSetup {
 		t.Fatalf("fresh service: setup=%v error=%v", needsSetup, err)
 	}
+
 	if err := service.Setup("correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := service.Setup("another password"); err == nil {
 		t.Fatal("setup replaced the existing password")
 	}
+
 	if _, err := service.Login("wrong password", "first-client"); err == nil {
 		t.Fatal("invalid password accepted")
 	}
+
 	token, err := service.Login("correct horse battery staple", "first-client")
 	if err != nil || !service.Valid(token) {
 		t.Fatalf("valid login: %v", err)
 	}
+
 	if service.Valid(token + "x") {
 		t.Fatal("invalid session token accepted")
 	}
+
 	if err := service.Logout(token); err != nil {
 		t.Fatal(err)
 	}
+
 	if service.Valid(token) {
 		t.Fatal("revoked session remains valid")
 	}
@@ -58,23 +68,29 @@ func TestEnvironmentHashSkipsSetupWithoutOverwritingExistingPassword(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	service, err := New(store, firstHash)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if needsSetup, _ := service.NeedsSetup(); needsSetup {
 		t.Fatal("environment hash did not initialize password")
 	}
+
 	replacement, err := Hash("replacement password")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := New(store, replacement); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := service.Login("first secret password", "client"); err != nil {
 		t.Fatal("environment overwrote established password")
 	}
+
 	if _, err := New(store, "$argon2id$v=19$m=4294967295,t=1,p=1$c2FsdA$YWJj"); err == nil {
 		t.Fatal("unbounded Argon2 parameters accepted")
 	}
@@ -85,8 +101,10 @@ func TestConcurrentSetupHasOneWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var workers sync.WaitGroup
 	var successes atomic.Int32
+
 	for range 4 {
 		workers.Go(func() {
 			if service.Setup("concurrent password") == nil {
@@ -94,7 +112,9 @@ func TestConcurrentSetupHasOneWinner(t *testing.T) {
 			}
 		})
 	}
+
 	workers.Wait()
+
 	if successes.Load() != 1 {
 		t.Fatalf("setup winners: %d", successes.Load())
 	}
@@ -106,6 +126,7 @@ func TestHashValidationAndLoginLimit(t *testing.T) {
 			t.Fatal("invalid password length accepted")
 		}
 	}
+
 	for _, hash := range []string{
 		"",
 		"argon2id",
@@ -116,13 +137,16 @@ func TestHashValidationAndLoginLimit(t *testing.T) {
 			t.Fatalf("invalid PHC accepted: %q", hash)
 		}
 	}
+
 	service, err := New(testStore(t), "")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for range 5 {
 		_, _ = service.Login("wrong", "client")
 	}
+
 	if _, err := service.Login("wrong", "client"); err == nil || !strings.Contains(err.Error(), "too many") {
 		t.Fatalf("login limit: %v", err)
 	}

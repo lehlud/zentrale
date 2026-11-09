@@ -64,14 +64,21 @@ func (client *Client) Begin(ctx context.Context, provider domain.Provider) (Tran
 	}
 }
 
-func (client *Client) post(ctx context.Context, address string, body any, form bool) (map[string]any, int, error) {
+func (client *Client) post(
+	ctx context.Context,
+	address string,
+	body any,
+	form bool,
+) (map[string]any, int, error) {
 	var encoded []byte
 	contentType := "application/json"
+
 	if form {
 		values, valid := body.(url.Values)
 		if !valid {
 			return nil, 0, errors.New("OAuth form encoding requires url.Values")
 		}
+
 		encoded = []byte(values.Encode())
 		contentType = "application/x-www-form-urlencoded"
 	} else {
@@ -81,10 +88,12 @@ func (client *Client) post(ctx context.Context, address string, body any, form b
 			return nil, 0, err
 		}
 	}
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, address, bytes.NewReader(encoded))
 	if err != nil {
 		return nil, 0, err
 	}
+
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Accept", "application/json")
 	response, err := client.HTTP.Do(request)
@@ -92,20 +101,25 @@ func (client *Client) post(ctx context.Context, address string, body any, form b
 		return nil, 0, err
 	}
 	defer response.Body.Close()
+
 	data, err := io.ReadAll(io.LimitReader(response.Body, 1024*1024+1))
 	if err != nil {
 		return nil, response.StatusCode, err
 	}
+
 	if len(data) > 1024*1024 {
 		return nil, response.StatusCode, errors.New("OAuth response is too large")
 	}
+
 	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return map[string]any{}, response.StatusCode, nil
 		}
+
 		return nil, response.StatusCode, errors.New("provider returned invalid OAuth JSON")
 	}
+
 	return result, response.StatusCode, nil
 }
 
@@ -114,6 +128,7 @@ func randomCode() string {
 	if _, err := rand.Read(data[:]); err != nil {
 		panic(err)
 	}
+
 	return base64.RawURLEncoding.EncodeToString(data[:])
 }
 

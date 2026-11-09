@@ -32,7 +32,10 @@ def parse_patch(patch):
         raise ValueError("patch exceeds 1 MiB or contains a NUL character")
     lines = patch.strip().splitlines()
     if len(lines) < 3 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
-        raise ValueError("patch must start with *** Begin Patch and end with *** End Patch")
+        raise ValueError(
+            "patch must start with *** Begin Patch and end with *** End Patch"
+        )
+
     operations, index = [], 1
     while index < len(lines) - 1:
         header = lines[index]
@@ -41,12 +44,12 @@ def parse_patch(patch):
             raise ValueError("expected Add File, Update File or Delete File marker")
         operation = {
             "kind": marker.split()[1].lower(),
-            "path": header[len(marker):],
+            "path": header[len(marker) :],
             "lines": [],
         }
         index += 1
         if operation["kind"] == "update" and lines[index].startswith("*** Move to: "):
-            operation["move"] = lines[index][len("*** Move to: "):]
+            operation["move"] = lines[index][len("*** Move to: ") :]
             index += 1
         while index < len(lines) - 1 and not lines[index].startswith(FILE_MARKERS):
             operation["lines"].append(lines[index])
@@ -86,6 +89,7 @@ def update_chunks(lines):
             raise ValueError("update lines must begin with a space, + or -")
     if current is not None:
         chunks.append(current)
+
     empty_chunk = any(not chunk["old"] and not chunk["new"] for chunk in chunks)
     if not chunks or empty_chunk:
         raise ValueError("Update File requires a nonempty change chunk")
@@ -115,8 +119,9 @@ def updated_content(original, patch_lines):
             candidates = [len(lines) - len(old)]
         position = next(
             (
-                offset for offset in candidates
-                if offset >= search_start and lines[offset:offset + len(old)] == old
+                offset
+                for offset in candidates
+                if offset >= search_start and lines[offset : offset + len(old)] == old
             ),
             None,
         )
@@ -127,6 +132,7 @@ def updated_content(original, patch_lines):
         output.extend(lines[cursor:position])
         output.extend(chunk["new"])
         cursor = position + len(old)
+
     output.extend(lines[cursor:])
     result = newline.join(output)
     if output and (text.endswith(("\n", "\r")) or not original):
@@ -144,7 +150,9 @@ def prepare_changes(workspace, temporary_directory, operations):
         nonlocal total
         filename = resolve_path(workspace, temporary_directory, requested)
         if filename in originals:
-            raise ValueError("use one file marker with multiple @@ chunks for each path")
+            raise ValueError(
+                "use one file marker with multiple @@ chunks for each path"
+            )
         content, mode = None, None
         if os.path.lexists(filename):
             if not os.path.isfile(filename):
@@ -182,7 +190,10 @@ def prepare_changes(workspace, temporary_directory, operations):
                     destination = reserve(operation["move"])
                     if originals[destination] is not None:
                         raise ValueError("move destination already exists")
-                    replacements[filename], replacements[destination] = None, replacement
+                    replacements[filename], replacements[destination] = (
+                        None,
+                        replacement,
+                    )
                     modes[destination] = modes[filename]
                 else:
                     replacements[filename] = replacement
@@ -205,7 +216,11 @@ def commit_changes(originals, modes, replacements):
             if replacement is not None:
                 staged[filename] = stage_file(filename, replacement, modes[filename])
             if originals[filename] is not None:
-                backups[filename] = stage_file(filename, originals[filename], modes[filename])
+                backups[filename] = stage_file(
+                    filename, originals[filename], modes[filename]
+                )
+
+        # Revalidate every original before committing the first replacement.
         for filename, original in originals.items():
             if os.path.realpath(filename) != filename:
                 raise ValueError(
@@ -220,6 +235,7 @@ def commit_changes(originals, modes, replacements):
                         raise ValueError(
                             "patch target changed during preparation; read it again"
                         )
+
         try:
             for filename in replacements:
                 if replacements[filename] == originals[filename]:
@@ -241,9 +257,12 @@ def commit_changes(originals, modes, replacements):
                     incomplete.append(filename)
             if incomplete:
                 raise RuntimeError(
-                    "patch write failed; rollback incomplete for: " + ", ".join(incomplete)
+                    "patch write failed; rollback incomplete for: "
+                    + ", ".join(incomplete)
                 ) from failure
-            raise OSError("patch write failed; original files were restored") from failure
+            raise OSError(
+                "patch write failed; original files were restored"
+            ) from failure
     finally:
         for filename in [*staged.values(), *backups.values()]:
             if os.path.exists(filename):
@@ -254,8 +273,12 @@ def apply_patch(workspace, temporary_directory, patch):
     workspace = os.path.realpath(workspace)
     temporary_directory = os.path.realpath(temporary_directory)
     operations = parse_patch(patch)
-    originals, modes, replacements = prepare_changes(workspace, temporary_directory, operations)
+    originals, modes, replacements = prepare_changes(
+        workspace, temporary_directory, operations
+    )
+
     commit_changes(originals, modes, replacements)
+
     changes = []
     for filename, content in replacements.items():
         original = originals[filename]

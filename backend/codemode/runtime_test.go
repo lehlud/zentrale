@@ -16,6 +16,7 @@ print(entries.map(item => item.name).join(","));
 `, []string{"read"}, func(_ string, args map[string]any) (any, error) {
 		name := args["path"].(string)
 		calls = append(calls, name)
+
 		return map[string]any{"name": name, "large": strings.Repeat("unneeded data", 2000)}, nil
 	})
 	if err != nil || result.Output != "a,b\n" || result.Calls != 2 || strings.Join(calls, ",") != "a,b" {
@@ -35,10 +36,16 @@ func TestLimitsCancellationAndNoHostAccess(t *testing.T) {
 		t.Run(fmt.Sprintf("script-%d", len(script)), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			result, err := Run(ctx, script, []string{"read"}, func(string, map[string]any) (any, error) { return true, nil })
-			if strings.Contains(result.Output, "root:") || len(result.Output) > MaximumOutputBytes || result.Calls > MaximumCalls {
+
+			result, err := Run(ctx, script, []string{
+				"read",
+			}, func(string, map[string]any) (any, error) { return true, nil })
+			if strings.Contains(result.Output, "root:") ||
+				len(result.Output) > MaximumOutputBytes ||
+				result.Calls > MaximumCalls {
 				t.Fatal("host data or unbounded result", result, err)
 			}
+
 			switch {
 			case strings.Contains(script, "typeof"):
 				if err != nil || result.Output != "undefined undefined undefined\n" {

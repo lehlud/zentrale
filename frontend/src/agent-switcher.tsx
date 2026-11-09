@@ -1,5 +1,6 @@
 import { Icon } from "./icons";
 import { Button, Dropdown, Label } from "@heroui/react";
+
 import type { Agent } from "./generated";
 import { useI18n } from "./preferences";
 
@@ -21,6 +22,7 @@ export function AgentSwitcher({
   const conversations = agents.filter((agent) => agent.role !== "approver");
   const selected =
     current?.role === "approver" ? current.parentId : current?.id;
+
   return (
     <Dropdown>
       <Button

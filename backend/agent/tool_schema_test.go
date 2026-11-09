@@ -15,10 +15,12 @@ func TestToolSchemasSerializeRequiredAsArrays(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+
 				var schema any
 				if err := json.Unmarshal(encoded, &schema); err != nil {
 					t.Fatal(err)
 				}
+
 				var validate func(any)
 				validate = func(value any) {
 					switch value := value.(type) {
@@ -29,7 +31,9 @@ func TestToolSchemasSerializeRequiredAsArrays(t *testing.T) {
 								if !valid {
 									t.Fatalf("required must serialize as an array, got %v in %s", required, encoded)
 								}
+
 								properties, _ := value["properties"].(map[string]any)
+
 								for _, field := range fields {
 									name, valid := field.(string)
 									if !valid || properties[name] == nil {
@@ -38,6 +42,7 @@ func TestToolSchemasSerializeRequiredAsArrays(t *testing.T) {
 								}
 							}
 						}
+
 						for _, child := range value {
 							validate(child)
 						}
@@ -47,6 +52,7 @@ func TestToolSchemasSerializeRequiredAsArrays(t *testing.T) {
 						}
 					}
 				}
+
 				validate(schema)
 			})
 		}

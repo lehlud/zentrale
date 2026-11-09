@@ -1,4 +1,5 @@
 """Use a source-specific deployment key for one approved Git interaction."""
+
 import json
 import os
 import shlex
@@ -18,7 +19,16 @@ def write_secret(directory, filename, content):
 
 def disable_push(directory):
     subprocess.run(
-        ["git", "-C", directory, "remote", "set-url", "--push", "origin", "DISABLED_READ_ONLY"],
+        [
+            "git",
+            "-C",
+            directory,
+            "remote",
+            "set-url",
+            "--push",
+            "origin",
+            "DISABLED_READ_ONLY",
+        ],
         check=True,
     )
     hook = os.path.join(directory, ".git", "hooks", "pre-push")
@@ -29,27 +39,37 @@ def disable_push(directory):
 
 def main():
     configuration = json.load(sys.stdin)
-    temporary_directory = tempfile.mkdtemp(prefix="git-", dir=configuration["temporaryDirectory"])
+    temporary_directory = tempfile.mkdtemp(
+        prefix="git-", dir=configuration["temporaryDirectory"]
+    )
     os.chmod(temporary_directory, 0o700)
     try:
         key = write_secret(temporary_directory, "key", configuration["key"])
-        known_hosts = write_secret(temporary_directory, "known_hosts", configuration["known"])
+        known_hosts = write_secret(
+            temporary_directory, "known_hosts", configuration["known"]
+        )
+
         environment = dict(os.environ)
         environment["GIT_SSH_COMMAND"] = (
-            "ssh -i " + shlex.quote(key)
+            "ssh -i "
+            + shlex.quote(key)
             + " -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="
             + shlex.quote(known_hosts)
         )
+
         directory = configuration["directory"]
         if configuration["operation"] == "clone":
             os.makedirs(os.path.dirname(directory), exist_ok=True)
             arguments = ["git", "clone", "--", configuration["url"], directory]
         else:
             arguments = ["git", "-C", directory, *configuration["arguments"]]
+
         subprocess.run(arguments, env=environment, check=True)
         if configuration["readOnly"] and configuration["operation"] == "clone":
             disable_push(directory)
-        print(json.dumps({"directory": directory, "readOnly": configuration["readOnly"]}))
+        print(
+            json.dumps({"directory": directory, "readOnly": configuration["readOnly"]})
+        )
     finally:
         shutil.rmtree(temporary_directory)
 

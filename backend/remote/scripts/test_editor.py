@@ -49,7 +49,10 @@ class EditorBootstrapTests(unittest.TestCase):
             with socket.create_connection(("127.0.0.1", port), timeout=2) as attacker:
                 attacker.sendall(b"incorrect-secret\n")
                 self.assertEqual(attacker.recv(3), b"")
-            self.assertFalse(accepted.is_set(), "unauthenticated client reached VS Code")
+            self.assertFalse(
+                accepted.is_set(), "unauthenticated client reached VS Code"
+            )
+
             with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
                 client.sendall(b"private-session-secret\n")
                 self.assertEqual(client.recv(3), b"OK\n")
@@ -64,47 +67,76 @@ class EditorBootstrapTests(unittest.TestCase):
     def test_published_server_archive(self):
         archive = os.environ.get("ZENTRALE_VSCODE_SERVER_ARCHIVE")
         if not archive:
-            self.skipTest("set ZENTRALE_VSCODE_SERVER_ARCHIVE for the published archive test")
-        release = json.loads((SCRIPT.parents[2] / "vscode" / "release.json").read_text())
-        with open(archive,"rb") as source:
+            self.skipTest(
+                "set ZENTRALE_VSCODE_SERVER_ARCHIVE for the published archive test"
+            )
+        release = json.loads(
+            (SCRIPT.parents[2] / "vscode" / "release.json").read_text()
+        )
+        with open(archive, "rb") as source:
             digest = hashlib.sha256()
             for chunk in iter(lambda: source.read(1024 * 1024), b""):
                 digest.update(chunk)
-            self.assertEqual(digest.hexdigest(), release["servers"][editor.server_platform()]["sha256"])
+            self.assertEqual(
+                digest.hexdigest(),
+                release["servers"][editor.server_platform()]["sha256"],
+            )
         with tempfile.TemporaryDirectory() as directory:
-            editor.extract_server(archive,directory)
-            product = json.loads((Path(directory)/"product.json").read_text())
-            self.assertEqual(product["commit"],release["commit"])
-            self.assertTrue(os.access(Path(directory)/"bin"/"code-server",os.X_OK))
+            editor.extract_server(archive, directory)
+            product = json.loads((Path(directory) / "product.json").read_text())
+            self.assertEqual(product["commit"], release["commit"])
+            self.assertTrue(os.access(Path(directory) / "bin" / "code-server", os.X_OK))
 
     def test_pinned_agent_is_verified_and_installed_atomically(self):
         archive = io.BytesIO()
         content = b"#!/bin/sh\nexit 0\n"
         with tarfile.open(fileobj=archive, mode="w:gz") as bundle:
-            for name, data, mode in [("server/bin/code-server", content, 0o700), ("server/product.json", b'{"commit":"test-commit"}', 0o600)]:
+            for name, data, mode in [
+                ("server/bin/code-server", content, 0o700),
+                ("server/product.json", b'{"commit":"test-commit"}', 0o600),
+            ]:
                 entry = tarfile.TarInfo(name)
                 entry.size, entry.mode = len(data), mode
                 bundle.addfile(entry, io.BytesIO(data))
-        release = {"commit":"test-commit", "servers":{"server-linux-arm64":{"url":"https://example.test/agent.tar.gz", "sha256":hashlib.sha256(archive.getvalue()).hexdigest()}}}
+        release = {
+            "commit": "test-commit",
+            "servers": {
+                "server-linux-arm64": {
+                    "url": "https://example.test/agent.tar.gz",
+                    "sha256": hashlib.sha256(archive.getvalue()).hexdigest(),
+                }
+            },
+        }
         with tempfile.TemporaryDirectory() as directory:
             cache = str(Path(directory) / "cache")
-            with patch.dict(editor.os.environ, {"ZENTRALE_VSCODE_SERVER_CACHE":cache}), \
-                    patch.object(editor.platform, "system", return_value="Linux"), \
-                    patch.object(editor.platform, "machine", return_value="aarch64"), \
-                    patch.object(editor.urllib.request, "urlopen", return_value=io.BytesIO(archive.getvalue())) as download, \
-                    contextlib.redirect_stdout(io.StringIO()):
+            with (
+                patch.dict(editor.os.environ, {"ZENTRALE_VSCODE_SERVER_CACHE": cache}),
+                patch.object(editor.platform, "system", return_value="Linux"),
+                patch.object(editor.platform, "machine", return_value="aarch64"),
+                patch.object(
+                    editor.urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(archive.getvalue()),
+                ) as download,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
                 binary = editor.install_server(release)
                 self.assertEqual(binary, editor.install_server(release))
-                download.assert_called_once_with("https://example.test/agent.tar.gz", timeout=60)
+                download.assert_called_once_with(
+                    "https://example.test/agent.tar.gz", timeout=60
+                )
                 self.assertEqual(stat.S_IMODE(os.stat(binary).st_mode), 0o700)
                 self.assertEqual(Path(binary).read_bytes(), content)
 
     def test_archive_cannot_escape_installation_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name, link in [("server/../../outside", None), ("server/link", "../../outside")]:
+            for name, link in [
+                ("server/../../outside", None),
+                ("server/link", "../../outside"),
+            ]:
                 archive = root / "server.tar.gz"
-                with tarfile.open(archive,"w:gz") as bundle:
+                with tarfile.open(archive, "w:gz") as bundle:
                     entry = tarfile.TarInfo(name)
                     if link:
                         entry.type, entry.linkname = tarfile.SYMTYPE, link
@@ -119,7 +151,11 @@ class EditorBootstrapTests(unittest.TestCase):
             binary = root / "fake-code"
             pid_file = root / "pid"
             workspace = root / "workspace"
-            binary.write_text("#!" + sys.executable + "\n" + """
+            binary.write_text(
+                "#!"
+                + sys.executable
+                + "\n"
+                + """
 import os, signal, socket, sys
 assert '--start-server' in sys.argv
 assert 'serve-web' not in sys.argv
@@ -132,7 +168,8 @@ server.listen()
 while True:
     peer, _ = server.accept()
     peer.close()
-""")
+"""
+            )
             binary.chmod(0o700)
             harness = """
 import importlib.util, sys
@@ -145,7 +182,21 @@ sys.argv = ['editor.py', '/ide/project/session', workspace, '{}']
 editor.main()
 """
             environment = {**os.environ, "ZENTRALE_EDITOR_TEST_PID": str(pid_file)}
-            process = subprocess.Popen([sys.executable, "-u", "-c", harness, str(SCRIPT), str(binary), str(workspace)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-u",
+                    "-c",
+                    harness,
+                    str(SCRIPT),
+                    str(binary),
+                    str(workspace),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=environment,
+            )
             try:
                 readable, _, _ = select.select([process.stdout], [], [], 8)
                 self.assertTrue(readable, "editor supervisor did not become ready")
@@ -154,8 +205,11 @@ editor.main()
                 socket_path = Path(json.loads(line.split(" ", 1)[1])["socketPath"])
                 self.assertEqual(stat.S_IMODE(socket_path.parent.stat().st_mode), 0o700)
                 self.assertTrue(workspace.is_dir())
+
                 process.stdin.close()
-                self.assertEqual(process.wait(timeout=8), 0, process.stderr.read().decode())
+                self.assertEqual(
+                    process.wait(timeout=8), 0, process.stderr.read().decode()
+                )
                 self.assertFalse(socket_path.parent.exists())
                 with self.assertRaises(ProcessLookupError):
                     os.kill(int(pid_file.read_text()), 0)

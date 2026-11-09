@@ -1,5 +1,6 @@
 import { Button } from "@heroui/react";
 import { useState } from "react";
+
 import { useI18n } from "./preferences";
 import { SourceCode } from "./syntax";
 
@@ -17,6 +18,7 @@ export function CodeSnippet({
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+
   return (
     <figure className="my-3 min-w-0 overflow-hidden rounded-lg border border-border bg-background">
       <figcaption className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 font-mono text-xs text-muted">

@@ -1,5 +1,6 @@
 import { Button } from "@heroui/react";
 import { useEffect } from "react";
+
 import { useAPI, useQuery } from "./api";
 import { Authentication } from "./authentication";
 import { Keys, Machines, Providers, Settings } from "./config";
@@ -20,12 +21,17 @@ export default function App() {
   );
   const { page, projectId } = useRoute();
   const authenticated = Boolean(data?.status.authenticated);
+
   useEffect(() => {
     if (authenticated) api.connect();
     return () => api.disconnect();
   }, [api, authenticated]);
-  if (loading) return <Loading />;
-  if (error && !data)
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  if (error && !data) {
     return (
       <main className="max-w-lg mx-auto p-8">
         <Failure message={error} />
@@ -34,9 +40,15 @@ export default function App() {
         </Button>
       </main>
     );
-  if (!authenticated)
+  }
+
+  if (!authenticated) {
     return <Authentication setup={Boolean(data?.status.needsSetup)} />;
-  if (page === "editor") return <EditorLauncher projectId={projectId} />;
+  }
+
+  if (page === "editor") {
+    return <EditorLauncher projectId={projectId} />;
+  }
 
   return (
     <ApplicationShell>

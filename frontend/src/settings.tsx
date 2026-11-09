@@ -1,6 +1,7 @@
 import { GitConnections } from "./git-connections";
 import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
 import { useState } from "react";
+
 import { useAPI } from "./api";
 import { GlobalModelDefaults } from "./model-defaults";
 import { useI18n } from "./preferences";
@@ -13,6 +14,7 @@ export function Settings() {
   const api = useAPI();
   const [token, setToken] = useState("");
   const action = useAction();
+
   return (
     <>
       <Title
@@ -58,7 +60,6 @@ export function Settings() {
               <div className="flex gap-2">
                 <Button
                   className="min-h-11"
-
                   isPending={action.busy}
                   isDisabled={!token.trim()}
                   onPress={() =>

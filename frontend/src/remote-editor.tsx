@@ -1,5 +1,6 @@
 import { Button, Card, Link, buttonVariants } from "@heroui/react";
 import { useEffect } from "react";
+
 import { useAPI, useQuery } from "./api";
 import type { EditorSession, Project } from "./generated";
 import { useI18n } from "./preferences";
@@ -21,9 +22,11 @@ export function RemoteEditor({
   );
   const session = data?.editorSession?.id ? data.editorSession : undefined;
   const action = useAction();
+
   useEffect(() => {
     const refresh = () => api.refresh();
     window.addEventListener("focus", refresh);
+
     return () => window.removeEventListener("focus", refresh);
   }, [api]);
 

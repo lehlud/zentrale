@@ -1,4 +1,5 @@
 import { Button, Card } from "@heroui/react";
+
 import type { Config } from "./config";
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
@@ -14,7 +15,10 @@ export function PoolAccess({
   const { t } = useI18n();
   const action = useAction();
   const key = keys.find((key) => key.id === keyId);
-  if (!key?.publicKey) return null;
+  if (!key?.publicKey) {
+    return null;
+  }
+
   return (
     <Card.Content className="gap-3 border-t border-separator">
       <p className="text-sm font-medium">{t("Pool-Schlüssel")}</p>

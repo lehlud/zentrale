@@ -29,6 +29,7 @@ type OutputWindow struct {
 func (output *OutputBuffer) Window() OutputWindow {
 	output.mutex.Lock()
 	defer output.mutex.Unlock()
+
 	return OutputWindow{
 		Head:  append([]byte(nil), output.head...),
 		Tail:  append(append([]byte(nil), output.tail[output.tailStart:]...), output.tail[:output.tailStart]...),
@@ -58,23 +59,30 @@ func (output *OutputBuffer) Write(chunk []byte) (int, error) {
 			output.tailStart = (output.tailStart + len(chunk)) % half
 		}
 	}
+
 	var snapshot string
+
 	if output.onOutput != nil {
 		snapshot = output.snapshotLocked()
 	}
+
 	output.mutex.Unlock()
+
 	if output.onOutput != nil {
 		output.onOutput(snapshot)
 	}
+
 	return length, nil
 }
 
 func (output *OutputBuffer) snapshotLocked() string {
 	omitted := output.total - uint64(len(output.head)+len(output.tail))
 	tail := string(output.tail[output.tailStart:]) + string(output.tail[:output.tailStart])
+
 	if omitted == 0 {
 		return strings.ToValidUTF8(string(output.head)+tail, "�")
 	}
+
 	return strings.ToValidUTF8(string(output.head), "�") +
 		fmt.Sprintf("\n[output truncated: %d bytes omitted]\n", omitted) +
 		strings.ToValidUTF8(tail, "�")
@@ -83,5 +91,6 @@ func (output *OutputBuffer) snapshotLocked() string {
 func (output *OutputBuffer) String() string {
 	output.mutex.Lock()
 	defer output.mutex.Unlock()
+
 	return output.snapshotLocked()
 }

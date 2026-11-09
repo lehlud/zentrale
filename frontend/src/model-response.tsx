@@ -12,8 +12,14 @@ type ResponseText = { kind: "answer" | "reasoning"; text: string };
 // Read only text intended for display. Opaque reasoning signatures and replay
 // data are provider protocol, not user-facing explanations.
 function responseText(value: unknown): ResponseText[] {
-  if (Array.isArray(value)) return value.flatMap(responseText);
-  if (value === null || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap(responseText);
+  }
+
+  if (value === null || typeof value !== "object") {
+    return [];
+  }
+
   const item = record(value);
   const texts: ResponseText[] = [];
   const add = (kind: ResponseText["kind"], text: unknown) => {
@@ -29,9 +35,12 @@ function responseText(value: unknown): ResponseText[] {
   add("reasoning", item.reasoning_content);
   if (typeof item.content === "string") add("answer", item.content);
   else texts.push(...responseText(item.content));
+
   if (Array.isArray(item.summary))
     for (const entry of item.summary) add("reasoning", record(entry).text);
+
   texts.push(...responseText(item.parts), ...responseText(item.output));
+
   return texts;
 }
 
@@ -40,12 +49,14 @@ export function ModelResponse({ content }: { content: string }) {
   const native = parseJSON(content);
   const calls = parseToolCalls(content);
   const texts = responseText(native);
-  if (!calls.length && !texts.length)
+  if (!calls.length && !texts.length) {
     return (
       <p className="text-sm leading-7 text-muted">
         {t("Für diese Antwort sind keine lesbaren Details verfügbar.")}
       </p>
     );
+  }
+
   return (
     <div className="min-w-0 space-y-6">
       {texts.map((item, index) => (

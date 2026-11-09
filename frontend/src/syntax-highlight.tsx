@@ -1,10 +1,12 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import type { Element, Root, RootContent } from "hast";
 import { common, createLowlight } from "lowlight";
+
 import { SyntaxTokens, type DiffSourceLine, type SyntaxToken } from "./syntax";
 import "./syntax.css";
 
 const highlighter = createLowlight(common);
+
 const extensions: Record<string, string> = {
   py: "python",
   pyw: "python",
@@ -60,10 +62,20 @@ const extensions: Record<string, string> = {
 
 function languageFor(label: string) {
   const name = label.toLowerCase().split(/[\\/]/).at(-1) ?? "";
-  if (["command", "befehl", ".bashrc", ".zshrc"].includes(name)) return "bash";
-  if (["makefile", "gnumakefile"].includes(name)) return "makefile";
-  if (name === ".env" || name.startsWith(".env.")) return "ini";
+  if (["command", "befehl", ".bashrc", ".zshrc"].includes(name)) {
+    return "bash";
+  }
+
+  if (["makefile", "gnumakefile"].includes(name)) {
+    return "makefile";
+  }
+
+  if (name === ".env" || name.startsWith(".env.")) {
+    return "ini";
+  }
+
   const language = extensions[name.split(".").at(-1) ?? ""] ?? name;
+
   return highlighter.registered(language) ? language : undefined;
 }
 
@@ -72,14 +84,20 @@ function languageFor(label: string) {
 function sourceLines(text: string, label: string): SyntaxToken[][] {
   const plain = () => text.split("\n").map((line) => [{ text: line }]);
   const language = languageFor(label);
-  if (!language || text.length > 200_000) return plain();
+  if (!language || text.length > 200_000) {
+    return plain();
+  }
+
   let tree: Root;
+
   try {
     tree = highlighter.highlight(language, text);
   } catch {
     return plain();
   }
+
   const lines: SyntaxToken[][] = [[]];
+
   function visit(node: RootContent, classes: string[] = []) {
     if (node.type === "text") {
       node.value.split("\n").forEach((part, index) => {
@@ -100,6 +118,7 @@ function sourceLines(text: string, label: string): SyntaxToken[][] {
     }
   }
   tree.children.forEach((node) => visit(node));
+
   return lines;
 }
 
@@ -133,8 +152,10 @@ function diffLines(lines: DiffSourceLine[], language: string): SyntaxToken[][] {
       start++;
       continue;
     }
+
     let end = start;
     while (end < lines.length && lines[end].kind !== "hunk") end++;
+
     const group = lines.slice(start, end);
     const before = sourceLines(
       group
@@ -164,6 +185,7 @@ function diffLines(lines: DiffSourceLine[], language: string): SyntaxToken[][] {
     });
     start = end;
   }
+
   return result;
 }
 

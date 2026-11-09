@@ -53,6 +53,7 @@ def drop_privileges(uid, gid, guest_root):
     for capability in range(41):
         if capability not in allowed:
             checked(LIBC.prctl(24, capability, 0, 0, 0), "drop capability")
+
     os.setgroups([])
     os.setgid(0 if guest_root else gid)
     os.setuid(0 if guest_root else uid)
@@ -66,7 +67,6 @@ def drop_privileges(uid, gid, guest_root):
         LIBC.capset(ctypes.byref(header), ctypes.byref(data)), "set task capabilities"
     )
     checked(LIBC.prctl(38, 1, 0, 0, 0), "disable privilege escalation")
-
 
 
 def login_shell(root, guest_root, tooling):
@@ -87,11 +87,13 @@ def execute(request, session, command):
     mount("proc", root.rstrip("/") + "/proc", "proc", 2 | 4 | 8)
     if not request["network"]:
         mount("sysfs", root.rstrip("/") + "/sys", "sysfs", 1 | 2 | 4 | 8)
+
     descriptor = os.memfd_create("zentrale-command", 0)
     os.write(descriptor, command.encode())
     os.lseek(descriptor, 0, os.SEEK_SET)
     os.fchmod(descriptor, 0o444)
     os.set_inheritable(descriptor, True)
+
     guest_root = request.get("guestRoot", False) and not tooling
     environment = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -106,6 +108,7 @@ def execute(request, session, command):
     }
     if request.get("tty"):
         environment["TERM"] = "xterm-256color"
+
     os.chroot(root)
     os.chdir(session["workspace"])
     for number in (0, 1, 2):
@@ -114,6 +117,7 @@ def execute(request, session, command):
             0 if guest_root else session["uid"],
             0 if guest_root else session["gid"],
         )
+
     drop_privileges(session["uid"], session["gid"], guest_root)
     resource.setrlimit(resource.RLIMIT_NPROC, (256, 256))
     os.execve("/bin/sh", ["/bin/sh", "/proc/self/fd/" + str(descriptor)], environment)
@@ -124,6 +128,7 @@ def main():
     request = json.loads((job / "request.json").read_text())
     session = json.loads(Path(CONTROL, "request.json").read_text())
     command = (job / "command.sh").read_text()
+
     flags = CLONE_NEWNS
     if not request["network"]:
         flags |= CLONE_NEWNET
@@ -137,6 +142,7 @@ def main():
     if request.get("tty"):
         relay = runpy.run_path(CONTROL + "/terminal.py")["run_terminal"]
         return relay(lambda: execute(request, session, command), namespace_init=True)
+
     child = os.fork()
     if child == 0:
         execute(request, session, command)

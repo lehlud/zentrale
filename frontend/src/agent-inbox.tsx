@@ -1,5 +1,6 @@
 import { Button } from "@heroui/react";
 import { useSyncExternalStore } from "react";
+
 import { useAPI } from "./api";
 import type { AgentInput } from "./generated";
 import type { OutgoingInput } from "./input-delivery";
@@ -32,7 +33,10 @@ export function AgentInbox({
         input.deliveredAt.startsWith("0001-")),
   );
   const entries: Array<AgentInput | OutgoingInput> = [...waiting, ...outgoing];
-  if (!entries.length) return null;
+  if (!entries.length) {
+    return null;
+  }
+
   return (
     <section
       aria-label={t("Nachrichtenwarteschlange")}

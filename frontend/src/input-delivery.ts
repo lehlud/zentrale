@@ -4,12 +4,16 @@ import type { AgentInput } from "./generated";
 export type OutgoingInput = {
   id: string;
   agentId: string;
+
   text: string;
   mode: "steer" | "queue";
+
   status: "sending" | "unconfirmed" | "failed" | "accepted";
   error: string;
 };
+
 const storageKey = "zentrale:outgoing-inputs";
+
 const mutation =
   "mutation($agentId:String!,$id:String!,$text:String!,$mode:String!){submitInput(agentId:$agentId,id:$id,text:$text,mode:$mode){id agentId text mode status createdAt deliveredAt projectId}}";
 
@@ -18,8 +22,10 @@ const mutation =
 export class InputDelivery {
   private inputs: OutgoingInput[] = [];
   private listeners = new Set<() => void>();
+
   private active = new Set<string>();
   private version = 0;
+
   constructor(
     private send: (
       query: string,
@@ -44,13 +50,17 @@ export class InputDelivery {
       /* Storage may be unavailable. */
     }
   }
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
   snapshot = () => this.version;
+
   forAgent = (id: string) =>
     this.inputs.filter((input) => input.agentId === id);
+
   submit(agentId: string, text: string, mode: "steer" | "queue") {
     const input: OutgoingInput = {
       id: crypto.randomUUID(),
@@ -64,10 +74,12 @@ export class InputDelivery {
     this.changed();
     void this.deliver(input.id);
   }
+
   flush = () => {
     for (const input of this.inputs)
       if (input.status === "unconfirmed") void this.deliver(input.id);
   };
+
   acknowledge(ids: Set<string>) {
     const next = this.inputs.filter((input) => !ids.has(input.id));
     if (next.length !== this.inputs.length) {
@@ -75,14 +87,20 @@ export class InputDelivery {
       this.changed();
     }
   }
+
   retry = (id: string) => {
     void this.deliver(id);
   };
+
   private async deliver(id: string) {
     const input = this.inputs.find((input) => input.id === id);
-    if (!input || this.active.has(id)) return;
+    if (!input || this.active.has(id)) {
+      return;
+    }
+
     this.active.add(id);
     this.update(id, { status: "sending", error: "" });
+
     try {
       const result = await this.send(mutation, {
         agentId: input.agentId,
@@ -90,8 +108,10 @@ export class InputDelivery {
         text: input.text,
         mode: input.mode,
       });
-      if (result.submitInput?.id !== input.id)
+      if (result.submitInput?.id !== input.id) {
         throw new Error("Server did not confirm the message receipt");
+      }
+
       this.update(id, { status: "accepted", error: "" });
       this.refresh();
     } catch (error) {
@@ -103,12 +123,14 @@ export class InputDelivery {
       this.active.delete(id);
     }
   }
+
   private update(id: string, values: Partial<OutgoingInput>) {
     this.inputs = this.inputs.map((input) =>
       input.id === id ? { ...input, ...values } : input,
     );
     this.changed();
   }
+
   private changed() {
     try {
       localStorage.setItem(
@@ -120,6 +142,7 @@ export class InputDelivery {
     } catch {
       /* The live request still runs if storage is unavailable. */
     }
+
     this.version++;
     this.listeners.forEach((listener) => listener());
   }

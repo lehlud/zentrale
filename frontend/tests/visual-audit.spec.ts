@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+
 import { measureThemeContrast } from "./fixtures/ui-contrast";
 import {
   chooseContextAction,
@@ -20,7 +21,9 @@ import {
 } from "./fixtures/visual-data";
 
 const directory = process.env.ZENTRALE_AUDIT_DIR ?? "artifacts/ui";
+
 const baseline = process.env.ZENTRALE_AUDIT_BASELINE === "1";
+
 const variants = [
   {
     name: "desktop-en-light",
@@ -104,7 +107,7 @@ for (const variant of variants) {
     await page.context().route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
-      if (query.includes("status{"))
+      if (query.includes("status{")) {
         return send({
           status: {
             needsSetup: auth === "setup",
@@ -112,6 +115,8 @@ for (const variant of variants) {
             githubConnected: false,
           },
         });
+      }
+
       if (
         query.includes("beginProviderLogin") ||
         query.includes("pollProviderLogin")
@@ -137,8 +142,11 @@ for (const variant of variants) {
           },
         });
       }
-      if (query.includes("cancelProviderLogin"))
+
+      if (query.includes("cancelProviderLogin")) {
         return send({ cancelProviderLogin: true });
+      }
+
       if (query.includes("testMachine") || query.includes("prepareAgent")) {
         const key = query.includes("testMachine")
           ? "testMachine"
@@ -155,13 +163,17 @@ for (const variant of variants) {
           },
         });
       }
+
       if (query.includes("trustHostKey")) {
         expect(variables.publicKey).toBe(hostKey.publicKey);
+
         connectionMode = "connected";
         editorMode = "connected";
+
         return send({ trustHostKey: true });
       }
-      if (query.includes("editorSession("))
+
+      if (query.includes("editorSession(")) {
         return send({
           editorSession: editorRunning
             ? {
@@ -179,11 +191,21 @@ for (const variant of variants) {
                 url: "",
               },
         });
-      if (query.includes("project(id:") && !query.includes("agents(projectId:"))
+      }
+
+      if (
+        query.includes("project(id:") &&
+        !query.includes("agents(projectId:")
+      ) {
         return send({ project });
+      }
+
       if (query.includes("startEditor")) {
         editorRunning = editorMode === "connected";
-        if (editorMode === "loading") return;
+        if (editorMode === "loading") {
+          return;
+        }
+
         return send({
           startEditor: {
             session: {
@@ -201,16 +223,22 @@ for (const variant of variants) {
           },
         });
       }
+
       if (query.includes("stopEditor")) {
         editorRunning = false;
         return send({ stopEditor: true });
       }
+
       if (query.includes("submitInput(agentId:")) {
         prompts++;
         return send({ submitInput: { ...variables, status: "active" } });
       }
-      if (query.includes("resumeInputs(")) return send({ resumeInputs: true });
-      if (query.startsWith("mutation"))
+
+      if (query.includes("resumeInputs(")) {
+        return send({ resumeInputs: true });
+      }
+
+      if (query.startsWith("mutation")) {
         return route.fulfill({
           json: {
             errors: [
@@ -222,8 +250,13 @@ for (const variant of variants) {
             ],
           },
         });
-      if (state === "loading") return; // Released by navigation; deliberately pending read.
-      if (state === "error")
+      }
+
+      if (state === "loading") {
+        return;
+      }
+      // Released by navigation; deliberately pending read.
+      if (state === "error") {
         return route.fulfill({
           json: {
             errors: [
@@ -235,6 +268,8 @@ for (const variant of variants) {
             ],
           },
         });
+      }
+
       if (query.includes("machines(limit:500)")) {
         const data = structuredClone(config);
         if (state === "empty") {
@@ -247,8 +282,10 @@ for (const variant of variants) {
           data.modelDefaults.main = { providerId: "", modelId: "" };
           data.modelDefaults.approver = { providerId: "", modelId: "" };
         }
+
         return send(data);
       }
+
       if (query.includes("recentMessages")) {
         const data = structuredClone(transcript);
         data.agent = structuredClone(
@@ -270,6 +307,7 @@ for (const variant of variants) {
           data.jobs = [];
           data.notes = [];
         }
+
         if (emptyTranscript) {
           data.messages = [];
           data.jobs = [];
@@ -278,6 +316,7 @@ for (const variant of variants) {
           data.questions = [];
           data.agent.summary = "";
         }
+
         return send({
           ...data,
           agentRunState: {
@@ -289,7 +328,8 @@ for (const variant of variants) {
           },
         });
       }
-      if (query.includes("agents(projectId:"))
+
+      if (query.includes("agents(projectId:")) {
         return send({
           project:
             state === "empty"
@@ -297,15 +337,24 @@ for (const variant of variants) {
               : project,
           agents: state === "empty" ? [] : agents,
         });
-      if (query.includes("sources(projectId:"))
+      }
+
+      if (query.includes("sources(projectId:")) {
         return send({
           sources: state === "empty" ? [] : sources,
           sshKeys: config.sshKeys,
         });
-      if (query.includes("approvals(agentId:"))
+      }
+
+      if (query.includes("approvals(agentId:")) {
         return send({ approvals: transcript.approvals });
-      if (query.includes("gitConnections")) return send({ gitConnections });
-      if (query.includes("models(providerId:"))
+      }
+
+      if (query.includes("gitConnections")) {
+        return send({ gitConnections });
+      }
+
+      if (query.includes("models(providerId:")) {
         return send({
           models: models.filter((item) =>
             `${item.name} ${item.id}`
@@ -313,10 +362,14 @@ for (const variant of variants) {
               .includes((variables.search ?? "").toLowerCase()),
           ),
         });
-      if (query.includes("model(providerId:"))
+      }
+
+      if (query.includes("model(providerId:")) {
         return send({
           model: models.find((item) => item.id === variables.modelId) ?? null,
         });
+      }
+
       throw new Error(`Missing visual fixture: ${query}`);
     });
     await page.context().route("**/ide/**", (route) =>
@@ -330,16 +383,19 @@ for (const variant of variants) {
     const dialog = () =>
       page.locator('[data-slot="modal-dialog"]:not([data-exiting])').last();
     let navigation = 0;
+
     async function go(route: string) {
       await page.goto(`/?visual=${navigation++}#/${route}`);
       await expect(page.locator("main")).toBeVisible();
       if (state !== "loading")
         await expect(page.locator('[data-slot="spinner"]')).toHaveCount(0);
     }
+
     async function capture(name: string, target = page) {
       await target.evaluate(() => document.fonts.ready);
       if (!(await dialog().isVisible()))
         await target.evaluate(() => window.scrollTo(0, 0));
+
       const file = `${variant.name}-${String(captures.length + 1).padStart(2, "0")}-${name}.png`;
       await target.screenshot({
         path: path.join(directory, file),
@@ -351,11 +407,14 @@ for (const variant of variants) {
       );
       captures.push({ name, file, overflow });
     }
+
     async function close() {
       const id = await dialog().getAttribute("id");
       const closing = page.locator(`[data-slot="modal-dialog"][id="${id}"]`);
       await page.keyboard.press("Escape");
+
       await expect(closing).toHaveCount(0);
+
       if (await dialog().isVisible()) {
         await expect
           .poll(() =>
@@ -374,15 +433,19 @@ for (const variant of variants) {
       .getByRole("button", { name: /^(Aktionen für|Actions for) / })
       .first();
     await providerActions.press("Enter");
+
     await expect(
       page.getByRole("menuitem", {
         name: label("Bearbeiten", "Edit"),
         exact: true,
       }),
     ).toBeVisible();
+
     await capture("provider-actions");
     await page.keyboard.press("Escape");
+
     await expect(providerActions).toBeFocused();
+
     await page
       .getByRole("button", {
         name: label("Provider hinzufügen", "Add provider"),
@@ -424,6 +487,7 @@ for (const variant of variants) {
           "space between fields",
         ).toBeGreaterThanOrEqual(19);
     }
+
     await dialog()
       .getByRole("button", { name: /Provider/ })
       .click();
@@ -433,19 +497,23 @@ for (const variant of variants) {
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
     await capture("provider-invalid");
+
     await expect(
       dialog().getByRole("textbox", { name: /^Name/ }),
     ).toBeFocused();
+
     await dialog()
       .getByRole("textbox", { name: /^Name/ })
       .fill("Forschungsteam");
     await dialog()
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(dialog().getByRole("alert")).toBeVisible();
     await expect(dialog().getByRole("textbox", { name: /^Name/ })).toHaveValue(
       "Forschungsteam",
     );
+
     await capture("provider-save-error");
     await close();
     await openProviderModels(page, "OpenAI · Forschung");
@@ -453,9 +521,11 @@ for (const variant of variants) {
       name: label("Sprachmodelle", "Language models"),
       exact: true,
     });
+
     await expect(
       catalog.getByRole("heading", { name: "Hauptmodell", exact: true }),
     ).toBeVisible();
+
     await capture("models");
     const modelActions = await chooseContextAction(
       page,
@@ -466,11 +536,14 @@ for (const variant of variants) {
     );
     await capture("model-metadata");
     await page.keyboard.press("Escape");
+
     await expect(
       page.locator('[data-slot="modal-dialog"]:not([data-exiting])'),
     ).toHaveCount(0);
     await expect(modelActions).toBeFocused();
+
     await catalog.getByRole("searchbox").fill("kein-treffer");
+
     await expect(
       catalog.getByText(
         label(
@@ -479,6 +552,7 @@ for (const variant of variants) {
         ),
       ),
     ).toBeVisible();
+
     await capture("models-empty-search");
     await catalog.getByRole("searchbox").fill("");
     for (const [name, title] of [
@@ -493,17 +567,22 @@ for (const variant of variants) {
           exact: true,
         })
         .click();
+
       await expect(dialog().getByRole("link")).toBeVisible();
+
       await capture(`provider-login-${name}`);
       await close();
     }
+
     loginError = true;
     await (
       await chooseProviderAccount(page, "ChatGPT · Team")
     )
       .getByRole("button", { name: label("Anmelden", "Sign in"), exact: true })
       .click();
+
     await expect(dialog().getByRole("alert")).toBeVisible();
+
     await capture("provider-login-error");
     await close();
 
@@ -515,12 +594,16 @@ for (const variant of variants) {
           .getByRole("button", { name: /^(Aktionen für|Actions for) / })
           .first();
         await actions.press("Enter");
+
         await expect(page.getByRole("menu")).toBeVisible();
+
         await capture(`${route}-actions`);
         await page.keyboard.press("Escape");
+
         await expect(actions).toBeFocused();
       }
     }
+
     await go("projects");
     await page
       .getByRole("button", {
@@ -530,6 +613,7 @@ for (const variant of variants) {
       .click();
     await capture("project-create");
     await dialog().getByLabel("Name", { exact: true }).fill("Quicksort Demo");
+
     await expect(
       dialog().getByLabel(
         label(
@@ -538,6 +622,7 @@ for (const variant of variants) {
         ),
       ),
     ).toHaveCount(0);
+
     await dialog()
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
       .click();
@@ -565,11 +650,13 @@ for (const variant of variants) {
         name: label("Verbindung prüfen", "Test connection"),
       })
       .click();
+
     await expect(
       page.getByText(label("Host-Schlüssel prüfen", "Review host key"), {
         exact: true,
       }),
     ).toBeVisible();
+
     await capture("machine-host-key");
     await page
       .getByRole("button", {
@@ -579,11 +666,13 @@ for (const variant of variants) {
         ),
       })
       .click();
+
     await expect(
       page.getByText(label("Verbindung erfolgreich", "Connection successful"), {
         exact: true,
       }),
     ).toBeVisible();
+
     await capture("machine-connection-success");
     connectionMode = "error";
     await page
@@ -591,7 +680,9 @@ for (const variant of variants) {
         name: label("Verbindung prüfen", "Test connection"),
       })
       .click();
+
     await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
+
     await capture("machine-connection-error");
     connectionMode = "connected";
     await page
@@ -629,7 +720,9 @@ for (const variant of variants) {
         exact: true,
       })
       .click();
+
     await expect(dialog().getByLabel(/code-server/)).toHaveCount(0);
+
     await dialog()
       .locator('[data-slot="modal-body"]')
       .evaluate((body) => {
@@ -642,6 +735,7 @@ for (const variant of variants) {
       expect(footer).not.toBeNull();
       expect(footer!.y + footer!.height).toBeLessThanOrEqual(variant.height);
     }
+
     await capture("machine-create-bottom");
     await close();
     await page.getByRole("tab", { name: "Pools", exact: true }).click();
@@ -651,6 +745,7 @@ for (const variant of variants) {
         name: label("YAML importieren / aktualisieren", "Import / update YAML"),
       })
       .click();
+
     await expect(dialog().locator(".monaco-editor")).toBeVisible();
     await expect
       .poll(() =>
@@ -663,6 +758,7 @@ for (const variant of variants) {
           ),
       )
       .toBeGreaterThan(1);
+
     await capture("pool-yaml");
     await close();
     await go("keys");
@@ -706,6 +802,7 @@ for (const variant of variants) {
         name: new RegExp("^" + label("Starten", "Start")),
       })
       .click();
+
     await expect(
       page.getByText(label("Host-Schlüssel prüfen", "Review host key"), {
         exact: true,
@@ -713,6 +810,7 @@ for (const variant of variants) {
     ).toBeVisible();
     await expect(prompt).toHaveValue("");
     expect(prompts).toBe(1);
+
     await capture("agent-connection-required");
     await page
       .getByRole("button", {
@@ -722,8 +820,10 @@ for (const variant of variants) {
         ),
       })
       .click();
+
     await expect(prompt).toHaveValue("");
     expect(prompts).toBe(1);
+
     await capture("agent-connection-ready");
 
     await setLogDiagnostics(page, true);
@@ -781,11 +881,13 @@ for (const variant of variants) {
     await page
       .getByRole("menuitem", { name: "Auto-Approver ↗", exact: true })
       .click();
+
     await expect(
       page.getByRole("textbox", {
         name: label("Aufgabe oder neue Instruktion", "Task or new instruction"),
       }),
     ).toHaveCount(0);
+
     await capture("approver-readonly");
     await go("projects/forecast");
     await page
@@ -810,7 +912,9 @@ for (const variant of variants) {
     await close();
     await go("projects/forecast?view=editor");
     await capture("optional-editor");
+
     await expect(page.locator("iframe")).toHaveCount(0);
+
     editorMode = "untrusted";
     const openEditor = async () => {
       const opened = page.context().waitForEvent("page");
@@ -825,15 +929,18 @@ for (const variant of variants) {
         .click();
       const editor = await opened;
       await editor.setViewportSize(variant);
+
       return editor;
     };
     let editorPage = await openEditor();
+
     await expect(
       editorPage.getByText(label("Host-Schlüssel prüfen", "Review host key"), {
         exact: true,
       }),
     ).toBeVisible();
     await expect(editorPage.getByRole("banner")).toHaveCount(0);
+
     await capture("editor-host-key", editorPage);
     await editorPage
       .getByRole("button", {
@@ -843,10 +950,12 @@ for (const variant of variants) {
         ),
       })
       .click();
+
     await expect(
       editorPage.getByRole("heading", { name: "Editor-Fixture" }),
     ).toBeVisible();
     expect(await editorPage.evaluate(() => window.opener === null)).toBe(true);
+
     await capture("editor-connected-new-tab", editorPage);
     await editorPage.close();
     await go("projects/forecast?view=editor");
@@ -863,25 +972,31 @@ for (const variant of variants) {
         exact: true,
       })
       .click();
+
     await expect(
       page.getByRole("button", {
         name: label("Editor beenden", "Stop editor"),
         exact: true,
       }),
     ).toHaveCount(0);
+
     editorMode = "error";
     editorPage = await openEditor();
+
     await expect(editorPage.getByRole("alert")).toBeVisible();
+
     await capture("editor-error", editorPage);
     await editorPage.close();
     editorMode = "loading";
     editorPage = await openEditor();
+
     await expect(
       editorPage.getByRole("heading", {
         name: label("VS Code öffnen", "Open VS Code"),
         exact: true,
       }),
     ).toBeVisible();
+
     await capture("editor-starting", editorPage);
     await editorPage.close();
     editorMode = "connected";
@@ -900,6 +1015,7 @@ for (const variant of variants) {
       await go(route);
       await capture(`empty-${route.replaceAll(/[/?=]/g, "-")}`);
     }
+
     await go("machines");
     await page.getByRole("tab", { name: "Pools", exact: true }).click();
     await capture("empty-pools");
@@ -925,6 +1041,7 @@ for (const variant of variants) {
       ).toBeVisible();
       await capture(`error-${route.replaceAll("/", "-")}`);
     }
+
     state = "loading";
     for (const route of [
       "projects",
@@ -937,6 +1054,7 @@ for (const variant of variants) {
       await go(route);
       await capture(`loading-${route.replaceAll("/", "-")}`);
     }
+
     state = "populated";
     if (variant.width < 1024) {
       await go("projects");
@@ -945,6 +1063,7 @@ for (const variant of variants) {
         .click();
       await capture("navigation-drawer");
     }
+
     auth = "login";
     await go("projects");
     await capture("login");
@@ -967,12 +1086,15 @@ for (const variant of variants) {
       path.join(directory, `${variant.name}.json`),
       JSON.stringify({ captures, measurements, contrasts, errors }, null, 2),
     );
+
     expect(errors).toEqual([]);
+
     if (!baseline)
       expect(
         contrasts.filter((item) => item.ratio < item.minimum),
         "theme contrast",
       ).toEqual([]);
+
     if (!baseline)
       expect(
         captures.filter((item) => item.overflow > 1),

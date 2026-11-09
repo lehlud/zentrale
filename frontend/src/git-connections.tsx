@@ -1,5 +1,6 @@
 import { Alert, Button, Card, Chip, Link, buttonVariants } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+
 import { useAPI, useQuery } from "./api";
 import { ActionsMenu } from "./actions-menu";
 import { CodeSnippet } from "./code-snippet";
@@ -9,9 +10,12 @@ import { Editor, Failure, Inspect, Loading, useAction } from "./ui";
 
 export const gitConnectionFields =
   "id kind baseUrl clientId configured connected userName";
+
 export const gitConnectionsQuery = `query{gitConnections{${gitConnectionFields}}}`;
+
 const loginFields =
   "id connectionId verificationUrl userCode status expiresAt interval error";
+
 export function gitName(kind: string) {
   return kind === "github" ? "GitHub" : "GitLab";
 }
@@ -27,6 +31,7 @@ export function GitConnections() {
     configure?: boolean;
   }>();
   const action = useAction();
+
   return (
     <section
       aria-labelledby="git-connections-title"
@@ -139,7 +144,7 @@ export function GitConnect({
   const [configuring, setConfiguring] = useState(
     configureOnly || !connection.configured,
   );
-  if (configuring)
+  if (configuring) {
     return (
       <Editor
         title={t("{name} verbinden", { name: gitName(connection.kind) })}
@@ -211,6 +216,8 @@ export function GitConnect({
         // A successful configuration continues into the browser login in this dialog.
       />
     );
+  }
+
   return <GitDeviceLogin connection={current} onClose={onClose} />;
 }
 
@@ -230,6 +237,7 @@ function GitDeviceLogin({
     | { attempt: number; promise: Promise<{ beginGitLogin: GitLogin }> }
     | undefined
   >(undefined);
+
   useEffect(() => {
     let active = true;
     if (request.current?.attempt !== attempt)
@@ -241,6 +249,7 @@ function GitDeviceLogin({
           { announce: false, refresh: false },
         ),
       };
+
     request.current.promise
       .then((value) => {
         if (active) {
@@ -251,12 +260,17 @@ function GitDeviceLogin({
       .catch((failure: Error) => {
         if (active) setError(failure.message);
       });
+
     return () => {
       active = false;
     };
   }, [api, connection.id, attempt]);
+
   useEffect(() => {
-    if (!login || login.status !== "pending" || error) return;
+    if (!login || login.status !== "pending" || error) {
+      return;
+    }
+
     let active = true;
     const timer = setTimeout(
       () => {
@@ -278,16 +292,19 @@ function GitDeviceLogin({
       },
       Math.max(5, login.interval) * 1000,
     );
+
     return () => {
       active = false;
       clearTimeout(timer);
     };
   }, [api, connection.id, login, error]);
+
   const restart = () => {
     setLogin(undefined);
     setError("");
     setAttempt((value) => value + 1);
   };
+
   return (
     <Inspect
       title={t("{name} verbinden", { name: gitName(connection.kind) })}

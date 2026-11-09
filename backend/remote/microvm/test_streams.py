@@ -34,7 +34,9 @@ class StreamingTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.control = Path(temporary.name)
-        (self.control / "streams.py").write_bytes((DIRECTORY / "streams.py").read_bytes())
+        (self.control / "streams.py").write_bytes(
+            (DIRECTORY / "streams.py").read_bytes()
+        )
         self.job = self.control / "requests" / "job"
         self.job.mkdir(parents=True)
 
@@ -85,25 +87,37 @@ class StreamingTests(unittest.TestCase):
             except BaseException as error:
                 failures.append(error)
 
-        readers = [threading.Thread(target=receive, args=(name,)) for name in ("stdout", "stderr")]
+        readers = [
+            threading.Thread(target=receive, args=(name,))
+            for name in ("stdout", "stderr")
+        ]
         for reader in readers:
             reader.start()
         if not protocol:
             (job / "stdin").write_bytes(block * count)
             (job / "stdin.eof").touch()
-        with patch.object(guest, "CONTROL", str(self.control)), patch.object(
-            guest.subprocess, "Popen",
-            side_effect=lambda _args, **kwargs: original_popen([sys.executable, "-u", "-c", script], **kwargs),
+        with (
+            patch.object(guest, "CONTROL", str(self.control)),
+            patch.object(
+                guest.subprocess,
+                "Popen",
+                side_effect=lambda _args, **kwargs: original_popen(
+                    [sys.executable, "-u", "-c", script], **kwargs
+                ),
+            ),
         ):
             worker = threading.Thread(target=guest.run_job, args=(job,))
             worker.start()
             if protocol:
-                input_stream = streams.MailboxStream(job, "stdin", lambda: time.monotonic() > deadline)
+                input_stream = streams.MailboxStream(
+                    job, "stdin", lambda: time.monotonic() > deadline
+                )
                 for _ in range(count):
                     input_stream.write(block)
                 input_stream.close()
             worker.join(timeout=10)
             self.assertFalse(worker.is_alive(), "guest stream did not finish")
+
         for reader in readers:
             reader.join(timeout=10)
             self.assertFalse(reader.is_alive())
@@ -127,12 +141,18 @@ class StreamingTests(unittest.TestCase):
         writer = threading.Thread(target=fill)
         writer.start()
         deadline = time.monotonic() + 3
-        while len(list(self.job.glob("*.chunk"))) < stream.QUEUED_CHUNKS and time.monotonic() < deadline:
+        while (
+            len(list(self.job.glob("*.chunk"))) < stream.QUEUED_CHUNKS
+            and time.monotonic() < deadline
+        ):
             time.sleep(0.005)
         files = list(self.job.glob("*.chunk"))
         self.assertTrue(writer.is_alive(), "writer silently discarded excess bytes")
         self.assertEqual(len(files), stream.QUEUED_CHUNKS)
-        self.assertLessEqual(sum(file.stat().st_size for file in files), 2 * 1024 * 1024)
+        self.assertLessEqual(
+            sum(file.stat().st_size for file in files), 2 * 1024 * 1024
+        )
+
         cancelled.set()
         writer.join(timeout=1)
         self.assertFalse(writer.is_alive())
@@ -140,7 +160,9 @@ class StreamingTests(unittest.TestCase):
 
     def test_host_forwards_large_output_even_when_ssh_writes_are_partial(self):
         (self.job / "request.json").write_text("{}")
-        (self.control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
+        (self.control / "supervisor.pid").write_text(
+            json.dumps(runner.process_reference())
+        )
         block = b"startup\n" + bytes(range(256)) * 256 + b"\nfinal diagnostic\n"
         expected = hashlib.sha256(block * 100).hexdigest()
         digest, errors = hashlib.sha256(), []
@@ -165,8 +187,15 @@ class StreamingTests(unittest.TestCase):
         writer = threading.Thread(target=produce)
         writer.start()
         original_read = os.read
-        with patch.object(runner.os, "read", side_effect=lambda fd, size: b"" if fd == 0 else original_read(fd, size)), patch.object(
-            runner.os, "write", side_effect=partial_write
+        with (
+            patch.object(
+                runner.os,
+                "read",
+                side_effect=lambda fd, size: (
+                    b"" if fd == 0 else original_read(fd, size)
+                ),
+            ),
+            patch.object(runner.os, "write", side_effect=partial_write),
         ):
             self.assertEqual(runner.run_invocation(self.job), 0)
         writer.join(timeout=3)
@@ -187,8 +216,15 @@ class StreamingTests(unittest.TestCase):
             return len(data)
 
         original_read = os.read
-        with patch.object(runner.os, "read", side_effect=lambda fd, size: b"" if fd == 0 else original_read(fd, size)), patch.object(
-            runner.os, "write", side_effect=write
+        with (
+            patch.object(
+                runner.os,
+                "read",
+                side_effect=lambda fd, size: (
+                    b"" if fd == 0 else original_read(fd, size)
+                ),
+            ),
+            patch.object(runner.os, "write", side_effect=write),
         ):
             self.assertEqual(runner.run_invocation(self.job), 125)
         self.assertIn(b"missing guest runtime", diagnostic)

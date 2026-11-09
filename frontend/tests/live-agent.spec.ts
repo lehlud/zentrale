@@ -1,5 +1,6 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -80,16 +81,20 @@ for (const english of [false, true]) {
       await page.route("**/graphql", async (route) => {
         const { query } = route.request().postDataJSON();
         const send = (data: unknown) => route.fulfill({ json: { data } });
-        if (query.includes("status{"))
+        if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
+        }
+
         if (query.includes("stopAgent")) {
           stopAgent++;
           running = false;
+
           return send({ stopAgent: true });
         }
+
         if (query.includes("stopJob")) {
           stopJob++;
-          if (stopJob === 1)
+          if (stopJob === 1) {
             return route.fulfill({
               json: {
                 errors: [
@@ -102,9 +107,13 @@ for (const english of [false, true]) {
                 ],
               },
             });
+          }
+
           job.status = "stopped";
+
           return send({ stopJob: true });
         }
+
         if (query.includes("recentMessages")) {
           queryCount++;
           return send({
@@ -116,21 +125,27 @@ for (const english of [false, true]) {
             questions: [],
           });
         }
-        if (query.includes("agents(projectId:"))
+
+        if (query.includes("agents(projectId:")) {
           return send({
             project,
             agents: agents.map((value) =>
               value.id === agent.id ? current() : value,
             ),
           });
+        }
+
         return send(config);
       });
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
+
       await expect.poll(() => Boolean(socket)).toBe(true);
+
       const output = page.getByRole("region", {
         name: label("Agentenverlauf", "Agent transcript"),
         exact: true,
       });
+
       await expect(
         page.getByRole("button", {
           name: label("Agent stoppen", "Stop agent"),
@@ -138,6 +153,7 @@ for (const english of [false, true]) {
         }),
       ).toBeVisible();
       await expect(output.locator(".working-indicator")).toBeVisible();
+
       const draft: LiveResponse = {
         id: "draft-1",
         agentId: agent.id,
@@ -153,7 +169,9 @@ for (const english of [false, true]) {
         name: label("Live-Antwort", "Live response"),
         exact: true,
       });
+
       await expect(live).toContainText("Live:");
+
       const before = queryCount;
       let answer = "Live: ";
       for (let index = 2; index <= 30; index++) {
@@ -161,22 +179,29 @@ for (const english of [false, true]) {
         answer += text;
         response({ ...draft, snapshot: false, revision: index, delta: text });
       }
+
       await expect(live).toContainText("token-30");
       expect(queryCount).toBe(before);
+
       // A new socket first resets drafts, then supplies an authoritative snapshot.
       socket!.send(JSON.stringify({ id: 0, type: "response_reset" }));
       response({ ...draft, revision: 30, text: answer });
+
       await expect(live).toContainText("token-30");
       expect((await live.innerText()).match(/token-2\b/g)).toHaveLength(1);
+
       response({
         ...draft,
         revision: 32,
         snapshot: false,
         delta: "OUT_OF_ORDER",
       });
+
       await expect(live).not.toContainText("OUT_OF_ORDER");
       expect(queryCount).toBe(before);
+
       await page.emulateMedia({ reducedMotion: "reduce" });
+
       await expect
         .poll(() =>
           output
@@ -185,12 +210,14 @@ for (const english of [false, true]) {
             .evaluate((element) => getComputedStyle(element).animationName),
         )
         .toBe("none");
+
       await page.emulateMedia({ reducedMotion: "no-preference" });
 
       const openJob = output.getByRole("button", {
         name: label("Ausgabe öffnen:", "Open output:") + " " + job.command,
       });
       await openJob.click();
+
       await expect(output).toContainText("step 1/10");
       await expect(page.getByRole("dialog")).toHaveCount(0);
       expect(
@@ -198,6 +225,7 @@ for (const english of [false, true]) {
           () => document.documentElement.scrollWidth - innerWidth,
         ),
       ).toBeLessThanOrEqual(1);
+
       await mkdir("artifacts/ui", { recursive: true });
       await page.screenshot({
         path: "artifacts/ui/live-" + variant + ".png",
@@ -214,10 +242,12 @@ for (const english of [false, true]) {
           exact: true,
         })
         .click();
+
       await expect(output).toContainText(
         label("Job konnte nicht beendet werden.", "Could not stop the job."),
       );
       await expect(output).toContainText("step 1/10");
+
       await stopJobButton.click();
       await page
         .getByRole("dialog")
@@ -226,6 +256,7 @@ for (const english of [false, true]) {
           exact: true,
         })
         .click();
+
       await expect(stopJobButton).toHaveCount(0);
       expect(stopJob).toBe(2);
 
@@ -235,10 +266,13 @@ for (const english of [false, true]) {
         name: label("Zu neuesten Einträgen ↓", "Latest entries ↓"),
       });
       if (await latest.isVisible()) await latest.click();
+
       await page.evaluate(() =>
         window.scrollTo(0, document.documentElement.scrollHeight),
       );
+
       await expect(latest).toHaveCount(0);
+
       const longText =
         "\n\n" +
         Array.from({ length: 70 }, (_, index) => "Output line " + index).join(
@@ -246,6 +280,7 @@ for (const english of [false, true]) {
         );
       answer += longText;
       response({ ...draft, snapshot: false, revision: 31, delta: longText });
+
       await expect(live).toContainText("Output line 69");
       await expect
         .poll(() =>
@@ -254,8 +289,11 @@ for (const english of [false, true]) {
           ),
         )
         .toBeLessThan(5);
+
       await page.evaluate(() => window.scrollTo(0, 0));
+
       await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+
       answer += "\nAnother live line";
       response({
         ...draft,
@@ -263,8 +301,10 @@ for (const english of [false, true]) {
         revision: 32,
         delta: "\nAnother live line",
       });
+
       await expect(live).toContainText("Another live line");
       expect(await page.evaluate(() => scrollY)).toBe(0);
+
       await page
         .getByRole("button", {
           name: label("Zu neuesten Einträgen ↓", "Latest entries ↓"),
@@ -286,6 +326,7 @@ for (const english of [false, true]) {
         text: answer.trim(),
       });
       durable();
+
       await expect(live).toHaveCount(0);
       await expect(
         output.getByText(answer.trim(), { exact: true }),
@@ -302,11 +343,14 @@ for (const english of [false, true]) {
         createdAt: new Date().toISOString(),
       };
       response(second);
+
       await expect(live).toContainText("A partial answer");
+
       const prompt = page.getByRole("textbox", {
         name: label("Aufgabe oder neue Instruktion", "Task or new instruction"),
       });
       await prompt.fill("A follow-up instruction");
+
       await expect(
         page.getByRole("button", {
           name: new RegExp(
@@ -314,6 +358,7 @@ for (const english of [false, true]) {
           ),
         }),
       ).toBeEnabled();
+
       await prompt.fill("");
       await page
         .getByRole("button", {
@@ -321,8 +366,11 @@ for (const english of [false, true]) {
           exact: true,
         })
         .click();
+
       expect(stopAgent).toBe(1);
+
       response({ ...second, revision: 1, status: "interrupted" });
+
       await expect(live).toContainText(
         label("Antwort unterbrochen", "Response interrupted"),
       );

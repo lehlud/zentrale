@@ -1,5 +1,6 @@
 import { Button, Link, Spinner } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { useAPI, useQuery } from "./api";
 import type { EditorStartResult, Project, SSHHostKey } from "./generated";
 import { useI18n } from "./preferences";
@@ -21,7 +22,10 @@ export function EditorLauncher({ projectId }: { projectId: string }) {
   const [starting, setStarting] = useState(true);
 
   useEffect(() => {
-    if (!data?.project) return;
+    if (!data?.project) {
+      return;
+    }
+
     const controller = new AbortController();
     setStarting(true);
     setFailure("");
@@ -33,7 +37,9 @@ export function EditorLauncher({ projectId }: { projectId: string }) {
         controller.signal,
       )
       .then(({ startEditor: result }) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          return;
+        }
         if (result.hostKey.publicKey) setChallenge(result.hostKey);
         else if (result.error) setFailure(result.error);
         else {
@@ -50,6 +56,7 @@ export function EditorLauncher({ projectId }: { projectId: string }) {
       .finally(() => {
         if (!controller.signal.aborted) setStarting(false);
       });
+
     return () => controller.abort();
   }, [api, projectId, agentId, data?.project?.id, attempt, locale, theme]);
 

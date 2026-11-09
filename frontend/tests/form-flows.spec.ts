@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import { config, gitConnections } from "./fixtures/visual-data";
 
 for (const english of [false, true]) {
@@ -29,19 +30,27 @@ for (const english of [false, true]) {
       const send = (value: unknown) => route.fulfill({ json: { data: value } });
       const fail = (message: string) =>
         route.fulfill({ json: { errors: [{ message }] } });
-      if (query.includes("status{"))
+      if (query.includes("status{")) {
         return send({ status: { needsSetup: setup, authenticated: !setup } });
+      }
+
       if (query.includes("saveProject")) {
         projectsSaved++;
         projectIDs.push(variables.input.id);
-        if (projectsSaved === 1) return fail("select a remote machine or pool");
+        if (projectsSaved === 1) {
+          return fail("select a remote machine or pool");
+        }
+
         expect(variables.input.directory).toBeUndefined();
         expect(variables.input.machineIds).toEqual([config.machines[0].id]);
         expect(variables.input.commitName).toBe("Project Author");
         expect(variables.input.commitEmail).toBe("project@example.test");
+
         data.projects.push(variables.input);
+
         return send({ saveProject: { id: variables.input.id } });
       }
+
       if (query.includes("generateSSHKey")) {
         keysGenerated++;
         const key = {
@@ -52,35 +61,52 @@ for (const english of [false, true]) {
           usages: [],
         };
         data.sshKeys.push(key);
+
         return send({ generateSSHKey: key });
       }
+
       if (query.includes("saveMachine")) {
         machinesSaved++;
-        if (machinesSaved === 1)
+        if (machinesSaved === 1) {
           return fail("microvm_command must be an absolute path when supplied");
+        }
+
         expect(variables.input.keyId).toBe(7);
         expect(variables.input.host).toBe("worker.example.org");
         expect(variables.input.workspaceRoot).toBe("/srv/persistent-projects");
         expect(variables.input.microVMCommand).toBe("/opt/runner");
         expect(variables.input.properties).toEqual(["GPU", "Training"]);
+
         data.machines.push({ ...variables.input, id: "new-worker" });
+
         return send({ saveMachine: { id: "new-worker" } });
       }
+
       if (query.includes("setup(password:")) {
         setupAttempts++;
+
         expect(variables.password).toBe("flow setup password");
-        if (setupAttempts === 1)
+
+        if (setupAttempts === 1) {
           return fail(
             "commit name must contain 1–200 characters without line breaks or angle brackets",
           );
+        }
+
         expect(variables.identity).toEqual({
           name: "Flow Team",
           email: "flow@example.test",
         });
+
         setup = false;
+
         return send({ setup: true });
       }
-      if (query.includes("gitConnections")) return send({ gitConnections });
+
+      if (query.includes("gitConnections")) {
+        return send({ gitConnections });
+      }
+
       return send(data);
     });
     const dialog = page.getByRole("dialog");
@@ -93,13 +119,16 @@ for (const english of [false, true]) {
         .getByRole("button", { name: label("Zurück", "Back"), exact: true })
         .click();
     const captures: { name: string; file: string; overflow: number }[] = [];
+
     async function capture(name: string) {
       await mkdir("artifacts/ui", { recursive: true });
       const file = `flow-${variant}-${name}.png`;
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,
       );
+
       expect(overflow).toBeLessThanOrEqual(1);
+
       await page.screenshot({
         path: `artifacts/ui/${file}`,
         animations: "disabled",
@@ -114,20 +143,27 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect(dialog.getByRole("progressbar")).toHaveAttribute(
       "aria-valuetext",
       label("Schritt 1 von 4", "Step 1 of 4"),
     );
+
     await next();
+
     await expect(dialog.getByLabel("Name", { exact: true })).toBeFocused();
+
     await dialog.getByLabel("Name", { exact: true }).fill("Flow Project");
     const directoryLabel = label(
       "Projektverzeichnis auf der Fernmaschine",
       "Project directory on the remote machine",
     );
+
     await expect(dialog.getByLabel(directoryLabel)).toHaveCount(0);
+
     await capture("project-name");
     await next();
+
     await expect(
       dialog.getByRole("heading", {
         name: label(
@@ -137,11 +173,14 @@ for (const english of [false, true]) {
         exact: true,
       }),
     ).toBeFocused();
+
     await back();
+
     await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
       "Flow Project",
     );
     await expect(dialog.getByLabel(directoryLabel)).toHaveCount(0);
+
     await next();
     await next();
     const machineChoice = dialog
@@ -149,7 +188,9 @@ for (const english of [false, true]) {
         name: label("Fernmaschinen", "Remote machines"),
       })
       .and(dialog.locator('[data-slot="select-trigger"]'));
+
     await expect(machineChoice).toBeFocused();
+
     await machineChoice.click();
     await page
       .getByRole("option", { name: config.machines[0].name, exact: true })
@@ -160,21 +201,27 @@ for (const english of [false, true]) {
     await capture("project-repository");
     await next();
     await capture("project-identity");
+
     await expect(
       dialog.getByLabel(
         label("Commit-Name (optional)", "Commit name (optional)"),
       ),
     ).not.toBeVisible();
     expect(projectsSaved).toBe(0);
+
     await dialog
       .getByRole("button", {
         name: label("Projekt anlegen", "Create project"),
         exact: true,
       })
       .click();
+
     await expect(machineChoice).toBeFocused();
+
     await capture("project-error-return");
+
     await expect(machineChoice).toContainText(config.machines[0].name);
+
     await next();
     await next();
     await dialog
@@ -195,6 +242,7 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect(dialog).toHaveCount(0);
     expect(projectIDs).toHaveLength(2);
     expect(projectIDs[0]).toBe(projectIDs[1]);
@@ -214,6 +262,7 @@ for (const english of [false, true]) {
       .fill("developer");
     await next();
     await next();
+
     await expect(
       dialog
         .getByRole("button", {
@@ -222,12 +271,14 @@ for (const english of [false, true]) {
         .and(dialog.locator('[data-slot="select-trigger"]')),
     ).toBeFocused();
     expect(machinesSaved).toBe(0);
+
     await dialog
       .getByRole("button", {
         name: label("Neuen SSH-Schlüssel erzeugen", "Generate a new SSH key"),
         exact: true,
       })
       .click();
+
     await expect(
       dialog
         .getByRole("button", {
@@ -242,6 +293,7 @@ for (const english of [false, true]) {
       }),
     ).toBeVisible();
     expect(keysGenerated).toBe(1);
+
     await capture("machine-access");
     await next();
     await capture("machine-environment");
@@ -253,8 +305,10 @@ for (const english of [false, true]) {
     await dialog
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(workspaceRoot).toBeFocused();
     expect(machinesSaved).toBe(0);
+
     await workspaceRoot.fill("/srv/persistent-projects");
     await dialog
       .getByRole("button", {
@@ -279,14 +333,17 @@ for (const english of [false, true]) {
     await dialog
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(runner).toBeVisible();
     await expect(runner).toBeFocused();
     await expect(runner).toHaveValue("invalid-runner");
+
     await capture("machine-advanced-error");
     await runner.fill("/opt/runner");
     await dialog
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
+
     await expect(dialog).toHaveCount(0);
 
     setup = true;
@@ -305,8 +362,10 @@ for (const english of [false, true]) {
     await password.fill("flow setup password");
     await confirmation.fill("different password");
     await continueSetup();
+
     await expect(confirmation).toBeFocused();
     await expect(confirmation).toHaveAttribute("aria-invalid", "true");
+
     await confirmation.fill("flow setup password");
     await capture("setup-password");
     await continueSetup();
@@ -323,19 +382,25 @@ for (const english of [false, true]) {
     await page
       .getByRole("button", { name: label("Zurück", "Back"), exact: true })
       .click();
+
     await expect(password).toHaveValue("flow setup password");
     await expect(confirmation).toHaveValue("flow setup password");
+
     await continueSetup();
+
     await expect(commitName).toHaveValue("Invalid <Name>");
     expect(setupAttempts).toBe(0);
+
     await page
       .getByRole("button", {
         name: label("Einrichtung abschließen", "Complete setup"),
         exact: true,
       })
       .click();
+
     await expect(commitName).toBeFocused();
     await expect(commitEmail).toHaveValue("flow@example.test");
+
     await capture("setup-identity-error");
     await commitName.fill("Flow Team");
     await page
@@ -344,6 +409,7 @@ for (const english of [false, true]) {
         exact: true,
       })
       .click();
+
     await expect(
       page.getByRole("heading", {
         name: label("Projekte", "Projects"),
@@ -351,6 +417,7 @@ for (const english of [false, true]) {
       }),
     ).toBeVisible();
     expect(setupAttempts).toBe(2);
+
     await writeFile(
       `artifacts/ui/form-flows-${variant}.json`,
       JSON.stringify({ captures }, null, 2),

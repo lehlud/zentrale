@@ -40,11 +40,15 @@ export function parseToolCalls(wire: string): ToolCall[] {
       : Array.isArray(envelope.parts)
         ? envelope.parts
         : [envelope];
+
   return entries.flatMap((value, index) => {
     const entry = object(value);
     const call = object(entry.function ?? entry.functionCall ?? entry);
     const name = call.name ?? call.action;
-    if (typeof name !== "string") return [];
+    if (typeof name !== "string") {
+      return [];
+    }
+
     const raw = call.arguments ?? call.args ?? call.input ?? {};
     const args = typeof raw === "string" ? (parseJSON(raw) ?? raw) : raw;
     const action = object(args);
@@ -55,6 +59,7 @@ export function parseToolCalls(wire: string): ToolCall[] {
       typeof action.arguments === "string"
         ? (parseJSON(action.arguments) ?? action.arguments)
         : action.arguments;
+
     return [
       {
         id: String(
@@ -87,17 +92,30 @@ export function parseToolCalls(wire: string): ToolCall[] {
 
 export function toolSummary(call?: Pick<ToolCall, "arguments">): string {
   const args = object(call?.arguments);
-  if (typeof args.chars === "string" && args.chars)
+  if (typeof args.chars === "string" && args.chars) {
     return args.chars
       .replaceAll("\u0003", "Ctrl+C")
       .replaceAll("\u0004", "Ctrl+D")
       .replaceAll("\u001b", "Esc")
       .split("\n")[0];
-  if (args.eof === true) return "EOF";
-  if (typeof args.tool === "string") return args.tool;
-  if (typeof args.name === "string") return args.name;
-  if (Array.isArray(args.packages))
+  }
+
+  if (args.eof === true) {
+    return "EOF";
+  }
+
+  if (typeof args.tool === "string") {
+    return args.tool;
+  }
+
+  if (typeof args.name === "string") {
+    return args.name;
+  }
+
+  if (Array.isArray(args.packages)) {
     return args.packages.filter((item) => typeof item === "string").join(", ");
+  }
+
   for (const key of [
     "command",
     "path",
@@ -108,8 +126,11 @@ export function toolSummary(call?: Pick<ToolCall, "arguments">): string {
     "code",
     "explanation",
   ]) {
-    if (typeof args[key] === "string") return args[key].split("\n")[0];
+    if (typeof args[key] === "string") {
+      return args[key].split("\n")[0];
+    }
   }
+
   return "";
 }
 
@@ -124,10 +145,15 @@ export function correlateToolCalls(messages: Message[]) {
     callsByMessage.set(message.id, calls);
     for (const call of calls) {
       if (call.id) callsById.set(call.id, call);
+
       callsByName.set(call.providerTool, call);
       callsByName.set(call.name, call);
     }
-    if (message.role !== "tool") continue;
+
+    if (message.role !== "tool") {
+      continue;
+    }
+
     const call = message.callId
       ? callsById.get(message.callId)
       : callsByName.get(message.toolName);
@@ -136,6 +162,7 @@ export function correlateToolCalls(messages: Message[]) {
       completed.add(call);
     }
   }
+
   // Some providers reuse call IDs in later turns. Match in chronological order
   // so an older result cannot mark a new, still-running action as completed.
   return { callsByMessage, resultCalls, completed };
@@ -147,8 +174,10 @@ export function toolOutcome(content: string) {
   const job = object(result.job ?? result);
   let error = typeof value.error === "string" ? value.error : "";
   if (!error && typeof job.error === "string") error = job.error;
+
   if (!error && (job.status === "failed" || job.status === "interrupted"))
     error = job.status;
+
   return {
     error,
     status:

@@ -296,7 +296,9 @@ func TestQuotedIdentifiersAndDriverValues(t *testing.T) {
 		t.Fatalf("timestamp was not preserved: %#v", row)
 	}
 
-	updated, err := i.update[map[string]any](`odd" table`, map[string]any{"select": nil}, `"co""lumn" = ?`, stamp)
+	updated, err := i.update[map[string]any](`odd" table`, map[string]any{
+		"select": nil,
+	}, `"co""lumn" = ?`, stamp)
 	if err != nil || len(updated) != 1 || updated[0]["select"] != nil {
 		t.Fatalf("quoted update: rows=%#v err=%v", updated, err)
 	}

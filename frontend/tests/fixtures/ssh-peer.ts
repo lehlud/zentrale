@@ -34,8 +34,12 @@ export async function startSSHPeer(): Promise<SSHPeer> {
       });
       process.stdout.on("data", (chunk) => {
         output += String(chunk);
-        if (!output.includes("\n")) return;
+        if (!output.includes("\n")) {
+          return;
+        }
+
         clearTimeout(timeout);
+
         try {
           resolve(JSON.parse(output.split("\n")[0]));
         } catch (error) {
@@ -44,6 +48,7 @@ export async function startSSHPeer(): Promise<SSHPeer> {
       });
     },
   );
+
   return {
     ...details,
     close: () =>
@@ -52,6 +57,7 @@ export async function startSSHPeer(): Promise<SSHPeer> {
           resolve();
           return;
         }
+
         const timeout = setTimeout(() => {
           process.kill();
           resolve();

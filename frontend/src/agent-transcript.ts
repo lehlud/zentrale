@@ -10,8 +10,10 @@ import type {
   AgentRunState,
   Goal,
 } from "./generated";
+
 const agentFields =
   "id name role status parentId approverId projectId providerId modelId machineId error contextStart summary";
+
 export const transcriptQuery = `query($id:String!, $offset:Int!) {
   goal(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
   agentInputs(agentId:$id) { id agentId projectId text mode status createdAt deliveredAt }
@@ -38,6 +40,7 @@ export const transcriptQuery = `query($id:String!, $offset:Int!) {
   }
   notes(agentId:$id) { id title content agentId }
 }`;
+
 export type Transcript = {
   goal?: Goal | null;
   agentInputs?: AgentInput[];

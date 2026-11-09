@@ -45,7 +45,7 @@ export function MCPResult({ name, value }: { name: string; value: unknown }) {
   const result = record(value);
   const tools = Array.isArray(result.tools) ? result.tools : undefined;
   const schema = record(result.inputSchema);
-  if (name === "mcp_connect" || name === "mcp_disconnect")
+  if (name === "mcp_connect" || name === "mcp_disconnect") {
     return (
       <p className="text-sm">
         {t(
@@ -55,6 +55,8 @@ export function MCPResult({ name, value }: { name: string; value: unknown }) {
         )}
       </p>
     );
+  }
+
   if (tools || name === "mcp_list") {
     const items = tools ?? (Array.isArray(value) ? value : []);
     return (
@@ -93,6 +95,7 @@ export function MCPResult({ name, value }: { name: string; value: unknown }) {
       </div>
     );
   }
+
   if (result.inputSchema) {
     const required = Array.isArray(schema.required) ? schema.required : [];
     return (
@@ -122,17 +125,20 @@ export function MCPResult({ name, value }: { name: string; value: unknown }) {
       </div>
     );
   }
+
   return (
     <div className="min-w-0 space-y-3">
       {Array.isArray(result.content) &&
         result.content.map((item, index) => {
           const content = record(item);
-          if (content.omitted === true)
+          if (content.omitted === true) {
             return (
               <p key={index} className="text-sm text-muted">
                 {t("Binärinhalt wird nicht als Text angezeigt.")}
               </p>
             );
+          }
+
           return typeof content.text === "string" ? (
             <MessageMarkdown key={index} content={content.text} />
           ) : (

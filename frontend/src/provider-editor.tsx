@@ -12,6 +12,7 @@ import {
   TextField,
 } from "@heroui/react";
 import { useRef, useState } from "react";
+
 import { useAPI } from "./api";
 import type { Provider, ProviderKind } from "./generated";
 import { ProviderSignIn } from "./provider-login";
@@ -58,22 +59,31 @@ export function ProviderEditor({
         )
         ?.focus(),
     );
+
   async function save() {
-    if (submitting.current) return;
+    if (submitting.current) {
+      return;
+    }
+
     if (!String(value.name ?? "").trim()) {
       setInvalid({ name: t("Dieses Feld ist erforderlich.") });
       focus("name");
+
       return;
     }
+
     if (value.kind === "litellm" && !String(value.baseUrl ?? "").trim()) {
       setInvalid({ baseUrl: t("Dieses Feld ist erforderlich.") });
       focus("baseUrl");
+
       return;
     }
+
     submitting.current = true;
     setBusy(true);
     setError("");
     setInvalid({});
+
     try {
       const result = await api.mutate<{ saveProvider: Provider }>(
         "mutation($input:ProviderInput!){saveProvider(input:$input){id name kind authMode billingMode connected accountLabel modelCount catalogStatus catalogError}}",
@@ -114,6 +124,7 @@ export function ProviderEditor({
       setBusy(false);
     }
   }
+
   return (
     <Inspect
       title={

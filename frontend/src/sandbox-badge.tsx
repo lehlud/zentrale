@@ -1,4 +1,5 @@
 import { Chip } from "@heroui/react";
+
 import type { SandboxStatus } from "./generated";
 import { useI18n } from "./preferences";
 
@@ -32,12 +33,14 @@ export function SandboxBadge({
         ? `${name(mode)} → ${name(selected)}`
         : `${name(mode)} · ${t(observed?.error ? "Ermittlung fehlgeschlagen" : "noch nicht ermittelt")}`;
 
-  if (compact)
+  if (compact) {
     return (
       <span className="text-[11px] text-muted">
         {t("Sandbox: {selection}", { selection })}
       </span>
     );
+  }
+
   return (
     <span className="inline-flex max-w-full flex-wrap items-center gap-2">
       <Chip

@@ -12,6 +12,7 @@ export function RenameConversation({
 }) {
   const { t } = useI18n();
   const api = useAPI();
+
   return (
     <Editor
       title={t("Unterhaltung umbenennen")}

@@ -18,6 +18,7 @@ import {
 } from "@heroui/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+
 import { useAPI } from "./api";
 import { connectionErrorMessage } from "./connection";
 import { fieldForServerError, validateFields } from "./form-validation";
@@ -34,7 +35,10 @@ export function Failure({
 }) {
   const { t } = useI18n();
   // Transport failures are announced once by Notifications, across all routes.
-  if (!message || message === connectionErrorMessage) return null;
+  if (!message || message === connectionErrorMessage) {
+    return null;
+  }
+
   return (
     <Alert role="alert" status="danger" className="min-w-0">
       <Alert.Indicator />
@@ -60,12 +64,13 @@ export function Loading() {
     api.connection.snapshot,
   );
 
-  if (interrupted)
+  if (interrupted) {
     return (
       <div className="p-12 text-center text-sm text-muted">
         {t("Warten auf Verbindung …")}
       </div>
     );
+  }
 
   return (
     <div className="flex min-h-40 items-center justify-center gap-3 px-6 py-12 text-sm text-muted">
@@ -173,6 +178,7 @@ function EditorField({
       />
     );
   }
+
   if (field.type === "check") {
     return (
       <Checkbox
@@ -190,6 +196,7 @@ function EditorField({
       </Checkbox>
     );
   }
+
   if (field.type === "select" || field.type === "multi") {
     const multiple = field.type === "multi";
     const selected = multiple
@@ -197,6 +204,7 @@ function EditorField({
       : value
         ? String(value)
         : null;
+
     return (
       <Select<object, "single" | "multiple">
         className="min-w-0 gap-2"
@@ -244,6 +252,7 @@ function EditorField({
       </Select>
     );
   }
+
   return (
     <TextField
       className="min-w-0 gap-2"
@@ -290,12 +299,14 @@ type EditorProps = {
   title: string;
   className?: string;
   placement?: ModalContainerProps["placement"];
+
   fields: Field[] | ((value: Record<string, unknown>) => Field[]);
   transform?: (
     next: Record<string, unknown>,
     previous: Record<string, unknown>,
   ) => Record<string, unknown>;
   initial: Record<string, unknown>;
+
   onSave: (value: Record<string, unknown>) => Promise<unknown>;
   onClose: () => void;
   renderExtra?: (
@@ -303,6 +314,7 @@ type EditorProps = {
     patch: (changes: Record<string, unknown>) => void,
     stepId?: string,
   ) => ReactNode;
+
   steps?: EditorStep[];
   submitLabel?: string;
   closeOnSave?: boolean;
@@ -326,11 +338,13 @@ export function Editor({
 
   const [value, setValue] = useState(initial);
   const visibleFields = typeof fields === "function" ? fields(value) : fields;
+
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const form = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   const [stepIndex, setStepIndex] = useState(0);
   const [advanced, setAdvanced] = useState(false);
   const [focusField, setFocusField] = useState<string>();
@@ -344,7 +358,10 @@ export function Editor({
   );
 
   useEffect(() => {
-    if (!focusField) return;
+    if (!focusField) {
+      return;
+    }
+
     const control = form.current?.querySelector<HTMLElement>(
       `[data-field="${focusField}"] input,[data-field="${focusField}"] textarea,[data-field="${focusField}"] button`,
     );
@@ -361,7 +378,10 @@ export function Editor({
       ),
     );
     const first = Object.keys(invalid)[0];
-    if (!first) return false;
+    if (!first) {
+      return false;
+    }
+
     const targetStep = steps?.findIndex(
       (entry) =>
         entry.fields.includes(first) || entry.advancedFields?.includes(first),
@@ -370,7 +390,9 @@ export function Editor({
       setStepIndex(targetStep);
       setAdvanced(Boolean(steps?.[targetStep].advancedFields?.includes(first)));
     }
+
     setFocusField(first);
+
     return true;
   }
 
@@ -406,22 +428,32 @@ export function Editor({
     // React submit events cross portal boundaries. Nested editors must not
     // submit the project form that opened them.
     event.stopPropagation();
-    if (submitting.current) return;
+    if (submitting.current) {
+      return;
+    }
+
     const invalid = validateFields(
       lastStep ? visibleFields : [...currentFields, ...advancedFields],
       value,
     );
     for (const entry of lastStep ? (steps ?? []) : step ? [step] : [])
       Object.assign(invalid, entry.validate?.(value));
-    if (showInvalid(invalid)) return;
+
+    if (showInvalid(invalid)) {
+      return;
+    }
+
     if (!lastStep) {
       setAdvanced(false);
       setStepIndex(stepIndex + 1);
+
       return;
     }
+
     submitting.current = true;
     setBusy(true);
     setError("");
+
     try {
       await onSave(value);
       if (closeOnSave) onClose();
@@ -592,11 +624,16 @@ export function useAction() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
+
   async function run(action: () => Promise<unknown>) {
-    if (pending.current) return;
+    if (pending.current) {
+      return;
+    }
+
     pending.current = true;
     setBusy(true);
     setError("");
+
     try {
       await action();
       window.dispatchEvent(
@@ -610,5 +647,6 @@ export function useAction() {
       setBusy(false);
     }
   }
+
   return { error, busy, run, clearError: () => setError("") };
 }

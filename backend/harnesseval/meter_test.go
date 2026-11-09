@@ -13,6 +13,7 @@ func (fixture *meteredFixture) Complete(context.Context, providers.Request) (pro
 	fixture.complete++
 	return providers.Result{UsageKnown: true}, nil
 }
+
 func (fixture *meteredFixture) Compact(context.Context, providers.Request) (providers.Result, error) {
 	fixture.compact++
 	return providers.Result{UsageKnown: true}, nil
@@ -24,12 +25,15 @@ func TestEvaluationBudgetIncludesCompactionWithoutChangingProviderCapabilities(t
 	if _, err := meter.Complete(context.Background(), providers.Request{}); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := meter.Compact(context.Background(), providers.Request{}); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := meter.Complete(context.Background(), providers.Request{}); err == nil {
 		t.Fatal("request budget ignored")
 	}
+
 	if fixture.complete != 1 || fixture.compact != 1 || meter.calls != 2 {
 		t.Fatal(fixture, meter.calls)
 	}

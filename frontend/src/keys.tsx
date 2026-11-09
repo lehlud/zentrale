@@ -8,6 +8,7 @@ import {
   TextField,
 } from "@heroui/react";
 import { useRef, useState } from "react";
+
 import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
@@ -37,6 +38,7 @@ export function Keys() {
   const action = useAction();
   const privateKeys = useBatch(data?.sshKeys ?? []);
   const hostKeys = useBatch(data?.trustedKeys ?? []);
+
   return (
     <>
       <Title
@@ -126,6 +128,7 @@ export function Keys() {
                     ),
                 ),
               ];
+
               return (
                 <section
                   key={key.id}
@@ -312,6 +315,7 @@ function TrustHost({ onClose }: { onClose: () => void }) {
   const [invalid, setInvalid] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const action = useAction();
+
   return (
     <Inspect title={t("Host-Schlüssel hinzufügen")} onClose={onClose}>
       <form
@@ -321,8 +325,10 @@ function TrustHost({ onClose }: { onClose: () => void }) {
           if (!publicKey.trim()) {
             setInvalid(true);
             input.current?.focus();
+
             return;
           }
+
           void action.run(async () => {
             await api.mutate(
               "mutation($publicKey:String!,$trust:String!){trustHostKey(publicKey:$publicKey,trust:$trust)}",

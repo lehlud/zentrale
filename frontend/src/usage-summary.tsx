@@ -3,7 +3,10 @@ import { useI18n } from "./preferences";
 
 export function CostSummary({ totals }: { totals: UsageSummary }) {
   const { t, numberLocale } = useI18n();
-  if (!totals.requestCount) return null;
+  if (!totals.requestCount) {
+    return null;
+  }
+
   return (
     <details className="font-mono text-[11px] text-muted">
       <summary className="min-h-6 cursor-pointer py-1">

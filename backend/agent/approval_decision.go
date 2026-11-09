@@ -25,15 +25,21 @@ func parseApprovalDecision(text string) approvalDecision {
 		// entire partial result so malformed responses can never authorize an action.
 		return approvalDecision{Reason: "Auto-Approver returned no valid decision"}
 	}
+
 	if decision.Allowed {
 		decision.Reason = ""
 	} else if decision.Reason == "" {
 		decision.Reason = "Auto-Approver denied this action"
 	}
+
 	return decision
 }
 
-func (engine *Engine) recordApproval(agentRecord domain.Agent, request interaction, decision approvalDecision) (bool, error) {
+func (engine *Engine) recordApproval(
+	agentRecord domain.Agent,
+	request interaction,
+	decision approvalDecision,
+) (bool, error) {
 	sandbox := stringArg(request.Arguments, "sandbox")
 	sandboxEnabled := sandbox == "bwrap" || sandbox == "microvm"
 	canGrantRepeatedRead := request.Action == "read_file" && !request.Network && sandboxEnabled
@@ -50,9 +56,12 @@ func (engine *Engine) recordApproval(agentRecord domain.Agent, request interacti
 	if err := engine.Store.Save("approval", approval.ID, agentRecord.ID, approval); err != nil {
 		return false, err
 	}
+
 	engine.Emit("approval", agentRecord.ID, approval)
+
 	if !decision.Allowed {
 		return false, fmt.Errorf("auto-approval denied: %s", decision.Reason)
 	}
+
 	return approval.Blanket, nil
 }

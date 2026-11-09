@@ -59,9 +59,11 @@ func scalarType(goType reflect.Type) graphql.Type {
 	case reflect.Float64:
 		return graphql.Float
 	}
+
 	if goType == reflect.TypeFor[time.Time]() {
 		return graphql.String
 	}
+
 	return nil
 }
 
@@ -69,26 +71,32 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 	if scalar := scalarType(goType); scalar != nil {
 		return scalar.(graphql.Output)
 	}
+
 	if goType.Kind() == reflect.Slice {
 		return graphql.NewList(graphql.NewNonNull(builder.output(goType.Elem())))
 	}
+
 	if cached := builder.objects[goType]; cached != nil {
 		return cached
 	}
+
 	fields := graphql.Fields{}
 	object := graphql.NewObject(graphql.ObjectConfig{Name: goType.Name(), Fields: fields})
 	builder.objects[goType] = object
+
 	for index := 0; index < goType.NumField(); index++ {
 		field := goType.Field(index)
 		name := strings.Split(field.Tag.Get("json"), ",")[0]
 		if name == "" || name == "-" || name == "credential" || name == "oauth" {
 			continue
 		}
+
 		fields[name] = &graphql.Field{
 			Type:    graphql.NewNonNull(builder.output(field.Type)),
 			Resolve: resolveDomainField(name, field.Type),
 		}
 	}
+
 	if goType == reflect.TypeFor[domain.Message]() {
 		fields["activities"] = &graphql.Field{
 			Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.ToolActivity]())))),
@@ -96,28 +104,34 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 				if message, ok := params.Source.(map[string]any); ok && message["activities"] != nil {
 					return message["activities"], nil
 				}
+
 				return []any{}, nil
 			},
 		}
+
 		fields["changes"] = &graphql.Field{
 			Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.FileChange]())))),
 			Resolve: func(params graphql.ResolveParams) (any, error) {
 				if message, ok := params.Source.(map[string]any); ok && message["changes"] != nil {
 					return message["changes"], nil
 				}
+
 				return []any{}, nil
 			},
 		}
+
 		fields["change"] = &graphql.Field{
 			Type: builder.output(reflect.TypeFor[domain.FileChange]()),
 			Resolve: func(params graphql.ResolveParams) (any, error) {
 				if message, ok := params.Source.(map[string]any); ok {
 					return message["change"], nil
 				}
+
 				return nil, nil
 			},
 		}
 	}
+
 	return object
 }
 
@@ -126,6 +140,7 @@ func resolveDomainField(name string, goType reflect.Type) graphql.FieldResolveFn
 		if resource, ok := params.Source.(map[string]any); ok && resource[name] != nil {
 			return resource[name], nil
 		}
+
 		// Nil slices and omitted optional strings have stable non-null API defaults.
 		switch goType.Kind() {
 		case reflect.Slice:
@@ -144,22 +159,34 @@ func (builder *schemaBuilder) input(goType reflect.Type) graphql.Input {
 	if scalar := scalarType(goType); scalar != nil {
 		return scalar.(graphql.Input)
 	}
+
 	if goType.Kind() == reflect.Slice {
 		return graphql.NewList(graphql.NewNonNull(builder.input(goType.Elem())))
 	}
+
 	if cached := builder.inputs[goType]; cached != nil {
 		return cached
 	}
+
 	fields := graphql.InputObjectConfigFieldMap{}
 	object := graphql.NewInputObject(graphql.InputObjectConfig{Name: goType.Name() + "Input", Fields: fields})
 	builder.inputs[goType] = object
+
 	for index := 0; index < goType.NumField(); index++ {
 		field := goType.Field(index)
 		name := strings.Split(field.Tag.Get("json"), ",")[0]
-		if name != "" && name != "-" && name != "oauth" && name != "catalogStatus" && name != "catalogError" && name != "modelCount" && name != "connected" && name != "accountLabel" {
+		if name != "" &&
+			name != "-" &&
+			name != "oauth" &&
+			name != "catalogStatus" &&
+			name != "catalogError" &&
+			name != "modelCount" &&
+			name != "connected" &&
+			name != "accountLabel" {
 			fields[name] = &graphql.InputObjectFieldConfig{Type: builder.input(field.Type)}
 		}
 	}
+
 	return object
 }
 
@@ -167,5 +194,6 @@ func (builder *schemaBuilder) sshKeyType() *graphql.Object {
 	if builder.ssh == nil {
 		builder.ssh = sshKeyType()
 	}
+
 	return builder.ssh
 }

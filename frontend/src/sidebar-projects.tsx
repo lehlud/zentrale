@@ -1,5 +1,6 @@
 import { Input, Link, TextField, buttonVariants } from "@heroui/react";
 import { useState } from "react";
+
 import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
@@ -23,6 +24,7 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
     ),
     search,
   );
+
   return (
     <nav
       aria-label={t("Projekte und Unterhaltungen")}
@@ -135,6 +137,7 @@ function SidebarConversations({
     data?.agents.find((agent) => agent.role === "main")?.id;
   const [renaming, setRenaming] = useState<Agent>();
   const action = useAction();
+
   return (
     <div className="ml-4 border-l border-border pl-1.5 py-1">
       <Failure message={error || action.error} onRetry={() => api.refresh()} />
@@ -188,6 +191,7 @@ function SidebarConversations({
                     );
                     if (activeId === agent.id)
                       location.hash = `#/projects/${encodeURIComponent(projectId)}`;
+
                     onNavigate?.();
                   }),
               },

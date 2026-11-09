@@ -1,6 +1,7 @@
 import { Button, Modal } from "@heroui/react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+
 import type { API } from "./api";
 import { useI18n } from "./preferences";
 
@@ -20,6 +21,7 @@ export function ConfirmationProvider({
   const { t } = useI18n();
   const [requests, setRequests] = useState<PendingConfirmation[]>([]);
   const pending = requests[0];
+
   useEffect(() => {
     api.confirm = (message, actionLabel = "Entfernen") =>
       new Promise((resolve) =>
@@ -32,10 +34,12 @@ export function ConfirmationProvider({
       api.confirm = undefined;
     };
   }, [api]);
+
   function close(confirmed: boolean) {
     pending?.resolve(confirmed);
     setRequests((current) => current.slice(1));
   }
+
   return (
     <>
       {children}

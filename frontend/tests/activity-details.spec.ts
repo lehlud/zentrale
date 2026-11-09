@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import type { Message } from "../src/generated";
 import {
   agent,
@@ -261,6 +262,7 @@ for (const variant of [
           : query.includes("agents(projectId:")
             ? { project, agents }
             : config;
+
       return route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -277,6 +279,7 @@ for (const variant of [
         exact: true,
       })
       .filter({ visible: true });
+
     await expect(commandCode).toHaveText("python3 -m unittest -v");
     await expect(
       output.getByText("Ran 3 tests. OK", { exact: false }),
@@ -284,18 +287,22 @@ for (const variant of [
     await expect(
       output.getByText(label("Exit-Code", "Exit code"), { exact: false }),
     ).toBeVisible();
+
     for (const key of ['"result"', '"arguments"', '"command"'])
       expect(
         (await output.locator("pre:visible").allTextContents()).join("\n"),
       ).not.toContain(key);
+
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await commandCode
       .locator("..")
       .getByRole("button", { name: label("Kopieren", "Copy"), exact: true })
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       "python3 -m unittest -v",
     );
+
     await output
       .getByRole("button", {
         name: label("Schrittdetails", "Step details"),
@@ -303,6 +310,7 @@ for (const variant of [
       })
       .click();
     let dialog = page.getByRole("dialog");
+
     await expect(
       dialog.getByRole("heading", { name: label("Überlegungen", "Reasoning") }),
     ).toBeVisible();
@@ -316,29 +324,34 @@ for (const variant of [
     ).toBeVisible();
     await expect(dialog).not.toContainText("opaque-reasoning");
     await expect(dialog).not.toContainText("function_call");
+
     await mkdir("artifacts/ui", { recursive: true });
     await page.screenshot({
       path: `artifacts/ui/activity-${variant.name}-step.png`,
       animations: "disabled",
     });
     await page.keyboard.press("Escape");
+
     await expect(
       output.getByRole("button", {
         name: label("Schrittdetails", "Step details"),
         exact: true,
       }),
     ).toBeFocused();
+
     await command.press("Enter");
 
     const file = output.getByRole("button", {
       name: new RegExp(label("Datei lesen", "Read file") + ".*src/demo.py"),
     });
     await file.press("Enter");
+
     await expect(
       output
         .getByLabel("Codeblock: src/demo.py")
         .or(output.getByLabel("Code block: src/demo.py")),
     ).toHaveText("print('Hello')\n");
+
     await output
       .getByRole("button", {
         name: label("Schrittdetails", "Step details"),
@@ -346,10 +359,12 @@ for (const variant of [
       })
       .click();
     dialog = page.getByRole("dialog");
+
     await expect(
       dialog.getByText("Die Projektdatei wird gelesen."),
     ).toBeVisible();
     await expect(dialog).not.toContainText("opaque-signature");
+
     await page.keyboard.press("Escape");
     await file.press("Enter");
 
@@ -361,26 +376,32 @@ for (const variant of [
       name: label("Dateien", "Files"),
       exact: true,
     });
+
     await expect(listing.getByRole("listitem")).toHaveCount(30);
+
     await output
       .getByRole("button", {
         name: label("Mehr anzeigen", "Show more"),
         exact: true,
       })
       .click();
+
     await expect(listing.getByRole("listitem")).toHaveCount(35);
     await expect(
       listing.getByText("sample-34.py", { exact: true }),
     ).toBeVisible();
+
     await output
       .getByRole("button", {
         name: label("Schrittdetails", "Step details"),
         exact: true,
       })
       .click();
+
     await expect(
       page.getByRole("dialog").getByText("Verzeichnisinhalt prüfen."),
     ).toBeVisible();
+
     await page.keyboard.press("Escape");
     await page.screenshot({
       path: `artifacts/ui/activity-${variant.name}-files.png`,
@@ -391,17 +412,20 @@ for (const variant of [
       name: new RegExp(label("Dateien auflisten", "List files") + ".*empty"),
     });
     await empty.press("Enter");
+
     await expect(
       output.getByText(
         label("Dieses Verzeichnis ist leer.", "This directory is empty."),
       ),
     ).toBeVisible();
+
     await empty.press("Enter");
 
     const packages = output.getByRole("button", {
       name: new RegExp(label("Pakete installieren", "Install packages")),
     });
     await packages.press("Enter");
+
     await expect(output.getByText("python3", { exact: true })).toBeVisible();
     await expect(output.getByText("git", { exact: true })).toBeVisible();
     await expect(
@@ -415,36 +439,43 @@ for (const variant of [
         )
         .getByText(label("Netzwerkzugriff", "Network access"), { exact: true }),
     ).toBeVisible();
+
     await packages.press("Enter");
     await output
       .getByRole("button", {
         name: new RegExp(label("MicroVM prüfen", "Inspect MicroVM")),
       })
       .press("Enter");
+
     await expect(output.getByText("Fedora", { exact: true })).toBeVisible();
     await expect(
       output.getByText(label("Dauerhafte Umgebung", "Persistent environment"), {
         exact: true,
       }),
     ).toBeVisible();
+
     await output
       .getByRole("button", { name: /extension inspect/ })
       .press("Enter");
+
     await expect(output.getByText("Training", { exact: true })).toBeVisible();
     await expect(output).not.toContainText('"counters"');
     await expect(
       output.getByText("Die Datei wird weiterhin benötigt.", { exact: true }),
     ).toBeVisible();
+
     await output
       .getByRole("button", {
         name: label("Befehl ausführen", "Run command"),
         exact: true,
       })
       .press("Enter");
+
     await expect(
       output.getByText("Beispiel ausführen.", { exact: true }),
     ).toBeVisible();
     await expect(output).not.toContainText('"justification"');
+
     await page.screenshot({
       path: `artifacts/ui/activity-${variant.name}-environment.png`,
       animations: "disabled",
@@ -456,6 +487,7 @@ for (const variant of [
       })
       .click();
     dialog = page.getByRole("dialog");
+
     await expect(
       dialog.getByRole("heading", { name: /Freigaben|Approvals/ }),
     ).toHaveCount(0);
@@ -465,11 +497,13 @@ for (const variant of [
       }),
     ).toBeVisible();
     await expect(dialog).not.toContainText('"command"');
+
     await page.screenshot({
       path: `artifacts/ui/activity-${variant.name}-approval.png`,
       animations: "disabled",
     });
     await page.keyboard.press("Escape");
+
     await expect(
       page.getByRole("button", {
         name: new RegExp("^" + label("Agentendetails", "Agent details")),

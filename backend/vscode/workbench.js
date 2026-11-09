@@ -32,7 +32,10 @@ const pendingCallbacks = new Set();
 window.addEventListener("storage", () => {
   for (const key of pendingCallbacks) {
     const result = localStorage.getItem(key);
-    if (!result) continue;
+    if (!result) {
+      continue;
+    }
+
     pendingCallbacks.delete(key);
     localStorage.removeItem(key);
     callbacks.fire(URI.revive(JSON.parse(result)));
@@ -42,12 +45,15 @@ window.addEventListener("storage", () => {
 function createSSHSocket(address) {
   const url = new URL(address);
   url.host = location.host;
+
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
+
   const open = new Emitter();
   const data = new Emitter();
   const error = new Emitter();
   const close = new Emitter();
+
   socket.addEventListener("open", () => open.fire());
   socket.addEventListener("message", (event) => data.fire(event.data));
   socket.addEventListener("error", () =>
@@ -67,6 +73,7 @@ function createSSHSocket(address) {
     });
     for (const emitter of [open, data, error, close]) emitter.dispose();
   });
+
   return {
     onOpen: open.event,
     onData: data.event,
@@ -101,6 +108,7 @@ create(document.body, {
       for (const name of ["scheme", "authority", "path", "query", "fragment"]) {
         if (options[name]) query.set(`vscode-${name}`, options[name]);
       }
+
       localStorage.removeItem(key);
       pendingCallbacks.add(key);
       return URI.parse(location.href).with({
@@ -119,8 +127,10 @@ create(document.body, {
         !uri ||
         uri.scheme !== "vscode-remote" ||
         uri.authority !== settings.remoteAuthority
-      )
+      ) {
         return false;
+      }
+
       const url = new URL(location.href);
       url.searchParams.delete("folder");
       url.searchParams.delete("workspace");
@@ -162,4 +172,5 @@ create(document.body, {
     tooltip: `Remote SSH — ${settings.machineName}`,
   },
 });
+
 document.querySelector("#startup")?.remove();

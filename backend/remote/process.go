@@ -30,19 +30,24 @@ func StartProcess(ctx context.Context, client *ssh.Client, command string) (*Pro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
 	session, err := client.NewSession()
 	if err != nil {
 		return nil, err
 	}
+
 	stdout, err := session.StdoutPipe()
 	var stdin io.WriteCloser
+
 	if err == nil {
 		stdin, err = session.StdinPipe()
 	}
+
 	if err != nil {
 		_ = session.Close()
 		return nil, err
 	}
+
 	reader, output := io.Pipe()
 	input, writer := io.Pipe()
 	process := &Process{session: session, reader: reader, writer: writer, done: make(chan struct{})}
@@ -54,6 +59,7 @@ func StartProcess(ctx context.Context, client *ssh.Client, command string) (*Pro
 		_ = process.Close()
 		return nil, err
 	}
+
 	// Local pipes let cancellation unblock SDK reads/writes even if the SSH
 	// peer ignores channel closure. SSH pumps exit when the transport recovers
 	// or its retained connection is released.
@@ -70,6 +76,7 @@ func StartProcess(ctx context.Context, client *ssh.Client, command string) (*Pro
 		process.exitError = session.Wait()
 		close(process.done)
 	}()
+
 	return process, nil
 }
 
@@ -87,29 +94,39 @@ func (process *Process) Read(buffer []byte) (int, error) {
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
+
 		if diagnostic := strings.TrimSpace(process.stderr.String()); diagnostic != "" {
 			if len(diagnostic) > 4000 {
 				diagnostic = strings.ToValidUTF8(diagnostic[len(diagnostic)-4000:], "�")
 			}
+
 			err = fmt.Errorf("remote protocol stream closed: %s: %w", diagnostic, err)
 		}
 	}
+
 	return count, err
 }
 
-func (process *Process) Write(buffer []byte) (int, error) { return process.writer.Write(buffer) }
+func (process *Process) Write(buffer []byte) (int, error) {
+	return process.writer.Write(buffer)
+}
 
-func (process *Process) CloseWrite() error { return process.writer.Close() }
+func (process *Process) CloseWrite() error {
+	return process.writer.Close()
+}
 
 // OnClose attaches bookkeeping to the channel, including channels that closed
 // during startup. Callbacks must not call Close on this process recursively.
 func (process *Process) OnClose(cleanup func()) {
 	process.cleanupMu.Lock()
+
 	if !process.closed {
 		process.cleanup = append(process.cleanup, cleanup)
 		process.cleanupMu.Unlock()
+
 		return
 	}
+
 	process.cleanupMu.Unlock()
 	cleanup()
 }
@@ -128,6 +145,7 @@ func (process *Process) Close() error {
 			_ = process.session.Signal(ssh.SIGKILL)
 			_ = process.session.Close()
 		}()
+
 		for _, cleanup := range callbacks {
 			cleanup()
 		}

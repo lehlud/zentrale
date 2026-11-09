@@ -1,5 +1,6 @@
 import { Button, Label, TextArea, TextField } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { useAPI, useQuery } from "./api";
 import { CostSummary } from "./usage-summary";
 import { AgentQuestion } from "./agent-question";
@@ -63,14 +64,18 @@ export function AgentView({
     id: agentId,
     offset,
   });
+
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      return;
+    }
     setVisibleMessages((previous) => {
       const messages = new Map(
         previous.map((message) => [message.id, message]),
       );
       for (const message of [...data.messages, ...data.recentMessages])
         messages.set(message.id, message);
+
       return [...messages.values()].sort(
         (left, right) =>
           left.createdAt.localeCompare(right.createdAt) ||
@@ -78,6 +83,7 @@ export function AgentView({
       );
     });
   }, [data]);
+
   const [prompt, setPrompt] = useDraft(`prompt:${agentId}`);
   const [inspection, setInspection] = useState<{
     title: string;
@@ -93,8 +99,11 @@ export function AgentView({
     detailsOpen || renaming || Boolean(inspection),
     Boolean(data),
   );
+
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      return;
+    }
     api.inputs.acknowledge(
       new Set([
         ...(data.agentInputs ?? []).map((input) => input.id),
@@ -103,8 +112,12 @@ export function AgentView({
       ]),
     );
   }, [api, data]);
+
   const send = (mode: "steer" | "queue" = "steer") => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) {
+      return;
+    }
+
     viewport.latest();
     api.inputs.submit(agentId, prompt, mode);
     setPrompt("");
@@ -126,6 +139,7 @@ export function AgentView({
       )}
     </Inspect>
   );
+
   return (
     <section
       ref={viewport.root}

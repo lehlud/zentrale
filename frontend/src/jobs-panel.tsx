@@ -1,4 +1,5 @@
 import { Accordion, Button } from "@heroui/react";
+
 import { useAPI } from "./api";
 import { ActivityOutput } from "./activity-details";
 import { statusLabels } from "./agent-format";
@@ -12,6 +13,7 @@ function JobRow({ job }: { job: Job }) {
   const api = useAPI();
   const action = useAction();
   const running = job.status === "running";
+
   return (
     <li className="min-w-0 border-b border-border last:border-0">
       <div className="flex min-w-0 items-start gap-1">

@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
 import {
   ConnectionError,
   ConnectionMonitor,
@@ -18,10 +19,12 @@ import { InputDelivery } from "./input-delivery";
 
 export class API {
   readonly responses = new LiveResponses();
+
   readonly inputs = new InputDelivery(
     async (query, variables) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
+
       try {
         return await this.query(query, variables, controller.signal, true);
       } catch (error) {
@@ -36,6 +39,7 @@ export class API {
     },
     () => this.refresh(),
   );
+
   readonly connection = new ConnectionMonitor(
     (signal) => fetchGraphQL("query{status{authenticated}}", {}, signal),
     () => {
@@ -43,25 +47,32 @@ export class API {
       this.inputs.flush();
     },
   );
+
   confirm:
     ((message: string, actionLabel?: string) => Promise<boolean>) | undefined;
   private pendingMutations = new Map<string, Promise<unknown>>();
   private connectionGeneration = 0;
+
   private listeners = new Set<() => void>();
   private version = 0;
+
   private socket: WebSocket | null = null;
   private reconnect: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
   private lastEvent = 0;
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
   snapshot = () => this.version;
+
   refresh = () => {
     this.version++;
     this.listeners.forEach((fn) => fn());
   };
+
   async query<T>(
     query: string,
     variables: Record<string, unknown> = {},
@@ -75,6 +86,7 @@ export class API {
       throw error;
     }
   }
+
   async mutate<T>(
     query: string,
     variables: Record<string, unknown> = {},
@@ -82,7 +94,10 @@ export class API {
   ): Promise<T> {
     const key = JSON.stringify({ query, variables });
     const existing = this.pendingMutations.get(key);
-    if (existing) return existing as Promise<T>;
+    if (existing) {
+      return existing as Promise<T>;
+    }
+
     const operation = (async () => {
       const destructive =
         /deleteResource|deleteSSHKey|revokeRepositoryKey|disconnectGitConnection|disconnectProvider|stopJob|stopEditor/.test(
@@ -120,31 +135,40 @@ export class API {
                     ? "Vertrauen entziehen"
                     : "Entfernen",
         ))
-      )
+      ) {
         throw Object.assign(new Error("Action cancelled"), {
           name: "CancelledMutation",
         });
+      }
+
       const result = await this.query<T>(query, variables);
       if (options.refresh !== false) this.refresh();
+
       if (options.announce !== false)
         window.dispatchEvent(
           new CustomEvent("zentrale:notice", { detail: "Erfolgreich" }),
         );
+
       return result;
     })();
     this.pendingMutations.set(key, operation);
+
     try {
       return await operation;
     } finally {
       this.pendingMutations.delete(key);
     }
   }
+
   connect() {
     this.stopped = false;
     this.inputs.flush();
     const generation = ++this.connectionGeneration;
     const open = () => {
-      if (this.stopped || generation !== this.connectionGeneration) return;
+      if (this.stopped || generation !== this.connectionGeneration) {
+        return;
+      }
+
       const socket = new WebSocket(
         `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/events?after=${this.lastEvent}`,
       );
@@ -155,10 +179,12 @@ export class API {
           this.responses.reset();
           return;
         }
+
         if (data.type === "response") {
           this.responses.receive(JSON.parse(data.data));
           return;
         }
+
         if (data.id > this.lastEvent) {
           this.lastEvent = data.id;
           this.refresh();
@@ -173,6 +199,7 @@ export class API {
     };
     open();
   }
+
   disconnect() {
     this.stopped = true;
     this.connectionGeneration++;
@@ -181,15 +208,22 @@ export class API {
     this.socket = null;
   }
 }
+
 const APIContext = createContext<API | null>(null);
+
 export function Services({ api, children }: { api: API; children: ReactNode }) {
   return <APIContext.Provider value={api}>{children}</APIContext.Provider>;
 }
+
 export function useAPI() {
   const api = useContext(APIContext);
-  if (!api) throw new Error("API service missing");
+  if (!api) {
+    throw new Error("API service missing");
+  }
+
   return api;
 }
+
 export function useQuery<T>(
   query: string,
   variables: Record<string, unknown> = {},
@@ -207,12 +241,16 @@ export function useQuery<T>(
   const [failure, setFailure] = useState<{ key: string; message: string }>();
   const error = failure?.key === requestKey ? failure.message : "";
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     const controller = new AbortController();
     api
       .query<T>(query, stableVars, controller.signal)
       .then((value) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          return;
+        }
+
         setResult({ key: requestKey, value });
         setFailure(undefined);
       })
@@ -223,14 +261,17 @@ export function useQuery<T>(
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+
     return () => controller.abort();
   }, [api, query, stableVars, version]);
+
   return {
     data,
     error,
     loading: !data && (loading || !error || error === connectionErrorMessage),
   };
 }
+
 export const CONFIG = `query {
   sandboxStatuses { machineId mode level checkedAt error }
   machines(limit:500) {

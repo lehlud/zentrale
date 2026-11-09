@@ -29,16 +29,19 @@ func TestPoolImportManagesStableCredentialsAndRejectsKeySelection(t *testing.T) 
 	if err != nil || pool.KeyID <= 0 {
 		t.Fatal(pool, err)
 	}
+
 	for _, member := range pool.Machines {
 		machine, err := engine.Remote.Connector.Machine(pool.ID + "/" + member.ID)
 		if err != nil || machine.KeyID != pool.KeyID {
 			t.Fatal("SSH connector lost the managed pool key", machine, err)
 		}
 	}
+
 	updated, err := engine.SavePool(strings.Replace(managedPoolYAML, "name: Managed pool", "name: Renamed pool", 1))
 	if err != nil || updated.KeyID != pool.KeyID {
 		t.Fatal("reimport rotated the managed key", updated, err)
 	}
+
 	for _, yaml := range []string{
 		managedPoolYAML + "key_id: 1\n",
 		managedPoolYAML + "keyId: 1\n",
@@ -53,6 +56,7 @@ func TestPoolImportManagesStableCredentialsAndRejectsKeySelection(t *testing.T) 
 			t.Fatal("invalid pool or SSH key selection was accepted", yaml)
 		}
 	}
+
 	after, _ := engine.Store.ListPrivSSHKeys()
 	if len(after) != len(before)+1 {
 		t.Fatal("reimport or failed validation allocated orphan keys")

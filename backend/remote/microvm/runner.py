@@ -63,17 +63,29 @@ def storage_mounts(execution, configured=None):
     mounts = execution.get("storage") or []
     if not isinstance(mounts, list) or len(mounts) > 8:
         raise RuntimeError("invalid project storage mounts")
+
     ids = set()
     for entry in mounts:
         identifier = entry.get("id", "")
         source = Path(entry.get("hostPath", ""))
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", identifier) or identifier in ids:
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", identifier)
+            or identifier in ids
+        ):
             raise RuntimeError("invalid project storage id")
         ids.add(identifier)
         if entry.get("guestPath") != "/mnt/zentrale-storage/" + identifier:
             raise RuntimeError("invalid project storage guest path")
-        if not source.is_absolute() or source.is_symlink() or source.name != "project-" + execution["projectId"] or not source.is_dir():
-            raise RuntimeError("project storage must be an existing managed project directory")
+        if (
+            not source.is_absolute()
+            or source.is_symlink()
+            or source.name != "project-" + execution["projectId"]
+            or not source.is_dir()
+        ):
+            raise RuntimeError(
+                "project storage must be an existing managed project directory"
+            )
+
     if configured is not None and ids != {entry["id"] for entry in configured}:
         raise RuntimeError("configured project storage has not been prepared")
     return mounts
@@ -86,6 +98,7 @@ def prerequisites(configuration=None):
         raise UnavailableError("managed MicroVMs currently require Linux x86_64")
     if sys.version_info < (3, 10):
         raise UnavailableError("managed MicroVMs require Python 3.10 or newer")
+
     try:
         descriptor = os.open("/dev/kvm", os.O_RDWR | os.O_CLOEXEC)
         try:
@@ -95,6 +108,7 @@ def prerequisites(configuration=None):
             os.close(descriptor)
     except OSError as error:
         raise UnavailableError("KVM cannot be opened: " + str(error)) from error
+
     for name in (
         "qemu-system-x86_64",
         "qemu-img",
@@ -106,6 +120,7 @@ def prerequisites(configuration=None):
     ):
         if shutil.which(name, path=SYSTEM_PATH) is None:
             raise UnavailableError("required MicroVM command is missing: " + name)
+
     machines = subprocess.run(
         [shutil.which("qemu-system-x86_64", path=SYSTEM_PATH), "-machine", "help"],
         check=True,
@@ -114,14 +129,22 @@ def prerequisites(configuration=None):
         timeout=10,
     )
     if not any(line.startswith(vm_type + " ") for line in machines.stdout.splitlines()):
-        raise UnavailableError("installed QEMU does not provide the " + vm_type + " machine")
+        raise UnavailableError(
+            "installed QEMU does not provide the " + vm_type + " machine"
+        )
+
     if addresses:
         features = subprocess.run(
             [shutil.which("qemu-system-x86_64", path=SYSTEM_PATH), "-device", "help"],
-            check=True, capture_output=True, text=True, timeout=10,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if 'name "vfio-pci"' not in features.stdout:
-            raise RuntimeError("installed QEMU does not provide vfio-pci GPU passthrough")
+            raise RuntimeError(
+                "installed QEMU does not provide vfio-pci GPU passthrough"
+            )
         vfio_helpers(configuration)["inspect_devices"](addresses, probe_groups=False)
     return compatible_host_kernel(vm_type)
 
@@ -131,6 +154,7 @@ def compatible_host_kernel(vm_type="microvm"):
     kernel = Path("/boot/vmlinuz-" + version)
     if not kernel.is_file() or not os.access(kernel, os.R_OK):
         return None
+
     # Drivers alone do not guarantee the namespaces used by reviewed commands.
     # When a distro exposes its config, reject explicitly disabled features too.
     config = Path("/boot/config-" + version)
@@ -144,12 +168,22 @@ def compatible_host_kernel(vm_type="microvm"):
             settings = ""
     except OSError:
         settings = ""
-    required = ["NAMESPACES", "PID_NS", "NET_NS", "DEVTMPFS", "TMPFS", "PROC_FS", "SYSFS"]
+
+    required = [
+        "NAMESPACES",
+        "PID_NS",
+        "NET_NS",
+        "DEVTMPFS",
+        "TMPFS",
+        "PROC_FS",
+        "SYSFS",
+    ]
     if vm_type == "q35":
         required += ["PCI", "PCI_MSI"]
     for name in required:
         if "# CONFIG_" + name + " is not set" in settings:
             return None
+
     try:
         if vm_type == "microvm":
             check_guest_kernel_modules()
@@ -175,9 +209,17 @@ def check_guest_kernel_modules(root=Path("/"), version=None, vm_type="microvm"):
     ):
         result = subprocess.run(
             [
-                modprobe, "--config", "/dev/null", "--dirname", str(root),
-                "--set-version", version or platform.release(), "--dry-run",
-                "--show-depends", "--", module,
+                modprobe,
+                "--config",
+                "/dev/null",
+                "--dirname",
+                str(root),
+                "--set-version",
+                version or platform.release(),
+                "--dry-run",
+                "--show-depends",
+                "--",
+                module,
             ],
             capture_output=True,
             text=True,
@@ -229,10 +271,7 @@ def download(artifact, limit=None):
     limit = MAX_DOWNLOAD_BYTES if limit is None else limit
     with urllib.request.urlopen(artifact["url"], timeout=60) as response:
         data = response.read(limit + 1)
-    if (
-        len(data) > limit
-        or hashlib.sha256(data).hexdigest() != artifact["sha256"]
-    ):
+    if len(data) > limit or hashlib.sha256(data).hexdigest() != artifact["sha256"]:
         raise RuntimeError("MicroVM runtime download failed SHA-256 verification")
     return data
 
@@ -246,8 +285,13 @@ def install_kernel(cache, artifact):
     kernel = destination / "boot" / ("vmlinuz-" + version)
     marker = destination / "installed.json"
     installed = {"artifact": artifact, "layout": "uncompressed-modules-v1"}
-    if marker.is_file() and kernel.is_file() and json.loads(marker.read_text()) == installed:
+    if (
+        marker.is_file()
+        and kernel.is_file()
+        and json.loads(marker.read_text()) == installed
+    ):
         return kernel
+
     with tempfile.TemporaryDirectory(prefix="kernel-install-", dir=cache) as temporary:
         staging = Path(temporary)
         # Expose both paths for hosts whose kmod uses /usr/lib/modules.
@@ -282,22 +326,36 @@ def install_kernel(cache, artifact):
                     decompressed = True
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with package.extractfile(member) as source, target.open("xb") as output:
-                    stream = gzip.GzipFile(fileobj=source) if compressed_module else source
+                    stream = (
+                        gzip.GzipFile(fileobj=source) if compressed_module else source
+                    )
                     with stream:
                         while chunk := stream.read(1024 * 1024):
                             extracted += len(chunk)
                             if extracted > MAX_KERNEL_EXTRACT_BYTES:
-                                raise RuntimeError("guest kernel archive exceeds its extraction limit")
+                                raise RuntimeError(
+                                    "guest kernel archive exceeds its extraction limit"
+                                )
                             output.write(chunk)
                 target.chmod(0o600)
+
+        # Validate the staged kernel before publishing it to the shared cache.
         if not (staging / "boot" / kernel.name).is_file():
             raise RuntimeError("guest kernel image is missing from the archive")
-        if decompressed or not (staging / "lib/modules" / version / "modules.dep").is_file():
+        if (
+            decompressed
+            or not (staging / "lib/modules" / version / "modules.dep").is_file()
+        ):
             depmod = shutil.which("depmod", path=SYSTEM_PATH)
             if depmod is None:
-                raise RuntimeError("depmod is required to prepare the fallback guest kernel")
-            subprocess.run([depmod, "--basedir", str(staging), version], check=True, timeout=30)
+                raise RuntimeError(
+                    "depmod is required to prepare the fallback guest kernel"
+                )
+            subprocess.run(
+                [depmod, "--basedir", str(staging), version], check=True, timeout=30
+            )
         check_guest_kernel_modules(staging, version)
+
         (staging / "installed.json").write_text(json.dumps(installed), encoding="utf-8")
         if destination.exists():
             shutil.rmtree(destination)
@@ -310,7 +368,10 @@ def install_runtime(cache, release):
     marker = destination / "installed.json"
     if marker.is_file():
         installed = json.loads(marker.read_text(encoding="utf-8"))
-        if all(installed.get(key) == release[key] for key in ("version", "runtime", "busybox")):
+        if all(
+            installed.get(key) == release[key]
+            for key in ("version", "runtime", "busybox")
+        ):
             return destination
     with tempfile.TemporaryDirectory(prefix="install-", dir=cache) as temporary:
         staging = Path(temporary)
@@ -340,6 +401,7 @@ def install_runtime(cache, release):
             busybox = staging / "busybox"
             busybox.write_bytes(package.extractfile(member).read())
             busybox.chmod(0o700)
+
         (staging / "installed.json").write_text(json.dumps(release), encoding="utf-8")
         if destination.exists():
             shutil.rmtree(destination)
@@ -363,9 +425,16 @@ def virtme_arguments(runtime, kernel, invocation, request):
         addresses = []
     if addresses:
         # Configuration data is never accepted as arbitrary QEMU options.
-        if not isinstance(addresses, list) or len(addresses) > 16 or any(
-            not isinstance(address, str) or not re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[01][0-9a-f]\.[0-7]", address)
-            for address in addresses
+        if (
+            not isinstance(addresses, list)
+            or len(addresses) > 16
+            or any(
+                not isinstance(address, str)
+                or not re.fullmatch(
+                    r"[0-9a-f]{4}:[0-9a-f]{2}:[01][0-9a-f]\.[0-7]", address
+                )
+                for address in addresses
+            )
         ):
             raise RuntimeError("invalid GPU PCI addresses")
     arguments = [
@@ -398,9 +467,19 @@ def virtme_arguments(runtime, kernel, invocation, request):
         "/usr/bin/python3 -I /run/zentrale-control/guest.py",
     ]
     if kernel.parent.parent != Path("/"):
-        arguments.extend(["--rodir", "/run/zentrale-kernel=" + str(kernel.parent.parent)])
+        arguments.extend(
+            ["--rodir", "/run/zentrale-kernel=" + str(kernel.parent.parent)]
+        )
     for index, entry in enumerate(request.get("storage") or []):
-        arguments.extend(["--rwdir", "/run/zentrale-storage-" + str(index) + "=" + str(invocation / ("storage-" + str(index)))])
+        arguments.extend(
+            [
+                "--rwdir",
+                "/run/zentrale-storage-"
+                + str(index)
+                + "="
+                + str(invocation / ("storage-" + str(index))),
+            ]
+        )
     if not request.get("provision") and not request.get("editorPort"):
         arguments.extend(["--net", "user"])
     arguments.extend(
@@ -412,26 +491,41 @@ def virtme_arguments(runtime, kernel, invocation, request):
             + ",if=none,id=fedora,format="
             + request.get("diskFormat", "qcow2"),
             "-device",
-            ("virtio-blk-pci" if vm_type == "q35" else "virtio-blk-device") + ",drive=fedora",
+            ("virtio-blk-pci" if vm_type == "q35" else "virtio-blk-device")
+            + ",drive=fedora",
         ]
     )
     if request.get("editorPort"):
         # Only loopback is reachable on the SSH host. The guest relay also
         # authenticates every stream before exposing its private VS Code socket.
-        arguments.extend([
-            "-netdev", "user,id=zentrale,hostfwd=tcp:127.0.0.1:" + str(request["editorPort"]) + "-:9842",
-            "-device", ("virtio-net-pci" if vm_type == "q35" else "virtio-net-device") + ",netdev=zentrale",
-        ])
+        arguments.extend(
+            [
+                "-netdev",
+                "user,id=zentrale,hostfwd=tcp:127.0.0.1:"
+                + str(request["editorPort"])
+                + "-:9842",
+                "-device",
+                ("virtio-net-pci" if vm_type == "q35" else "virtio-net-device")
+                + ",netdev=zentrale",
+            ]
+        )
     if vm_type == "q35":
-        arguments.extend(["-machine", "q35,accel=kvm", "-nodefaults", "-no-user-config"])
+        arguments.extend(
+            ["-machine", "q35,accel=kvm", "-nodefaults", "-no-user-config"]
+        )
+
     slots = {}
     for address in sorted(addresses):
         slot, function = address.rsplit(".", 1)
         if slot not in slots:
             port = "zentrale-gpu-" + str(len(slots))
             slots[slot] = port
-            arguments.extend(["-device", "pcie-root-port,id=" + port + ",chassis=" + str(len(slots))])
-        option = "vfio-pci,host=" + address + ",bus=" + slots[slot] + ",addr=0x0." + function
+            arguments.extend(
+                ["-device", "pcie-root-port,id=" + port + ",chassis=" + str(len(slots))]
+            )
+        option = (
+            "vfio-pci,host=" + address + ",bus=" + slots[slot] + ",addr=0x0." + function
+        )
         if function == "0":
             option += ",multifunction=on"
         arguments.extend(["-device", option])
@@ -444,6 +538,7 @@ def execute_vm(runtime, kernel, invocation):
     os.environ["PATH"] = SYSTEM_PATH
     os.environ["HOME"] = str(private_directory(runtime.parent / "tool-home"))
     os.environ.pop("PYTHONPATH", None)
+
     # The wheel's QEMU path forks once and then execs. Keep the dependency
     # unmodified while ensuring that this child dies with its trusted runner.
     original_fork = os.fork
@@ -482,7 +577,11 @@ def process_reference(pid=None):
 def alive(reference):
     try:
         expected = json.loads(reference)
-        if not isinstance(expected, dict) or "pid" not in expected or "started" not in expected:
+        if (
+            not isinstance(expected, dict)
+            or "pid" not in expected
+            or "started" not in expected
+        ):
             return False
         pid = expected["pid"]
         actual = process_reference(pid)
@@ -536,7 +635,10 @@ def prepare_control(directory, configuration, runtime, request):
     ]:
         (directory / name).symlink_to(source, target_is_directory=True)
     for index, entry in enumerate(request.get("storage") or []):
-        (directory / ("storage-" + str(index))).symlink_to(entry["hostPath"], target_is_directory=True)
+        (directory / ("storage-" + str(index))).symlink_to(
+            entry["hostPath"], target_is_directory=True
+        )
+
     private_directory(directory / "requests")
 
 
@@ -575,6 +677,7 @@ def provision_base(cache, configuration, runtime, kernel):
     base = cache / ("fedora-" + artifact["sha256"] + ".raw")
     if base.is_file():
         return base
+
     with tempfile.TemporaryDirectory(prefix="fedora-build-", dir=cache) as temporary:
         control = Path(temporary)
         scratch = control / "scratch"
@@ -601,6 +704,7 @@ def provision_base(cache, configuration, runtime, kernel):
             ],
             check=True,
         )
+
         with (control / "boot.log").open("w") as log:
             parent = os.getpid()
             child = os.fork()
@@ -627,11 +731,15 @@ def provision_base(cache, configuration, runtime, kernel):
                             or not (control / "provisioned").exists()
                         ):
                             raise bootstrap_failure(
-                                cache, control, "Fedora initialization failed",
+                                cache,
+                                control,
+                                "Fedora initialization failed",
                                 os.waitstatus_to_exitcode(status),
                             )
                         os.rename(disk, base)
-                        (cache / "fedora-bootstrap-failure.json").unlink(missing_ok=True)
+                        (cache / "fedora-bootstrap-failure.json").unlink(
+                            missing_ok=True
+                        )
                         return base
                     time.sleep(0.1)
                 raise bootstrap_failure(
@@ -661,7 +769,11 @@ def ensure_ready(cache, configuration, kernel):
         if kernel is None:
             kernel = install_kernel(cache, configuration["release"]["kernel"])
             if configuration.get("vmType") == "q35":
-                check_guest_kernel_modules(kernel.parent.parent, configuration["release"]["kernel"]["version"], vm_type="q35")
+                check_guest_kernel_modules(
+                    kernel.parent.parent,
+                    configuration["release"]["kernel"]["version"],
+                    vm_type="q35",
+                )
         runtime = install_runtime(cache, configuration["release"])
         base = provision_base(cache, configuration, runtime, kernel)
     return runtime, base, kernel
@@ -680,6 +792,7 @@ def scope_directory(cache, execution, allow_rebind=False):
         "workspace": execution["workspace"],
         "temporaryDirectory": execution["temporaryDirectory"],
     }
+
     scopes = private_directory(cache / "agents")
     key = hashlib.sha256((project + "\0" + agent).encode()).hexdigest()
     scope = private_directory(scopes / key)
@@ -725,6 +838,7 @@ def supervise(runtime, kernel, control, gpu_leases=()):
     with (control / "boot.log").open("w") as log:
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
+
     # A detached owner must not retain the staging SSH descriptors or its
     # parent's flock. Otherwise the next action would wait on our own lock.
     for entry in Path("/proc/self/fd").iterdir():
@@ -777,7 +891,17 @@ def supervise(runtime, kernel, control, gpu_leases=()):
 def ensure_session(scope, configuration, runtime, base, kernel, execution):
     control = scope / "session"
     vm_type, addresses = vm_options(configuration)
-    identity = hashlib.sha256(json.dumps({"runner": configuration["runnerHash"], "vmType": vm_type, "gpuDevices": addresses, "storage": execution.get("storage") or []}, sort_keys=True).encode()).hexdigest()
+    identity = hashlib.sha256(
+        json.dumps(
+            {
+                "runner": configuration["runnerHash"],
+                "vmType": vm_type,
+                "gpuDevices": addresses,
+                "storage": execution.get("storage") or [],
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
     if control.is_dir():
         if (
             (control / "version").exists()
@@ -788,10 +912,20 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         ):
             return control
         stop_session(scope)
+
+    # Keep disk preparation and device reservations ahead of the detached owner.
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         editor_port = reservation.getsockname()[1]
-    request = dict(execution, uid=os.getuid(), gid=os.getgid(), network=True, editorPort=editor_port, vmType=vm_type, gpuDevices=addresses)
+    request = dict(
+        execution,
+        uid=os.getuid(),
+        gid=os.getgid(),
+        network=True,
+        editorPort=editor_port,
+        vmType=vm_type,
+        gpuDevices=addresses,
+    )
     prepare_control(control, configuration, runtime, request)
     (control / "version").write_text(identity)
     disk = scope / "root.qcow2"
@@ -812,11 +946,16 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             check=True,
         )
     (control / "root.qcow2").symlink_to(disk)
+
     gpu_leases = []
     if addresses:
         vfio = vfio_helpers(configuration)
         devices = vfio["inspect_devices"](addresses)
-        gpu_leases = vfio["reserve_groups"](scope.parent.parent, devices, {"agentId": execution["agentId"], "projectId": execution["projectId"]})
+        gpu_leases = vfio["reserve_groups"](
+            scope.parent.parent,
+            devices,
+            {"agentId": execution["agentId"], "projectId": execution["projectId"]},
+        )
     try:
         child = os.fork()
     except BaseException:
@@ -837,6 +976,8 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             os._exit(0)
     for descriptor in gpu_leases:
         os.close(descriptor)
+
+    # Accept the new session only after the guest returns its boot proof.
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         if (control / "ready.json").exists():
@@ -848,6 +989,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         if (control / "failure.json").exists() or (control / "stopped").exists():
             break
         time.sleep(0.1)
+
     logs = (control / "boot.log").read_text()[-10000:]
     stop_session(scope)
     raise RuntimeError("Fedora MicroVM startup failed\n" + logs)
@@ -870,7 +1012,9 @@ def run_invocation(invocation):
     control = invocation.parent.parent
     MailboxStream = runpy.run_path(str(control / "streams.py"))["MailboxStream"]
     request = json.loads((invocation / "request.json").read_text())
-    cancelled = lambda: (invocation / "cancel").exists() or (invocation / "status").exists()
+    cancelled = lambda: (
+        (invocation / "cancel").exists() or (invocation / "status").exists()
+    )
     (invocation / "client.pid").write_text(json.dumps(process_reference()))
     (invocation / "stdin").touch()
 
@@ -952,7 +1096,9 @@ def validate_execution(execution):
     roots = [
         Path(execution[key]).resolve() for key in ("workspace", "temporaryDirectory")
     ]
-    roots.extend(Path(entry["hostPath"]).resolve() for entry in storage_mounts(execution))
+    roots.extend(
+        Path(entry["hostPath"]).resolve() for entry in storage_mounts(execution)
+    )
     for root in roots:
         if str(root) == "/" or any(
             within(Path(directory), root)
@@ -969,12 +1115,16 @@ def main():
     configuration = json.loads(sys.argv[2])
     guard_parent(os.getppid())
     kernel = (
-        prerequisites(configuration) if action in ("select", "ensure", "stage", "prepare") else None
+        prerequisites(configuration)
+        if action in ("select", "ensure", "stage", "prepare")
+        else None
     )
+
     if action in ("select", "ensure"):
         ensure_ready(cache_directory(), configuration, kernel)
         print("microvm", flush=True)
         return 0
+
     if action in ("stage", "prepare", "reset", "remove", "stop", "info"):
         execution = json.load(sys.stdin)["execution"]
         if action in ("stage", "prepare"):
@@ -985,6 +1135,7 @@ def main():
             if action in ("stage", "prepare")
             else (None, None, None)
         )
+
         if action == "prepare":
             scope = scope_directory(cache, execution)
             with (scope / "lock").open("a") as lock:
@@ -993,15 +1144,19 @@ def main():
                     scope, configuration, runtime, base, kernel, execution
                 )
                 proof = json.loads((control / "ready.json").read_text())
-                proof["editorPort"] = json.loads((control / "request.json").read_text())["editorPort"]
+                proof["editorPort"] = json.loads(
+                    (control / "request.json").read_text()
+                )["editorPort"]
                 print(json.dumps(proof), flush=True)
             return 0
+
         if action == "stage":
             print(
                 stage(cache, execution, configuration, runtime, base, kernel),
                 flush=True,
             )
             return 0
+
         scope = scope_directory(
             cache, execution, allow_rebind=action in ("reset", "remove", "stop")
         )
@@ -1037,6 +1192,7 @@ def main():
                     for job in requests.iterdir()
                 ):
                     raise RuntimeError("stop running jobs before resetting the MicroVM")
+
             stop_session(scope)
             if action in ("reset", "remove"):
                 (scope / "root.qcow2").unlink(missing_ok=True)
@@ -1057,6 +1213,7 @@ def main():
                 )
             print(json.dumps({"action": action, "projectFilesPreserved": True}))
             return 0
+
     if action == "run":
         invocation = Path(sys.argv[3])
         cache = cache_directory()

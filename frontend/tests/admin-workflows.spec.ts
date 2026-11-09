@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import {
   chooseProviderAccount,
   openProviderModels,
@@ -47,7 +48,7 @@ for (const variant of [
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
-      if (query.includes("status{"))
+      if (query.includes("status{")) {
         return send({
           status: {
             needsSetup: false,
@@ -55,11 +56,18 @@ for (const variant of [
             githubConnected: false,
           },
         });
-      if (query.includes("recentMessages"))
+      }
+
+      if (query.includes("recentMessages")) {
         return send({ ...transcript, questions: [], jobs: [] });
-      if (query.includes("agents(projectId:")) return send({ project, agents });
+      }
+
+      if (query.includes("agents(projectId:")) {
+        return send({ project, agents });
+      }
+
       if (query.includes("setModelDefaults")) {
-        if (rejectDefaults)
+        if (rejectDefaults) {
           return route.fulfill({
             json: {
               errors: [
@@ -72,9 +80,13 @@ for (const variant of [
               ],
             },
           });
+        }
+
         state.modelDefaults = variables.input;
+
         return send({ setModelDefaults: true });
       }
+
       if (query.includes("beginProviderLogin")) {
         events.push("begin");
         return send({
@@ -94,11 +106,13 @@ for (const variant of [
           },
         });
       }
+
       if (query.includes("cancelProviderLogin")) {
         events.push("cancel");
         return send({ cancelProviderLogin: true });
       }
-      if (query.includes("pollProviderLogin"))
+
+      if (query.includes("pollProviderLogin")) {
         return send({
           pollProviderLogin: {
             id: variables.id,
@@ -111,7 +125,9 @@ for (const variant of [
             error: label("Dieser Code ist ungültig.", "This code is invalid."),
           },
         });
-      if (query.includes("models(providerId:"))
+      }
+
+      if (query.includes("models(providerId:")) {
         return send({
           models: models.filter(
             (model) =>
@@ -121,11 +137,15 @@ for (const variant of [
                 .includes(variables.search.toLowerCase()),
           ),
         });
-      if (query.includes("model(providerId:"))
+      }
+
+      if (query.includes("model(providerId:")) {
         return send({
           model: models.find((model) => model.id === variables.modelId) ?? null,
         });
-      if (query.includes("trustHostKey"))
+      }
+
+      if (query.includes("trustHostKey")) {
         return route.fulfill({
           json: {
             errors: [
@@ -135,6 +155,8 @@ for (const variant of [
             ],
           },
         });
+      }
+
       return send(state);
     });
     const shot = async (name: string) => {
@@ -150,27 +172,34 @@ for (const variant of [
         name: label("Projekte suchen", "Search projects"),
       })
       .fill("does-not-exist");
+
     await expect(
       page.getByText(label("Keine passenden Projekte", "No matching projects")),
     ).toBeVisible();
+
     await page.getByRole("searchbox").fill(project.name);
+
     await expect(
       page
         .getByRole("main")
         .getByRole("link", { name: project.name, exact: true }),
     ).toHaveAttribute("href", `#/projects/${project.id}`);
+
     await shot("projects");
     await page
       .getByRole("main")
       .getByRole("link", { name: project.name, exact: true })
       .click();
+
     await expect(
       page.getByRole("main").getByRole("heading", { level: 1 }),
     ).toHaveCount(1);
+
     const controls = page.getByRole("group", {
       name: label("Agentensteuerung", "Agent controls"),
       exact: true,
     });
+
     await expect(
       controls.getByRole("heading", { name: project.name, exact: true }),
     ).toBeVisible();
@@ -182,8 +211,10 @@ for (const variant of [
         ),
       }),
     ).toHaveAttribute("target", "_blank");
+
     await shot("project-header");
     await page.goto("/#/keys");
+
     await expect(
       page.getByRole("textbox", {
         name: label("Öffentlicher Schlüssel", "Public key"),
@@ -198,6 +229,7 @@ for (const variant of [
         ),
       ),
     ).toBeVisible();
+
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page
       .getByRole("button", {
@@ -206,9 +238,11 @@ for (const variant of [
       })
       .first()
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       state.sshKeys[0].publicKey,
     );
+
     await shot("keys");
     await page
       .getByRole("tab", {
@@ -216,7 +250,9 @@ for (const variant of [
         exact: true,
       })
       .click();
+
     await expect(page).toHaveURL(/type=hosts/);
+
     await page
       .getByRole("button", {
         name: label("Host-Schlüssel hinzufügen", "Add host key"),
@@ -229,27 +265,33 @@ for (const variant of [
     await dialog
       .getByRole("button", { name: label("Vertrauen", "Trust"), exact: true })
       .click();
+
     await expect(dialog.getByRole("alert")).toContainText(
       label("Ungültiger SSH-Schlüssel.", "Invalid SSH key."),
     );
     await expect(hostInput).toHaveValue("ssh-invalid keep-my-value");
+
     await shot("host-form-error");
     await page.keyboard.press("Escape");
+
     await expect(
       page.getByRole("button", {
         name: label("Host-Schlüssel hinzufügen", "Add host key"),
         exact: true,
       }),
     ).toBeFocused();
+
     await page.goto("/#/providers");
     const catalog = page.getByRole("region", {
       name: label("Sprachmodelle", "Language models"),
       exact: true,
     });
+
     await expect(
       catalog.getByRole("heading", { name: models[0].name, exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
+
     await shot("providers");
     await openProviderModels(page, "OpenAI · Forschung");
     const catalogHeading = page.getByRole("heading", {
@@ -260,7 +302,9 @@ for (const variant of [
       exact: true,
     });
     if (variant.width >= 1280) await expect(catalogHeading).toBeFocused();
+
     await expect(catalogHeading).toBeInViewport();
+
     await shot("provider-models");
     await page
       .getByRole("button", {
@@ -269,19 +313,23 @@ for (const variant of [
       })
       .click();
     dialog = page.getByRole("dialog");
+
     await expect(
       dialog.getByRole("radio", {
         name: label("ChatGPT-Konto", "ChatGPT account"),
         exact: true,
       }),
     ).toBeVisible();
+
     await dialog
       .getByRole("radio", {
         name: label("ChatGPT-Konto", "ChatGPT account"),
         exact: true,
       })
       .press("Space");
+
     await expect(dialog.locator('input[type="password"]')).toHaveCount(0);
+
     await shot("provider-create");
     await page.keyboard.press("Escape");
     const deviceAccount = await chooseProviderAccount(page, "ChatGPT · Team");
@@ -289,9 +337,11 @@ for (const variant of [
       .getByRole("button", { name: label("Anmelden", "Sign in"), exact: true })
       .click();
     dialog = page.getByRole("dialog");
+
     await expect(dialog.getByRole("alert")).toContainText(
       label("Die Anmeldung ist abgelaufen.", "Sign-in expired."),
     );
+
     signInFailed = false;
     await dialog
       .getByRole("button", {
@@ -299,13 +349,16 @@ for (const variant of [
         exact: true,
       })
       .click();
+
     await expect(dialog.getByText("LOGIN-42", { exact: true })).toBeVisible();
+
     await dialog
       .getByRole("button", {
         name: label("Code kopieren", "Copy code"),
         exact: true,
       })
       .click();
+
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       "LOGIN-42",
     );
@@ -315,9 +368,12 @@ for (const variant of [
         exact: true,
       }),
     ).toHaveAttribute("target", "_blank");
+
     await shot("device-login");
     await page.keyboard.press("Escape");
+
     await expect.poll(() => events.includes("cancel")).toBe(true);
+
     const browserAccount = await chooseProviderAccount(page, "OpenRouter");
     await browserAccount
       .getByRole("button", { name: label("Anmelden", "Sign in"), exact: true })
@@ -330,6 +386,7 @@ for (const variant of [
     await dialog
       .getByRole("button", { name: label("Verbinden", "Connect"), exact: true })
       .click();
+
     await expect(code).toHaveValue("keep-invalid-code");
     await expect(code).toBeFocused();
     await expect(
@@ -337,15 +394,18 @@ for (const variant of [
         label("Dieser Code ist ungültig.", "This code is invalid."),
       ),
     ).toBeVisible();
+
     await shot("browser-login-error");
     await page.keyboard.press("Escape");
     await page.goto("/#/settings");
+
     await expect(
       page.getByRole("heading", {
         name: label("Standardmodelle", "Default models"),
         exact: true,
       }),
     ).toBeVisible();
+
     const role = page.getByRole("group", {
       name: label("Hauptmodell", "Main model"),
       exact: true,
@@ -354,11 +414,16 @@ for (const variant of [
       .getByRole("button", { name: label("Ändern", "Change"), exact: true })
       .click();
     dialog = page.getByRole("dialog");
+
     await expect(dialog).toHaveCount(1);
+
     await dialog.getByRole("searchbox").fill(models[1].id);
+
     await expect(dialog.getByRole("option")).toHaveCount(1);
+
     await shot("model-picker");
     await dialog.getByRole("option").click();
+
     await expect(dialog).toHaveCount(0);
     await expect(role.getByText(models[1].name, { exact: true })).toBeVisible();
     await expect(
@@ -366,22 +431,31 @@ for (const variant of [
         hasText: label("Nicht gespeicherte Änderungen", "Unsaved changes"),
       }),
     ).toBeVisible();
+
     await page
       .getByRole("button", {
         name: label("Modell-Defaults speichern", "Save model defaults"),
         exact: true,
       })
       .click();
+
     await expect(page.getByRole("main").getByRole("alert")).toContainText(
       label("Speichern fehlgeschlagen.", "Saving failed."),
     );
     await expect(role.getByText(models[1].name, { exact: true })).toBeVisible();
+
     rejectDefaults = false;
     await page
       .getByRole("button", { name: label("Verwerfen", "Discard"), exact: true })
       .click();
+
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
-    await expect(role.getByText(models[0].name, { exact: true })).toBeVisible();
+    await expect(
+      role
+        .getByText(models[0].name, { exact: true })
+        .and(role.getByRole("paragraph")),
+    ).toBeVisible();
+
     await role
       .getByRole("button", { name: label("Ändern", "Change"), exact: true })
       .click();
@@ -394,15 +468,18 @@ for (const variant of [
         exact: true,
       })
       .click();
+
     await expect(
       page.getByRole("button", {
         name: label("Modell-Defaults speichern", "Save model defaults"),
         exact: true,
       }),
     ).toHaveCount(0);
+
     await shot("defaults");
     if (variant.width > 1000)
       await page.setViewportSize({ width: 720, height: 500 });
+
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,

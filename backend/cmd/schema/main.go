@@ -15,6 +15,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	result := graphql.Do(graphql.Params{
 		Schema:        schema,
 		RequestString: `query { __schema { types { kind name fields { name type { kind name ofType { kind name ofType { kind name ofType {kind name} } } } } inputFields { name type { kind name ofType {kind name ofType {kind name ofType {kind name}}} } } } } }`,
@@ -22,8 +23,10 @@ func main() {
 	if len(result.Errors) > 0 {
 		panic(fmt.Sprint(result.Errors))
 	}
+
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
+
 	if err := encoder.Encode(result.Data); err != nil {
 		panic(err)
 	}

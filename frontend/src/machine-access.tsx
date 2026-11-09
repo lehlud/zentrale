@@ -1,4 +1,5 @@
 import { Button } from "@heroui/react";
+
 import type { Config } from "./config";
 import { useAPI } from "./api";
 import { Icon } from "./icons";
@@ -18,6 +19,7 @@ export function MachineAccess({
   const { t } = useI18n();
   const action = useAction();
   const selected = keys.find((key) => key.id === Number(keyId));
+
   return (
     <div className="space-y-3">
       <p className="text-sm leading-6 text-muted">

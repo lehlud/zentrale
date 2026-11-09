@@ -1,5 +1,6 @@
 import { Button, Card, Tabs } from "@heroui/react";
 import { useState } from "react";
+
 import { ActionsMenu } from "./actions-menu";
 import { MachineCard } from "./machine-card";
 import { MachineAccess } from "./machine-access";
@@ -11,6 +12,7 @@ import { useI18n } from "./preferences";
 import type { Field } from "./ui";
 import { Editor, Empty, Failure, Loading, Title, useAction } from "./ui";
 import { Icon } from "./icons";
+
 const sandbox = [
   { key: "auto", label: "Automatisch" },
   { key: "microvm", label: "MicroVM" },
@@ -112,6 +114,7 @@ export function Machines() {
         { kind, id },
       ),
     );
+
   return (
     <>
       <Title
@@ -121,7 +124,6 @@ export function Machines() {
         action={
           <Button
             className="min-h-11"
-
             onPress={() =>
               setEditing({
                 name: "",

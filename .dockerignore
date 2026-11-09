@@ -1,0 +1,30 @@
+# Only application sources belong in the build context.
+**
+!Dockerfile
+!.dockerignore
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+
+# Generated files, caches, local credentials, and databases stay on the host.
+**/.git
+**/.agents
+**/.codex
+**/.aws
+**/.ssh
+**/.cache
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.duckdb*
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/*.tsbuildinfo
+backend/zentrale
+frontend/dist
+frontend/artifacts
+frontend/playwright-report
+frontend/test-results

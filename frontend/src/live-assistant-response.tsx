@@ -4,6 +4,7 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
+
 import { useAPI } from "./api";
 import type { Message } from "./generated";
 import { MessageMarkdown } from "./message-markdown";
@@ -37,10 +38,13 @@ export function LiveAssistantResponse({
   const text = response?.text ?? "";
   const persisted =
     response && messages.some((message) => message.id === response.id);
+
   useEffect(() => {
     if (persisted && response) api.responses.acknowledge(agentId, response.id);
   }, [api, agentId, persisted, response]);
+
   const generating = response?.status === "running";
+
   return (
     <>
       {!persisted && response && text && (

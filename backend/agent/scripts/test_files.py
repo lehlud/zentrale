@@ -31,6 +31,7 @@ class FileChangeTests(unittest.TestCase):
             (created["kind"], created["added"], created["removed"]), ("created", 2, 0)
         )
         self.assertIn("--- /dev/null\n+++ b/example.py\n", created["patch"])
+
         modified = self.write(b"after\ncontext\n")
         self.assertIn("-before\n+after\n context\n", modified["patch"])
         self.assertEqual(
@@ -38,6 +39,7 @@ class FileChangeTests(unittest.TestCase):
             ("modified", 1, 1),
         )
         self.assertEqual(self.write(b"after\ncontext\n")["kind"], "unchanged")
+
         output = StringIO()
         arguments = ["files.py", self.root, self.root, "example.py", "delete_file", ""]
         with patch.object(sys, "argv", arguments), redirect_stdout(output):
@@ -99,6 +101,7 @@ class FileChangeTests(unittest.TestCase):
         content = b"large file contents\n" * 20000
         arguments = ["files.py", self.root, self.root, "large.txt", "write_file", "-"]
         encoded = StringIO(base64.b64encode(content).decode("ascii"))
+
         output = StringIO()
         with (
             patch.object(sys, "argv", arguments),
@@ -117,8 +120,12 @@ class FileChangeTests(unittest.TestCase):
         page = files.read_file(self.filename, {"offset": 2, "limit": 1})
         self.assertEqual(page["content"], "Grüße 🦊\n")
         self.assertEqual(page["sha256"], full["sha256"])
-        self.assertEqual((page["offset"], page["totalLines"], page["hasMore"]), (2, 3, True))
-        self.assertFalse(files.read_file(self.filename, {"offset": 3, "limit": 1})["hasMore"])
+        self.assertEqual(
+            (page["offset"], page["totalLines"], page["hasMore"]), (2, 3, True)
+        )
+        self.assertFalse(
+            files.read_file(self.filename, {"offset": 3, "limit": 1})["hasMore"]
+        )
 
 
 if __name__ == "__main__":

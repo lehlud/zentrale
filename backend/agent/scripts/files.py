@@ -18,6 +18,7 @@ MAX_PATCH_LINES = 800
 def text_snapshot(content, exists=True):
     if len(content) > MAX_DIFF_INPUT:
         return {"exists": exists, "text": None, "notice": "too_large"}
+
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -60,6 +61,7 @@ def file_change(filename, before, after, workspace):
     if before["exists"] and after["exists"] and before["text"] == after["text"]:
         change["kind"] = "unchanged"
         return change
+
     relative = os.path.relpath(filename, workspace)
     old_name = "a/" + relative if before["exists"] else "/dev/null"
     new_name = "b/" + relative if after["exists"] else "/dev/null"
@@ -100,13 +102,23 @@ def read_file(filename, options=None):
         "content": content.decode("utf-8", errors="replace"),
         "sha256": hashlib.sha256(content).hexdigest(),
     }
+
     if options:
         offset, limit = options["offset"], options["limit"]
-        if not isinstance(offset, int) or not isinstance(limit, int) or offset < 1 or not 1 <= limit <= 2000:
+        if (
+            not isinstance(offset, int)
+            or not isinstance(limit, int)
+            or offset < 1
+            or not 1 <= limit <= 2000
+        ):
             raise ValueError("invalid file line range")
         lines = result["content"].splitlines(keepends=True)
-        result.update(content="".join(lines[offset - 1:offset - 1 + limit]),
-                      offset=offset, totalLines=len(lines), hasMore=offset - 1 + limit < len(lines))
+        result.update(
+            content="".join(lines[offset - 1 : offset - 1 + limit]),
+            offset=offset,
+            totalLines=len(lines),
+            hasMore=offset - 1 + limit < len(lines),
+        )
     return result
 
 
@@ -144,7 +156,9 @@ def write_file(filename, encoded_content, workspace):
 
 
 def main():
-    workspace, temporary_directory, requested_path, action, content, *options = sys.argv[1:]
+    workspace, temporary_directory, requested_path, action, content, *options = (
+        sys.argv[1:]
+    )
     if action == "write_file" and content == "-":
         content = sys.stdin.read()
     workspace = os.path.realpath(workspace)
@@ -161,6 +175,7 @@ def main():
         temporary_directory,
     ):
         raise ValueError("cannot overwrite or remove a workspace root")
+
     if action == "read_file":
         result = read_file(filename, json.loads(options[0]) if options else None)
     elif action == "write_file":
@@ -193,6 +208,7 @@ def main():
         }
     else:
         raise ValueError("unknown file operation")
+
     print(json.dumps(result))
 
 

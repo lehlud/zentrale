@@ -18,6 +18,7 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 		Source  string `json:"source"`
 		License string `json:"license"`
 	}
+
 	var release struct {
 		Version string   `json:"version"`
 		Runtime artifact `json:"runtime"`
@@ -28,19 +29,29 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 	if err := json.Unmarshal(managedMicroVMRelease, &release); err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(release.Version) || release.Version == "." || release.Version == ".." {
+
+	if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(release.Version) ||
+		release.Version == "." ||
+		release.Version == ".." {
 		t.Fatalf("release version is unsafe as a cache directory: %q", release.Version)
 	}
+
 	for _, entry := range []artifact{release.Runtime, release.Busybox, release.Kernel, release.Fedora} {
 		parsed, err := url.Parse(entry.URL)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" {
+		if err != nil ||
+			parsed.Scheme != "https" ||
+			parsed.Host == "" ||
+			parsed.User != nil ||
+			parsed.RawQuery != "" {
 			t.Fatalf("artifact needs a fixed HTTPS URL: %+v", entry)
 		}
+
 		digest, err := hex.DecodeString(entry.SHA256)
 		if err != nil || len(digest) != 32 || entry.Source == "" || entry.License == "" {
 			t.Fatalf("missing artifact checksum or provenance: %+v", entry)
 		}
 	}
+
 	if len(SandboxImplementationID()) != 64 {
 		t.Fatal("sandbox observation identity is missing")
 	}
@@ -52,11 +63,24 @@ func TestGuestAdministrationNeverBecomesHostRoot(t *testing.T) {
 		{Sandbox: "bwrap"},
 		{Sandbox: SandboxMicroVM, MicroVMCommand: "/custom/runner"},
 	} {
-		if _, _, err := Sandbox(context.Background(), nil, machine, Execution{Workspace: "/project", GuestRoot: true}); err == nil {
+		if _, _, err := Sandbox(context.Background(), nil, machine, Execution{
+			Workspace: "/project",
+			GuestRoot: true,
+		}); err == nil {
 			t.Fatalf("guestRoot accepted without the managed runner: %+v", machine)
 		}
 	}
-	if _, _, err := Sandbox(context.Background(), nil, domain.Machine{}, Execution{Workspace: "/project", GuestRoot: true, OutsideSandbox: true}); err == nil {
+
+	if _, _, err := Sandbox(
+		context.Background(),
+		nil,
+		domain.Machine{},
+		Execution{
+			Workspace:      "/project",
+			GuestRoot:      true,
+			OutsideSandbox: true,
+		},
+	); err == nil {
 		t.Fatal("guestRoot accepted with host execution")
 	}
 }

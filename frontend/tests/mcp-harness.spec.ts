@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import type { Message } from "../src/generated";
 import {
   agent,
@@ -25,6 +26,7 @@ for (const english of [false, true]) {
         { english },
       );
       const messages: Message[] = [];
+
       function add(
         action: string,
         args: unknown,
@@ -133,6 +135,7 @@ for (const english of [false, true]) {
             : query.includes("agents(projectId:")
               ? { project, agents }
               : config;
+
         return route.fulfill({ json: { data } });
       });
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
@@ -145,11 +148,13 @@ for (const english of [false, true]) {
           name: new RegExp(label("MCP-Server verbinden", "Connect MCP server")),
         })
         .click();
+
       await expect(
         log.getByText(label("MCP-Server verbunden.", "MCP server connected."), {
           exact: true,
         }),
       ).toBeVisible();
+
       await log
         .getByRole("button", {
           name: new RegExp(
@@ -157,11 +162,13 @@ for (const english of [false, true]) {
           ),
         })
         .click();
+
       await expect(
         log.getByText("Decompile a function at the given address.", {
           exact: true,
         }),
       ).toBeVisible();
+
       const call = log.getByRole("button", {
         name: new RegExp(
           label("MCP-Werkzeug ausführen", "Run MCP tool") + ".*decompile",
@@ -170,6 +177,7 @@ for (const english of [false, true]) {
       await call.scrollIntoViewIfNeeded();
       await call.focus();
       await page.keyboard.press("Enter");
+
       await expect(log.getByText("0x401000", { exact: true })).toBeVisible();
       await expect(
         log.getByText("Function main", { exact: true }),
@@ -177,12 +185,14 @@ for (const english of [false, true]) {
       await expect(
         log.locator(".syntax-highlight .hljs-keyword").first(),
       ).toBeVisible();
+
       const failure = log.getByRole("button", {
         name: new RegExp(
           label("MCP-Werkzeug ausführen", "Run MCP tool") + ".*rename_function",
         ),
       });
       await failure.click();
+
       await expect(
         log
           .getByText("binary not loaded", {
@@ -197,10 +207,13 @@ for (const english of [false, true]) {
         log.getByText("private-machine-id", { exact: false }),
       ).toHaveCount(0);
       await expect(log.getByText('"jsonrpc"', { exact: false })).toHaveCount(0);
+
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - innerWidth,
       );
+
       expect(overflow).toBeLessThanOrEqual(1);
+
       await call.scrollIntoViewIfNeeded();
       await mkdir("artifacts/ui", { recursive: true });
       const variant = english ? "mobile-en-dark" : "desktop-de-light";

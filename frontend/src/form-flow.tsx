@@ -1,5 +1,6 @@
 import { ProgressBar } from "@heroui/react";
 import { useEffect, useRef } from "react";
+
 import { useI18n } from "./preferences";
 
 export function FlowProgress({
@@ -16,17 +17,24 @@ export function FlowProgress({
   const { t } = useI18n();
   const heading = useRef<HTMLHeadingElement>(null);
   const previous = useRef(index);
+
   useEffect(() => {
-    if (previous.current === index) return;
+    if (previous.current === index) {
+      return;
+    }
+
     previous.current = index;
     const body = heading.current?.closest('[data-slot="modal-body"]');
     if (body) body.scrollTop = 0;
+
     heading.current?.focus({ preventScroll: true });
   }, [index]);
+
   const progress = t("Schritt {current} von {total}", {
     current: index + 1,
     total,
   });
+
   return (
     <div className="space-y-3">
       <ProgressBar

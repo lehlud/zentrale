@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+
 import type { Message } from "../src/generated";
 import {
   agent,
@@ -25,6 +26,7 @@ for (const english of [false, true]) {
         { english },
       );
       const messages: Message[] = [];
+
       function action(name: string, args: unknown, result: unknown) {
         const id = "interactive-" + messages.length;
         const base: Message = {
@@ -134,6 +136,7 @@ for (const english of [false, true]) {
             : query.includes("agents(projectId:")
               ? { project, agents }
               : config;
+
         return route.fulfill({ json: { data } });
       });
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
@@ -149,6 +152,7 @@ for (const english of [false, true]) {
       await input.scrollIntoViewIfNeeded();
       await input.focus();
       await page.keyboard.press("Enter");
+
       await expect(
         log
           .locator(".syntax-highlight")
@@ -156,19 +160,23 @@ for (const english of [false, true]) {
           .first(),
       ).toBeVisible();
       await expect(log.getByText("7", { exact: false }).first()).toBeVisible();
+
       const interrupt = log.getByRole("button", {
         name: new RegExp(
           label("Prozess fortsetzen", "Continue process") + ".*Ctrl\\+C",
         ),
       });
       await interrupt.click();
+
       await expect(log.getByText("[Ctrl+C]", { exact: true })).toBeVisible();
+
       const end = log.getByRole("button", {
         name: new RegExp(
           label("Prozess fortsetzen", "Continue process") + ".*EOF",
         ),
       });
       await end.click();
+
       await expect(
         log.getByText(label("Eingabe beenden (EOF)", "End input (EOF)"), {
           exact: true,
@@ -178,12 +186,14 @@ for (const english of [false, true]) {
         log.getByText("Session ended.", { exact: true }),
       ).toBeVisible();
       await expect(input).not.toContainText(label("Arbeitet", "Working"));
+
       const poll = log.getByRole("button", {
         name: new RegExp(
           "^" + label("Prozessausgabe abrufen", "Read process output"),
         ),
       });
       await poll.click();
+
       await expect(
         log.getByText("Final process output", { exact: true }),
       ).toBeVisible();
@@ -198,6 +208,7 @@ for (const english of [false, true]) {
           () => document.documentElement.scrollWidth - innerWidth,
         ),
       ).toBeLessThanOrEqual(1);
+
       await input.scrollIntoViewIfNeeded();
       await mkdir("artifacts/ui", { recursive: true });
       await page.screenshot({

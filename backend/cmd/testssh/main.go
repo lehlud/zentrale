@@ -17,9 +17,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer server.Close()
+
 	if err := json.NewEncoder(os.Stdout).Encode(server); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
+
 	_, _ = io.Copy(io.Discard, os.Stdin)
 }

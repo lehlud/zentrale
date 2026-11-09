@@ -1,4 +1,5 @@
 import { Chip, Link } from "@heroui/react";
+
 import { MoreButton, useBatch } from "./batches";
 import { parseJSON } from "./agent-activity";
 import { useI18n } from "./preferences";
@@ -10,7 +11,9 @@ export function record(value: unknown): Record<string, unknown> {
 }
 
 export function structured(value: unknown): unknown {
-  if (typeof value !== "string") return value;
+  if (typeof value !== "string") {
+    return value;
+  }
   return parseJSON(value) ?? value;
 }
 
@@ -157,6 +160,7 @@ export function ActivityStatus({ status }: { status: string }) {
     : status === "completed"
       ? "success"
       : "default";
+
   return (
     <Chip size="sm" variant="soft" color={color}>
       {t(values[status] ?? status)}
@@ -174,28 +178,39 @@ export function ActivityValue({
   field?: string;
 }) {
   const { t, numberLocale } = useI18n();
-  if (value === null || value === undefined || value === "")
+  if (value === null || value === undefined || value === "") {
     return <span className="text-muted">{t("Keine Angabe")}</span>;
-  if (typeof value === "boolean")
+  }
+
+  if (typeof value === "boolean") {
     return <span>{t(value ? "Ja" : "Nein")}</span>;
-  if (typeof value === "number")
+  }
+
+  if (typeof value === "number") {
     return (
       <span className="font-mono tabular-nums">
         {value.toLocaleString(numberLocale)}
       </span>
     );
+  }
+
   if (typeof value === "string") {
-    if (field === "status") return <ActivityStatus status={value} />;
-    if (/At$/.test(field) && !Number.isNaN(Date.parse(value)))
+    if (field === "status") {
+      return <ActivityStatus status={value} />;
+    }
+
+    if (/At$/.test(field) && !Number.isNaN(Date.parse(value))) {
       return (
         <time dateTime={value}>
           {new Date(value).toLocaleString(numberLocale)}
         </time>
       );
+    }
+
     if (
       (field === "url" || field === "html_url") &&
       /^https?:\/\//i.test(value)
-    )
+    ) {
       return (
         <Link
           href={value}
@@ -206,11 +221,15 @@ export function ActivityValue({
           {value}
         </Link>
       );
+    }
+
     {
       const decoded = structured(value);
-      if (decoded !== null && typeof decoded === "object")
+      if (decoded !== null && typeof decoded === "object") {
         return <ActivityValue value={decoded} />;
+      }
     }
+
     return (
       <span
         className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${["path", "filename", "host", "id", "jobId", "bootId"].includes(field) ? "font-mono text-xs" : ""}`}
@@ -221,15 +240,21 @@ export function ActivityValue({
       </span>
     );
   }
-  if (Array.isArray(value)) return <ActivityList items={value} />;
+
+  if (Array.isArray(value)) {
+    return <ActivityList items={value} />;
+  }
+
   return <ActivityFields value={record(value)} />;
 }
 
 function ActivityList({ items }: { items: unknown[] }) {
   const { t } = useI18n();
   const batch = useBatch(items, "", 20);
-  if (!items.length)
+  if (!items.length) {
     return <span className="text-muted">{t("Keine Einträge")}</span>;
+  }
+
   return (
     <div className="min-w-0">
       <ul className="space-y-3">
@@ -285,7 +310,10 @@ export function ActivityFields({
       item !== null &&
       item !== "",
   );
-  if (!fields.length) return null;
+  if (!fields.length) {
+    return null;
+  }
+
   return (
     <dl className="min-w-0 space-y-3 text-sm">
       {fields.map(([key, item]) => (

@@ -8,6 +8,7 @@ import {
   Spinner,
 } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+
 import { CONFIG, useAPI, useQuery } from "./api";
 import type { Config } from "./config";
 import type { Agent } from "./generated";
@@ -29,12 +30,14 @@ export function NewConversation({
   const started = useRef(false);
   const active = useRef(true);
   const action = useAction();
+
   useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
     };
   }, []);
+
   const ready = Boolean(
     data?.modelDefaults.main.modelId && data?.modelDefaults.approver.modelId,
   );
@@ -43,23 +46,34 @@ export function NewConversation({
       "mutation($projectId:String!,$name:String!){createAgent(projectId:$projectId,name:$name){id}}",
       { projectId: id, name: t("Neue Unterhaltung") },
     );
-    if (!active.current) return;
+    if (!active.current) {
+      return;
+    }
+
     location.hash = conversationHref(id, result.createAgent.id) + "&compose=1";
     onClose();
   };
+
   useEffect(() => {
-    if (!data || !ready || started.current) return;
+    if (!data || !ready || started.current) {
+      return;
+    }
+
     const id =
       projectId || (data.projects.length === 1 ? data.projects[0].id : "");
-    if (!id) return;
+    if (!id) {
+      return;
+    }
+
     started.current = true;
     setSelected(id);
     void action.run(() => create(id));
   }, [data, ready, projectId]);
+
   // A selected project can open directly. Reserve the dialog for choices and
   // recovery so creating a conversation does not steal focus from its composer.
   const automatic = ready && Boolean(projectId || data?.projects.length === 1);
-  if (!error && !action.error && (loading || automatic))
+  if (!error && !action.error && (loading || automatic)) {
     return (
       <Alert
         role="status"
@@ -73,6 +87,8 @@ export function NewConversation({
         </Alert.Content>
       </Alert>
     );
+  }
+
   return (
     <Inspect
       title={t("Neue Unterhaltung")}

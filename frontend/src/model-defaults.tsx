@@ -1,5 +1,6 @@
 import { Button, Card, Link } from "@heroui/react";
 import { useEffect, useState } from "react";
+
 import { CONFIG, useAPI, useQuery } from "./api";
 import type { Config } from "./config";
 import type { LanguageModel, ModelChoice, ModelDefaults } from "./generated";
@@ -19,6 +20,7 @@ export function GlobalModelDefaults() {
     data?.providers.filter(
       (provider) => provider.connected && provider.modelCount > 0,
     ) ?? [];
+
   // Server refreshes update the summary; local choices survive errors until saved.
   useEffect(() => {
     if (
@@ -28,7 +30,11 @@ export function GlobalModelDefaults() {
     )
       setDraft(undefined);
   }, [data, draft]);
-  if (loading && !data) return <Loading />;
+
+  if (loading && !data) {
+    return <Loading />;
+  }
+
   return (
     <section aria-labelledby="global-models-title" className="min-w-0">
       <div className="mb-5 max-w-2xl space-y-1.5">

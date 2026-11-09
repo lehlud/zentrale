@@ -21,6 +21,7 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			return mapOf(summary), err
 		}),
 	}
+
 	queries["recentMessages"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.Message]())),
 		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
@@ -29,9 +30,11 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			if err == nil {
 				err = server.attachFileChanges(rows, params.Info)
 			}
+
 			return rows, err
 		}),
 	}
+
 	queries["model"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.LanguageModel]()),
 		Args: graphql.FieldConfigArgument{
@@ -44,9 +47,11 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, nil
 			}
+
 			return model, err
 		}),
 	}
+
 	queries["modelDefaults"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ModelDefaults]()),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
@@ -54,6 +59,7 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			return mapOf(defaults), err
 		}),
 	}
+
 	queries["models"] = &graphql.Field{
 		Type: graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.LanguageModel]()))),
 		Args: graphql.FieldConfigArgument{
@@ -69,24 +75,56 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			)
 		}),
 	}
-	methodType := graphql.NewObject(graphql.ObjectConfig{Name: "ProviderKind", Fields: graphql.Fields{
-		"id":          {Type: graphql.NewNonNull(graphql.String)},
-		"name":        {Type: graphql.NewNonNull(graphql.String)},
-		"authMethods": {Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(graphql.String)))},
-	}})
+
+	methodType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "ProviderKind",
+		Fields: graphql.Fields{
+			"id":          {Type: graphql.NewNonNull(graphql.String)},
+			"name":        {Type: graphql.NewNonNull(graphql.String)},
+			"authMethods": {Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(graphql.String)))},
+		},
+	})
+
 	queries["providerKinds"] = &graphql.Field{
 		Type: graphql.NewList(methodType),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			kinds := []any{}
 			for _, entry := range []struct{ id, name string }{
-				{"openai", "OpenAI"}, {"anthropic", "Anthropic"}, {"openrouter", "OpenRouter"},
-				{"opencode", "OpenCode"}, {"mistral", "Mistral"}, {"litellm", "LiteLLM"}, {"gemini", "Google / Gemini"},
+				{"openai", "OpenAI"},
+				{"anthropic", "Anthropic"},
+				{"openrouter", "OpenRouter"},
+
+				{
+					"opencode",
+					"OpenCode",
+				},
+				{
+					"mistral",
+					"Mistral",
+				},
+				{
+					"litellm",
+					"LiteLLM",
+				},
+				{
+					"gemini",
+					"Google / Gemini",
+				},
 			} {
-				kinds = append(kinds, map[string]any{"id": entry.id, "name": entry.name, "authMethods": providerlogin.SupportedMethods(entry.id)})
+				kinds = append(
+					kinds,
+					map[string]any{
+						"id":          entry.id,
+						"name":        entry.name,
+						"authMethods": providerlogin.SupportedMethods(entry.id),
+					},
+				)
 			}
+
 			return kinds, nil
 		}),
 	}
+
 	return queries
 }
 
@@ -105,37 +143,52 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			if err != nil {
 				return false, err
 			}
+
 			return true, server.Engine.SaveModelMetadata(params.Args["providerId"].(string), params.Args["modelId"].(string), metadata)
 		}),
 	}
+
 	choiceInput := builder.input(reflect.TypeFor[domain.ModelChoice]())
 	requiredString := func(name string) graphql.FieldConfigArgument {
 		return graphql.FieldConfigArgument{name: {Type: graphql.NewNonNull(graphql.String)}}
 	}
+
 	mutations["setModelDefaults"] = &graphql.Field{
 		Type: graphql.Boolean,
-		Args: graphql.FieldConfigArgument{"input": {Type: graphql.NewNonNull(builder.input(reflect.TypeFor[domain.ModelDefaults]()))}},
+		Args: graphql.FieldConfigArgument{
+			"input": {
+				Type: graphql.NewNonNull(builder.input(reflect.TypeFor[domain.ModelDefaults]())),
+			},
+		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			defaults, err := convert[domain.ModelDefaults](params.Args["input"])
 			if err != nil {
 				return false, err
 			}
+
 			return true, server.Engine.SaveModelDefaults(defaults)
 		}),
 	}
+
 	mutations["refreshModels"] = &graphql.Field{
-		Type: graphql.Boolean, Args: requiredString("providerId"),
+		Type: graphql.Boolean,
+		Args: requiredString("providerId"),
+
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			return true, server.Engine.RefreshProviderModels(params.Context, params.Args["providerId"].(string))
 		}),
 	}
+
 	mutations["beginProviderLogin"] = &graphql.Field{
-		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()), Args: requiredString("providerId"),
+		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()),
+		Args: requiredString("providerId"),
+
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			login, err := server.Engine.BeginProviderLogin(params.Context, params.Args["providerId"].(string))
 			return mapOf(login), err
 		}),
 	}
+
 	mutations["pollProviderLogin"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()),
 		Args: graphql.FieldConfigArgument{
@@ -147,40 +200,54 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			return mapOf(login), err
 		}),
 	}
+
 	mutations["cancelProviderLogin"] = &graphql.Field{
-		Type: graphql.Boolean, Args: requiredString("id"),
+		Type: graphql.Boolean,
+		Args: requiredString("id"),
+
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			return true, server.Engine.CancelProviderLogin(params.Args["id"].(string))
 		}),
 	}
+
 	mutations["disconnectProvider"] = &graphql.Field{
-		Type: graphql.Boolean, Args: requiredString("providerId"),
+		Type: graphql.Boolean,
+		Args: requiredString("providerId"),
+
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			return true, server.Engine.DisconnectProvider(params.Args["providerId"].(string))
 		}),
 	}
+
 	mutations["createAgent"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.Agent]()),
 		Args: graphql.FieldConfigArgument{
 			"projectId": {Type: graphql.NewNonNull(graphql.String)},
-			"name":      {Type: graphql.NewNonNull(graphql.String)},
-			"main":      {Type: choiceInput}, "approver": {Type: choiceInput},
+
+			"name": {Type: graphql.NewNonNull(graphql.String)},
+
+			"main":     {Type: choiceInput},
+			"approver": {Type: choiceInput},
 		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			mainChoice, err := convert[domain.ModelChoice](params.Args["main"])
 			if err != nil {
 				return nil, err
 			}
+
 			approverChoice, err := convert[domain.ModelChoice](params.Args["approver"])
 			if err != nil {
 				return nil, err
 			}
+
 			created, err := server.Engine.CreateWithModels(
 				params.Args["projectId"].(string), params.Args["name"].(string), mainChoice, approverChoice, "",
 			)
+
 			return mapOf(created), err
 		}),
 	}
+
 	mutations["testProvider"] = &graphql.Field{
 		Type: graphql.Boolean,
 		Args: graphql.FieldConfigArgument{
@@ -191,5 +258,6 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			return server.Engine.TestProvider(params.Context, params.Args["providerId"].(string), params.Args["modelId"].(string))
 		}),
 	}
+
 	return mutations
 }

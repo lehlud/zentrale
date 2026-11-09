@@ -3,15 +3,20 @@ import { readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const [baseURL, projectId, workspace, mode = "local"] = process.argv.slice(2);
+
 const microvm = mode === "microvm";
+
 const artifactPrefix = microvm ? "vscode-microvm" : "vscode-real-ssh";
+
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH,
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
+
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 });
+
 try {
   await context.addInitScript(() => {
     try {
@@ -36,10 +41,14 @@ try {
     },
   });
   const readWorkspace = async (filename) => {
-    if (!microvm) return readFile(path.join(workspace, filename), "utf8");
+    if (!microvm) {
+      return readFile(path.join(workspace, filename), "utf8");
+    }
+
     const response = await page.request.get(
       `${baseURL}/_test/workspace?file=${encodeURIComponent(filename)}`,
     );
+
     return response.ok() ? response.text() : "";
   };
   await page.goto(`${baseURL}/#/projects/${projectId}`);
@@ -129,6 +138,7 @@ try {
       "VS Code terminal used the Fedora guest and project commit identity.",
     );
   }
+
   await editor.keyboard.press("Control+p");
   await quickInput.fill("remote.ts");
   await editor
@@ -228,6 +238,7 @@ try {
       ).slice(0, 8000),
     );
   }
+
   throw error;
 } finally {
   await browser.close();

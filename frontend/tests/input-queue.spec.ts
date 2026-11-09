@@ -1,5 +1,6 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -65,12 +66,15 @@ for (const english of [false, true]) {
       await page.route("**/graphql", async (route) => {
         const { query, variables = {} } = route.request().postDataJSON();
         const send = (data: unknown) => route.fulfill({ json: { data } });
-        if (query.includes("status{"))
+        if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
+        }
+
         if (query.includes("prepareAgent")) {
           preflights++;
           return send({ prepareAgent: { connected: true } });
         }
+
         if (query.includes("submitInput(")) {
           attempts.push({
             id: variables.id,
@@ -85,18 +89,23 @@ for (const english of [false, true]) {
               createdAt: new Date().toISOString(),
               deliveredAt: "0001-01-01T00:00:00Z",
             });
+
           if (variables.text === "FIRST_SUBMISSION") await delayed;
+
           if (variables.text === "LOST_RECEIPT" && loseResponse) {
             loseResponse = false;
             return route.abort("failed");
           }
+
           return send({ submitInput: inputs.get(variables.id) });
         }
+
         if (query.includes("cancelInput(")) {
           inputs.delete(variables.id);
           return send({ cancelInput: true });
         }
-        if (query.includes("recentMessages"))
+
+        if (query.includes("recentMessages")) {
           return send({
             ...transcript,
             agent: run,
@@ -112,11 +121,15 @@ for (const english of [false, true]) {
               hostKey: { publicKey: "", host: "", fingerprint: "" },
             },
           });
-        if (query.includes("agents(projectId:"))
+        }
+
+        if (query.includes("agents(projectId:")) {
           return send({
             project,
             agents: agents.map((item) => (item.id === agent.id ? run : item)),
           });
+        }
+
         return send(config);
       });
       await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
@@ -125,13 +138,16 @@ for (const english of [false, true]) {
       });
       await input.fill("FIRST_SUBMISSION");
       await input.press("Enter");
+
       await expect(input).toHaveValue("");
       await expect(
         page.getByText(label("Wird gesendet …", "Sending …"), { exact: true }),
       ).toBeVisible();
+
       await input.fill("Next draft survives the acknowledgement");
       phase = "connecting";
       release!();
+
       await expect(
         page.getByText(
           label(
@@ -145,8 +161,10 @@ for (const english of [false, true]) {
         "Next draft survives the acknowledgement",
       );
       expect(preflights).toBe(0);
+
       await input.fill("QUEUE_ONE");
       await input.press("Tab");
+
       await expect(input).toHaveValue("");
       await expect
         .poll(() =>
@@ -155,61 +173,77 @@ for (const english of [false, true]) {
             .map((item) => item.mode),
         )
         .toEqual(["queue"]);
+
       const queue = page.getByRole("region", {
         name: label("Nachrichtenwarteschlange", "Message queue"),
       });
+
       await expect(
         queue.getByText(
           label("Auf dem Server eingereiht", "Queued on the server"),
           { exact: true },
         ),
       ).toBeVisible();
+
       phase = "sandbox";
       update();
+
       await expect(
         page.getByText(
           label("Sandbox wird vorbereitet …", "Preparing sandbox …"),
           { exact: true },
         ),
       ).toBeVisible();
+
       await mkdir("artifacts/ui", { recursive: true });
       await page.screenshot({
         path: `artifacts/ui/input-queue-${variant}.png`,
         animations: "disabled",
       });
       await page.reload();
+
       await expect(queue.getByText("QUEUE_ONE", { exact: true })).toBeVisible();
+
       await queue
         .getByRole("button", {
           name: label("Wartende Nachricht bearbeiten", "Edit queued message"),
         })
         .click();
+
       await expect(input).toHaveValue("QUEUE_ONE");
       await expect(queue.getByText("QUEUE_ONE", { exact: true })).toHaveCount(
         0,
       );
+
       await input.press("Tab");
+
       await expect(input).toHaveValue("");
       await expect(
         queue.getByRole("button", {
           name: label("Wartende Nachricht entfernen", "Remove queued message"),
         }),
       ).toBeVisible();
+
       await queue
         .getByRole("button", {
           name: label("Wartende Nachricht entfernen", "Remove queued message"),
         })
         .click();
+
       await expect(queue.getByText("QUEUE_ONE", { exact: true })).toHaveCount(
         0,
       );
+
       await input.focus();
       const beforeEmptyTab = attempts.length;
       await input.press("Tab");
+
       await expect(input).not.toBeFocused();
       expect(attempts.length).toBe(beforeEmptyTab);
+
       await input.fill("LOST_RECEIPT");
       await input.press("Enter");
+
       await expect(
         page.getByText(
           label(
@@ -219,7 +253,9 @@ for (const english of [false, true]) {
           { exact: true },
         ),
       ).toBeVisible();
+
       await page.reload();
+
       await expect
         .poll(
           () => attempts.filter((item) => item.text === "LOST_RECEIPT").length,
@@ -235,6 +271,7 @@ for (const english of [false, true]) {
       await expect(
         queue.getByText("LOST_RECEIPT", { exact: true }),
       ).toHaveCount(1);
+
       await page
         .getByRole("button", {
           name: label("Projektaktionen", "Project actions"),
@@ -248,6 +285,7 @@ for (const english of [false, true]) {
         })
         .click();
       const details = page.getByRole("dialog");
+
       await expect(
         details.getByRole("heading", { name: /Freigaben|Approvals/ }),
       ).toHaveCount(0);
@@ -262,6 +300,7 @@ for (const english of [false, true]) {
       await expect(
         details.getByText("python3 completed.py", { exact: true }),
       ).toHaveCount(0);
+
       await page.screenshot({
         path: `artifacts/ui/input-queue-${variant}-details.png`,
         animations: "disabled",
@@ -278,6 +317,7 @@ for (const english of [false, true]) {
           ],
         }),
       );
+
       expect(errors).toEqual([]);
     },
   );

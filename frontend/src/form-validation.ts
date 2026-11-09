@@ -14,6 +14,7 @@ export function validateFields(
         (Array.isArray(value) && value.length === 0))
     )
       invalid[field.key] = "Dieses Feld ist erforderlich.";
+
     if (
       field.type === "number" &&
       value != null &&
@@ -21,6 +22,7 @@ export function validateFields(
     )
       invalid[field.key] = "Eine gültige Zahl eingeben.";
   }
+
   return invalid;
 }
 

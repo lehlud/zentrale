@@ -1,5 +1,6 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+
 import {
   agent,
   agents,
@@ -136,16 +137,20 @@ for (const english of [false, true])
       await page.route("**/graphql", async (route) => {
         const { query, variables = {} } = route.request().postDataJSON();
         const send = (data: unknown) => route.fulfill({ json: { data } });
-        if (query.includes("status{"))
+        if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
+        }
+
         if (query.includes("stopAgent(")) {
           pauses++;
           main.status = "stopped";
           goal.status = "paused";
           goal.reason = label("Vom Nutzer pausiert", "Paused by the user");
           phase = "stopped";
+
           return send({ stopAgent: true });
         }
+
         if (query.includes("resumeInputs(")) {
           resumes++;
           main.status = "running";
@@ -153,14 +158,18 @@ for (const english of [false, true])
           goal.status = "active";
           goal.blockedAttempts = 0;
           phase = "model";
+
           return send({ resumeInputs: true });
         }
+
         if (query.includes("cancelGoal(")) {
           cancellations++;
           goal.status = "cancelled";
           goal.reason = label("Vom Nutzer verworfen", "Cancelled by the user");
+
           return send({ cancelGoal: true });
         }
+
         if (query.includes("recentMessages")) {
           const approver = variables.id === agent.approverId;
           return send({
@@ -180,16 +189,22 @@ for (const english of [false, true])
             },
           });
         }
-        if (query.includes("approvals(agentId:"))
+
+        if (query.includes("approvals(agentId:")) {
           return send({ approvals: [], goalReviews: reviews });
-        if (query.includes("agents(projectId:"))
+        }
+
+        if (query.includes("agents(projectId:")) {
           return send({
             project,
             agents: agents.map((item) => (item.id === agent.id ? main : item)),
           });
+        }
+
         return send(config);
       });
       const captures: { name: string; file: string }[] = [];
+
       async function capture(name: string) {
         await mkdir("artifacts/ui", { recursive: true });
         const file = "goals-" + variant + "-" + name + ".png";
@@ -204,6 +219,7 @@ for (const english of [false, true])
         name: label("Zielstatus", "Goal status"),
         exact: true,
       });
+
       await expect(panel).toContainText(
         label("Abschluss wird geprüft", "Completion under review"),
       );
@@ -221,6 +237,7 @@ for (const english of [false, true])
           exact: true,
         }),
       ).toHaveCount(0);
+
       await capture("reviewing");
       const missing = label(
         "Die CSV-Ausgabe wurde noch nicht geprüft.",
@@ -248,6 +265,7 @@ for (const english of [false, true])
         }),
       });
       update();
+
       await expect(
         page.getByText(
           label(
@@ -261,6 +279,7 @@ for (const english of [false, true])
       await expect(
         page.getByText("PRIVATE_INTERNAL_NOTICE", { exact: false }),
       ).toHaveCount(0);
+
       await panel.getByRole("button").first().click();
       await panel
         .getByRole("button", {
@@ -268,8 +287,10 @@ for (const english of [false, true])
           exact: true,
         })
         .click();
+
       await expect(panel).toContainText(label("Pausiert", "Paused"));
       expect(pauses).toBe(1);
+
       await capture("paused");
       await panel
         .getByRole("button", {
@@ -277,8 +298,10 @@ for (const english of [false, true])
           exact: true,
         })
         .click();
+
       await expect(panel).toContainText(label("Aktiv", "Active"));
       expect(resumes).toBe(1);
+
       const blocked = label(
         "Ohne den Git-Zugang kann das Ergebnis nicht veröffentlicht werden.",
         "The result cannot be published without Git access.",
@@ -298,10 +321,12 @@ for (const english of [false, true])
       main.error = blocked;
       phase = "blocked";
       update();
+
       await expect(panel).toContainText(label("Blockiert", "Blocked"));
       await expect(
         panel.getByText(blocked, { exact: true }).filter({ visible: true }),
       ).toHaveCount(1);
+
       await capture("blocked");
       await panel
         .getByRole("button", {
@@ -309,7 +334,9 @@ for (const english of [false, true])
           exact: true,
         })
         .click();
+
       expect(goal.blockedAttempts).toBe(0);
+
       const evidence = label(
         "Alle 30 CSV-Messpunkte und das erzeugte SVG wurden geprüft.",
         "All 30 CSV measurements and the generated SVG were verified.",
@@ -328,6 +355,7 @@ for (const english of [false, true])
       main.status = "idle";
       phase = "idle";
       update();
+
       await expect(panel).toContainText(
         label("Ziel erreicht", "Goal achieved"),
       );
@@ -339,6 +367,7 @@ for (const english of [false, true])
         }),
       ).toHaveCount(0);
       await expect(panel).not.toContainText("PRIVATE_");
+
       await capture("complete");
       await page
         .getByRole("button", {
@@ -353,6 +382,7 @@ for (const english of [false, true])
         name: label("Freigabeprüfungen", "Approval reviews"),
         exact: true,
       });
+
       await expect(log.locator(":scope > li")).toHaveCount(3);
       await expect(log).toContainText(
         label("Weitere Arbeit nötig", "More work required"),
@@ -368,6 +398,7 @@ for (const english of [false, true])
       await expect(
         log.getByText(label("Genehmigt", "Approved"), { exact: true }),
       ).toHaveCount(0);
+
       await capture("audit");
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
       goal = {
@@ -381,7 +412,9 @@ for (const english of [false, true])
       main.status = "running";
       phase = "model";
       update();
+
       await expect(panel).toContainText(goal.objective);
+
       await panel.getByRole("button").first().click();
       await panel
         .getByRole("button", {
@@ -395,9 +428,11 @@ for (const english of [false, true])
           exact: true,
         })
         .click();
+
       await expect(panel).toContainText(label("Verworfen", "Discarded"));
       expect(cancellations).toBe(1);
       expect(errors).toEqual([]);
+
       await writeFile(
         "artifacts/ui/goals-" + variant + ".json",
         JSON.stringify({ captures }),

@@ -25,7 +25,9 @@ def run_terminal(child, namespace_init=False):
                 libc = ctypes.CDLL(None, use_errno=True)
                 if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
                     os._exit(125)
-                expected_parent = os.getppid() == parent or namespace_init and os.getppid() == 0
+                expected_parent = (
+                    os.getppid() == parent or namespace_init and os.getppid() == 0
+                )
                 if not expected_parent:
                     os._exit(125)
             os.environ["TERM"] = "xterm-256color"
@@ -41,7 +43,10 @@ def run_terminal(child, namespace_init=False):
         except ProcessLookupError:
             pass
 
-    previous = {number: signal.signal(number, stop) for number in (signal.SIGTERM, signal.SIGHUP)}
+    previous = {
+        number: signal.signal(number, stop)
+        for number in (signal.SIGTERM, signal.SIGHUP)
+    }
     pending = bytearray()
     input_open = True
     os.set_blocking(master, False)
@@ -50,7 +55,9 @@ def run_terminal(child, namespace_init=False):
             readable = [master]
             if input_open and len(pending) < 65536:
                 readable.append(0)
-            ready, writable, _ = select.select(readable, [master] if pending else [], [])
+            ready, writable, _ = select.select(
+                readable, [master] if pending else [], []
+            )
             if 0 in ready:
                 data = os.read(0, min(65536 - len(pending), 65536))
                 if data:
@@ -58,12 +65,14 @@ def run_terminal(child, namespace_init=False):
                 else:
                     pending.extend(b"\x04")
                     input_open = False
+
             if master in writable:
                 try:
                     count = os.write(master, pending)
                     del pending[:count]
                 except BlockingIOError:
                     pass
+
             if master in ready:
                 try:
                     data = os.read(master, 65536)
@@ -77,6 +86,7 @@ def run_terminal(child, namespace_init=False):
                 while remaining:
                     count = os.write(1, remaining)
                     remaining = remaining[count:]
+
         _, status = os.waitpid(pid, 0)
         code = os.waitstatus_to_exitcode(status)
         return code if code >= 0 else 128 - code
