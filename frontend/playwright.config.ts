@@ -4,6 +4,8 @@ export default defineConfig({
   testDir: "./tests",
   workers: 1,
   timeout: 60000,
+  forbidOnly: Boolean(process.env.CI),
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: process.env.ZENTRALE_E2E_URL ?? "http://127.0.0.1:18080",
     headless: true,
@@ -18,6 +20,7 @@ export default defineConfig({
     ? undefined
     : {
         command:
+          process.env.ZENTRALE_E2E_SERVER_COMMAND ??
           "npm run build && cd ../backend && go run . -addr 127.0.0.1:18080 -db :memory: -frontend ../frontend/dist",
         url: "http://127.0.0.1:18080",
         reuseExistingServer: false,

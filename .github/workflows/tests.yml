@@ -1,0 +1,163 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * 2"
+
+# Dependabot and fork PRs must work without repository secrets or write tokens.
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "1"
+  GSETTINGS_BACKEND: memory
+
+jobs:
+  backend:
+    name: Backend and Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ fish python3 openssh-client
+      - name: Verify Go modules
+        run: |
+          go mod download
+          go mod verify
+      - name: Check Go formatting
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            printf 'Run gofmt on:\n%s\n' "$files"
+            exit 1
+          fi
+      - name: Static analysis
+        run: go vet ./...
+      - name: Go tests with race detector
+        run: go test -race -count=1 -timeout=15m ./...
+      - name: Python tool and runtime tests
+        run: |
+          python3 -m unittest discover -s agent/scripts -p 'test_*.py'
+          python3 -m unittest discover -s remote/scripts -p 'test_*.py'
+          python3 -m unittest discover -s remote/microvm -p 'test_*.py'
+      - name: Build backend
+        run: go build ./...
+
+  frontend:
+    name: Frontend and browser integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install backend fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ fish python3 openssh-client
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Check formatting and types
+        run: |
+          npm run format:check
+          npm run typecheck
+      - name: Check generated TypeScript types
+        run: |
+          npm run generate
+          git diff --exit-code -- src/generated.ts
+      - name: Build production frontend
+        run: npm run build
+      - name: Build backend for browser integration
+        working-directory: backend
+        run: |
+          go build -o "$RUNNER_TEMP/zentrale" .
+          # Warm the local SSH fixture's compile cache before its 30s startup limit.
+          go build -o "$RUNNER_TEMP/testssh" ./cmd/testssh
+      - name: Install Chromium and system libraries
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests against the real backend and local fixtures
+        run: npm run test:e2e
+        env:
+          ZENTRALE_E2E_SERVER_COMMAND: >-
+            ${{ runner.temp }}/zentrale -addr 127.0.0.1:18080 -db :memory: -frontend dist
+      - name: Upload browser reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-reports
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            frontend/artifacts/ui/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  container:
+    name: Container build and smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build Dockerfile without publishing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: zentrale:ci
+      - name: Smoke-test the non-root runtime image
+        shell: bash
+        run: |
+          # Retain a failed container until cleanup so startup logs are available.
+          trap 'docker logs zentrale-ci || true; docker rm -f zentrale-ci >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name zentrale-ci \
+            --publish 127.0.0.1:18082:8080 zentrale:ci -db :memory:
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:18082/ >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1
+          curl --fail --silent --show-error --max-time 10 \
+            -H 'Content-Type: application/json' \
+            --data '{"query":"{status{needsSetup}}"}' \
+            http://127.0.0.1:18082/graphql \
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); assert not value.get("errors"), value; assert value["data"]["status"]["needsSetup"] is True, value'

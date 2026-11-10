@@ -91,6 +91,40 @@ port 18080. Provider protocols and login flows use local fixtures.
 Generated test artifacts stay out of source control. Selected public demo images
 live in `docs/images`.
 
+## Dependency updates and continuous integration
+
+`.github/dependabot.yml` checks Go modules, npm dependencies/lockfiles, Docker
+base images and GitHub Actions every Monday at 06:17 UTC. Minor/patch npm updates
+are grouped separately for runtime and development dependencies; major updates
+remain separate PRs. Updates are proposed as pull requests, **not auto-merged**.
+
+The `Tests` workflow runs for every PR (including Dependabot and forks), pushes
+to `master`, manual dispatches and a weekly scheduled run. It needs no repository
+secrets and has only read access to repository contents. Actions are pinned to
+commit hashes and are themselves maintained by Dependabot.
+
+Three independent checks cover:
+
+- **Backend and Python:** module integrity, Go formatting, `go vet`, all Go tests
+  with the race detector, all three Python test directories, and backend builds.
+- **Frontend and browser integration:** `npm ci`, formatting, TypeScript,
+  generated-type consistency, the production build and the complete Playwright
+  suite against an isolated in-memory backend with local SSH/provider fixtures.
+  HTML reports, failure screenshots and UI artifacts are retained for seven days.
+- **Container build and smoke test:** build the actual Dockerfile without pushing
+  an image, start its non-root runtime and check the HTTP UI and GraphQL setup
+  status. This also checks updates to the Docker-only Go/Node/runtime images.
+
+For CI, `ZENTRALE_E2E_SERVER_COMMAND` lets Playwright supervise an already-built
+backend instead of rebuilding it during server startup. Local `make e2e` keeps
+its existing build-and-run behavior. CI rejects accidentally committed
+`test.only` calls. Tests requiring real model accounts, external machines, KVM or
+GPU passthrough remain explicit live checks, not prerequisites for Dependabot PRs.
+
+To prevent merging failing updates, configure these three job names as required
+status checks in the repository's branch protection/ruleset. The workflow itself
+does not change repository settings or grant Dependabot merge permissions.
+
 ## Live checks and model evaluations
 
 The preview browser check uses isolated SSH, HTTP services and a local TLS
