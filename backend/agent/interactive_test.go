@@ -120,11 +120,13 @@ func TestInteractivePTYHasControllingTerminalAndReviewedControlCharacters(t *tes
 	var reviews atomic.Int32
 	engine, record, _ := interactiveEngine(t, &reviews)
 	code := "import sys\nprint('tty='+str(sys.stdin.isatty()),flush=True)\nwhile True:\n try:\n  value=input('value> ')\n  if value=='quit': break\n  print('reply:'+value,flush=True)\n except KeyboardInterrupt:\n  print('interrupted',flush=True)\n except EOFError: break\nprint('bye',flush=True)"
+	// Test the program's handled SIGINT, not a wrapping POSIX shell's signal status.
+	// dash may return 130 after SIGINT even when its child handles it and exits 0.
 	result, err := engine.executeRemote(
 		context.Background(),
 		record,
 		executionRequest{
-			Command:   "python3 -u -c " + remote.Quote(code),
+			Command:   "exec python3 -u -c " + remote.Quote(code),
 			TTY:       true,
 			YieldTime: 20 * time.Millisecond,
 		},

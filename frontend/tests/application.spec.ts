@@ -438,6 +438,12 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   ).toBeVisible();
   await expect(
     page.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
+  ).toBeHidden();
+  await page
+    .getByRole("button", { name: /Befehl ausführen.*echo test.*Abgelehnt/ })
+    .click();
+  await expect(
+    page.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: /^Agentendetails/ }).click();

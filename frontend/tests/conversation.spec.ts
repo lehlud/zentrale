@@ -484,7 +484,8 @@ for (const variant of [
     messages.push(message("assistant", "Live update at the end."));
     socket!.send(JSON.stringify({ id: ++eventId }));
 
-    await expect(output.getByText("Live update at the end.")).toBeAttached();
+    // Offscreen entries are virtualized, not kept attached to the DOM.
+    await expect(output.getByText("Live update at the end.")).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
     await capture("latest-control");
@@ -537,12 +538,12 @@ for (const variant of [
 
     await expect(
       output.getByText("Process exited with status 1", { exact: true }),
-    ).toBeVisible();
+    ).toBeHidden();
 
-    const failedStep = output
-      .locator("li")
-      .filter({ hasText: "Process exited with status 1" });
-    const failureToggle = failedStep.getByRole("button").first();
+    const failureToggle = output
+      .getByRole("button", { name: english ? /Failed/ : /Fehlgeschlagen/ })
+      .last();
+    const failedStep = failureToggle.locator("xpath=ancestor::li[1]");
     await failureToggle.click();
     const failureLog = failedStep.getByLabel(
       label("Codeblock: Ausgabe", "Code block: Output"),
@@ -566,13 +567,11 @@ for (const variant of [
       exact: true,
     });
 
-    await expect(largeDiff.getByRole("row")).toHaveCount(81);
-
+    // Additional diff chunks load automatically as they approach the viewport.
     const more = largeDiff
       .locator("../..")
       .getByRole("button", { name: /^(Mehr anzeigen|Show more)/ });
-    await more.click();
-
+    await expect(more).toHaveCount(0);
     await expect(largeDiff.getByRole("row")).toHaveCount(122);
     await expect(
       largeDiff.getByText("print(120)", { exact: true }),

@@ -64,6 +64,8 @@ for (const { known, explicit } of [true, false].flatMap((known) =>
     ).toContainText(known || explicit ? "medium" : "Provider-Standard");
     await main.getByRole("button", { name: /Denkintensität/ }).click();
     await page.getByRole("option", { name: "high", exact: true }).click();
+    // The closing popover remains mounted during its exit animation.
+    await expect(page.getByRole("listbox")).toHaveCount(0);
     await approver.getByRole("button", { name: /Denkintensität/ }).click();
     await page.getByRole("option", { name: "low", exact: true }).click();
     await page

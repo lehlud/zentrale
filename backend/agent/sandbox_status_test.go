@@ -139,6 +139,7 @@ func TestFailedMicroVMBootOnCachedSSHBlocksProviderAndPreservesPrompt(t *testing
 	var broken atomic.Bool
 	var requests atomic.Int32
 	handler := func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
 		if strings.Contains(command, "test -c /dev/kvm") {
 			if broken.Load() {
 				_, _ = fmt.Fprintln(stderr, "MicroVM test boot failed")
@@ -146,6 +147,9 @@ func TestFailedMicroVMBootOnCachedSSHBlocksProviderAndPreservesPrompt(t *testing
 			}
 
 			_, _ = fmt.Fprintln(stdout, "microvm")
+		} else if strings.Contains(command, " 'stage' ") {
+			_, _ = io.Copy(io.Discard, input)
+			_, _ = fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
 		} else if strings.Contains(command, "MicroVM requires an agent and project identity") {
 			_, _ = io.Copy(io.Discard, input)
 			_, _ = fmt.Fprintln(stdout, `{"os":"fedora","version":"45","bootId":"guest-boot"}`)
