@@ -55,8 +55,9 @@ func (engine *Engine) CreateWithModels(
 		Name:      name,
 		Role:      role,
 
-		ProviderID: mainChoice.ProviderID,
-		ModelID:    mainChoice.ModelID,
+		ProviderID:     mainChoice.ProviderID,
+		ModelID:        mainChoice.ModelID,
+		ReasoningLevel: mainChoice.ReasoningLevel,
 
 		ApproverID: NewID(),
 		Status:     "idle",
@@ -71,8 +72,9 @@ func (engine *Engine) CreateWithModels(
 		Role:       "approver",
 		ProviderID: approverChoice.ProviderID,
 
-		ModelID: approverChoice.ModelID,
-		Status:  "idle",
+		ModelID:        approverChoice.ModelID,
+		ReasoningLevel: approverChoice.ReasoningLevel,
+		Status:         "idle",
 	}
 	if err := engine.saveAgent(approver); err != nil {
 		return domain.Agent{}, err
@@ -159,6 +161,11 @@ func (engine *Engine) NotifyAgent(agentID, text string) error {
 func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 	agentID := agentRecord.ID
 	engine.mu.Lock()
+	if err := engine.ctx.Err(); err != nil {
+		engine.mu.Unlock()
+		return err
+	}
+
 	engine.inputRevisions[agentID]++
 
 	if wakeChannel := engine.wake[agentID]; wakeChannel != nil {
@@ -299,6 +306,16 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 				agentRecord.Status, agentRecord.Error = "stopped", ""
 			}
 		}
+	}
+
+	// Process cancellation is not a user stop. Retain a restart marker even
+	// for notification-driven turns that have no active input or goal.
+	engine.mu.Lock()
+	explicitStop := engine.stopRequested[agentID]
+	engine.mu.Unlock()
+	var goalStop *goalStoppedError
+	if engine.ctx.Err() != nil && runError != nil && !explicitStop && !errors.As(runError, &goalStop) {
+		agentRecord.Status, agentRecord.Error = "interrupted", "service shut down"
 	}
 
 	_ = engine.saveAgent(agentRecord)

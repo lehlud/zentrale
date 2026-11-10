@@ -14,23 +14,22 @@ import type {
 const agentFields =
   "id name role status parentId approverId projectId providerId modelId machineId error contextStart summary";
 
-export const transcriptQuery = `query($id:String!, $offset:Int!) {
+const messageFields = `id agentId role content wire callId toolName createdAt
+    activities { name arguments content network justification }
+    change { id path kind patch added removed truncated notice }
+    changes { id path kind patch added removed truncated notice }`;
+
+export const olderMessagesQuery = `query($id:String!, $beforeId:String!) {
+  messages: recentMessages(agentId:$id, beforeId:$beforeId) { ${messageFields} }
+}`;
+
+export const transcriptQuery = `query($id:String!) {
   goal(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
+  goalHistory(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
   agentInputs(agentId:$id) { id agentId projectId text mode status createdAt deliveredAt }
   agentRunState(agentId:$id) { agentId phase error hostKey { host fingerprint publicKey } }
   agent(id:$id) { ${agentFields} }
-  messages(agentId:$id, limit:100, offset:$offset) {
-    id agentId role content wire callId toolName createdAt
-    activities { name arguments content network justification }
-    change { id path kind patch added removed truncated notice }
-    changes { id path kind patch added removed truncated notice }
-  }
-  recentMessages(agentId:$id) {
-    id agentId role content wire callId toolName createdAt
-    activities { name arguments content network justification }
-    change { id path kind patch added removed truncated notice }
-    changes { id path kind patch added removed truncated notice }
-  }
+  messages: recentMessages(agentId:$id) { ${messageFields} }
   approvals(agentId:$id, limit:500) { id tool arguments allowed reason blanket createdAt }
   questions(agentId:$id, limit:500) { id title options status answer agentId }
   jobs(agentId:$id, limit:500) { id command status output error startedAt machineId agentId }
@@ -43,6 +42,7 @@ export const transcriptQuery = `query($id:String!, $offset:Int!) {
 
 export type Transcript = {
   goal?: Goal | null;
+  goalHistory?: Goal[];
   agentInputs?: AgentInput[];
   agentRunState?: AgentRunState;
   agent: Agent;
@@ -51,6 +51,6 @@ export type Transcript = {
   questions: Question[];
   jobs: Job[];
   usageSummary: UsageSummary;
-  recentMessages: Message[];
+  recentMessages?: Message[];
   notes: Note[];
 };

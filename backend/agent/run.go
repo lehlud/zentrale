@@ -130,7 +130,8 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		}
 
 		result, assistant, err := engine.completeVisible(ctx, agentID, providers.Request{
-			Config: configuration.Provider,
+			Config:         configuration.Provider,
+			ReasoningLevel: configuration.ReasoningLevel,
 
 			Model:    configuration.Model,
 			System:   system,

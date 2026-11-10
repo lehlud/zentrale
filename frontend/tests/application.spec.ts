@@ -380,6 +380,10 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
       .getByRole("dialog")
       .getByRole("option", { name: new RegExp(model) })
       .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Auswahl übernehmen" })
+      .click();
   }
 
   await page.getByRole("button", { name: "Modell-Defaults speichern" }).click();

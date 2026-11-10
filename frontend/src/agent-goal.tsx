@@ -3,6 +3,10 @@ import { Accordion, Button, Card, Chip } from "@heroui/react";
 import type { Goal } from "./generated";
 import { useAPI } from "./api";
 import { goalStatusLabels } from "./goal-format";
+
+// A goal moves from the live footer into the immutable timeline on completion.
+// Preserve a reader's disclosure choice across that move and virtualization.
+const disclosures = new WeakMap<object, Set<string>>();
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 
@@ -17,10 +21,14 @@ export function AgentGoal({
 }) {
   const { t } = useI18n();
   const api = useAPI();
+  if (!disclosures.has(api)) disclosures.set(api, new Set());
+  const expanded = disclosures.get(api)!;
   const action = useAction();
   const status =
     reviewing && goal.status === "active" ? "reviewing" : goal.status;
-  const terminal = goal.status === "complete" || goal.status === "cancelled";
+  const terminal = ["complete", "cancelled", "superseded"].includes(
+    goal.status,
+  );
 
   return (
     <Card
@@ -30,7 +38,14 @@ export function AgentGoal({
       aria-label={t("Zielstatus")}
     >
       <Card.Content className="py-0">
-        <Accordion hideSeparator>
+        <Accordion
+          hideSeparator
+          defaultExpandedKeys={expanded.has(goal.id) ? [goal.id] : []}
+          onExpandedChange={(keys) => {
+            if (keys.has(goal.id)) expanded.add(goal.id);
+            else expanded.delete(goal.id);
+          }}
+        >
           <Accordion.Item id={goal.id}>
             <Accordion.Heading>
               <Accordion.Trigger className="min-h-11 min-w-0 gap-3 text-sm">
@@ -59,13 +74,6 @@ export function AgentGoal({
                 <p className="whitespace-pre-wrap break-words text-sm leading-6">
                   {goal.objective}
                 </p>
-                {goal.origin === "agent" && (
-                  <p className="text-xs text-muted">
-                    {t(
-                      "Vom Agenten formuliert. Die ursprünglichen Nutzeranweisungen gelten weiterhin.",
-                    )}
-                  </p>
-                )}
                 {goal.reason && goal.status !== "blocked" && (
                   <p className="whitespace-pre-wrap text-sm">
                     {t(goal.reason)}

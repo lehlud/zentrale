@@ -14,7 +14,10 @@ import {
   record,
   structured,
 } from "./activity-values";
-import type { Message, ToolActivity } from "./generated";
+import type { Goal, Message, ToolActivity } from "./generated";
+import { AgentGoal } from "./agent-goal";
+import { ProjectDirectory } from "./project-path";
+import { VirtualTranscriptItem } from "./virtual-transcript-item";
 import { FileDiff } from "./file-diff";
 import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
@@ -72,11 +75,8 @@ function ToolEntry({
   const processOutput = typeof job.output === "string" ? job.output.trim() : "";
   // Process failures often repeat stdout/stderr inside their error string.
   // Keep the short failure visible; the complete log remains in the disclosure.
-  const repeatedOutput =
-    processOutput && errorMessage.trimEnd().endsWith(processOutput);
-  const errorSummary = repeatedOutput
-    ? errorMessage.trimEnd().slice(0, -processOutput.length).trim() ||
-      errorMessage.split("\n")[0]
+  const errorSummary = processOutput
+    ? errorMessage.split("\n")[0]
     : errorMessage;
 
   const changes = message.changes?.length
@@ -128,7 +128,12 @@ function ToolEntry({
                       ? "Fehlgeschlagen"
                       : pending
                         ? "Arbeitet"
-                        : "Abgeschlossen",
+                        : call &&
+                            ["create_goal", "get_goal", "update_goal"].includes(
+                              call.name,
+                            )
+                          ? "Ausgeführt"
+                          : "Abgeschlossen",
                 )}
               </span>
               <Accordion.Indicator className="shrink-0 text-muted" />
@@ -136,20 +141,30 @@ function ToolEntry({
           </Accordion.Heading>
           <Accordion.Panel>
             <Accordion.Body className="space-y-3 pb-3 pl-5">
-              {call && (
-                <ActivityRequest
-                  name={call.name}
-                  arguments={call.arguments}
-                  network={call.network}
-                  justification={call.justification}
-                  hasChanges={changes.length > 0 || hasParentChanges}
-                />
-              )}
+              {call &&
+                !(
+                  call.name === "create_goal" &&
+                  typeof record(record(outcome.result).goal ?? outcome.result)
+                    .objective === "string"
+                ) && (
+                  <ActivityRequest
+                    name={call.name}
+                    arguments={call.arguments}
+                    network={call.network}
+                    justification={call.justification}
+                    hasChanges={changes.length > 0 || hasParentChanges}
+                  />
+                )}
               <ActivityResult
                 name={call?.name || message.toolName}
                 value={outcome.result}
                 failed={Boolean(outcome.error)}
               />
+              {outcome.error && (
+                <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-danger [overflow-wrap:anywhere]">
+                  {t(errorSummary)}
+                </pre>
+              )}
               {message.activities?.length > 0 && (
                 <CodeModeActivities
                   activities={message.activities}
@@ -176,11 +191,6 @@ function ToolEntry({
           </Accordion.Panel>
         </Accordion.Item>
       </Accordion>
-      {outcome.error && (
-        <pre className="min-w-0 whitespace-pre-wrap break-words pb-2 pl-5 font-mono text-xs leading-6 text-danger [overflow-wrap:anywhere]">
-          {t(errorSummary)}
-        </pre>
-      )}
       {call?.name !== "apply_patch" &&
         call?.name !== "code_mode" &&
         changes.map((change) => <FileDiff key={change.id} change={change} />)}
@@ -349,127 +359,189 @@ export function AgentConversation({
   messages,
   working,
   onInspect,
+  goals = [],
+  projectDirectory = "",
 }: {
   messages: Message[];
   working: boolean;
   onInspect: (wire: string) => void;
+  goals?: Goal[];
+  projectDirectory?: string;
 }) {
   const { t, showDiagnostics } = useI18n();
   const { callsByMessage, resultCalls, completed } =
     correlateToolCalls(messages);
+  const timeline = [
+    ...messages
+      .filter((message) => {
+        if (message.content || message.role === "tool") return true;
+        const calls = callsByMessage.get(message.id) ?? [];
+        return (
+          calls.some((call) => !completed.has(call)) ||
+          (!calls.length && Boolean(message.wire) && showDiagnostics)
+        );
+      })
+      .map((message) => ({
+        message,
+        goal: undefined as Goal | undefined,
+        time: message.createdAt,
+        id: message.id,
+      })),
+    ...goals.map((goal) => ({
+      goal,
+      message: undefined as Message | undefined,
+      time: goal.updatedAt,
+      id: goal.id,
+    })),
+  ].sort(
+    (left, right) =>
+      left.time.localeCompare(right.time) || left.id.localeCompare(right.id),
+  );
 
   return (
-    <ol className="min-w-0" aria-label={t("Nachrichten und Werkzeugaktivität")}>
-      {messages.map((message) => {
-        const calls = callsByMessage.get(message.id) ?? [];
-        if (message.role === "tool") {
-          return (
-            <ToolEntry
-              key={message.id}
-              message={message}
-              call={resultCalls.get(message.id)}
-              onInspect={onInspect}
-            />
-          );
-        }
-
-        if (!message.content) {
-          const pending = calls.filter((call) => !completed.has(call));
-          if (pending.length) {
-            return (
-              <li
-                key={message.id}
-                className="space-y-1 border-l border-border py-2 pl-4 font-mono text-xs"
-              >
-                {pending.map((call, index) => (
-                  <p
-                    key={call.id || index}
-                    className="flex min-h-8 items-center gap-2"
-                  >
-                    <span aria-hidden="true" className="text-accent">
-                      ›
-                    </span>
-                    <span className="text-accent">
-                      {t(toolLabel(call.name, call.arguments))}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-muted">
-                      {toolSummary(call)}
-                    </span>
-                    <span className="text-muted">
-                      {t(working ? "Arbeitet" : "Werkzeugaufruf")}
-                    </span>
-                  </p>
-                ))}
-                {showDiagnostics && (
-                  <Button
-                    className="min-h-11"
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => onInspect(message.wire)}
-                  >
-                    {t("Schrittdetails")}
-                  </Button>
-                )}
-              </li>
-            );
-          }
-
-          if (calls.length || !message.wire || !showDiagnostics) {
-            return null;
-          }
-
-          return (
-            <li key={message.id}>
-              <Button
-                className="min-h-11 font-mono text-xs"
-                size="sm"
-                variant="ghost"
-                onPress={() => onInspect(message.wire)}
-              >
-                {t("Schrittdetails")}
-              </Button>
-            </li>
-          );
-        }
-
-        const user = message.role === "user";
-
-        return (
-          <li
-            key={message.id}
-            className={
-              user
-                ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
-                : "min-w-0 py-5"
-            }
+    <ProjectDirectory.Provider value={projectDirectory}>
+      <ol
+        className="min-w-0"
+        aria-label={t("Nachrichten und Werkzeugaktivität")}
+      >
+        {timeline.map((entry) => (
+          <VirtualTranscriptItem
+            key={entry.id}
+            estimate={entry.message?.role === "tool" ? 48 : 140}
           >
-            <div
-              className={
-                message.role === "event" ? "mb-2 text-xs text-muted" : "sr-only"
+            {() => {
+              if (entry.goal)
+                return (
+                  <li key={`goal-${entry.id}`} data-goal-id={entry.id}>
+                    <AgentGoal
+                      goal={entry.goal}
+                      working={false}
+                      reviewing={false}
+                    />
+                  </li>
+                );
+              const message = entry.message!;
+              const calls = callsByMessage.get(message.id) ?? [];
+              if (message.role === "tool") {
+                return (
+                  <ToolEntry
+                    key={message.id}
+                    message={message}
+                    call={resultCalls.get(message.id)}
+                    onInspect={onInspect}
+                  />
+                );
               }
-            >
-              <span>
-                {t(user ? "Du" : message.role === "event" ? "System" : "Agent")}
-              </span>
-              <span className="sr-only">
-                <MessageTime message={message} />
-              </span>
-            </div>
-            <MessageContent message={message} />
-            {showDiagnostics && !user && message.wire && (
-              <Button
-                className="mt-1 min-h-11 text-xs text-muted"
-                size="sm"
-                variant="ghost"
-                aria-label={t("Schrittdetails")}
-                onPress={() => onInspect(message.wire)}
-              >
-                {t("Schrittdetails")}
-              </Button>
-            )}
-          </li>
-        );
-      })}
-    </ol>
+
+              if (!message.content) {
+                const pending = calls.filter((call) => !completed.has(call));
+                if (pending.length) {
+                  return (
+                    <li
+                      key={message.id}
+                      className="space-y-1 border-l border-border py-2 pl-4 font-mono text-xs"
+                    >
+                      {pending.map((call, index) => (
+                        <p
+                          key={call.id || index}
+                          className="flex min-h-8 items-center gap-2"
+                        >
+                          <span aria-hidden="true" className="text-accent">
+                            ›
+                          </span>
+                          <span className="text-accent">
+                            {t(toolLabel(call.name, call.arguments))}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-muted">
+                            {toolSummary(call)}
+                          </span>
+                          <span className="text-muted">
+                            {t(working ? "Arbeitet" : "Werkzeugaufruf")}
+                          </span>
+                        </p>
+                      ))}
+                      {showDiagnostics && (
+                        <Button
+                          className="min-h-11"
+                          size="sm"
+                          variant="ghost"
+                          onPress={() => onInspect(message.wire)}
+                        >
+                          {t("Schrittdetails")}
+                        </Button>
+                      )}
+                    </li>
+                  );
+                }
+
+                if (calls.length || !message.wire || !showDiagnostics) {
+                  return null;
+                }
+
+                return (
+                  <li key={message.id}>
+                    <Button
+                      className="min-h-11 font-mono text-xs"
+                      size="sm"
+                      variant="ghost"
+                      onPress={() => onInspect(message.wire)}
+                    >
+                      {t("Schrittdetails")}
+                    </Button>
+                  </li>
+                );
+              }
+
+              const user = message.role === "user";
+
+              return (
+                <li
+                  key={message.id}
+                  data-message-id={message.id}
+                  className={
+                    user
+                      ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
+                      : "min-w-0 py-5"
+                  }
+                >
+                  <div
+                    className={
+                      message.role === "event"
+                        ? "mb-2 text-xs text-muted"
+                        : "sr-only"
+                    }
+                  >
+                    <span>
+                      {t(
+                        user
+                          ? "Du"
+                          : message.role === "event"
+                            ? "System"
+                            : "Agent",
+                      )}
+                    </span>
+                    <span className="sr-only">
+                      <MessageTime message={message} />
+                    </span>
+                  </div>
+                  <MessageContent message={message} />
+                  {showDiagnostics && !user && message.wire && (
+                    <Button
+                      className="mt-1 min-h-11 text-xs text-muted"
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t("Schrittdetails")}
+                      onPress={() => onInspect(message.wire)}
+                    >
+                      {t("Schrittdetails")}
+                    </Button>
+                  )}
+                </li>
+              );
+            }}
+          </VirtualTranscriptItem>
+        ))}
+      </ol>
+    </ProjectDirectory.Provider>
   );
 }

@@ -1,8 +1,10 @@
-import { Accordion, Button } from "@heroui/react";
+import { Accordion } from "@heroui/react";
+import { MoreButton } from "./batches";
 import { useState } from "react";
 
 import type { FileChange } from "./generated";
 import { useI18n } from "./preferences";
+import { useProjectPath } from "./project-path";
 import { DiffSyntax, SyntaxTokens, type SyntaxToken } from "./syntax";
 
 type DiffLine = {
@@ -75,6 +77,7 @@ const kinds: Record<string, string> = {
 
 export function FileDiff({ change }: { change: FileChange }) {
   const { t } = useI18n();
+  const projectPath = useProjectPath();
   const [visibleLines, setVisibleLines] = useState(80);
   const lines = patchLines(change.patch);
   const renderRows = (highlighted?: SyntaxToken[][]) =>
@@ -132,8 +135,11 @@ export function FileDiff({ change }: { change: FileChange }) {
       <Accordion.Item id="diff">
         <Accordion.Heading>
           <Accordion.Trigger className="min-h-11 min-w-0 gap-3 px-3 py-2 font-mono text-xs">
-            <span className="min-w-0 flex-1 break-all text-left font-medium">
-              {change.path}
+            <span
+              title={change.path}
+              className="min-w-0 flex-1 break-all text-left font-medium"
+            >
+              {projectPath(change.path)}
             </span>
             <span className="sr-only">
               {t(kinds[change.kind] ?? "Geändert")}
@@ -176,17 +182,12 @@ export function FileDiff({ change }: { change: FileChange }) {
                 </table>
               </div>
             )}
-            {visibleLines < lines.length && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="m-1 min-h-11"
-                onPress={() => setVisibleLines((count) => count + 80)}
-              >
-                {t("Mehr anzeigen")} · {Math.min(visibleLines, lines.length)}/
-                {lines.length}
-              </Button>
-            )}
+            <MoreButton
+              batch={{
+                hasMore: visibleLines < lines.length,
+                showMore: () => setVisibleLines((count) => count + 80),
+              }}
+            />
             {(change.notice || change.truncated || !lines.length) && (
               <p
                 className="border-t border-border px-3 py-2 text-xs leading-6 text-muted"

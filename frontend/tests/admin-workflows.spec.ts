@@ -424,6 +424,12 @@ for (const variant of [
     await shot("model-picker");
     await dialog.getByRole("option").click();
 
+    await dialog
+      .getByRole("button", {
+        name: label("Auswahl übernehmen", "Apply selection"),
+      })
+      .click();
+
     await expect(dialog).toHaveCount(0);
     await expect(role.getByText(models[1].name, { exact: true })).toBeVisible();
     await expect(
@@ -462,6 +468,11 @@ for (const variant of [
     dialog = page.getByRole("dialog");
     await dialog.getByRole("searchbox").fill(models[1].id);
     await dialog.getByRole("option").click();
+    await dialog
+      .getByRole("button", {
+        name: label("Auswahl übernehmen", "Apply selection"),
+      })
+      .click();
     await page
       .getByRole("button", {
         name: label("Modell-Defaults speichern", "Save model defaults"),

@@ -12,6 +12,30 @@ import (
 func (builder *schemaBuilder) queries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["goalHistory"] = &graphql.Field{
+		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.Goal]())),
+		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
+		// Like goal/messages, access is restricted to the authenticated owner
+		// of this single-user installation by the shared authorization wrapper.
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			agentID := params.Args["agentId"].(string)
+			var agent domain.Agent
+			if err := server.Store.Load("agent", agentID, &agent); err != nil {
+				return nil, err
+			}
+			result := []map[string]any{}
+			for offset := 0; ; offset += 500 {
+				rows, err := server.Store.ListFields("goal_history", &agentID, 500, offset, requestedResourceFields(params.Info, false))
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, rows...)
+				if len(rows) < 500 {
+					return result, nil
+				}
+			}
+		}),
+	}
 	queries["goal"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.Goal]()),
 		Args: graphql.FieldConfigArgument{

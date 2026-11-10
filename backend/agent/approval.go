@@ -90,12 +90,13 @@ func (engine *Engine) approve(
 		}
 
 		result, err := engine.Provider.Complete(ctx, providers.Request{
-			Config:   configuration.Provider,
-			Model:    configuration.Model,
-			System:   system,
-			Messages: messages,
-			Tools:    tools,
-			CacheKey: approver.ID,
+			Config:         configuration.Provider,
+			ReasoningLevel: configuration.ReasoningLevel,
+			Model:          configuration.Model,
+			System:         system,
+			Messages:       messages,
+			Tools:          tools,
+			CacheKey:       approver.ID,
 		})
 		if err != nil {
 			return false, err

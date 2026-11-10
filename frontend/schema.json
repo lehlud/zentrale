@@ -201,7 +201,8 @@
                 "ofType": null
               }
             }
-          }
+          },
+          { "name": "reasoningLevel", "type": { "kind": "NON_NULL", "name": null, "ofType": { "kind": "SCALAR", "name": "String", "ofType": null } } }
         ],
         "inputFields": null,
         "kind": "OBJECT",
@@ -911,6 +912,18 @@
               "kind": "OBJECT",
               "name": "Goal",
               "ofType": null
+            }
+          },
+          {
+            "name": "goalHistory",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Goal",
+                "ofType": null
+              }
             }
           },
           {
@@ -1729,7 +1742,8 @@
               "name": "String",
               "ofType": null
             }
-          }
+          },
+          { "name": "reasoningLevel", "type": { "kind": "SCALAR", "name": "String", "ofType": null } }
         ],
         "kind": "INPUT_OBJECT",
         "name": "ModelChoiceInput"
@@ -2818,7 +2832,8 @@
                 "ofType": null
               }
             }
-          }
+          },
+          { "name": "reasoningLevels", "type": { "kind": "NON_NULL", "name": null, "ofType": { "kind": "LIST", "name": null, "ofType": { "kind": "NON_NULL", "name": null, "ofType": { "kind": "SCALAR", "name": "String", "ofType": null } } } } }
         ],
         "inputFields": null,
         "kind": "OBJECT",
@@ -5570,7 +5585,8 @@
                 "ofType": null
               }
             }
-          }
+          },
+          { "name": "reasoningLevel", "type": { "kind": "NON_NULL", "name": null, "ofType": { "kind": "SCALAR", "name": "String", "ofType": null } } }
         ],
         "inputFields": null,
         "kind": "OBJECT",

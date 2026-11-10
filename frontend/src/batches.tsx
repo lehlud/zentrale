@@ -1,7 +1,4 @@
-import { Button } from "@heroui/react";
-import { useEffect, useState } from "react";
-
-import { useI18n } from "./preferences";
+import { useEffect, useRef, useState } from "react";
 
 type Batch<T> = { items: T[]; hasMore: boolean; showMore: () => void };
 
@@ -26,16 +23,25 @@ export function MoreButton({
 }: {
   batch: { hasMore: boolean; showMore: () => void };
 }) {
-  const { t } = useI18n();
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!batch.hasMore || !sentinel.current) return;
+    let requested = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !requested) {
+          requested = true;
+          batch.showMore();
+        }
+      },
+      { rootMargin: "100px" },
+    );
+    observer.observe(sentinel.current);
+    return () => observer.disconnect();
+  }, [batch.hasMore, batch.showMore]);
   if (!batch.hasMore) {
     return null;
   }
 
-  return (
-    <div className="flex justify-center py-4">
-      <Button className="min-h-11" variant="secondary" onPress={batch.showMore}>
-        {t("Mehr anzeigen")}
-      </Button>
-    </div>
-  );
+  return <div ref={sentinel} aria-hidden="true" className="h-px" />;
 }

@@ -26,8 +26,14 @@ export function parseJSON(value: string): unknown {
 
 // Providers store their native wire formats. Normalize only the tool metadata
 // needed by the transcript; the complete response remains available to inspect.
+const parsedCalls = new WeakMap<Message, ToolCall[]>();
 export function toolCalls(message: Message): ToolCall[] {
-  return parseToolCalls(message.wire);
+  let calls = parsedCalls.get(message);
+  if (!calls) {
+    calls = parseToolCalls(message.wire);
+    parsedCalls.set(message, calls);
+  }
+  return calls;
 }
 
 export function parseToolCalls(wire: string): ToolCall[] {

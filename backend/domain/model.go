@@ -133,9 +133,10 @@ type OAuthTokens struct {
 }
 
 type LanguageModel struct {
-	ID         string `json:"id"`
-	ProviderID string `json:"providerId"`
-	Name       string `json:"name"`
+	ReasoningLevels []string `json:"reasoningLevels"`
+	ID              string   `json:"id"`
+	ProviderID      string   `json:"providerId"`
+	Name            string   `json:"name"`
 
 	ContextWindow int `json:"contextWindow"`
 
@@ -176,8 +177,9 @@ type UsageSummary struct {
 }
 
 type ModelChoice struct {
-	ProviderID string `json:"providerId"`
-	ModelID    string `json:"modelId"`
+	ReasoningLevel string `json:"reasoningLevel"`
+	ProviderID     string `json:"providerId"`
+	ModelID        string `json:"modelId"`
 }
 
 type ModelDefaults struct {
@@ -201,11 +203,12 @@ type ProviderLogin struct {
 }
 
 type Agent struct {
-	ID         string `json:"id"`
-	ProjectID  string `json:"projectId"`
-	ParentID   string `json:"parentId"`
-	ApproverID string `json:"approverId"`
-	Name       string `json:"name"`
+	ReasoningLevel string `json:"reasoningLevel"`
+	ID             string `json:"id"`
+	ProjectID      string `json:"projectId"`
+	ParentID       string `json:"parentId"`
+	ApproverID     string `json:"approverId"`
+	Name           string `json:"name"`
 
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`

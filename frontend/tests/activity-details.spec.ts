@@ -379,12 +379,13 @@ for (const variant of [
 
     await expect(listing.getByRole("listitem")).toHaveCount(30);
 
-    await output
-      .getByRole("button", {
+    await listing.getByRole("listitem").last().scrollIntoViewIfNeeded();
+    await expect(
+      output.getByRole("button", {
         name: label("Mehr anzeigen", "Show more"),
         exact: true,
-      })
-      .click();
+      }),
+    ).toHaveCount(0);
 
     await expect(listing.getByRole("listitem")).toHaveCount(35);
     await expect(
@@ -460,6 +461,12 @@ for (const variant of [
 
     await expect(output.getByText("Training", { exact: true })).toBeVisible();
     await expect(output).not.toContainText('"counters"');
+    await expect(
+      output.getByText("Die Datei wird weiterhin benötigt.", { exact: true }),
+    ).toBeHidden();
+    await output
+      .getByRole("button", { name: /rm protected\.txt/ })
+      .press("Enter");
     await expect(
       output.getByText("Die Datei wird weiterhin benötigt.", { exact: true }),
     ).toBeVisible();

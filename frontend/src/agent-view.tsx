@@ -7,7 +7,9 @@ import { AgentQuestion } from "./agent-question";
 import { ModelResponse } from "./model-response";
 import { ActivityOutput } from "./activity-details";
 import { transcriptQuery, type Transcript } from "./agent-transcript";
-import type { Agent, Project, Message, SandboxStatus } from "./generated";
+import type { Agent, Project, SandboxStatus } from "./generated";
+import { useMemo } from "react";
+import { useTranscriptHistory } from "./transcript-history";
 import { HostKeyTrust } from "./ssh-trust";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
@@ -57,32 +59,10 @@ export function AgentView({
   const api = useAPI();
   const { params } = useRoute();
   const [renaming, setRenaming] = useState(false);
-  const [offset, setOffset] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [visibleMessages, setVisibleMessages] = useState<Message[]>([]);
   const { data, error, loading } = useQuery<Transcript>(transcriptQuery, {
     id: agentId,
-    offset,
   });
-
-  useEffect(() => {
-    if (!data) {
-      return;
-    }
-    setVisibleMessages((previous) => {
-      const messages = new Map(
-        previous.map((message) => [message.id, message]),
-      );
-      for (const message of [...data.messages, ...data.recentMessages])
-        messages.set(message.id, message);
-
-      return [...messages.values()].sort(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
-      );
-    });
-  }, [data]);
 
   const [prompt, setPrompt] = useDraft(`prompt:${agentId}`);
   const [inspection, setInspection] = useState<{
@@ -99,6 +79,22 @@ export function AgentView({
     detailsOpen || renaming || Boolean(inspection),
     Boolean(data),
   );
+  const incoming = useMemo(
+    () =>
+      data ? [...data.messages, ...(data.recentMessages ?? [])] : undefined,
+    [data],
+  );
+  const history = useTranscriptHistory(agentId, incoming, viewport.following);
+  const visibleMessages = history.messages;
+  const terminalGoals = [
+    ...new Map(
+      [...(data?.goalHistory ?? []), ...(data?.goal ? [data.goal] : [])].map(
+        (goal) => [goal.id, goal],
+      ),
+    ).values(),
+  ].filter((goal) =>
+    ["complete", "cancelled", "superseded"].includes(goal.status),
+  );
 
   useEffect(() => {
     if (!data) {
@@ -108,7 +104,7 @@ export function AgentView({
       new Set([
         ...(data.agentInputs ?? []).map((input) => input.id),
         ...data.messages.map((message) => message.id),
-        ...data.recentMessages.map((message) => message.id),
+        ...(data.recentMessages ?? []).map((message) => message.id),
       ]),
     );
   }, [api, data]);
@@ -166,6 +162,9 @@ export function AgentView({
         aria-label={t("Agentenverlauf")}
         className="mx-auto min-w-0 max-w-3xl py-6 sm:py-8"
       >
+        <div ref={history.sentinel} aria-hidden="true" className="h-px" />
+        {history.loading && <Loading />}
+        <Failure message={history.error} onRetry={history.retry} />
         {loading && !data ? (
           <Loading />
         ) : current?.role === "approver" ? (
@@ -195,6 +194,8 @@ export function AgentView({
         ) : (
           <AgentConversation
             messages={visibleMessages}
+            goals={terminalGoals}
+            projectDirectory={project.directory}
             working={current?.status === "running"}
             onInspect={(content) =>
               setInspection({
@@ -204,15 +205,6 @@ export function AgentView({
               })
             }
           />
-        )}
-        {(data?.messages.length ?? 0) === 100 && (
-          <Button
-            className="my-3 min-h-11"
-            variant="secondary"
-            onPress={() => setOffset(offset + 100)}
-          >
-            {t("Mehr anzeigen")}
-          </Button>
         )}
         {data?.questions
           .filter((question) => question.status === "open")
@@ -239,13 +231,15 @@ export function AgentView({
             />
           </div>
         )}
-        {data?.goal && current?.role !== "approver" && (
-          <AgentGoal
-            goal={data.goal}
-            working={current?.status === "running"}
-            reviewing={data.agentRunState?.phase === "goal_review"}
-          />
-        )}
+        {data?.goal &&
+          !["complete", "cancelled", "superseded"].includes(data.goal.status) &&
+          current?.role !== "approver" && (
+            <AgentGoal
+              goal={data.goal}
+              working={current?.status === "running"}
+              reviewing={data.agentRunState?.phase === "goal_review"}
+            />
+          )}
         <Failure
           message={
             error ||

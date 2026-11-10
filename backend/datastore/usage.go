@@ -49,6 +49,12 @@ func (instance *Instance) UsageSummary(agentID string) (domain.UsageSummary, err
 }
 
 func (instance *Instance) RecentMessages(agentID string, limit int) ([]map[string]any, error) {
+	return instance.MessagesBefore(agentID, limit, "")
+}
+
+// MessagesBefore uses a stable message cursor so new output cannot shift
+// already loaded scrollback pages, unlike descending OFFSET pagination.
+func (instance *Instance) MessagesBefore(agentID string, limit int, beforeID string) ([]map[string]any, error) {
 	if instance == nil || instance.Closed() {
 		return nil, errClosed
 	}
@@ -57,11 +63,16 @@ func (instance *Instance) RecentMessages(agentID string, limit int) ([]map[strin
 		limit = 100
 	}
 
-	rows, err := instance.db.Query(
-		`SELECT data::VARCHAR FROM resources WHERE kind='message' AND parent_id=? ORDER BY created_at DESC,id DESC LIMIT ?`,
-		agentID,
-		limit,
-	)
+	query := `SELECT data::VARCHAR FROM resources WHERE kind='message' AND parent_id=? ORDER BY created_at DESC,id DESC LIMIT ?`
+	args := []any{agentID, limit}
+	if beforeID != "" {
+		query = `WITH anchor AS (SELECT created_at,id FROM resources WHERE kind='message' AND parent_id=? AND id=?)
+		SELECT r.data::VARCHAR FROM resources r, anchor a WHERE r.kind='message' AND r.parent_id=?
+		AND (r.created_at<a.created_at OR (r.created_at=a.created_at AND r.id<a.id))
+		ORDER BY r.created_at DESC,r.id DESC LIMIT ?`
+		args = []any{agentID, beforeID, agentID, limit}
+	}
+	rows, err := instance.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -72,6 +72,7 @@ func (client *HTTPClient) gemini(ctx context.Context, request Request) (Result, 
 		endpoint = "/models/" + url.PathEscape(request.Model.ID) + ":streamGenerateContent?alt=sse"
 	}
 
+	applyReasoning(body, request, "gemini")
 	data, err := client.post(ctx, request.Config, endpoint, body, request.OnText)
 	if err != nil {
 		return Result{}, err

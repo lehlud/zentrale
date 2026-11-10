@@ -81,6 +81,7 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 		}
 	}
 
+	reused := entry.connection != nil
 	if entry.connection == nil {
 		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, agentRecord.MachineID, nil)
 		if err != nil {
@@ -129,7 +130,9 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 		}
 	}
 
-	if project.ManagedWorkspace {
+	// A fresh connection already resolved the workspace above. Running the
+	// remote receipt script twice adds contention to simultaneous child startup.
+	if reused && project.ManagedWorkspace {
 		resolved, err := engine.Remote.ResolveProject(ctx, entry.connection, entry.machine, project)
 		if err != nil {
 			return nil, entry.machine, project, &ProjectConnectionError{Cause: err}
@@ -193,16 +196,35 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 		engine.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	stop := context.AfterFunc(engine.ctx, cancel)
 	defer stop()
 
+	var result domain.MachineConnectionCheck
+	err = retryConnectionPreparation(ctx, 3*time.Minute, 250*time.Millisecond, func(attempt context.Context) error {
+		var failure error
+		result, failure = engine.checkAgentConnectionAttempt(attempt, record)
+		return failure
+	})
+	if err != nil {
+		result.Connected = false
+		result.Error = err.Error()
+	}
+
+	return result
+}
+
+// Only harness-owned, idempotent startup preparation is eligible for retry.
+// Keep the typed failure until the retry decision; the public diagnostics use
+// strings and must not be used to classify authentication or permission errors.
+func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record domain.Agent) (domain.MachineConnectionCheck, error) {
+	agentID := record.ID
 	engine.setRunState(agentID, "connecting", nil)
 	connection, machine, project, err := engine.connect(ctx, record)
 	if err != nil {
-		return domain.MachineConnectionCheck{Error: err.Error(), HostKey: remote.HostKeyChallenge(err)}
+		return domain.MachineConnectionCheck{Error: err.Error(), HostKey: remote.HostKeyChallenge(err)}, err
 	}
 	defer connection.Close()
 
@@ -210,11 +232,13 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 	// Recheck before inference, and retain failures for the machine diagnostics.
 	engine.setRunState(agentID, "checking_sandbox", nil)
 	status := remote.InspectSandbox(ctx, connection, machine)
+	var preparationError error
 	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 		engine.setRunState(agentID, "sandbox", nil)
 		temporary := agentTemporaryDirectory(record.ID)
 		if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
 			status.Error = err.Error()
+			preparationError = err
 		} else if _, err := remote.ManageMicroVM(ctx, connection, machine, "prepare", remote.Execution{
 			AgentID:            record.ID,
 			ProjectID:          project.ID,
@@ -222,25 +246,32 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 			TemporaryDirectory: temporary,
 		}); err != nil {
 			status.Error = err.Error()
+			preparationError = err
 		} else if err := engine.rememberMicroVM(record, machine, project, status.Level); err != nil {
 			status.Error = err.Error()
+			preparationError = err
 		}
 	}
 
 	if err := engine.rememberSandboxStatus(machine, status); err != nil {
-		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}
+		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}, err
 	}
 
 	if status.Error != "" {
-		return domain.MachineConnectionCheck{Error: status.Error, Sandbox: status}
+		if preparationError == nil {
+			// InspectSandbox exposes a diagnostic string only. Do not guess
+			// whether its failure is retryable from its wording.
+			preparationError = errors.New(status.Error)
+		}
+		return domain.MachineConnectionCheck{Error: status.Error, Sandbox: status}, preparationError
 	}
 
 	engine.setRunState(agentID, "repository", nil)
 	if err := engine.prepareProjectSources(ctx, connection, machine, project, record.ID); err != nil {
-		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}
+		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}, err
 	}
 
-	return domain.MachineConnectionCheck{Connected: true, Sandbox: status}
+	return domain.MachineConnectionCheck{Connected: true, Sandbox: status}, nil
 }
 
 func (engine *Engine) requireConnection(ctx context.Context, agentID string) error {

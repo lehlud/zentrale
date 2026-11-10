@@ -62,6 +62,7 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 		body["stream"] = true
 	}
 
+	applyReasoning(body, request, "responses")
 	data, err := client.post(ctx, request.Config, "/responses", body, request.OnText)
 	if err != nil {
 		return Result{}, err

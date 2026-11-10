@@ -236,11 +236,12 @@ func (engine *Engine) TestProvider(ctx context.Context, providerID, modelID stri
 	}
 
 	result, err := engine.Provider.Complete(ctx, providers.Request{
-		Config:   configuration.Provider,
-		Model:    configuration.Model,
-		System:   "Respond with OK.",
-		Messages: []domain.Message{{Role: "user", Content: "Connection test"}},
-		CacheKey: "connection-test",
+		Config:         configuration.Provider,
+		Model:          configuration.Model,
+		ReasoningLevel: configuration.ReasoningLevel,
+		System:         "Respond with OK.",
+		Messages:       []domain.Message{{Role: "user", Content: "Connection test"}},
+		CacheKey:       "connection-test",
 	})
 	if err != nil {
 		return false, err

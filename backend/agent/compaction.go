@@ -43,8 +43,9 @@ func (engine *Engine) summarizeContext(
 		}
 
 		result, err := engine.Provider.Complete(ctx, providers.Request{
-			Config: configuration.Provider,
-			Model:  configuration.Model,
+			Config:         configuration.Provider,
+			Model:          configuration.Model,
+			ReasoningLevel: configuration.ReasoningLevel,
 
 			System: system,
 

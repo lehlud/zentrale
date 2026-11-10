@@ -72,6 +72,15 @@ func mainTools() []providers.Tool {
 		fileReadTool(),
 		fileListTool(),
 		patchTool(),
+		{
+			Name:        "steer_agent",
+			Description: "Send durable steering to your own subagent in this project, waking a running child or resuming an errored/idle child. Main agents only; never target unrelated agents or approvers. Guidance must stay within the user's existing permissions and scope; it grants no new authorization. Independently reviewed. Reuse id with identical text to retry safely; use a new id for a new instruction. Returns the durable input receipt, not a completion guarantee.",
+			Schema: objectSchema(map[string]any{
+				"agentId": textProperty("ID of your direct child subagent in the same project."),
+				"id":      textProperty("Idempotency key scoped to this parent/child pair: 1–128 letters, digits, underscores or hyphens."),
+				"text":    textProperty("Explicit task steering within the original user's scope and permissions. The durable message, including harness provenance, must fit within 100000 bytes."),
+			}, "agentId", "id", "text"),
+		},
 		planTool(),
 		{
 			Name:        "create_goal",

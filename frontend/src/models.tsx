@@ -12,13 +12,14 @@ import { useEffect, useState } from "react";
 import { useAPI, useQuery } from "./api";
 import type { LanguageModel, ModelChoice, Provider } from "./generated";
 import { ModelMetadataEditor } from "./model-metadata";
+import { ReasoningSelect } from "./reasoning";
 import { ActionsMenu } from "./actions-menu";
 import { useI18n } from "./preferences";
 import { Empty, Failure, Inspect, Loading, useAction } from "./ui";
 import { Icon } from "./icons";
 
 const modelFields =
-  "id name providerId contextWindow inputPrice outputPrice cachedPrice pricesKnown metadataEstimated";
+  "id name providerId contextWindow inputPrice outputPrice cachedPrice pricesKnown metadataEstimated reasoningLevels";
 
 export function useModels(providerId: string, totalModels?: number) {
   const [search, setSearch] = useState("");
@@ -78,16 +79,19 @@ export function ModelChooser({
   title,
   providers,
   value,
+  role = "main",
   onChange,
   onClose,
 }: {
   title: string;
   providers: Provider[];
   value: ModelChoice;
+  role?: "main" | "approver";
   onChange: (choice: ModelChoice) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const [draft, setDraft] = useState(value);
   const [providerId, setProviderId] = useState(
     providers.some((provider) => provider.id === value.providerId)
       ? value.providerId
@@ -130,13 +134,28 @@ export function ModelChooser({
           <ModelChoiceList
             key={providerId}
             providerId={providerId}
-            value={value}
+            value={draft}
             onChoose={(choice) => {
-              onChange(choice);
-              onClose();
+              setDraft({
+                ...choice,
+                reasoningLevel: role === "approver" ? "medium" : "xhigh",
+              });
             }}
           />
         )}
+        {draft.modelId && (
+          <ReasoningSelect choice={draft} onChange={setDraft} />
+        )}
+        <Button
+          className="min-h-11"
+          isDisabled={!draft.modelId || draft.providerId !== providerId}
+          onPress={() => {
+            onChange(draft);
+            onClose();
+          }}
+        >
+          {t("Auswahl übernehmen")}
+        </Button>
       </div>
     </Inspect>
   );
@@ -193,9 +212,15 @@ function ModelChoiceList({
 
             const [key] = keys;
             if (key !== undefined)
-              onChoose({ providerId, modelId: String(key) });
+              onChoose({
+                providerId,
+                modelId: String(key),
+                reasoningLevel: "",
+              });
           }}
-          onAction={(key) => onChoose({ providerId, modelId: String(key) })}
+          onAction={(key) =>
+            onChoose({ providerId, modelId: String(key), reasoningLevel: "" })
+          }
           className="max-h-none"
         >
           {models.data.models.map((model) => (

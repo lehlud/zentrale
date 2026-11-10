@@ -24,9 +24,12 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 
 	queries["recentMessages"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.Message]())),
-		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
+		Args: graphql.FieldConfigArgument{
+			"agentId":  {Type: graphql.NewNonNull(graphql.String)},
+			"beforeId": {Type: graphql.String, DefaultValue: ""},
+		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			rows, err := server.Store.RecentMessages(params.Args["agentId"].(string), 100)
+			rows, err := server.Store.MessagesBefore(params.Args["agentId"].(string), 100, params.Args["beforeId"].(string))
 			if err == nil {
 				err = server.attachFileChanges(rows, params.Info)
 			}
@@ -46,6 +49,12 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			err := server.Store.Load("model", params.Args["providerId"].(string)+":"+params.Args["modelId"].(string), &model)
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, nil
+			}
+			if err == nil {
+				var provider domain.Provider
+				if err = server.Store.Load("provider", params.Args["providerId"].(string), &provider); err == nil {
+					model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, params.Args["modelId"].(string))
+				}
 			}
 
 			return model, err
@@ -69,10 +78,21 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			"offset":     {Type: graphql.Int, DefaultValue: 0},
 		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			return server.Store.SearchModels(
+			models, err := server.Store.SearchModels(
 				params.Args["providerId"].(string), params.Args["search"].(string),
 				params.Args["limit"].(int), params.Args["offset"].(int),
 			)
+			if err != nil {
+				return nil, err
+			}
+			var provider domain.Provider
+			if err := server.Store.Load("provider", params.Args["providerId"].(string), &provider); err != nil {
+				return nil, err
+			}
+			for _, model := range models {
+				model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, model["id"].(string))
+			}
+			return models, nil
 		}),
 	}
 

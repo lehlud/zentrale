@@ -9,8 +9,9 @@ import (
 )
 
 type inferenceConfig struct {
-	Provider domain.Provider
-	Model    domain.LanguageModel
+	Provider       domain.Provider
+	Model          domain.LanguageModel
+	ReasoningLevel string
 }
 
 func modelResourceID(providerID, modelID string) string {
@@ -29,6 +30,12 @@ func (engine *Engine) ModelDefaults() (domain.ModelDefaults, error) {
 
 	var defaults domain.ModelDefaults
 	err = decode(encoded, &defaults)
+	if err == nil {
+		defaults.Main, err = engine.normalizeReasoning(defaults.Main, "main")
+		if err == nil {
+			defaults.Approver, err = engine.normalizeReasoning(defaults.Approver, "approver")
+		}
+	}
 
 	return defaults, err
 }
@@ -41,6 +48,15 @@ func (engine *Engine) SaveModelDefaults(defaults domain.ModelDefaults) error {
 		if _, err := engine.validateModelChoice(choice); err != nil {
 			return err
 		}
+	}
+	var err error
+	defaults.Main, err = engine.normalizeReasoning(defaults.Main, "main")
+	if err != nil {
+		return err
+	}
+	defaults.Approver, err = engine.normalizeReasoning(defaults.Approver, "approver")
+	if err != nil {
+		return err
 	}
 
 	if err := engine.Store.SetSetting("model_defaults", JSON(defaults)); err != nil {
@@ -80,7 +96,10 @@ func (engine *Engine) validateModelChoice(choice domain.ModelChoice) (domain.Lan
 func (engine *Engine) resolveChoice(choice domain.ModelChoice, role string) (domain.ModelChoice, error) {
 	if choice.ProviderID != "" && choice.ModelID != "" {
 		_, err := engine.validateModelChoice(choice)
-		return choice, err
+		if err != nil {
+			return choice, err
+		}
+		return engine.normalizeReasoning(choice, role)
 	}
 
 	defaults, err := engine.ModelDefaults()
@@ -93,6 +112,9 @@ func (engine *Engine) resolveChoice(choice domain.ModelChoice, role string) (dom
 	if role == "approver" {
 		configured = defaults.Approver
 	}
+	if choice.ReasoningLevel != "" {
+		configured.ReasoningLevel = choice.ReasoningLevel
+	}
 
 	if choice.ProviderID != "" && choice.ProviderID != configured.ProviderID {
 		return choice, errors.New("select an explicit model for this provider")
@@ -102,14 +124,32 @@ func (engine *Engine) resolveChoice(choice domain.ModelChoice, role string) (dom
 		return choice, errors.New("configure global main and approver model defaults first")
 	}
 
-	return configured, nil
+	return engine.normalizeReasoning(configured, role)
+}
+
+func (engine *Engine) normalizeReasoning(choice domain.ModelChoice, role string) (domain.ModelChoice, error) {
+	if choice.ProviderID == "" || choice.ModelID == "" {
+		return choice, nil
+	}
+	var provider domain.Provider
+	if err := engine.Store.Load("provider", choice.ProviderID, &provider); err != nil {
+		return choice, err
+	}
+	switch choice.ReasoningLevel {
+	case "", "default", "regular", "minimal", "low", "medium", "high", "xhigh":
+	default:
+		return choice, errors.New("unsupported reasoning level")
+	}
+	choice.ReasoningLevel = domain.ResolveReasoningLevel(provider.Kind, choice.ModelID, choice.ReasoningLevel, role)
+	return choice, nil
 }
 
 func (engine *Engine) inferenceConfiguration(ctx context.Context, agentRecord domain.Agent) (inferenceConfig, error) {
 	choice, err := engine.resolveChoice(
 		domain.ModelChoice{
-			ProviderID: agentRecord.ProviderID,
-			ModelID:    agentRecord.ModelID,
+			ProviderID:     agentRecord.ProviderID,
+			ModelID:        agentRecord.ModelID,
+			ReasoningLevel: agentRecord.ReasoningLevel,
 		},
 		agentRecord.Role,
 	)
@@ -124,7 +164,7 @@ func (engine *Engine) inferenceConfiguration(ctx context.Context, agentRecord do
 
 	model, err := engine.validateModelChoice(choice)
 
-	return inferenceConfig{Provider: provider, Model: model}, err
+	return inferenceConfig{Provider: provider, Model: model, ReasoningLevel: choice.ReasoningLevel}, err
 }
 
 func (engine *Engine) providerWithCredentials(ctx context.Context, providerID string) (domain.Provider, error) {

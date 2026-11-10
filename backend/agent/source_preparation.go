@@ -41,10 +41,6 @@ func (engine *Engine) prepareProjectSources(
 		return errors.New("project repository connection is missing; reconnect the repository in project settings")
 	}
 
-	if len(sources) == 0 {
-		return nil
-	}
-
 	// Separate 9p guests cannot coordinate using directory flock locks. Hold
 	// this workspace's semaphore across inspection and cloning in the harness.
 	value, _ := engine.sourcePreparations.LoadOrStore(project.Directory, make(chan struct{}, 1))
@@ -100,8 +96,16 @@ func (engine *Engine) prepareProjectSources(
 		return remote.RunPipe(ctx, connection.Client, command, strings.NewReader(JSON(configuration)))
 	}
 
-	// Existing work needs no network request, private key or fetch. Check it on
-	// each preparation, including a reconnect, failover or service restart.
+	// Remove previously issued credentials before consulting current source/key
+	// state. A removed source or failed refresh must never retain an old key.
+	if _, err := run(map[string]any{
+		"operation": "clear-project-git", "project": project.Directory,
+	}, false); err != nil {
+		return fmt.Errorf("clear project Git credentials: %w", err)
+	}
+
+	// Inspect existing work without contacting its Git server or fetching. Check
+	// on each preparation, including a reconnect, failover or service restart.
 	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false)
 	if err != nil {
 		return fmt.Errorf("inspect project repositories: %w", err)
@@ -127,6 +131,30 @@ func (engine *Engine) prepareProjectSources(
 		if err != nil {
 			return fmt.Errorf("prepare repository %q: %w", source.Name, err)
 		}
+	}
+
+	// Repository-local configuration is shared by VS Code's Git extension,
+	// integrated terminals and agent commands, without touching ~/.gitconfig or
+	// forwarding the host's SSH agent. Refresh on every preparation, not only clone.
+	identity, err := engine.ProjectCommitIdentity(project)
+	if err != nil {
+		return err
+	}
+	configurations := make([]map[string]any, 0, len(sources))
+	for _, source := range sources {
+		directory, _ := sourceDirectory(project, source)
+		configuration, err := engine.sourceGitConfiguration(ctx, source, directory, temporary)
+		if err != nil {
+			return fmt.Errorf("configure repository %q: %w", source.Name, err)
+		}
+		configuration["identity"] = map[string]string{"name": identity.Name, "email": identity.Email}
+		configurations = append(configurations, configuration)
+	}
+	if _, err := run(map[string]any{
+		"operation": "configure-project-git", "project": project.Directory,
+		"sources": configurations,
+	}, false); err != nil {
+		return fmt.Errorf("configure project Git: %w", err)
 	}
 
 	return nil

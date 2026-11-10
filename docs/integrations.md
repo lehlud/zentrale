@@ -8,6 +8,12 @@ A provider is an account or endpoint, rather than a fixed model. Connect it in
 Settings, then choose defaults for the main agent and auto-approver independently.
 New conversations inherit those defaults; existing ones retain their selections.
 
+Model choices also include a thinking/reasoning level. The main-agent default is
+`xhigh` (or the highest supported level); the approver default is `medium`.
+`regular` and `default` are equivalent to medium. The chooser exposes supported
+levels and preserves the selection across reloads. Models without known thinking
+support use their provider's defaults rather than receiving unsupported options.
+
 | Provider        | Connection                                         |
 | --------------- | -------------------------------------------------- |
 | OpenAI          | API key or ChatGPT device login with token renewal |
@@ -77,6 +83,15 @@ Git account must be connected.
 ## Commit identity
 
 Set a global name and email in Settings. A project can override both, or leave
-both empty to inherit the default. Agent Git commands use these values for author
-and committer without changing the SSH user's global Git configuration. Reopen
-an existing editor after changing the identity so its processes get the new values.
+both empty to inherit the default. Source preparation writes repository-local
+`user.name` and `user.email`, so agent commands, VS Code's Git integration, and
+terminals share the identity without changing global Git configuration. Reopen an
+existing editor after changing the identity to refresh preparation.
+
+Each configured checkout also receives its intended repository key and pinned
+host keys in private Git metadata, with restrictive file permissions. Plain Git
+commands use a repository-scoped SSH wrapper: unrelated hosts/repositories and
+unrelated identities are rejected, and read-only sources cannot push. No global
+`~/.ssh` installation or SSH-agent forwarding is needed. Preparation refreshes
+keys and removes obsolete local credentials; forge-side key revocation remains
+effective immediately at the remote provider.

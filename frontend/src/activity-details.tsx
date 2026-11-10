@@ -60,6 +60,7 @@ const toolLabels: Record<string, string> = {
   context_rotate: "Kontext verschieben",
   context_compact: "Kontext verdichten",
   subagent: "Unteragent starten",
+  steer_agent: "Unteragent anweisen",
   inspect_agent: "Unteragent prüfen",
   instructions: "Nutzeranweisungen lesen",
   history: "Verlauf lesen",

@@ -455,6 +455,10 @@ func (engine *Engine) recoverInputs() error {
 	}
 
 	for _, value := range records {
+		if stringArg(value, "role") == "approver" {
+			continue
+		}
+
 		id := stringArg(value, "id")
 		var stopped agentStopRecord
 		if err := engine.Store.Load("agent_stop", id, &stopped); err != nil &&
@@ -466,6 +470,19 @@ func (engine *Engine) recoverInputs() error {
 			engine.mu.Lock()
 			engine.stopRequested[id] = true
 			engine.mu.Unlock()
+			// Stop is committed before cancellation. A crash in between must
+			// retain the acknowledged stop, not a misleading restart marker.
+			if stringArg(value, "status") == "interrupted" {
+				var record domain.Agent
+				if err := engine.Store.Load("agent", id, &record); err != nil {
+					return err
+				}
+				record.Status, record.Error = "stopped", ""
+				if err := engine.saveAgent(record); err != nil {
+					return err
+				}
+				engine.setRunState(id, "stopped", nil)
+			}
 			continue
 		}
 
@@ -484,6 +501,24 @@ func (engine *Engine) recoverInputs() error {
 		}
 
 		started := false
+		terminalSources := map[string]bool{}
+		if goal != nil && (goal.Status == "complete" || goal.Status == "cancelled") {
+			for _, sourceID := range goal.SourceInputIDs {
+				terminalSources[sourceID] = true
+			}
+		}
+
+		for index, input := range inputs {
+			// Goal completion may precede the final input-state write. Never
+			// reopen that delivered task, but allow fresh queued/pending work.
+			if input.Status == "active" && terminalSources[input.ID] {
+				input.Status = "completed"
+				if err := engine.Store.Save("agent_input", input.ID, id, input); err != nil {
+					return err
+				}
+				inputs[index] = input
+			}
+		}
 
 		for _, input := range inputs {
 			if input.Status != "pending" && input.Status != "queued" && input.Status != "active" {
@@ -507,7 +542,12 @@ func (engine *Engine) recoverInputs() error {
 			break
 		}
 
-		if !started && goal != nil && goal.Status == "active" && stringArg(value, "status") != "error" {
+		// Restart the model loop, not stored tool calls. Its conversation
+		// projection marks missing tool results interrupted/unknown and tells
+		// the model to inspect current state before retrying side effects.
+		interrupted := stringArg(value, "status") == "interrupted" &&
+			(goal == nil || goal.Status == "active")
+		if !started && (interrupted || goal != nil && goal.Status == "active" && stringArg(value, "status") != "error") {
 			var record domain.Agent
 			if err := engine.Store.Load("agent", id, &record); err != nil {
 				return err

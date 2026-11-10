@@ -255,7 +255,7 @@ func TestSteeringDoesNotAbortStartedToolBatches(t *testing.T) {
 }
 
 func TestAcceptedInputsRecoverWithoutDuplicatingDeliveredMessages(t *testing.T) {
-	engine, record := testEngine(t, nil)
+	engine, record := restartTestEngine(t, nil)
 	now := time.Now().UTC()
 	input := domain.AgentInput{
 		ID:          "recovered-active",
@@ -313,7 +313,7 @@ func TestAcceptedInputsRecoverWithoutDuplicatingDeliveredMessages(t *testing.T) 
 
 	t.Cleanup(restarted.Close)
 
-	if final := waitForAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 2 {
+	if final := waitForRestartAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 2 {
 		t.Fatal(final, calls.Load())
 	}
 
@@ -327,7 +327,7 @@ func TestStopAndServiceShutdownHaveDifferentRecoverySemantics(t *testing.T) {
 	for _, stopped := range []bool{false, true} {
 		t.Run(map[bool]string{false: "service_shutdown", true: "explicit_stop"}[stopped], func(t *testing.T) {
 			started := make(chan struct{})
-			engine, record := testEngine(t, providerFunction(func(ctx context.Context, _ providers.Request) (providers.Result, error) {
+			engine, record := restartTestEngine(t, providerFunction(func(ctx context.Context, _ providers.Request) (providers.Result, error) {
 				close(started)
 				<-ctx.Done()
 
@@ -337,7 +337,7 @@ func TestStopAndServiceShutdownHaveDifferentRecoverySemantics(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			<-started
+			waitForRestartProvider(t, engine, record.ID, started)
 
 			if _, err := engine.SubmitInput(record.ID, "waiting-at-shutdown", "Next task", "queue"); err != nil {
 				t.Fatal(err)
@@ -348,7 +348,7 @@ func TestStopAndServiceShutdownHaveDifferentRecoverySemantics(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if final := waitForAgent(t, engine, record.ID); final.Status != "stopped" {
+				if final := waitForRestartAgent(t, engine, record.ID); final.Status != "stopped" {
 					t.Fatal(final)
 				}
 			}
@@ -404,7 +404,7 @@ func TestStopAndServiceShutdownHaveDifferentRecoverySemantics(t *testing.T) {
 				}
 			}
 
-			if final := waitForAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 2 {
+			if final := waitForRestartAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 2 {
 				t.Fatal(final, calls.Load())
 			}
 		})

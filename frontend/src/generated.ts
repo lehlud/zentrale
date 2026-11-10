@@ -11,6 +11,7 @@ export type Agent = {
   parentId: string;
   projectId: string;
   providerId: string;
+  reasoningLevel: string;
   role: string;
   status: string;
   summary: string;
@@ -183,6 +184,7 @@ export type LanguageModel = {
   outputPrice: number;
   pricesKnown: boolean;
   providerId: string;
+  reasoningLevels: Array<string>;
 };
 export type Machine = {
   containers: boolean;
@@ -244,10 +246,12 @@ export type Message = {
 export type ModelChoice = {
   modelId: string;
   providerId: string;
+  reasoningLevel: string;
 };
 export type ModelChoiceInput = {
   modelId?: string | null;
   providerId?: string | null;
+  reasoningLevel?: string | null;
 };
 export type ModelDefaults = {
   approver: ModelChoice;
@@ -424,6 +428,7 @@ export type Query = {
   gitNamespaces: Array<GitNamespace | null> | null;
   gitRepositories: GitRepositoryPage | null;
   goal: Goal | null;
+  goalHistory: Array<Goal | null> | null;
   goalReviews: Array<GoalReview | null> | null;
   jobs: Array<Job | null> | null;
   machines: Array<Machine | null> | null;

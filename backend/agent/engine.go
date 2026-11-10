@@ -149,7 +149,8 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 }
 
 // Work from a previous process cannot still be supervised by this process. Keep
-// its history, but report interruption instead of claiming it is still running.
+// its history and mark interruption before recoverInputs restarts agent turns.
+// Jobs are never replayed: their external side effects may already have occurred.
 func (engine *Engine) recoverInterruptedWork() error {
 	for _, kind := range []string{"agent", "job"} {
 		resources, err := engine.listAll(kind, nil)
@@ -181,7 +182,12 @@ func (engine *Engine) recoverInterruptedWork() error {
 }
 
 func (engine *Engine) Close() {
+	// Serialize cancellation with worker registration. Lifecycle entry points
+	// hold configMu while checking ctx and adding to workers; after this barrier
+	// none can add an agent worker while shutdown is waiting for them.
+	engine.configMu.Lock()
 	engine.cancel()
+	engine.configMu.Unlock()
 	engine.mu.Lock()
 
 	for _, cancel := range engine.running {

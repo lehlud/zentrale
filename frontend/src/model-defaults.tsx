@@ -5,6 +5,7 @@ import { CONFIG, useAPI, useQuery } from "./api";
 import type { Config } from "./config";
 import type { LanguageModel, ModelChoice, ModelDefaults } from "./generated";
 import { ModelChooser } from "./models";
+import { ReasoningSelect } from "./reasoning";
 import { useI18n } from "./preferences";
 import { Failure, Loading, useAction } from "./ui";
 
@@ -76,6 +77,9 @@ export function GlobalModelDefaults() {
                   {defaults[role].modelId ? (
                     <SelectedModel
                       choice={defaults[role]}
+                      onChange={(choice) =>
+                        setDraft({ ...defaults, [role]: choice })
+                      }
                       providerName={
                         data?.providers.find(
                           (provider) =>
@@ -153,6 +157,7 @@ export function GlobalModelDefaults() {
           )}
           providers={providers}
           value={defaults[choosing]}
+          role={choosing}
           onClose={() => setChoosing(undefined)}
           onChange={(choice) => setDraft({ ...defaults, [choosing]: choice })}
         />
@@ -164,9 +169,11 @@ export function GlobalModelDefaults() {
 function SelectedModel({
   choice,
   providerName,
+  onChange,
 }: {
   choice: ModelChoice;
   providerName: string;
+  onChange: (choice: ModelChoice) => void;
 }) {
   const { data } = useQuery<{ model: LanguageModel | null }>(
     "query($providerId:String!,$modelId:String!){model(providerId:$providerId,modelId:$modelId){id name}}",
@@ -178,6 +185,7 @@ function SelectedModel({
         {data?.model?.name || choice.modelId}
       </p>
       <p className="break-words text-xs text-muted">{providerName}</p>
+      <ReasoningSelect choice={choice} onChange={onChange} />
     </div>
   );
 }

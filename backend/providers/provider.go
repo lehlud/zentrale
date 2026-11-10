@@ -47,8 +47,9 @@ type Result struct {
 }
 
 type Request struct {
-	Config domain.Provider
-	Model  domain.LanguageModel
+	ReasoningLevel string
+	Config         domain.Provider
+	Model          domain.LanguageModel
 
 	System   string
 	Messages []domain.Message

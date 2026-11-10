@@ -37,6 +37,7 @@ var reviewedTools = map[string]toolPolicy{
 	"storage_list":     {},
 	"storage_quota":    {},
 	"subagent":         {},
+	"steer_agent":      {},
 	"inspect_agent":    {},
 	"mcp_connect":      {},
 	"mcp_tools":        {},
@@ -146,6 +147,8 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 		requiredArgument = "query"
 	case "write_stdin":
 		requiredArgument = "id"
+	case "steer_agent":
+		requiredArgument = "agentId"
 	default:
 		return interaction{}, errors.New("unknown tool")
 	}
@@ -270,6 +273,8 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 		return engine.selectProjectMachine(ctx, agentRecord, stringArg(arguments, "machineId"))
 	case "subagent":
 		return engine.spawn(agentRecord, arguments)
+	case "steer_agent":
+		return engine.steerChildAgent(agentRecord, arguments)
 	case "inspect_agent":
 		return engine.inspectChildAgent(agentRecord, stringArg(arguments, "agentId"))
 	default:

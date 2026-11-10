@@ -242,9 +242,10 @@ func (engine *Engine) reviewGoal(
 		}
 
 		result, err := engine.Provider.Complete(ctx, providers.Request{
-			Config: configuration.Provider,
-			Model:  configuration.Model,
-			System: goalReviewInstructions,
+			Config:         configuration.Provider,
+			Model:          configuration.Model,
+			ReasoningLevel: configuration.ReasoningLevel,
+			System:         goalReviewInstructions,
 
 			Messages: messages,
 			Tools:    tools,

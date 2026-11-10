@@ -11,7 +11,16 @@ current request finishes; an already running batch completes before steering.
 
 Inputs are persisted before SSH setup or model execution. The UI shows connecting,
 sandbox preparation, running, and interruption states. Closing the browser after
-acceptance does not cancel work; the Zentrale server still needs to stay running.
+acceptance does not cancel work. A service restart briefly interrupts execution;
+unfinished agent turns resume automatically on startup. Explicit stops, paused or
+blocked goals, and completed work are not reopened. Interrupted external jobs
+are not blindly replayed: the agent inspects their state/checkpoints before
+deciding how to continue.
+
+Main agents can send independently reviewed guidance to their own direct children
+using `steer_agent {agentId,id,text}`. A stable `id` makes retries idempotent.
+Running children receive guidance at a safe tool-batch boundary; errored children
+can resume. Parent guidance never grants permissions beyond the user's task.
 
 Responses stream alongside tool activity, file diffs, and jobs. The conversation
 menu opens the independent approver's read-only history. **Stop** interrupts the
@@ -23,6 +32,10 @@ Each conversation has at most one unfinished goal. An agent can create it from
 the user's task; the harness creates one if the agent proposes finishing without
 one. Goals keep their scope across continuations and compaction. They never
 authorize work beyond original user instructions.
+
+Completed goals remain at their completion point in the conversation history.
+Older messages load automatically when scrolling upward. Off-screen transcript
+content is virtualized to keep long conversations responsive.
 
 Agents request `complete`, `blocked`, or `paused` through `update_goal`. The
 approver checks original requirements against tool evidence, jobs, subagents,

@@ -1,6 +1,11 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  Denkintensität: "Reasoning effort",
+  "Standard (regulär)": "Default (regular)",
+  "Auswahl übernehmen": "Apply selection",
+  "Dieses Modell verwendet die Standard-Denkintensität des Providers.":
+    "This model uses the provider's default reasoning effort.",
   // Goals and completion review.
   Aktiv: "Active",
   Arbeitsziel: "Goal",
@@ -24,8 +29,8 @@ export const english: Record<string, string> = {
   "Ziel pausieren": "Pause goal",
   "Ziel fortsetzen": "Resume goal",
   "Ziel verwerfen": "Discard goal",
-  "Vom Agenten formuliert. Die ursprünglichen Nutzeranweisungen gelten weiterhin.":
-    "Defined by the agent. Original user instructions still apply.",
+  Ausgeführt: "Executed",
+  "Unteragent anweisen": "Steer subagent",
   "Noch kein Ziel gesetzt": "No goal set yet",
   "Die unabhängige Abschlussprüfung steht noch aus.":
     "Independent completion review is still pending.",

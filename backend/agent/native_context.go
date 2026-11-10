@@ -96,8 +96,9 @@ func (engine *Engine) tryNativeCompaction(
 	}
 
 	result, err := compactor.Compact(ctx, providers.Request{
-		Config: configuration.Provider,
-		Model:  configuration.Model,
+		Config:         configuration.Provider,
+		Model:          configuration.Model,
+		ReasoningLevel: configuration.ReasoningLevel,
 
 		System:   system,
 		Tools:    tools,
