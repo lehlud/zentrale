@@ -188,6 +188,18 @@ func (server *Server) serve(socket net.Conn, configuration *ssh.ServerConfig) {
 
 						_ = json.NewEncoder(channel).Encode(map[string]string{"directory": directory})
 					}
+				} else if strings.Contains(payload.Command, "Prepare configured checkouts and use deployment keys for Git interactions.") {
+					// Consume preparation input before closing the SSH channel. An
+					// early exit can race RunPipe's write and fail setup with EOF.
+					var configuration struct {
+						Operation string `json:"operation"`
+					}
+					if err := json.NewDecoder(channel).Decode(&configuration); err != nil {
+						status = 1
+					} else if configuration.Operation == "inspect" {
+						// Real checkouts are covered by shell-backed SSH fixtures.
+						_ = json.NewEncoder(channel).Encode([]string{})
+					}
 				} else if strings.Contains(payload.Command, "test -c /dev/kvm") {
 					// This fixture has no isolation runtime; return the probe protocol's
 					// explicit fallback instead of arbitrary command output.

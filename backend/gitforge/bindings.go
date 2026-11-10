@@ -28,6 +28,23 @@ type repositoryBinding struct {
 	State       string `json:"state"`
 }
 
+// RepositoryHTTPURLs describes the same selected repository through its web
+// origin. Git translates these URLs to the binding's SSH transport, including
+// self-hosted forges whose web and SSH hosts or ports differ.
+func (service *Service) RepositoryHTTPURLs(bindingID, sshURL string) ([]string, error) {
+	if bindingID == "" {
+		return nil, nil
+	}
+	var binding repositoryBinding
+	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
+		return nil, err
+	}
+	if binding.SSHURL != sshURL {
+		return nil, errors.New("repository binding does not match its SSH source")
+	}
+	return []string{strings.TrimRight(binding.BaseURL, "/") + "/" + binding.FullName}, nil
+}
+
 func bindingID(account account, repository domain.GitRepository) string {
 	digest := sha256.Sum256([]byte(account.Public.Kind + "\n" + account.Public.BaseURL + "\n" + repository.Identity))
 	return hex.EncodeToString(digest[:])

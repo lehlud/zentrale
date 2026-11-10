@@ -91,10 +91,16 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return err
 		}
 
+		httpURLs, err := engine.GitForge.RepositoryHTTPURLs(source.BindingID, source.URL)
+		if err != nil {
+			return err
+		}
+
 		checkouts = append(checkouts, map[string]any{
 			"id":        source.ID,
 			"url":       source.URL,
 			"directory": directory,
+			"httpUrls":  httpURLs,
 		})
 	}
 

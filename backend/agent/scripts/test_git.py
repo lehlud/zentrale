@@ -119,15 +119,26 @@ class RepositoryPreparationTests(unittest.TestCase):
             "identity": {"name": "Project Author", "email": "project@example.test"},
             **overrides,
         }
-        return self.run_helper("configure-project-git", project=str(self.directory), sources=[source])
+        return self.run_helper(
+            "configure-project-git", project=str(self.directory), sources=[source]
+        )
 
     def git(self, *arguments):
-        return subprocess.run(["git", "-C", str(self.directory), *arguments],
-                              env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
-                                   "GIT_CONFIG_NOSYSTEM": "1"},
-                              capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", str(self.directory), *arguments],
+            env={
+                **os.environ,
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
 
-    def test_project_identity_persists_for_plain_git_and_does_not_touch_other_repositories(self):
+    def test_project_identity_persists_for_plain_git_and_does_not_touch_other_repositories(
+        self,
+    ):
         self.assertEqual(self.run_helper("prepare").returncode, 0)
         self.git("config", "user.name", "Existing user value")
         self.git("config", "custom.preserved", "yes")
@@ -137,12 +148,28 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertEqual(self.git("config", "user.name"), "Project Author")
         self.assertEqual(self.git("config", "user.email"), "project@example.test")
         self.assertEqual(self.git("config", "custom.preserved"), "yes")
-        self.assertEqual(len(self.git("config", "--local", "--get-all", "include.path").splitlines()), 1)
+        self.assertEqual(
+            len(
+                self.git("config", "--local", "--get-all", "include.path").splitlines()
+            ),
+            1,
+        )
         self.assertNotIn("ONLY THIS REPOSITORY KEY", self.git("config", "--list"))
         self.assertEqual(self.git("status", "--porcelain"), "")
         # Bare origin and sibling repositories are never given a key or identity.
         self.assertFalse((self.origin / "zentrale-git").exists())
-        original = subprocess.run(["git", "--git-dir", str(self.origin), "config", "--local", "--get", "user.name"], capture_output=True)
+        original = subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(self.origin),
+                "config",
+                "--local",
+                "--get",
+                "user.name",
+            ],
+            capture_output=True,
+        )
         self.assertNotEqual(original.returncode, 0)
 
     def test_repository_scoped_key_strict_host_verification_and_refresh_cleanup(self):
@@ -158,46 +185,101 @@ class RepositoryPreparationTests(unittest.TestCase):
         binary = self.root / "bin"
         binary.mkdir()
         fake = binary / "ssh"
-        fake.write_text('#!/usr/bin/python3\nimport json,os,pathlib,sys\n'
-                        'encoded = json.dumps(sys.argv[1:])\n'
-                        'if "FAKE_SSH_LOG" in os.environ:\n'
-                        '    pathlib.Path(os.environ["FAKE_SSH_LOG"]).write_text(encoded)\n'
-                        '    sys.stdout.write("0000")\n'
-                        'else:\n'
-                        '    print(encoded)\n')
+        fake.write_text(
+            "#!/usr/bin/python3\nimport json,os,pathlib,sys\n"
+            "encoded = json.dumps(sys.argv[1:])\n"
+            'if "FAKE_SSH_LOG" in os.environ:\n'
+            '    pathlib.Path(os.environ["FAKE_SSH_LOG"]).write_text(encoded)\n'
+            '    sys.stdout.write("0000")\n'
+            "else:\n"
+            "    print(encoded)\n"
+        )
         fake.chmod(0o700)
+
         def wrapper(host="git@example.test", command="git-upload-pack '/org/repo.git'"):
-            return subprocess.run([sys.executable, "-I", str(managed / "ssh.py"),
-                                   "-o", "SendEnv=GIT_PROTOCOL", "-p", "2222", host, command],
-                                  env={**os.environ, "PATH": str(binary) + ":" + os.environ["PATH"], "SSH_AUTH_SOCK": "/unrelated-agent"},
-                                  text=True, capture_output=True)
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    str(managed / "ssh.py"),
+                    "-o",
+                    "SendEnv=GIT_PROTOCOL",
+                    "-p",
+                    "2222",
+                    host,
+                    command,
+                ],
+                env={
+                    **os.environ,
+                    "PATH": str(binary) + ":" + os.environ["PATH"],
+                    "SSH_AUTH_SOCK": "/unrelated-agent",
+                },
+                text=True,
+                capture_output=True,
+            )
+
         accepted = wrapper()
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         arguments = json.loads(accepted.stdout)
-        for required in ("IdentityAgent=none", "IdentitiesOnly=yes", "StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null"):
+        for required in (
+            "IdentityAgent=none",
+            "IdentitiesOnly=yes",
+            "StrictHostKeyChecking=yes",
+            "GlobalKnownHostsFile=/dev/null",
+        ):
             self.assertIn(required, arguments)
         log = self.root / "ssh-invocation.json"
-        plain_git = subprocess.run(["git", "-C", str(self.directory), "ls-remote", "origin"],
-                                   env={**os.environ, "PATH": str(binary) + ":" + os.environ["PATH"],
-                                        "FAKE_SSH_LOG": str(log), "GIT_CONFIG_GLOBAL": os.devnull,
-                                        "GIT_CONFIG_NOSYSTEM": "1"}, capture_output=True, text=True)
+        plain_git = subprocess.run(
+            ["git", "-C", str(self.directory), "ls-remote", "origin"],
+            env={
+                **os.environ,
+                "PATH": str(binary) + ":" + os.environ["PATH"],
+                "FAKE_SSH_LOG": str(log),
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            },
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(plain_git.returncode, 0, plain_git.stderr)
-        self.assertEqual(json.loads(log.read_text())[-2:], ["git@example.test", "git-upload-pack '/org/repo.git'"])
+        self.assertEqual(
+            json.loads(log.read_text())[-2:],
+            ["git@example.test", "git-upload-pack '/org/repo.git'"],
+        )
         self.assertNotEqual(wrapper(host="git@unrelated.test").returncode, 0)
-        self.assertNotEqual(wrapper(command="git-upload-pack '/other.git'").returncode, 0)
-        self.assertNotEqual(wrapper(command="git-receive-pack '/org/repo.git'; evil").returncode, 0)
-        self.assertEqual(wrapper(command="git-receive-pack '/org/repo.git'").returncode, 0)
+        self.assertNotEqual(
+            wrapper(command="git-upload-pack '/other.git'").returncode, 0
+        )
+        self.assertNotEqual(
+            wrapper(command="git-receive-pack '/org/repo.git'; evil").returncode, 0
+        )
+        self.assertEqual(
+            wrapper(command="git-receive-pack '/org/repo.git'").returncode, 0
+        )
 
         cleared = self.run_helper("clear-project-git", project=str(self.directory))
         self.assertEqual(cleared.returncode, 0, cleared.stderr)
         self.assertFalse((managed / "key").exists())
         self.assertEqual(self.git("config", "core.sshCommand"), "false")
-        self.assertEqual(self.configure(url=url, key="ROTATED", readOnly=True).returncode, 0)
+        self.assertEqual(
+            self.configure(url=url, key="ROTATED", readOnly=True).returncode, 0
+        )
         self.assertEqual((managed / "key").read_text(), "ROTATED")
-        self.assertNotEqual(wrapper(command="git-receive-pack '/org/repo.git'").returncode, 0)
-        self.assertEqual(self.git("remote", "get-url", "--push", "origin"), "DISABLED_READ_ONLY")
-        self.assertEqual(self.run_helper("clear-project-git", project=str(self.directory)).returncode, 0)
-        removed = self.run_helper("configure-project-git", project=str(self.directory), sources=[])
+        self.assertNotEqual(
+            wrapper(command="git-receive-pack '/org/repo.git'").returncode, 0
+        )
+        self.assertEqual(
+            self.git("remote", "get-url", "--push", "origin"), "DISABLED_READ_ONLY"
+        )
+        self.assertEqual(
+            self.run_helper(
+                "clear-project-git", project=str(self.directory)
+            ).returncode,
+            0,
+        )
+        removed = self.run_helper(
+            "configure-project-git", project=str(self.directory), sources=[]
+        )
         self.assertEqual(removed.returncode, 0, removed.stderr)
         self.assertFalse((managed / "key").exists())
 
@@ -205,11 +287,62 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertEqual(self.run_helper("prepare").returncode, 0)
         outside = self.root / "outside"
         outside.mkdir()
-        (self.directory / ".git" / "zentrale-git").symlink_to(outside, target_is_directory=True)
+        (self.directory / ".git" / "zentrale-git").symlink_to(
+            outside, target_is_directory=True
+        )
         configured = self.configure()
         self.assertNotEqual(configured.returncode, 0)
         self.assertIn("symlinks", configured.stderr)
         self.assertEqual(list(outside.iterdir()), [])
+
+    def test_https_origin_is_repaired_only_for_the_selected_repository(self):
+        self.assertEqual(self.run_helper("prepare").returncode, 0)
+        url = "git@github.com:team/demo.git"
+        aliases = [
+            "https://github.com/team/demo",
+            "https://github.com/team/demo.git",
+        ]
+        for origin in [*aliases, "https://old-token@github.com/team/demo.git"]:
+            with self.subTest(origin=origin):
+                self.git("config", "--local", "remote.origin.url", origin)
+                configured = self.configure(url=url, httpUrls=None)
+                self.assertEqual(configured.returncode, 0, configured.stderr)
+                self.assertEqual(self.git("config", "remote.origin.url"), url)
+                for alias in aliases:
+                    self.assertEqual(self.git("ls-remote", "--get-url", alias), url)
+
+        for origin in (
+            "https://github.com/team/another.git",
+            "https://github.com/team/demo-other.git",
+            "https://unrelated.test/team/demo.git",
+            "git@github.com:team/demo",
+        ):
+            with self.subTest(origin=origin):
+                self.git("config", "--local", "remote.origin.url", origin)
+                configured = self.configure(url=url)
+                self.assertNotEqual(configured.returncode, 0)
+                self.assertIn("origin does not match", configured.stderr)
+                self.assertEqual(self.git("config", "remote.origin.url"), origin)
+
+    def test_writable_source_removes_only_its_own_read_only_hook(self):
+        prepared = self.run_helper("prepare", readOnly=True)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        hook = self.directory / ".git" / "hooks" / "pre-push"
+        self.assertEqual(hook.read_bytes(), repository_helper.READ_ONLY_HOOK)
+        configured = self.configure()
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertFalse(hook.exists())
+        self.assertEqual(
+            self.git("remote", "get-url", "--push", "origin"), str(self.origin)
+        )
+
+        custom_hook = b"#!/bin/sh\necho 'User hook' >&2\nexit 1\n"
+        hook.write_bytes(custom_hook)
+        hook.chmod(0o700)
+        configured = self.configure()
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(hook.read_bytes(), custom_hook)
+
     def test_stalled_git_metadata_check_times_out_and_preserves_work(self):
         prepared = self.run_helper("prepare")
         self.assertEqual(prepared.returncode, 0, prepared.stderr)

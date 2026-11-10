@@ -95,3 +95,9 @@ unrelated identities are rejected, and read-only sources cannot push. No global
 `~/.ssh` installation or SSH-agent forwarding is needed. Preparation refreshes
 keys and removes obsolete local credentials; forge-side key revocation remains
 effective immediately at the remote provider.
+
+The selected repository's HTTPS clone URLs also resolve to its SSH key inside
+the checkout. Preparation replaces stale `origin` push addresses and overrides
+host-wide SSH-to-HTTPS rewrites for that repository. Agent commands and VS Code
+therefore use the same deploy key for pushes, including changes to GitHub Actions
+workflows, without relying on an OAuth Git credential's `workflow` scope.

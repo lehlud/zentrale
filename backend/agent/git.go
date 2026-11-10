@@ -101,6 +101,10 @@ func (engine *Engine) sourceGitConfiguration(
 	if err != nil {
 		return nil, err
 	}
+	httpURLs, err := engine.GitForge.RepositoryHTTPURLs(source.BindingID, source.URL)
+	if err != nil {
+		return nil, err
+	}
 
 	return map[string]any{
 		"key": string(pem.EncodeToMemory(&pem.Block{
@@ -109,6 +113,7 @@ func (engine *Engine) sourceGitConfiguration(
 		})),
 		"known":              knownHosts,
 		"url":                source.URL,
+		"httpUrls":           httpURLs,
 		"directory":          directory,
 		"readOnly":           source.ReadOnly,
 		"temporaryDirectory": temporary,
