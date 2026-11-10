@@ -5,7 +5,9 @@ export default defineConfig({
   workers: 1,
   timeout: 60000,
   forbidOnly: Boolean(process.env.CI),
-  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
+  reporter: process.env.CI
+    ? [["line"], ["github"], ["html", { open: "never" }]]
+    : "list",
   use: {
     baseURL: process.env.ZENTRALE_E2E_URL ?? "http://127.0.0.1:18080",
     headless: true,

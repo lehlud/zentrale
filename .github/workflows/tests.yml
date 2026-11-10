@@ -54,9 +54,16 @@ jobs:
       - name: Static analysis
         run: go vet ./...
       - name: Go tests with race detector
-        run: go test -race -count=1 -timeout=15m ./...
+        id: go_tests
+        shell: bash
+        run: go test -race -json -count=1 -timeout=15m ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
+      - name: Annotate Go test failures
+        if: ${{ !cancelled() && steps.go_tests.outcome == 'failure' }}
+        run: python3 ../.github/scripts/report_go_tests.py "$RUNNER_TEMP/go-tests.jsonl"
       - name: Python tool and runtime tests
+        if: ${{ !cancelled() }}
         run: |
+          python3 -m unittest discover -s ../.github/scripts -p 'test_*.py'
           python3 -m unittest discover -s agent/scripts -p 'test_*.py'
           python3 -m unittest discover -s remote/scripts -p 'test_*.py'
           python3 -m unittest discover -s remote/microvm -p 'test_*.py'
