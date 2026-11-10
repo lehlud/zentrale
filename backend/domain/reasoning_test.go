@@ -13,7 +13,10 @@ func TestReasoningDefaultsAndFallbacks(t *testing.T) {
 		{"anthropic", "claude-sonnet-4-6", "", "approver", "medium"},
 		{"gemini", "gemini-3-pro-preview", "medium", "approver", "low"},
 		{"gemini", "gemini-3-flash-preview", "medium", "approver", "medium"},
-		{"litellm", "custom-chat-model", "xhigh", "main", "default"},
+		{"litellm", "custom-chat-model", "xhigh", "main", "xhigh"},
+		{"litellm", "custom-chat-model", "medium", "approver", "medium"},
+		{"litellm", "custom-chat-model", "", "main", "default"},
+		{"litellm", "custom-chat-model", "default", "main", "default"},
 		{"openai", "gpt-4.1", "", "main", "default"},
 	} {
 		t.Run(tc.kind+"/"+tc.model+"/"+tc.requested+"/"+tc.role, func(t *testing.T) {

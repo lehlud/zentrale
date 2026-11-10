@@ -21,7 +21,7 @@ func applyReasoning(body map[string]any, request Request, protocol string) {
 	case "chat":
 		if request.Config.Kind == "openrouter" {
 			body["reasoning"] = map[string]any{"effort": level}
-		} else if request.Config.Kind != "mistral" {
+		} else {
 			body["reasoning_effort"] = level
 		}
 	case "anthropic":
@@ -30,7 +30,7 @@ func applyReasoning(body map[string]any, request Request, protocol string) {
 			body["thinking"] = map[string]any{"type": "adaptive"}
 			body["output_config"] = map[string]any{"effort": level}
 		} else {
-			budget := map[string]int{"low": 1024, "medium": 4096, "high": 6144}[level]
+			budget := map[string]int{"minimal": 1024, "low": 1024, "medium": 4096, "high": 6144, "xhigh": 6144}[level]
 			body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 		}
 	case "gemini":
@@ -38,7 +38,7 @@ func applyReasoning(body map[string]any, request Request, protocol string) {
 		if strings.Contains(request.Model.ID, "gemini-3") {
 			thinking["thinkingLevel"] = level
 		} else {
-			thinking["thinkingBudget"] = map[string]int{"low": 1024, "medium": 8192, "high": 24576}[level]
+			thinking["thinkingBudget"] = map[string]int{"minimal": 1024, "low": 1024, "medium": 8192, "high": 24576, "xhigh": 24576}[level]
 		}
 		body["generationConfig"] = map[string]any{"thinkingConfig": thinking}
 	}

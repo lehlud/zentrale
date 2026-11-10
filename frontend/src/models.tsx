@@ -138,13 +138,13 @@ export function ModelChooser({
             onChoose={(choice) => {
               setDraft({
                 ...choice,
-                reasoningLevel: role === "approver" ? "medium" : "xhigh",
+                reasoningLevel: "",
               });
             }}
           />
         )}
         {draft.modelId && (
-          <ReasoningSelect choice={draft} onChange={setDraft} />
+          <ReasoningSelect choice={draft} onChange={setDraft} role={role} />
         )}
         <Button
           className="min-h-11"

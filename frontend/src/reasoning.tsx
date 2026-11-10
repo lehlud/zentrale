@@ -16,24 +16,40 @@ export function reasoningValue(levels: string[], requested: string) {
 export function ReasoningSelect({
   choice,
   onChange,
+  role = "main",
 }: {
   choice: ModelChoice;
   onChange: (choice: ModelChoice) => void;
+  role?: "main" | "approver";
 }) {
   const { t } = useI18n();
   const { data, error, loading } = useQuery<{ model: LanguageModel | null }>(
     "query($providerId:String!,$modelId:String!){model(providerId:$providerId,modelId:$modelId){id reasoningLevels}}",
-    choice,
+    { providerId: choice.providerId, modelId: choice.modelId },
   );
   const levels = data?.model?.reasoningLevels ?? [];
-  const value = reasoningValue(levels, choice.reasoningLevel || "xhigh");
+  const knownLevels = levels.length > 0;
+  const defaultLabel = t(
+    knownLevels ? "Standard (regulär)" : "Provider-Standard",
+  );
+  const options = knownLevels
+    ? levels
+    : ["minimal", "low", "medium", "high", "xhigh"];
+  const value = knownLevels
+    ? reasoningValue(
+        levels,
+        choice.reasoningLevel || (role === "approver" ? "medium" : "xhigh"),
+      )
+    : choice.reasoningLevel === "regular"
+      ? "medium"
+      : choice.reasoningLevel || "default";
   return (
     <div className="space-y-2">
       <Failure message={error} />
       <Select
         aria-label={t("Denkintensität")}
         value={value}
-        isDisabled={loading || !levels.length}
+        isDisabled={loading || !data?.model}
         onChange={(level) =>
           onChange({ ...choice, reasoningLevel: String(level) })
         }
@@ -45,27 +61,23 @@ export function ReasoningSelect({
         </Select.Trigger>
         <Select.Popover>
           <ListBox>
-            {["default", ...levels].map((level) => (
+            {["default", ...options].map((level) => (
               <ListBox.Item
                 key={level}
                 id={level}
-                textValue={
-                  level === "default" ? t("Standard (regulär)") : level
-                }
+                textValue={level === "default" ? defaultLabel : level}
               >
-                <Label>
-                  {level === "default" ? t("Standard (regulär)") : level}
-                </Label>
+                <Label>{level === "default" ? defaultLabel : level}</Label>
                 <ListBox.ItemIndicator />
               </ListBox.Item>
             ))}
           </ListBox>
         </Select.Popover>
       </Select>
-      {!loading && !levels.length && (
+      {!loading && data?.model && !knownLevels && (
         <p className="text-xs text-muted">
           {t(
-            "Dieses Modell verwendet die Standard-Denkintensität des Providers.",
+            "Die unterstützten Denkstufen dieses Modells sind nicht bekannt. Du kannst sie manuell setzen; der Provider kann nicht unterstützte Werte ablehnen.",
           )}
         </p>
       )}

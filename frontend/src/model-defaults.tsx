@@ -76,6 +76,7 @@ export function GlobalModelDefaults() {
                 <div className="min-w-0">
                   {defaults[role].modelId ? (
                     <SelectedModel
+                      role={role}
                       choice={defaults[role]}
                       onChange={(choice) =>
                         setDraft({ ...defaults, [role]: choice })
@@ -167,17 +168,19 @@ export function GlobalModelDefaults() {
 }
 
 function SelectedModel({
+  role,
   choice,
   providerName,
   onChange,
 }: {
+  role: "main" | "approver";
   choice: ModelChoice;
   providerName: string;
   onChange: (choice: ModelChoice) => void;
 }) {
   const { data } = useQuery<{ model: LanguageModel | null }>(
     "query($providerId:String!,$modelId:String!){model(providerId:$providerId,modelId:$modelId){id name}}",
-    choice,
+    { providerId: choice.providerId, modelId: choice.modelId },
   );
   return (
     <div className="min-w-0 space-y-1 text-sm">
@@ -185,7 +188,7 @@ function SelectedModel({
         {data?.model?.name || choice.modelId}
       </p>
       <p className="break-words text-xs text-muted">{providerName}</p>
-      <ReasoningSelect choice={choice} onChange={onChange} />
+      <ReasoningSelect choice={choice} onChange={onChange} role={role} />
     </div>
   );
 }

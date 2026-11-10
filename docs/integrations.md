@@ -11,8 +11,10 @@ New conversations inherit those defaults; existing ones retain their selections.
 Model choices also include a thinking/reasoning level. The main-agent default is
 `xhigh` (or the highest supported level); the approver default is `medium`.
 `regular` and `default` are equivalent to medium. The chooser exposes supported
-levels and preserves the selection across reloads. Models without known thinking
-support use their provider's defaults rather than receiving unsupported options.
+levels and preserves the selection across reloads. For models whose supported
+levels are unknown, the selector remains editable: explicit manual overrides are
+preserved and sent to the provider, which may reject unsupported values. Without
+an explicit override these models continue to use the provider's defaults.
 
 | Provider        | Connection                                         |
 | --------------- | -------------------------------------------------- |

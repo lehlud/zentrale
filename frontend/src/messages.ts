@@ -3,9 +3,10 @@
 export const english: Record<string, string> = {
   Denkintensität: "Reasoning effort",
   "Standard (regulär)": "Default (regular)",
+  "Provider-Standard": "Provider default",
   "Auswahl übernehmen": "Apply selection",
-  "Dieses Modell verwendet die Standard-Denkintensität des Providers.":
-    "This model uses the provider's default reasoning effort.",
+  "Die unterstützten Denkstufen dieses Modells sind nicht bekannt. Du kannst sie manuell setzen; der Provider kann nicht unterstützte Werte ablehnen.":
+    "This model's supported reasoning levels are unknown. You can set them manually; the provider may reject unsupported values.",
   // Goals and completion review.
   Aktiv: "Active",
   Arbeitsziel: "Goal",

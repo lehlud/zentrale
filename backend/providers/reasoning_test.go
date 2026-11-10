@@ -13,6 +13,12 @@ func TestReasoningPayloads(t *testing.T) {
 	}{
 		{"openai", "gpt-5.4", "xhigh", "responses", "reasoning", map[string]any{"effort": "xhigh"}},
 		{"litellm", "o3", "xhigh", "chat", "reasoning_effort", "high"},
+		{"litellm", "custom-reasoner", "xhigh", "chat", "reasoning_effort", "xhigh"},
+		{"mistral", "custom-reasoner", "high", "chat", "reasoning_effort", "high"},
+		{"openai", "custom-reasoner", "high", "responses", "reasoning", map[string]any{"effort": "high"}},
+		{"openrouter", "custom/reasoner", "medium", "chat", "reasoning", map[string]any{"effort": "medium"}},
+		{"anthropic", "custom-reasoner", "xhigh", "anthropic", "thinking", map[string]any{"type": "enabled", "budget_tokens": 6144}},
+		{"gemini", "custom-reasoner", "xhigh", "gemini", "generationConfig", map[string]any{"thinkingConfig": map[string]any{"thinkingBudget": 24576}}},
 		{"openrouter", "openai/gpt-5.4", "medium", "chat", "reasoning", map[string]any{"effort": "medium"}},
 		{"anthropic", "claude-sonnet-4-6", "medium", "anthropic", "output_config", map[string]any{"effort": "medium"}},
 		{"anthropic", "claude-sonnet-4-5", "high", "anthropic", "thinking", map[string]any{"type": "enabled", "budget_tokens": 6144}},
@@ -29,8 +35,8 @@ func TestReasoningPayloads(t *testing.T) {
 	}
 }
 
-func TestReasoningOmittedForUnknownAndDefault(t *testing.T) {
-	for _, tc := range []struct{ model, effort string }{{"gpt-4.1", "xhigh"}, {"gpt-5.4", "default"}, {"gpt-5.4", ""}} {
+func TestReasoningOmittedForDefault(t *testing.T) {
+	for _, tc := range []struct{ model, effort string }{{"custom-reasoner", ""}, {"custom-reasoner", "default"}, {"gpt-5.4", "default"}, {"gpt-5.4", ""}} {
 		for _, protocol := range []string{"responses", "chat", "anthropic", "gemini"} {
 			body := map[string]any{}
 			applyReasoning(body, Request{Config: domain.Provider{Kind: "openai"}, Model: domain.LanguageModel{ID: tc.model}, ReasoningLevel: tc.effort}, protocol)

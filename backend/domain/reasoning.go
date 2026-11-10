@@ -33,6 +33,14 @@ func ReasoningLevels(kind, model string) []string {
 func ResolveReasoningLevel(kind, model, requested, role string) string {
 	levels := ReasoningLevels(kind, model)
 	if len(levels) == 0 {
+		// Unknown capabilities are not evidence that reasoning is unsupported.
+		// Keep an explicit user override; automatic defaults remain conservative.
+		switch requested {
+		case "minimal", "low", "medium", "high", "xhigh":
+			return requested
+		case "regular":
+			return "medium"
+		}
 		return "default"
 	}
 	if requested == "" {
