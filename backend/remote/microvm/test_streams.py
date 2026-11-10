@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -228,6 +229,31 @@ class StreamingTests(unittest.TestCase):
         ):
             self.assertEqual(runner.run_invocation(self.job), 125)
         self.assertIn(b"missing guest runtime", diagnostic)
+
+    def test_old_client_exits_when_recovery_replaces_its_supervisor(self):
+        (self.job / "request.json").write_text("{}")
+        reference = runner.process_reference()
+        (self.control / "supervisor.pid").write_text(json.dumps(reference))
+        original_read = os.read
+
+        def recovered(_duration):
+            shutil.rmtree(self.job)
+            (self.control / "supervisor.pid").write_text(
+                json.dumps(dict(reference, started="replacement"))
+            )
+
+        with (
+            patch.object(runner.time, "sleep", side_effect=recovered),
+            patch.object(
+                runner.os,
+                "read",
+                side_effect=lambda fd, size: (
+                    b"" if fd == 0 else original_read(fd, size)
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "connection was interrupted"):
+                runner.run_invocation(self.job)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ export const english: Record<string, string> = {
   "Projektverzeichnis wird vorbereitet …": "Preparing project directory …",
   "Repository wird vorbereitet …": "Preparing repository …",
   "Sandbox wird geprüft …": "Checking sandbox …",
+  "Umgebung wird wiederhergestellt …": "Restoring environment …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
   Subagent: "Subagent",
 

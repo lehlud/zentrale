@@ -62,11 +62,14 @@ deployed fixes were already present. Host Git metadata checks completed in about
 Go SSH/JSON path all passed; guest commands took roughly 3–10 seconds under load.
 The exact earlier hang was not reproduced, so no single root cause is established.
 
-The runtime now checks a guest dispatcher heartbeat before reusing a cached
-session. A stale guest without live jobs is restarted using the same disk; active
-jobs prevent recovery from silently killing their work. Detached supervisors also
-have a bounded initial boot window. These guards address stale runtime reuse,
-while sharing and automatic cleanup reduce accumulated resource pressure.
+The runtime checks dispatcher progress before reusing a cached session. Fresh
+challenge/response probes avoid comparing guest and host wall clocks. Healthy,
+compatible guests can finish jobs before adopting a changed implementation.
+Unresponsive guests are recovered automatically using the retained disk; affected
+jobs are reported as interrupted and their agents are notified. Commands are not
+silently replayed. Detached supervisors also have a bounded initial boot window.
+These guards address stale runtime reuse, while sharing and automatic cleanup
+reduce accumulated resource pressure.
 
 All temporary database snapshots, copied guest disks, and diagnostic VM scopes
 were removed. The affected original guest disk was not started or modified by

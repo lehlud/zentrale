@@ -404,6 +404,9 @@ func (engine *Engine) monitorOccupancy(
 			cancel()
 
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				running.mu.Lock()
 				running.terminationReason = "machine became unavailable or another user logged in"
 				running.mu.Unlock()

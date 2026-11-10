@@ -541,6 +541,18 @@ func (editors *Editors) StopAgent(agentID string) error {
 	})
 }
 
+// Recovery can close every old editor while allowing the session currently
+// being prepared to retry its own startup in the recovered environment.
+func (editors *Editors) StopEnvironment(agents map[string]bool, machineID, exceptSessionID string) error {
+	return editors.stopMatching(func(session *editorSession) bool {
+		machine := session.target.MachineID
+		if machine == "" {
+			machine = session.info.MachineID
+		}
+		return agents[EditorScopeID(session.project.ID, session.target.AgentID)] && machine == machineID && session.info.ID != exceptSessionID
+	})
+}
+
 // Called with mutex held. Session IDs identify tabs independently of which
 // agent is currently selected in the project UI.
 func (editors *Editors) findSession(projectID, sessionID string) *editorSession {

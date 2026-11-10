@@ -230,6 +230,7 @@ class MicroVMRunnerTests(unittest.TestCase):
         (control / "version").write_text(runner.session_identity(configuration, {}))
         (control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
         (control / "ready.json").write_text("{}")
+        (control / "request.json").write_text(json.dumps({"vmType": "microvm"}))
         return scope, control, configuration
 
     def test_cached_supervisor_does_not_prove_guest_dispatcher_is_alive(self):
@@ -238,21 +239,25 @@ class MicroVMRunnerTests(unittest.TestCase):
         class RestartRequested(Exception):
             pass
 
-        with patch.object(runner, "stop_session", side_effect=RestartRequested) as stop:
+        with (
+            patch.object(runner, "stop_session", side_effect=RestartRequested) as stop,
+            patch.object(runner, "guest_responding", return_value=False),
+        ):
             with self.assertRaises(RestartRequested):
                 runner.ensure_session(scope, configuration, None, None, None, {})
             stop.assert_called_once_with(scope)
         (control / "heartbeat").touch()
-        with patch.object(runner, "stop_session") as stop:
+        with (
+            patch.object(runner, "stop_session") as stop,
+            patch.object(runner, "guest_responding", return_value=True),
+        ):
             self.assertEqual(
                 runner.ensure_session(scope, configuration, None, None, None, {}),
                 control,
             )
             stop.assert_not_called()
-        os.utime(control / "heartbeat", (1, 1))
-        self.assertFalse(runner.guest_responding(control))
 
-    def test_recovery_and_runtime_updates_preserve_live_jobs(self):
+    def test_healthy_running_jobs_defer_an_implementation_change(self):
         scope, control, configuration = self.cached_session()
         job = control / "requests" / "job"
         job.mkdir()
@@ -262,15 +267,60 @@ class MicroVMRunnerTests(unittest.TestCase):
             with (
                 self.subTest(updated=updated),
                 patch.object(runner, "stop_session") as stop,
+                patch.object(runner, "guest_responding", return_value=True),
             ):
-                with self.assertRaisesRegex(RuntimeError, "active jobs were preserved"):
-                    runner.ensure_session(scope, updated, None, None, None, {})
+                self.assertEqual(
+                    runner.ensure_session(scope, updated, None, None, None, {}), control
+                )
+                stop.assert_not_called()
+        for responsive, changed, reason in [
+            (False, configuration, "unresponsive"),
+            (True, dict(configuration, vmType="q35"), "configuration_changed"),
+        ]:
+            with (
+                self.subTest(reason=reason),
+                patch.object(runner, "guest_responding", return_value=responsive),
+                patch.object(runner, "stop_session") as stop,
+            ):
+                with self.assertRaises(runner.RecoveryRequired) as failure:
+                    runner.ensure_session(scope, changed, None, None, None, {})
+                self.assertEqual(failure.exception.reason, reason)
                 stop.assert_not_called()
         (job / "cancel").touch()
         self.assertFalse(runner.active_invocations(control))
         (job / "cancel").unlink()
         (job / "status").write_text("0")
         self.assertFalse(runner.active_invocations(control))
+
+    def test_health_reply_proves_progress_despite_clock_skew(self):
+        import threading
+        import time
+
+        _, control, _ = self.cached_session()
+        (control / "heartbeat").touch()
+        os.utime(control / "heartbeat", (1, 1))
+
+        def respond():
+            while not (control / "health.request").exists():
+                time.sleep(0.001)
+            nonce = json.loads((control / "health.request").read_text())["nonce"]
+            runner.atomic_json(control / "health.response", {"nonce": nonce})
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        self.assertTrue(runner.guest_responding(control))
+        worker.join(timeout=1)
+        self.assertFalse(worker.is_alive())
+
+    def test_stale_health_reply_does_not_prove_progress(self):
+        _, control, _ = self.cached_session()
+        (control / "heartbeat").touch()
+        runner.atomic_json(control / "health.response", {"nonce": "old"})
+        with (
+            patch.object(runner.time, "monotonic", side_effect=[0, 0, 6]),
+            patch.object(runner.time, "sleep"),
+        ):
+            self.assertFalse(runner.guest_responding(control))
 
     def test_scope_is_stable_but_separates_agents_and_projects(self):
         execution = {

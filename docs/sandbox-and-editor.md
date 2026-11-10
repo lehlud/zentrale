@@ -57,6 +57,15 @@ Agents have no stop command, and the interface needs no manual VM controls.
 Cleanup also retries after connection failures and server restarts. Obsolete
 per-subagent guests are stopped without deleting their retained disks.
 
+The dispatcher answers health probes independently of guest and host clock
+agreement. A healthy, compatible environment can finish existing jobs before
+adopting a changed runner implementation. If its dispatcher stops responding,
+Zentrale accounts for affected jobs as interrupted, closes old editor/MCP
+connections, and restarts the retained disk automatically. The interrupted
+commands are not replayed; their agents receive recovery notices and can resume
+from saved files. Preparation retries once and reports an error only if recovery
+itself cannot restore the environment.
+
 The platform choice does not eliminate the cost of a full Fedora guest. See the
 [VM measurements and design decision](vm-lifecycle-analysis.md).
 

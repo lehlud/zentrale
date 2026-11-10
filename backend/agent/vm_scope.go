@@ -95,6 +95,13 @@ func (engine *Engine) sandbox(
 	}
 	defer operation.Unlock()
 	command, level, err := remote.Sandbox(ctx, connection, machine, execution)
+	var recovery *remote.VMRecoveryRequired
+	if errors.As(err, &recovery) {
+		if err := engine.RecoverVM(ctx, connection, machine, execution, recovery.Reason); err != nil {
+			return "", level, err
+		}
+		command, level, err = remote.Sandbox(ctx, connection, machine, execution)
+	}
 	if level == remote.SandboxMicroVM && !execution.OutsideSandbox {
 		// Staging can start a guest before failing. Keep it discoverable by idle
 		// cleanup, including read-only inspections on an additional machine.
@@ -134,7 +141,15 @@ func (engine *Engine) manageVM(
 	if action == "prepare" || action == "reset" {
 		operation.stopped = false
 	}
-	return remote.ManageMicroVM(ctx, connection, machine, action, execution)
+	result, err := remote.ManageMicroVM(ctx, connection, machine, action, execution)
+	var recovery *remote.VMRecoveryRequired
+	if action == "prepare" && errors.As(err, &recovery) {
+		if err := engine.RecoverVM(ctx, connection, machine, execution, recovery.Reason); err != nil {
+			return nil, err
+		}
+		return remote.ManageMicroVM(ctx, connection, machine, action, execution)
+	}
+	return result, err
 }
 
 func (engine *Engine) agentFamily(owner domain.Agent) (map[string]bool, error) {

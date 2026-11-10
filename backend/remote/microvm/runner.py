@@ -32,6 +32,8 @@ import traceback
 
 
 UNAVAILABLE = 78
+RECOVERY_REQUIRED = 75
+CONTROL_PROTOCOL = 1
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 MAX_KERNEL_EXTRACT_BYTES = 256 * 1024 * 1024
@@ -39,6 +41,14 @@ MAX_KERNEL_EXTRACT_BYTES = 256 * 1024 * 1024
 
 class UnavailableError(RuntimeError):
     """No supported local VM prerequisites; auto may select Bubblewrap."""
+
+
+class RecoveryRequired(RuntimeError):
+    """The application must account for interrupted jobs before restarting."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__("managed environment requires recovery: " + reason)
 
 
 def vm_options(configuration):
@@ -914,11 +924,47 @@ def session_identity(configuration, execution):
 
 
 def guest_responding(control):
+    # Guest and host wall clocks need not agree. Ask the actual dispatcher and
+    # bound the wait using the host's monotonic clock. An older dispatcher can
+    # still prove progress by changing its heartbeat during that interval.
+    if not (control / "ready.json").is_file():
+        return False
+    nonce = secrets.token_hex(16)
+    atomic_json(control / "health.request", {"nonce": nonce})
     try:
-        return (control / "ready.json").is_file() and time.time() - (
-            control / "heartbeat"
-        ).stat().st_mtime <= 30
+        initial = (control / "heartbeat").stat().st_mtime_ns
     except FileNotFoundError:
+        initial = None
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            if (
+                json.loads((control / "health.response").read_text()).get("nonce")
+                == nonce
+            ):
+                return True
+        except (FileNotFoundError, ValueError):
+            pass
+        try:
+            if (control / "heartbeat").stat().st_mtime_ns != initial:
+                return True
+        except FileNotFoundError:
+            pass
+        time.sleep(0.05)
+    return False
+
+
+def compatible_session(control, configuration, execution):
+    try:
+        previous = json.loads((control / "request.json").read_text())
+        vm_type, devices = vm_options(configuration)
+        return (
+            previous.get("controlProtocol", 1) == CONTROL_PROTOCOL
+            and previous.get("vmType", "microvm") == vm_type
+            and (previous.get("gpuDevices") or []) == devices
+            and (previous.get("storage") or []) == (execution.get("storage") or [])
+        )
+    except (FileNotFoundError, ValueError):
         return False
 
 
@@ -944,18 +990,25 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
     vm_type, addresses = vm_options(configuration)
     identity = session_identity(configuration, execution)
     if control.is_dir():
-        if (
-            (control / "version").exists()
-            and (control / "version").read_text() == identity
-            and not (control / "stopped").exists()
+        active = active_invocations(control)
+        alive_supervisor = (
+            not (control / "stopped").exists()
             and (control / "supervisor.pid").exists()
             and alive((control / "supervisor.pid").read_text())
-        ):
-            if guest_responding(control):
+        )
+        compatible = compatible_session(control, configuration, execution)
+        responsive = alive_supervisor and guest_responding(control)
+        same_version = (control / "version").exists() and (
+            control / "version"
+        ).read_text() == identity
+        if responsive and compatible:
+            # Applying a new implementation can wait until existing work ends.
+            # Hardware, mounts and protocol changes cannot be deferred this way.
+            if same_version or active:
                 return control
-        if active_invocations(control):
-            raise RuntimeError(
-                "Fedora guest needs recovery or an update; active jobs were preserved"
+        if active:
+            raise RecoveryRequired(
+                "configuration_changed" if responsive else "unresponsive"
             )
         stop_session(scope)
 
@@ -970,6 +1023,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         network=True,
         editorPort=editor_port,
         vmType=vm_type,
+        controlProtocol=CONTROL_PROTOCOL,
         gpuDevices=addresses,
     )
     prepare_control(control, configuration, runtime, request)
@@ -1056,6 +1110,10 @@ def stage(cache, execution, configuration, runtime, base, kernel):
 
 def run_invocation(invocation):
     control = invocation.parent.parent
+    try:
+        supervisor = (control / "supervisor.pid").read_text()
+    except FileNotFoundError:
+        supervisor = None
     MailboxStream = runpy.run_path(str(control / "streams.py"))["MailboxStream"]
     request = json.loads((invocation / "request.json").read_text())
     cancelled = lambda: (
@@ -1120,17 +1178,27 @@ def run_invocation(invocation):
                     with diagnostic.open("rb") as source:
                         write_all(2, source.read(8192))
                 return int((invocation / "status").read_text())
-            if (control / "stopped").exists() or not alive(
-                (control / "supervisor.pid").read_text()
+            try:
+                current_supervisor = (control / "supervisor.pid").read_text()
+            except FileNotFoundError:
+                current_supervisor = None
+            if (
+                (control / "stopped").exists()
+                or supervisor is None
+                or current_supervisor != supervisor
+                or not alive(supervisor)
             ):
                 raise RuntimeError(
                     "the Fedora MicroVM connection was interrupted; its disk is retained"
                 )
             time.sleep(0.03)
     finally:
-        (invocation / "cancel").touch()
-        # PID 1 removes completed mailboxes once the reader acknowledges them.
-        (invocation / "acknowledged").touch()
+        try:
+            (invocation / "cancel").touch()
+            # PID 1 removes completed mailboxes once the reader acknowledges them.
+            (invocation / "acknowledged").touch()
+        except FileNotFoundError:
+            pass  # Automatic recovery has already removed this old session.
 
 
 def validate_execution(execution):
@@ -1278,6 +1346,12 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except RecoveryRequired as error:
+        print(
+            "ZENTRALE_VM_RECOVERY_REQUIRED " + json.dumps({"reason": error.reason}),
+            flush=True,
+        )
+        sys.exit(RECOVERY_REQUIRED)
     except UnavailableError as error:
         if len(sys.argv) < 2 or sys.argv[1] != "select":
             print("MicroVM unavailable: " + str(error), file=sys.stderr)

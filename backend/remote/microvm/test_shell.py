@@ -35,6 +35,19 @@ class GuestShellTests(unittest.TestCase):
             "root:x:0:0:root:/root:/bin/bash\nzentrale:x:1000:1000:Agent:/home/zentrale:/bin/bash\n"
         )
 
+    def test_dispatcher_echoes_only_the_current_health_nonce(self):
+        nonce = "a" * 32
+        (self.root / "health.request").write_text(json.dumps({"nonce": nonce}))
+        guest_init.respond_to_health_check(self.root)
+        self.assertEqual(
+            json.loads((self.root / "health.response").read_text()), {"nonce": nonce}
+        )
+        (self.root / "health.request").write_text(json.dumps({"nonce": "invalid"}))
+        guest_init.respond_to_health_check(self.root)
+        self.assertEqual(
+            json.loads((self.root / "health.response").read_text()), {"nonce": nonce}
+        )
+
     def test_installs_fish_once_and_migrates_existing_identity(self):
         (self.root / "usr/bin/microdnf").touch()
 

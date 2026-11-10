@@ -26,6 +26,7 @@ type EditorTarget struct {
 	CommitIdentity     domain.CommitIdentity
 	TemporaryDirectory string
 	RuntimeLock        RuntimeLock
+	Recovery           VMRecovery
 }
 
 // RuntimeLock serializes guest startup with automatic stop and removal.
@@ -52,6 +53,34 @@ type editorRuntime struct {
 }
 
 func prepareEditorRuntime(
+	ctx context.Context,
+	connection *Connection,
+	machine domain.Machine,
+	project domain.Project,
+	target EditorTarget,
+	prefix string,
+) (editorRuntime, error) {
+	runtime, err := prepareEditorRuntimeOnce(ctx, connection, machine, project, target, prefix)
+	var recovery *VMRecoveryRequired
+	if !errors.As(err, &recovery) || target.Recovery == nil {
+		return runtime, err
+	}
+	temporary := target.TemporaryDirectory
+	if temporary == "" {
+		temporary = "/tmp/zentrale-" + EditorScopeID(project.ID, target.AgentID)
+	}
+	execution := Execution{
+		AgentID: EditorScopeID(project.ID, target.AgentID), ProjectID: project.ID,
+		Workspace: project.Directory, TemporaryDirectory: temporary,
+		EditorSessionID: prefix[strings.LastIndex(prefix, "/")+1:],
+	}
+	if err := target.Recovery.RecoverVM(ctx, connection, machine, execution, recovery.Reason); err != nil {
+		return editorRuntime{}, err
+	}
+	return prepareEditorRuntimeOnce(ctx, connection, machine, project, target, prefix)
+}
+
+func prepareEditorRuntimeOnce(
 	ctx context.Context,
 	connection *Connection,
 	machine domain.Machine,

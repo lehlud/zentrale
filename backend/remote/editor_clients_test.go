@@ -115,3 +115,22 @@ func TestOldEditorDisconnectCannotCloseReplacement(t *testing.T) {
 	case <-time.After(2 * editors.reconnectGrace):
 	}
 }
+
+func TestRecoveryDoesNotStopTheEditorPerformingItsOwnStartup(t *testing.T) {
+	editors, session, ctx := editorClientFixture(t)
+	finished := make(chan error, 1)
+	go func() { finished <- editors.StopEnvironment(map[string]bool{"main": true}, "worker", session.info.ID) }()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		close(session.done) // Release a faulty self-wait before reporting failure.
+		<-finished
+		t.Fatal("editor recovery waited for its own startup to exit")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("recovery cancelled the editor being prepared")
+	}
+}

@@ -201,6 +201,7 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 			MachineID:      machine.ID,
 			CommitIdentity: identity,
 			RuntimeLock:    engine.vmOperation(scope, machine.ID),
+			Recovery:       engine,
 		},
 	)
 }
