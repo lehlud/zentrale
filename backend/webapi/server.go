@@ -253,6 +253,19 @@ func (server *Server) events(requestContext echo.Context) error {
 	defer unsubscribe()
 
 	after, _ := strconv.ParseInt(requestContext.QueryParam("after"), 10, 64)
+	if requestContext.QueryParam("after") == "latest" {
+		// A fresh page reads current state through GraphQL, not the entire
+		// durable event history. Subscribe first so concurrent changes remain
+		// queued, and send a watermark to close the query/subscribe race.
+		after, err = server.Store.LatestEventID()
+		if err != nil {
+			return err
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if err := conn.WriteJSON(domain.Event{ID: after, Type: "sync"}); err != nil {
+			return nil
+		}
+	}
 	send := func(event domain.Event) error {
 		if event.ID != 0 && event.ID <= after {
 			return nil

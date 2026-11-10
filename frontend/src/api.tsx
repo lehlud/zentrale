@@ -1,12 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import {
   ConnectionError,
@@ -59,7 +52,7 @@ export class API {
   private socket: WebSocket | null = null;
   private reconnect: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
-  private lastEvent = 0;
+  private lastEvent: number | undefined;
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -170,7 +163,7 @@ export class API {
       }
 
       const socket = new WebSocket(
-        `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/events?after=${this.lastEvent}`,
+        `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/events?after=${this.lastEvent ?? "latest"}`,
       );
       this.socket = socket;
       socket.onmessage = (event) => {
@@ -185,7 +178,7 @@ export class API {
           return;
         }
 
-        if (data.id > this.lastEvent) {
+        if (data.type === "sync" || data.id > (this.lastEvent ?? 0)) {
           this.lastEvent = data.id;
           this.refresh();
         }
@@ -229,7 +222,6 @@ export function useQuery<T>(
   variables: Record<string, unknown> = {},
 ) {
   const api = useAPI();
-  const version = useSyncExternalStore(api.subscribe, api.snapshot);
   const key = JSON.stringify(variables);
   const stableVars = useMemo(
     () => JSON.parse(key) as Record<string, unknown>,
@@ -244,26 +236,49 @@ export function useQuery<T>(
 
   useEffect(() => {
     const controller = new AbortController();
-    api
-      .query<T>(query, stableVars, controller.signal)
-      .then((value) => {
-        if (controller.signal.aborted) {
-          return;
-        }
+    let running = false;
+    let dirty = false;
+    const load = () => {
+      if (controller.signal.aborted) return;
+      if (running) {
+        dirty = true;
+        return;
+      }
+      running = true;
+      dirty = false;
+      void api
+        .query<T>(query, stableVars, controller.signal)
+        .then((value) => {
+          if (controller.signal.aborted) {
+            return;
+          }
 
-        setResult({ key: requestKey, value });
-        setFailure(undefined);
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted && err.name !== "AbortError")
-          setFailure({ key: requestKey, message: String(err.message) });
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+          setResult({ key: requestKey, value });
+          setFailure(undefined);
+        })
+        .catch((err) => {
+          if (!controller.signal.aborted && err.name !== "AbortError")
+            setFailure({ key: requestKey, message: String(err.message) });
+        })
+        .finally(() => {
+          running = false;
+          if (!controller.signal.aborted) {
+            setLoading(false);
+            // Complete the current read, then fetch the newest state once.
+            // Busy event streams must not starve initial loading by repeatedly
+            // aborting requests before they have a chance to finish.
+            if (dirty) load();
+          }
+        });
+    };
+    const unsubscribe = api.subscribe(load);
+    load();
 
-    return () => controller.abort();
-  }, [api, query, stableVars, version]);
+    return () => {
+      unsubscribe();
+      controller.abort();
+    };
+  }, [api, query, stableVars]);
 
   return {
     data,
