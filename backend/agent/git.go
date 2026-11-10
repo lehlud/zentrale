@@ -92,6 +92,10 @@ func (engine *Engine) sourceGitConfiguration(
 	source domain.Source,
 	directory, temporary string,
 ) (map[string]any, error) {
+	if err := engine.GitForge.RefreshRepositoryAuthorization(ctx, source.BindingID, source.URL); err != nil {
+		return nil, err
+	}
+
 	privateKey, err := engine.Store.PrivateKey(source.KeyID)
 	if err != nil {
 		return nil, err

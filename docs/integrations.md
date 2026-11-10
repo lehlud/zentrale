@@ -43,7 +43,8 @@ Git connections use device login, available in Settings or directly in the
 project/source repository picker. Register your own OAuth application first:
 
 - **GitHub:** enable Device Flow and provide the client ID. Requested scopes are
-  `repo read:org`.
+  `repo read:org workflow`. The additional `workflow` grant allows changes to
+  GitHub Actions workflow files, including pushes using OAuth-created deploy keys.
 - **GitLab:** provide a client ID, `api` scope, and a client secret for confidential
   applications. The instance must support Device Flow. Self-hosted HTTPS
   instances can be configured.
@@ -99,5 +100,13 @@ effective immediately at the remote provider.
 The selected repository's HTTPS clone URLs also resolve to its SSH key inside
 the checkout. Preparation replaces stale `origin` push addresses and overrides
 host-wide SSH-to-HTTPS rewrites for that repository. Agent commands and VS Code
-therefore use the same deploy key for pushes, including changes to GitHub Actions
-workflows, without relying on an OAuth Git credential's `workflow` scope.
+therefore use the same deploy key for pushes. SSH transport alone does not remove
+GitHub's restrictions on a key registered through an OAuth application.
+
+Older GitHub connections need one new device authorization to grant `workflow`:
+open **Settings → Git connections → GitHub → Sign in again**, and approve workflow
+access. Zentrale marks these connections in Settings. On the next project
+connection or editor start, it re-registers that project's managed deploy key
+with the new grant, keeping the private key and existing checkout. Interrupted
+registration can be retried without creating another local key. No GitHub token
+is installed in the VM. See GitHub's [OAuth scope documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).

@@ -542,6 +542,8 @@ Object.assign(english, {
   "Modelle werden geladen …": "Loading models …",
   "{count} Sprachmodelle": "{count} language models",
   "Erneut anmelden": "Sign in again",
+  "Für Änderungen an GitHub-Actions-Workflows bitte die GitHub-Verbindung erneut autorisieren.":
+    "Authorize the GitHub connection again to allow changes to GitHub Actions workflows.",
   "Modelle aktualisieren": "Refresh models",
   "Modelle ansehen": "View models",
   "Zuerst globale Modell-Defaults festlegen":
@@ -1128,6 +1130,10 @@ Object.assign(germanErrors, {
     "Der Schlüssel wird noch in einem Projekt oder einer Maschine verwendet. Zuerst diese Verwendungen entfernen.",
   "reconnect the original Git service before revoking this key":
     "Zum Widerrufen des Schlüssels zuerst die ursprüngliche Git-Instanz verbinden.",
+  "reconnect the original Git service before updating repository authorization":
+    "Zum Aktualisieren der Repository-Berechtigung zuerst die ursprüngliche Git-Instanz verbinden.",
+  "GitHub workflow permission was not granted; sign in again and approve workflow access":
+    "GitHub hat den Zugriff auf Workflows nicht freigegeben. Erneut anmelden und den Workflow-Zugriff bestätigen.",
   "select an owner or organization":
     "Ein Konto oder eine Organisation auswählen.",
   "selected repository owner is not available to this account":

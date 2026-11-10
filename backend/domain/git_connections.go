@@ -11,6 +11,8 @@ type GitConnection struct {
 	Configured bool   `json:"configured"`
 	Connected  bool   `json:"connected"`
 	UserName   string `json:"userName"`
+
+	ReauthorizationRequired bool `json:"reauthorizationRequired"`
 }
 
 type GitConnectionConfig struct {

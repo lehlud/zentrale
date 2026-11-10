@@ -3,6 +3,67 @@ import { mkdir, writeFile } from "node:fs/promises";
 
 import { config, gitConnections } from "./fixtures/visual-data";
 
+test("GitHub workflow reauthorization is visible and clears after consent", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("zentrale-locale", "en");
+  });
+  const connections = structuredClone(gitConnections);
+  connections[0] = {
+    ...connections[0],
+    configured: true,
+    connected: true,
+    userName: "gunter",
+    reauthorizationRequired: true,
+  };
+  const login = {
+    id: "workflow-consent",
+    connectionId: "github",
+    verificationUrl: "https://github.com/login/device",
+    userCode: "WORK-FLOW",
+    status: "pending",
+    expiresAt: "2099-01-01T00:00:00Z",
+    interval: 5,
+    error: "",
+  };
+  await page.route("**/graphql", async (route) => {
+    const { query } = route.request().postDataJSON();
+    const send = (value: unknown) => route.fulfill({ json: { data: value } });
+    if (query.includes("beginGitLogin")) return send({ beginGitLogin: login });
+    if (query.includes("pollGitLogin")) {
+      connections[0].reauthorizationRequired = false;
+      return send({ pollGitLogin: { ...login, status: "connected" } });
+    }
+    if (query.includes("status")) {
+      return send({ status: { needsSetup: false, authenticated: true } });
+    }
+    if (query.includes("machines(limit:500)")) return send(config);
+    if (query.includes("gitConnections")) {
+      return send({ gitConnections: connections });
+    }
+    if (query.includes("sidebarAgents")) return send({ sidebarAgents: [] });
+    return send({});
+  });
+  await page.goto("/#/settings");
+  const notice = page.getByText(
+    "Authorize the GitHub connection again to allow changes to GitHub Actions workflows.",
+  );
+  await expect(notice).toBeVisible();
+  await page
+    .getByRole("button", { name: "Sign in again", exact: true })
+    .click();
+  const dialog = page.locator('[data-slot="modal-dialog"]:not([data-exiting])');
+  await expect(dialog.getByText("WORK-FLOW", { exact: true })).toBeVisible();
+  const done = dialog.getByRole("button", { name: "Done", exact: true });
+  await expect(done).toBeVisible({ timeout: 12000 });
+  await done.click();
+  await expect(notice).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Sign in again", exact: true }),
+  ).toHaveCount(0);
+});
+
 for (const english of [false, true]) {
   test(`repository login, organization creation, retry and key usages: ${english ? "mobile-en-dark" : "desktop-de-light"}`, async ({
     page,

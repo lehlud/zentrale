@@ -5,6 +5,7 @@ export const gitConnections = ["github", "gitlab"].map((kind) => ({
   clientId: "",
   configured: false,
   connected: false,
+  reauthorizationRequired: false,
   userName: "",
 }));
 

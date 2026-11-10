@@ -25,6 +25,7 @@ type forgeFixture struct {
 	refreshes       int
 	profileFailures int
 	loseKeyResponse bool
+	tokenScopes     *string
 	oauthError      string
 	createdOwner    string
 }
@@ -99,7 +100,7 @@ func (fixture *forgeFixture) serve(response http.ResponseWriter, request *http.R
 	switch {
 	case path == "/login/device/code" || path == "/oauth/authorize_device":
 		_ = request.ParseForm()
-		expectedScope := "repo read:org"
+		expectedScope := "repo read:org workflow"
 
 		if fixture.kind == "gitlab" {
 			expectedScope = "api"
@@ -148,7 +149,14 @@ func (fixture *forgeFixture) serve(response http.ResponseWriter, request *http.R
 			return
 		}
 
-		write(map[string]any{"access_token": "access-one", "refresh_token": "refresh-one", "expires_in": 120})
+		scope := "repo,read:org,workflow"
+		if fixture.kind == "gitlab" {
+			scope = "api"
+		}
+		if fixture.tokenScopes != nil {
+			scope = *fixture.tokenScopes
+		}
+		write(map[string]any{"access_token": "access-one", "refresh_token": "refresh-one", "expires_in": 120, "scope": scope})
 	case path == "/user":
 		if fixture.profileFailures > 0 {
 			fixture.profileFailures--
@@ -232,7 +240,13 @@ func (fixture *forgeFixture) serve(response http.ResponseWriter, request *http.R
 	case request.Method == "DELETE" &&
 		(strings.Contains(path, "/keys/") ||
 			strings.Contains(path, "/deploy_keys/")):
-		fixture.keys = []map[string]any{}
+		retained := make([]map[string]any, 0, len(fixture.keys))
+		for _, key := range fixture.keys {
+			if !strings.HasSuffix(path, "/"+fmt.Sprint(key["id"])) {
+				retained = append(retained, key)
+			}
+		}
+		fixture.keys = retained
 		response.WriteHeader(204)
 	case path == "/repos/team/demo" || path == "/projects/42":
 		write(fixture.repository())

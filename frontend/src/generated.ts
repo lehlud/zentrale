@@ -88,6 +88,7 @@ export type GitConnection = {
   connected: boolean;
   id: string;
   kind: string;
+  reauthorizationRequired: boolean;
   userName: string;
 };
 export type GitConnectionConfigInput = {

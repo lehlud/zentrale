@@ -9,7 +9,7 @@ import { useI18n } from "./preferences";
 import { Editor, Failure, Inspect, Loading, useAction } from "./ui";
 
 export const gitConnectionFields =
-  "id kind baseUrl clientId configured connected userName";
+  "id kind baseUrl clientId configured connected userName reauthorizationRequired";
 
 export const gitConnectionsQuery = `query{gitConnections{${gitConnectionFields}}}`;
 
@@ -57,10 +57,22 @@ export function GitConnections() {
                 <h3 className="font-medium">{gitName(connection.kind)}</h3>
                 <Chip
                   size="sm"
-                  color={connection.connected ? "success" : "default"}
+                  color={
+                    connection.reauthorizationRequired
+                      ? "warning"
+                      : connection.connected
+                        ? "success"
+                        : "default"
+                  }
                   variant="soft"
                 >
-                  {t(connection.connected ? "Verbunden" : "Nicht verbunden")}
+                  {t(
+                    connection.reauthorizationRequired
+                      ? "Erneut anmelden"
+                      : connection.connected
+                        ? "Verbunden"
+                        : "Nicht verbunden",
+                  )}
                 </Chip>
               </div>
               <p className="break-all text-sm text-muted">
@@ -68,14 +80,30 @@ export function GitConnections() {
                   ? connection.userName
                   : connection.baseUrl}
               </p>
+              {connection.reauthorizationRequired && (
+                <Alert status="warning">
+                  <Alert.Content>
+                    <Alert.Description>
+                      {t(
+                        "Für Änderungen an GitHub-Actions-Workflows bitte die GitHub-Verbindung erneut autorisieren.",
+                      )}
+                    </Alert.Description>
+                  </Alert.Content>
+                </Alert>
+              )}
               <div className="flex items-center justify-end gap-2">
-                {!connection.connected && (
+                {(!connection.connected ||
+                  connection.reauthorizationRequired) && (
                   <Button
                     variant="secondary"
                     className="mr-auto min-h-11"
                     onPress={() => setSelected({ connection })}
                   >
-                    {t("Verbinden")}
+                    {t(
+                      connection.reauthorizationRequired
+                        ? "Erneut anmelden"
+                        : "Verbinden",
+                    )}
                   </Button>
                 )}
                 <ActionsMenu

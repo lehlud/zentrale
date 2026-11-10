@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -23,9 +24,10 @@ type repositoryBinding struct {
 	FullName     string `json:"fullName"`
 	SSHURL       string `json:"sshUrl"`
 
-	KeyID       int    `json:"keyId"`
-	DeployKeyID int    `json:"deployKeyId"`
-	State       string `json:"state"`
+	KeyID       int      `json:"keyId"`
+	DeployKeyID int      `json:"deployKeyId"`
+	State       string   `json:"state"`
+	Scopes      []string `json:"scopes,omitempty"`
 }
 
 // RepositoryHTTPURLs describes the same selected repository through its web
@@ -122,7 +124,14 @@ func (service *Service) ensureBinding(
 	}
 
 	if err == nil {
+		if account.Public.Kind == "github" && slices.Contains(account.Scopes, "workflow") &&
+			(!slices.Contains(previous.Scopes, "workflow") || previous.State == "reauthorizing") {
+			if err := service.reauthorizeBinding(ctx, &previous, account); err != nil {
+				return binding, err
+			}
+		}
 		binding.KeyID, binding.DeployKeyID = previous.KeyID, previous.DeployKeyID
+		binding.Scopes = previous.Scopes
 	}
 
 	remoteKeys, err := service.Client.deployKeys(ctx, account, repository)
@@ -137,6 +146,7 @@ func (service *Service) ensureBinding(
 		}
 
 		binding.KeyID = key.ID
+		binding.Scopes = append([]string(nil), account.Scopes...)
 		claim := datastore.SSHKeyClaim{KeyID: key.ID, Purpose: "repository", PurposeID: binding.ID}
 		if err := service.Store.SaveWithSSHKeys("repository_binding", binding.ID, "", binding, claim); err != nil {
 			_ = service.Store.DropPrivSSHKey(key.ID)
@@ -180,6 +190,7 @@ func (service *Service) ensureBinding(
 		}
 
 		binding.DeployKeyID = key.ID
+		binding.Scopes = append([]string(nil), account.Scopes...)
 	}
 
 	binding.State = "active"

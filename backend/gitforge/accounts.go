@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
@@ -23,6 +25,7 @@ type account struct {
 	AccessToken  string    `json:"accessToken,omitempty"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
 	TokenExpiry  time.Time `json:"tokenExpiry"`
+	Scopes       []string  `json:"scopes,omitempty"`
 
 	Login *loginTransaction `json:"login,omitempty"`
 }
@@ -81,6 +84,8 @@ func (service *Service) account(id string) (account, error) {
 		(value.TokenExpiry.IsZero() ||
 			service.Now().Before(value.TokenExpiry) ||
 			value.RefreshToken != "")
+	value.Public.ReauthorizationRequired = id == "github" && value.AccessToken != "" &&
+		!slices.Contains(value.Scopes, "workflow")
 
 	return value, nil
 }
@@ -179,7 +184,7 @@ func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, 
 		return domain.GitLogin{}, errors.New("configure the OAuth app client ID first")
 	}
 
-	path, scopes := "/login/device/code", "repo read:org"
+	path, scopes := "/login/device/code", "repo read:org workflow"
 
 	if id == "gitlab" {
 		path, scopes = "/oauth/authorize_device", "api"
@@ -301,6 +306,9 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 		transaction.Public.Interval = max(transaction.Public.Interval+5, number(response["interval"]))
 		transaction.NextPollAt = service.Now().Add(time.Duration(transaction.Public.Interval) * time.Second)
 	case "":
+		// A new authorization must describe its own grants. Only token refreshes
+		// may retain scopes when the provider omits an unchanged scope response.
+		value.Scopes = nil
 		if err := service.acceptToken(&value, response); err != nil {
 			return transaction.Public, err
 		}
@@ -344,6 +352,11 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 	if value.Public.UserName == "" {
 		return value.Login.Public, errors.New("Git provider returned no account identity")
 	}
+	if value.Public.Kind == "github" && !slices.Contains(value.Scopes, "workflow") {
+		value.Login.Public.Status = "failed"
+		value.Login.Public.Error = "GitHub workflow permission was not granted; sign in again and approve workflow access"
+		return value.Login.Public, service.save(*value)
+	}
 
 	value.Public.Connected, value.Login.Public.Status = true, "connected"
 	delete(service.cache, value.Public.ID)
@@ -357,6 +370,13 @@ func (service *Service) acceptToken(value *account, response map[string]any) err
 	}
 
 	value.AccessToken = text(response["access_token"])
+	if scopes, present := response["scope"]; present {
+		value.Scopes = strings.FieldsFunc(text(scopes), func(character rune) bool {
+			return character == ',' || unicode.IsSpace(character)
+		})
+		slices.Sort(value.Scopes)
+		value.Scopes = slices.Compact(value.Scopes)
+	}
 
 	if token := text(response["refresh_token"]); token != "" {
 		value.RefreshToken = token
@@ -435,6 +455,7 @@ func (service *Service) Disconnect(id string) error {
 	}
 
 	value.AccessToken, value.RefreshToken, value.Public.UserName = "", "", ""
+	value.Scopes = nil
 	value.Public.Connected, value.Login = false, nil
 	value.TokenExpiry = time.Time{}
 	delete(service.cache, id)
