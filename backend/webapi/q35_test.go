@@ -2,8 +2,6 @@ package webapi
 
 import (
 	"testing"
-
-	"github.com/lehlud/zentrale/domain"
 )
 
 func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
@@ -57,37 +55,10 @@ func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
 	}
 }
 
-func TestStopAgentVMMutationRetainsTheConversationAndRejectsBusyAgents(t *testing.T) {
+func TestVMLifecycleHasNoManualStopMutation(t *testing.T) {
 	fixture := newAPIFixture(t)
-	requireData(
-		t,
-		fixture.query(
-			t,
-			`mutation{setup(password:"valid test password",commitIdentity:{name:"Test",email:"test@example.test"})}`,
-			nil,
-		),
-	)
-	record := domain.Agent{ID: "vm-owner", ProjectID: "project", Role: "main", Status: "idle"}
-	if err := fixture.engine.Store.Save("agent", record.ID, record.ProjectID, record); err != nil {
-		t.Fatal(err)
-	}
-
-	data := requireData(t, fixture.query(t, `mutation{stopAgentVM(agentId:"vm-owner")}`, nil))
-	if data["stopAgentVM"] != true {
-		t.Fatal(data)
-	}
-
-	if err := fixture.engine.Store.Load("agent", record.ID, &record); err != nil || record.Status != "idle" {
-		t.Fatalf("stop changed conversation: %+v %v", record, err)
-	}
-
-	record.Status = "running"
-
-	if err := fixture.engine.Store.Save("agent", record.ID, record.ProjectID, record); err != nil {
-		t.Fatal(err)
-	}
-
+	requireData(t, fixture.query(t, `mutation{setup(password:"valid test password",commitIdentity:{name:"Test",email:"test@example.test"})}`, nil))
 	if fixture.query(t, `mutation{stopAgentVM(agentId:"vm-owner")}`, nil)["errors"] == nil {
-		t.Fatal("stopped an active agent's VM")
+		t.Fatal("VM lifecycle still requires manual stop controls")
 	}
 }

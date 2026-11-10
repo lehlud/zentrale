@@ -54,6 +54,7 @@ export const english: Record<string, string> = {
   "Projektverzeichnis wird vorbereitet …": "Preparing project directory …",
   "Repository wird vorbereitet …": "Preparing repository …",
   "Sandbox wird geprüft …": "Checking sandbox …",
+  "Umgebung wird wiederhergestellt …": "Restoring environment …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
   Subagent: "Subagent",
 
@@ -80,7 +81,7 @@ export const english: Record<string, string> = {
   Läuft: "Running",
   "Live-Antwort": "Live response",
   "Agent stoppen": "Stop agent",
-  "VM stoppen": "Stop VM",
+  "Subagenten von {name}": "Subagents of {name}",
   "Antwort unterbrochen": "Response interrupted",
   "Antwort wird vorbereitet …": "Preparing response …",
   "Schreibt …": "Writing …",

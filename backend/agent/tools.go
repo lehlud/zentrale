@@ -49,6 +49,9 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 	if err != nil {
 		return nil, err
 	}
+	if request.Action == "microvm_reset" && (agentRecord.Role != "main" || agentRecord.ParentID != "") {
+		return nil, errors.New("only the main agent can reset the shared environment")
+	}
 
 	switch request.Action {
 	case "write_stdin":

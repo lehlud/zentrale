@@ -22,6 +22,12 @@ editor cache live under `/data`; the named volume preserves them when the
 container is replaced. For a bind mount, make the directory writable by that UID.
 Treat the volume as private: it contains account credentials and SSH keys.
 
+Run **one Zentrale instance per data volume**. Deployments must stop the old
+container before starting its replacement; two processes cannot write to the
+same DuckDB file. In Coolify, select **Consistent name (no rolling updates)**
+under the application's container naming settings. This causes a brief service
+interruption while the replacement starts. Keep the data volume on local storage.
+
 Agent commands and VMs still run on your configured SSH machines. The Zentrale
 container needs neither privileged mode nor the Docker socket. Additional server
 flags can be appended after the image name, for example
@@ -86,3 +92,16 @@ Accepted prompts and queued messages are persisted before remote setup.
 Reconnecting reloads their state. Agent input receipt IDs prevent duplicate
 delivery when a response is lost and the same submission is retried. Failed
 ordinary configuration writes are not automatically replayed.
+
+## Database lock at startup
+
+`Could not set lock on file ... Conflicting lock is held in PID 0` means another
+process holds the database lock. In Docker, its PID may not be visible inside the
+new container. Check for overlapping deployments or another container mounting
+the same volume. On the host, `lslocks` can identify the owner.
+
+A complete host reboot releases local process locks. A lock failure after reboot
+therefore needs a current owner investigated; deleting the database or WAL is not
+a repair. Stop the duplicate instance and let the remaining instance open the
+existing database. [DuckDB's concurrency rules](https://duckdb.org/docs/stable/connect/concurrency)
+explain the single writer process requirement.

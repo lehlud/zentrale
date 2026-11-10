@@ -170,7 +170,7 @@ def git_environment():
     return environment
 
 
-def checkout_exists(source):
+def checkout_exists(source, timeout=20):
     directory = Path(source["directory"])
     if not directory.is_absolute() or directory.resolve() != directory:
         raise ValueError(f"Repository directory must not contain symlinks: {directory}")
@@ -195,7 +195,14 @@ def checkout_exists(source):
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             ).stdout.strip()
+        except subprocess.TimeoutExpired:
+            raise ValueError(
+                f"Timed out inspecting repository {directory} "
+                f"(git {' '.join(arguments)} after {timeout:g}s). "
+                "Check the workspace filesystem and retry. Existing files were preserved."
+            ) from None
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or str(error)).strip()
             raise ValueError(

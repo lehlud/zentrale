@@ -125,27 +125,6 @@ export function AgentControls({
                         <Label>{t("Agent stoppen")}</Label>
                       </Dropdown.Item>
                     )}
-                  {current && current.role !== "approver" && (
-                    <Dropdown.Item
-                      id="stop-vm"
-                      className="min-h-11"
-                      isDisabled={
-                        current.status === "running" ||
-                        current.status === "waiting"
-                      }
-                      onAction={() =>
-                        action.run(() =>
-                          api.mutate(
-                            "mutation($agentId:String!){stopAgentVM(agentId:$agentId)}",
-                            { agentId: current.id },
-                            { announce: false },
-                          ),
-                        )
-                      }
-                    >
-                      <Label>{t("VM stoppen")}</Label>
-                    </Dropdown.Item>
-                  )}
                   <Dropdown.Item
                     id="create"
                     className="min-h-11"

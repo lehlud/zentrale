@@ -18,23 +18,9 @@ func (engine *Engine) deleteAgent(agentID string) error {
 		return errors.New("remove the main agent to remove its approver")
 	}
 
-	records, err := engine.listAll("agent", &target.ProjectID)
+	selected, err := engine.agentFamily(target)
 	if err != nil {
 		return err
-	}
-
-	selected := map[string]bool{agentID: true}
-
-	for changed := true; changed; {
-		changed = false
-
-		for _, record := range records {
-			id := stringArg(record, "id")
-			if selected[stringArg(record, "parentId")] && !selected[id] {
-				selected[id] = true
-				changed = true
-			}
-		}
 	}
 
 	if engine.agentsAreBusy(selected) {

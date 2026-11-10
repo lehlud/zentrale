@@ -24,8 +24,9 @@ type Execution struct {
 	GuestRoot      bool
 	Tooling        bool // Trusted file harness; never supplied by a model.
 
-	ProtocolIO bool // Persistent stdin configured by the harness for MCP or interactive commands.
-	TTY        bool
+	ProtocolIO      bool // Persistent stdin configured by the harness for MCP or interactive commands.
+	TTY             bool
+	EditorSessionID string // A starting editor must not wait for its own shutdown.
 }
 
 const userScopeCommand = "systemd-run --user --scope --quiet --no-ask-password -p MemoryMax=4G -p TasksMax=256"

@@ -76,6 +76,13 @@ func (server *Server) ide(requestContext echo.Context) error {
 		endpoint == "/version") {
 		return echo.ErrNotFound
 	}
+	if websocket {
+		releaseClient, err := server.Engine.Editors.Client(project.ID, session.ID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusConflict, err.Error())
+		}
+		defer releaseClient()
+	}
 
 	transport, release, err := server.Engine.Editors.Transport(project, session.ID)
 	if err != nil {

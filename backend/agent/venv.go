@@ -26,7 +26,11 @@ func (engine *Engine) createVenv(
 	}
 
 	id := NewID()
-	dir := agentTemporaryDirectory(agentRecord.ID) + "/venv-" + id
+	temporary, err := engine.temporaryDirectory(agentRecord.ID)
+	if err != nil {
+		return nil, err
+	}
+	dir := temporary + "/venv-" + id
 	command := "python3 -m venv " + remote.Quote(dir)
 
 	if len(packages) > 0 {
@@ -68,9 +72,17 @@ func (engine *Engine) cleanupVenv(agentRecord domain.Agent, id string) (any, err
 	}
 
 	dir := stringArg(record, "path")
-	if !strings.HasPrefix(dir, agentTemporaryDirectory(agentRecord.ID)+"/venv-") ||
-		strings.Contains(dir, "..") ||
-		strings.Contains(strings.TrimPrefix(dir, agentTemporaryDirectory(agentRecord.ID)+"/"), "/") {
+	temporary, err := engine.temporaryDirectory(agentRecord.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Old worker-owned environments can still be removed by their recorded owner.
+	legacy := agentTemporaryDirectory(agentRecord.ID)
+	valid := false
+	for _, root := range []string{temporary, legacy} {
+		valid = valid || (strings.HasPrefix(dir, root+"/venv-") && !strings.Contains(strings.TrimPrefix(dir, root+"/"), "/"))
+	}
+	if !valid || strings.Contains(dir, "..") {
 		return nil, errors.New("invalid managed venv path")
 	}
 

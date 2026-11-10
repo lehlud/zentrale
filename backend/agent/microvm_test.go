@@ -50,7 +50,7 @@ func TestFedoraInstallAcceptsNamesButRejectsOptionsAndShellInput(t *testing.T) {
 	}
 }
 
-func TestStopAgentVMPreservesScopeAndDoesNotPrepareOrRemoveTheGuest(t *testing.T) {
+func TestAutomaticVMStopPreservesScopeAndDisk(t *testing.T) {
 	var calls atomic.Int32
 	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		calls.Add(1)
@@ -84,7 +84,7 @@ func TestStopAgentVMPreservesScopeAndDoesNotPrepareOrRemoveTheGuest(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := engine.StopAgentVM(context.Background(), record.ID); err != nil {
+	if err := engine.stopIdleVMs(context.Background(), record); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,41 +101,6 @@ func TestStopAgentVMPreservesScopeAndDoesNotPrepareOrRemoveTheGuest(t *testing.T
 			calls.Load(),
 			err,
 		)
-	}
-}
-
-func TestStopAgentVMRejectsActiveWorkAndApprovers(t *testing.T) {
-	for _, state := range []string{"running", "waiting", "worker", "preparing", "job", "approver"} {
-		t.Run(state, func(t *testing.T) {
-			engine, record := testEngine(t, nil)
-			t.Cleanup(func() {
-				engine.mu.Lock()
-				delete(engine.running, record.ID)
-				delete(engine.jobs, "active")
-				engine.mu.Unlock()
-			})
-
-			switch state {
-			case "running", "waiting":
-				record.Status = state
-			case "worker":
-				engine.running[record.ID] = func() {}
-			case "preparing":
-				engine.preparing[record.ID] = 1
-			case "job":
-				engine.jobs["active"] = &runningJob{job: domain.Job{AgentID: record.ID}}
-			case "approver":
-				record.Role = "approver"
-			}
-
-			if err := engine.saveAgent(record); err != nil {
-				t.Fatal(err)
-			}
-
-			if err := engine.StopAgentVM(context.Background(), record.ID); err == nil {
-				t.Fatalf("accepted %s", state)
-			}
-		})
 	}
 }
 

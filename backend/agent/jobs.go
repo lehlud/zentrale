@@ -54,6 +54,8 @@ func (engine *Engine) executeRemote(
 	agentRecord domain.Agent,
 	request executionRequest,
 ) (any, error) {
+	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
+	defer releaseEnvironment()
 	command := request.Command
 	request.Interactive = request.Interactive || request.TTY
 
@@ -363,6 +365,7 @@ func (engine *Engine) runJob(
 	delete(engine.jobs, final.ID)
 	engine.mu.Unlock()
 	engine.Remote.Release("job:" + final.ID)
+	engine.scheduleVMIdleCheck(final.AgentID)
 
 	if final.Status == "interrupted" {
 		notice := fmt.Sprintf(
@@ -401,6 +404,9 @@ func (engine *Engine) monitorOccupancy(
 			cancel()
 
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				running.mu.Lock()
 				running.terminationReason = "machine became unavailable or another user logged in"
 				running.mu.Unlock()

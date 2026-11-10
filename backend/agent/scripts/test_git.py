@@ -1,5 +1,6 @@
 """Checkout readiness, staged clone failures and preservation on real files."""
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+
+specification = importlib.util.spec_from_file_location(
+    "repository_helper", Path(__file__).with_name("git.py")
+)
+repository_helper = importlib.util.module_from_spec(specification)
+specification.loader.exec_module(repository_helper)
 
 
 class RepositoryPreparationTests(unittest.TestCase):
@@ -201,6 +210,26 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertNotEqual(configured.returncode, 0)
         self.assertIn("symlinks", configured.stderr)
         self.assertEqual(list(outside.iterdir()), [])
+    def test_stalled_git_metadata_check_times_out_and_preserves_work(self):
+        prepared = self.run_helper("prepare")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        saved = self.directory / "work.txt"
+        saved.write_text("local work")
+
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        git = binaries / "git"
+        git.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5)\n")
+        git.chmod(0o700)
+        with patch.dict("os.environ", {"PATH": str(binaries)}):
+            with self.assertRaisesRegex(
+                ValueError, "Timed out inspecting repository"
+            ) as failure:
+                repository_helper.checkout_exists(self.source, timeout=0.1)
+        self.assertIn("rev-parse --show-toplevel", str(failure.exception))
+        self.assertIn("Existing files were preserved", str(failure.exception))
+        self.assertEqual(saved.read_text(), "local work")
+        self.assertTrue(repository_helper.checkout_exists(self.source))
 
 
 if __name__ == "__main__":

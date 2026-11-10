@@ -44,7 +44,10 @@ func (engine *Engine) prepareJobExecution(
 				return "", "", err
 			}
 
-			temporary := agentTemporaryDirectory(record.ID)
+			temporary, err := engine.temporaryDirectory(record.ID)
+			if err != nil {
+				return "", "", err
+			}
 			if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
 				return "", "", err
 			}
@@ -55,7 +58,7 @@ func (engine *Engine) prepareJobExecution(
 				}
 			}
 
-			return remote.Sandbox(ctx, connection, machine, remote.Execution{
+			return engine.sandbox(ctx, connection, machine, remote.Execution{
 				AgentID:            record.ID,
 				ProjectID:          project.ID,
 				GuestRoot:          request.GuestRoot,

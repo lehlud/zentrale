@@ -57,27 +57,10 @@ func (engine *Engine) installPackages(
 }
 
 func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent, action string) (any, error) {
-	if action == "microvm_reset" {
-		engine.mu.Lock()
-
-		for _, running := range engine.jobs {
-			running.mu.Lock()
-			owned := running.job.AgentID == agentRecord.ID
-			running.mu.Unlock()
-
-			if owned {
-				engine.mu.Unlock()
-				return nil, errors.New("stop your running jobs before resetting the MicroVM")
-			}
-		}
-
-		engine.mu.Unlock()
-
-		if err := engine.Editors.StopAgent(agentRecord.ID); err != nil {
-			return nil, err
-		}
-
-		engine.closeMCPServers(agentRecord.ID)
+	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
+	defer releaseEnvironment()
+	if action == "microvm_reset" && (agentRecord.Role != "main" || agentRecord.ParentID != "") {
+		return nil, errors.New("only the main agent can reset the shared environment")
 	}
 
 	connection, machine, project, err := engine.connect(ctx, agentRecord)
@@ -86,7 +69,7 @@ func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent,
 	}
 	defer connection.Close()
 
-	result, err := remote.ManageMicroVM(ctx, connection, machine, strings.TrimPrefix(action, "microvm_"), remote.Execution{
+	result, err := engine.manageVM(ctx, connection, machine, strings.TrimPrefix(action, "microvm_"), remote.Execution{
 		AgentID:   agentRecord.ID,
 		ProjectID: project.ID,
 
@@ -98,6 +81,48 @@ func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent,
 	}
 
 	return result, err
+}
+
+// Called with the VM lifecycle lock held. A new command cannot pass staging
+// between this check and reset; already prepared commands hold a preparation pin.
+func (engine *Engine) prepareEnvironmentReset(agentID string) error {
+	var owner domain.Agent
+	if err := engine.Store.Load("agent", agentID, &owner); err != nil {
+		return err
+	}
+	family, err := engine.agentFamily(owner)
+	if err != nil {
+		return err
+	}
+	children := make(map[string]bool, len(family))
+	for id := range family {
+		if id != agentID {
+			children[id] = true
+		}
+	}
+	if engine.agentsAreBusy(children) {
+		return errors.New("stop subagents and running jobs before resetting the shared environment")
+	}
+
+	engine.mu.Lock()
+	busy := engine.preparing[agentID] > 1 // The reset request itself holds one pin.
+	for _, running := range engine.jobs {
+		running.mu.Lock()
+		busy = busy || family[running.job.AgentID]
+		running.mu.Unlock()
+	}
+	engine.mu.Unlock()
+	if busy {
+		return errors.New("stop running jobs and wait for command preparation before resetting the shared environment")
+	}
+
+	for id := range family {
+		if err := engine.Editors.StopAgent(id); err != nil {
+			return err
+		}
+		engine.closeMCPServers(id)
+	}
+	return nil
 }
 
 // Remember every machine used by this agent, including one left during failover.
@@ -118,9 +143,13 @@ func (engine *Engine) rememberMicroVM(
 	if sandbox != remote.SandboxMicroVM || machine.MicroVMCommand != "" {
 		return nil
 	}
+	owner, err := engine.vmOwner(agentRecord.ID)
+	if err != nil {
+		return err
+	}
 
-	return engine.Store.Save("microvm", agentRecord.ID+":"+machine.ID, agentRecord.ID, microVMRecord{
-		AgentID:   agentRecord.ID,
+	return engine.Store.Save("microvm", owner.ID+":"+machine.ID, owner.ID, microVMRecord{
+		AgentID:   owner.ID,
 		ProjectID: project.ID,
 		MachineID: machine.ID,
 		Workspace: project.Directory,
@@ -131,47 +160,6 @@ func (engine *Engine) removeAgentMicroVMs(agentID string) error {
 	return engine.manageAgentMicroVMs(context.Background(), agentID, "remove")
 }
 
-// StopAgentVM releases passthrough devices while preserving the agent's guest
-// disk. Serialize against prompts and editor preparation so work cannot restart
-// the VM midway through stopping it.
-func (engine *Engine) StopAgentVM(ctx context.Context, agentID string) error {
-	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
-
-	var record domain.Agent
-	if err := engine.Store.Load("agent", agentID, &record); err != nil {
-		return err
-	}
-
-	if record.Role == "approver" {
-		return errors.New("select the working agent to stop its VM")
-	}
-
-	if record.Status == "running" ||
-		record.Status == "waiting" ||
-		engine.agentsAreBusy(map[string]bool{
-			agentID: true,
-		}) {
-		return errors.New("stop the agent and its running jobs before stopping its VM")
-	}
-
-	if err := engine.Editors.StopAgent(agentID); err != nil {
-		return err
-	}
-
-	engine.closeMCPServers(agentID)
-
-	if err := engine.manageAgentMicroVMs(ctx, agentID, "stop"); err != nil {
-		return err
-	}
-
-	engine.invalidate(agentID)
-	engine.releaseConnection(agentID)
-	engine.Emit("resources", agentID, nil)
-
-	return nil
-}
-
 func (engine *Engine) manageAgentMicroVMs(ctx context.Context, agentID, action string) error {
 	records, err := engine.listAll("microvm", &agentID)
 	if err != nil {
@@ -180,10 +168,15 @@ func (engine *Engine) manageAgentMicroVMs(ctx context.Context, agentID, action s
 
 	for _, record := range records {
 		machineID := stringArg(record, "machineId")
+		operation := engine.vmOperation(agentID, machineID)
+		if err := operation.Lock(ctx); err != nil {
+			return err
+		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		connection, err := engine.Remote.Connector.Dial(ctx, machineID)
 		if err != nil {
 			cancel()
+			operation.Unlock()
 			return fmt.Errorf("%s VM on %s: %w", action, machineID, err)
 		}
 
@@ -200,6 +193,10 @@ func (engine *Engine) manageAgentMicroVMs(ctx context.Context, agentID, action s
 
 		connection.Close()
 		cancel()
+		if err == nil {
+			operation.stopped = action == "stop" || action == "remove"
+		}
+		operation.Unlock()
 
 		if err != nil {
 			return fmt.Errorf("%s VM on %s: %w", action, machineID, err)

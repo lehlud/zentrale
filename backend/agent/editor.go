@@ -25,7 +25,8 @@ func (engine *Engine) editorSelection(projectID, agentID string) (domain.Project
 			return project, selected, errors.New("select a working agent from this project for VS Code")
 		}
 
-		return project, selected, nil
+		selected, err := engine.vmOwner(selected.ID)
+		return project, selected, err
 	}
 
 	records, err := engine.listAll("agent", &projectID)
@@ -112,6 +113,7 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 		}
 
 		engine.mu.Unlock()
+		engine.scheduleVMIdleCheck(remote.EditorScopeID(projectID, selected.ID))
 	}()
 
 	identity, err := engine.ProjectCommitIdentity(project)
@@ -151,7 +153,7 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 	}
 
 	if len(machine.GPUDevices) > 0 && selected.ID == "" {
-		return domain.EditorSession{}, errors.New("create a conversation before starting a GPU-backed editor so its VM can be stopped from the conversation menu")
+		return domain.EditorSession{}, errors.New("create a conversation before starting a GPU-backed editor")
 	}
 
 	if err := remote.CheckRuntime(ctx, connection); err != nil {
@@ -165,20 +167,16 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 
 	status := remote.InspectSandbox(ctx, connection, machine)
 	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
-		_, err = remote.ManageMicroVM(ctx, connection, machine, "prepare", remote.Execution{
+		if err := engine.rememberMicroVM(domain.Agent{ID: scope, ProjectID: project.ID}, machine, project, status.Level); err != nil {
+			return domain.EditorSession{}, err
+		}
+		_, err = engine.manageVM(ctx, connection, machine, "prepare", remote.Execution{
 			AgentID:            scope,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,
 			TemporaryDirectory: temporary,
 		})
 		if err != nil {
-			status.Error = err.Error()
-		}
-
-		if err := engine.rememberMicroVM(domain.Agent{
-			ID:        scope,
-			ProjectID: project.ID,
-		}, machine, project, status.Level); err != nil {
 			status.Error = err.Error()
 		}
 	}
@@ -202,6 +200,8 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 			AgentID:        selected.ID,
 			MachineID:      machine.ID,
 			CommitIdentity: identity,
+			RuntimeLock:    engine.vmOperation(scope, machine.ID),
+			Recovery:       engine,
 		},
 	)
 }

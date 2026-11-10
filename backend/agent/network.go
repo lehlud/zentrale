@@ -38,11 +38,15 @@ func (engine *Engine) research(
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
 		return nil, errors.New("HTTP(S) URL required")
 	}
+	temporary, err := engine.temporaryDirectory(agentRecord.ID)
+	if err != nil {
+		return nil, err
+	}
 
 	return engine.execute(
 		ctx,
 		agentRecord,
-		"python3 -I -c "+remote.Quote(fetchScript)+" "+remote.Quote(address)+" "+remote.Quote(fmt.Sprint(raw))+" "+remote.Quote(agentTemporaryDirectory(agentRecord.ID)),
+		"python3 -I -c "+remote.Quote(fetchScript)+" "+remote.Quote(address)+" "+remote.Quote(fmt.Sprint(raw))+" "+remote.Quote(temporary),
 		true,
 		false,
 	)

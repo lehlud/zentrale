@@ -29,6 +29,7 @@ type agentConnection struct {
 	machine    domain.Machine
 	projectKey string
 	project    domain.Project
+	sourcesKey string
 	expiry     *time.Timer
 }
 
@@ -53,6 +54,14 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 	if err := engine.Store.Load("agent", agentRecord.ID, &agentRecord); err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
 	}
+	owner, err := engine.vmOwner(agentRecord.ID)
+	if err != nil {
+		return nil, domain.Machine{}, domain.Project{}, err
+	}
+	preferredMachine := agentRecord.MachineID
+	if owner.ID != agentRecord.ID && owner.MachineID != "" {
+		preferredMachine = owner.MachineID
+	}
 
 	var project domain.Project
 	if err := engine.Store.Load("project", agentRecord.ProjectID, &project); err != nil {
@@ -71,19 +80,20 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 
 	if entry.connection != nil {
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-		alive := engine.canReuseConnection(probe, entry, projectKey, agentRecord.MachineID)
+		alive := engine.canReuseConnection(probe, entry, projectKey, preferredMachine)
 		cancel()
 
 		if !alive {
 			engine.closeMCPServers(agentRecord.ID)
 			entry.connection.Close()
 			entry.connection = nil
+			entry.sourcesKey = ""
 		}
 	}
 
 	reused := entry.connection != nil
 	if entry.connection == nil {
-		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, agentRecord.MachineID, nil)
+		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, preferredMachine, nil)
 		if err != nil {
 			return nil, machine, project, &ProjectConnectionError{Cause: err}
 		}
@@ -110,6 +120,7 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 
 		entry.connection, entry.machine, entry.projectKey = connection, machine, projectKey
 		entry.project = resolved
+		entry.sourcesKey = ""
 
 		if agentRecord.MachineID != machine.ID {
 			previous := agentRecord.MachineID
@@ -164,6 +175,10 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 // prevents deletion while a handshake is in flight;
 // the global configuration lock is released before any network operation.
 func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) domain.MachineConnectionCheck {
+	return engine.checkAgentConnection(ctx, agentID, false)
+}
+
+func (engine *Engine) checkAgentConnection(ctx context.Context, agentID string, reuseSources bool) domain.MachineConnectionCheck {
 	engine.configMu.Lock()
 	var record domain.Agent
 	err := engine.Store.Load("agent", agentID, &record)
@@ -194,6 +209,7 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 		}
 
 		engine.mu.Unlock()
+		engine.scheduleVMIdleCheck(agentID)
 	}()
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -203,9 +219,11 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 	defer stop()
 
 	var result domain.MachineConnectionCheck
-	err = retryConnectionPreparation(ctx, 3*time.Minute, 250*time.Millisecond, func(attempt context.Context) error {
+	// Individual phases retain their independent cold-boot/queue/clone budgets.
+	// The retry ceiling must not collapse them back into a shared three minutes.
+	err = retryConnectionPreparation(ctx, 45*time.Minute, 250*time.Millisecond, func(attempt context.Context) error {
 		var failure error
-		result, failure = engine.checkAgentConnectionAttempt(attempt, record)
+		result, failure = engine.checkAgentConnectionAttempt(attempt, record, reuseSources)
 		return failure
 	})
 	if err != nil {
@@ -219,10 +237,12 @@ func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) 
 // Only harness-owned, idempotent startup preparation is eligible for retry.
 // Keep the typed failure until the retry decision; the public diagnostics use
 // strings and must not be used to classify authentication or permission errors.
-func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record domain.Agent) (domain.MachineConnectionCheck, error) {
+func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record domain.Agent, reuseSources bool) (domain.MachineConnectionCheck, error) {
 	agentID := record.ID
 	engine.setRunState(agentID, "connecting", nil)
-	connection, machine, project, err := engine.connect(ctx, record)
+	connectContext, cancelConnect := context.WithTimeout(ctx, 3*time.Minute)
+	connection, machine, project, err := engine.connect(connectContext, record)
+	cancelConnect()
 	if err != nil {
 		return domain.MachineConnectionCheck{Error: err.Error(), HostKey: remote.HostKeyChallenge(err)}, err
 	}
@@ -230,16 +250,25 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 
 	// A cached SSH transport does not prove that its VM runtime still boots.
 	// Recheck before inference, and retain failures for the machine diagnostics.
+	// VM setup has its own budget, including a possible cold boot. It must not
+	// consume the time allowed for the subsequent repository inspection.
+	sandboxContext, cancelSandbox := context.WithTimeout(ctx, 10*time.Minute)
 	engine.setRunState(agentID, "checking_sandbox", nil)
-	status := remote.InspectSandbox(ctx, connection, machine)
+	status := remote.InspectSandbox(sandboxContext, connection, machine)
 	var preparationError error
 	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 		engine.setRunState(agentID, "sandbox", nil)
-		temporary := agentTemporaryDirectory(record.ID)
-		if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
+		temporary, err := engine.temporaryDirectory(record.ID)
+		if err != nil {
 			status.Error = err.Error()
 			preparationError = err
-		} else if _, err := remote.ManageMicroVM(ctx, connection, machine, "prepare", remote.Execution{
+		} else if err := prepareRemoteWorkspace(sandboxContext, connection, project.Directory, temporary); err != nil {
+			status.Error = err.Error()
+			preparationError = err
+		} else if err := engine.rememberMicroVM(record, machine, project, status.Level); err != nil {
+			status.Error = err.Error()
+			preparationError = err
+		} else if _, err := engine.manageVM(sandboxContext, connection, machine, "prepare", remote.Execution{
 			AgentID:            record.ID,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,
@@ -247,11 +276,9 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 		}); err != nil {
 			status.Error = err.Error()
 			preparationError = err
-		} else if err := engine.rememberMicroVM(record, machine, project, status.Level); err != nil {
-			status.Error = err.Error()
-			preparationError = err
 		}
 	}
+	cancelSandbox()
 
 	if err := engine.rememberSandboxStatus(machine, status); err != nil {
 		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}, err
@@ -267,7 +294,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 	}
 
 	engine.setRunState(agentID, "repository", nil)
-	if err := engine.prepareProjectSources(ctx, connection, machine, project, record.ID); err != nil {
+	if err := engine.prepareProjectSourcesForConnection(ctx, connection, machine, project, record.ID, reuseSources); err != nil {
 		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}, err
 	}
 
@@ -275,7 +302,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 }
 
 func (engine *Engine) requireConnection(ctx context.Context, agentID string) error {
-	result := engine.CheckAgentConnection(ctx, agentID)
+	result := engine.checkAgentConnection(ctx, agentID, true)
 	if !result.Connected {
 		return &ProjectConnectionError{Cause: errors.New(result.Error), HostKey: result.HostKey}
 	}
@@ -304,6 +331,7 @@ func (engine *Engine) releaseConnection(agentID string) {
 		entry.connection.Close()
 		entry.connection = nil
 	}
+	entry.sourcesKey = ""
 
 	engine.Remote.Release(agentID)
 }

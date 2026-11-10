@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
@@ -26,14 +27,15 @@ func Open(path string) (*Instance, error) {
 
 	db, err := sql.Open("duckdb", path)
 	if err != nil {
-		return nil, err
+		return nil, openError(path, err)
 	}
+	db.SetMaxOpenConns(1)
 
 	if path != "" && path != ":memory:" {
 		if err := db.Ping(); err != nil {
 			_ = db.Close()
 
-			return nil, err
+			return nil, openError(path, err)
 		}
 
 		if err := os.Chmod(path, 0600); err != nil {
@@ -43,7 +45,6 @@ func Open(path string) (*Instance, error) {
 		}
 	}
 
-	db.SetMaxOpenConns(1)
 	i := &Instance{
 		path: path,
 		db:   db,
@@ -52,10 +53,20 @@ func Open(path string) (*Instance, error) {
 	if err = initializeSchema(db); err != nil {
 		_ = db.Close()
 
-		return nil, fmt.Errorf("failed to open datastore %s: %v", path, err)
+		return nil, openError(path, err)
 	}
 
 	return i, nil
+}
+
+func openError(path string, err error) error {
+	if strings.Contains(err.Error(), "Could not set lock on file") && strings.Contains(err.Error(), "Conflicting lock") {
+		detail := "another process holds the database lock; run only one Zentrale instance per data volume " +
+			"and stop the old container before starting its replacement"
+		return fmt.Errorf("open datastore %q: %s: %w", path, detail, err)
+	}
+
+	return fmt.Errorf("open datastore %q: %w", path, err)
 }
 
 func (i *Instance) Close() error {

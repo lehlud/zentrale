@@ -55,6 +55,8 @@ func (engine *Engine) file(
 	args map[string]any,
 	network, outside bool,
 ) (map[string]any, error) {
+	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
+	defer releaseEnvironment()
 	options, err := fileReadOptions(args)
 	if err != nil {
 		return nil, err
@@ -96,7 +98,10 @@ func (engine *Engine) file(
 		filename = "."
 	}
 
-	temporaryDirectory := agentTemporaryDirectory(agentRecord.ID)
+	temporaryDirectory, err := engine.temporaryDirectory(agentRecord.ID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := remote.Workspace(project.Directory, filename); err != nil &&
 		!strings.HasPrefix(filename, temporaryDirectory+"/") {
 		return nil, err
@@ -113,7 +118,7 @@ func (engine *Engine) file(
 		" " + remote.Quote(filename) +
 		" " + remote.Quote(action) + " '-' " + remote.Quote(JSON(options))
 
-	command, level, err := remote.Sandbox(ctx, connection, machine, remote.Execution{
+	command, level, err := engine.sandbox(ctx, connection, machine, remote.Execution{
 		AgentID:   agentRecord.ID,
 		ProjectID: project.ID,
 		Tooling:   true,

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -73,9 +74,15 @@ func run() error {
 	defer stop()
 
 	done := make(chan error, 1)
+	listener, err := net.Listen("tcp", *address)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	slog.Info("Zentrale ready", "address", listener.Addr().String(), "pid", os.Getpid(), "database", *dbPath)
 	go func() {
-		slog.Info("Zentrale ready", "address", *address)
-		done <- server.ListenAndServe()
+		done <- server.Serve(listener)
 	}()
 
 	select {

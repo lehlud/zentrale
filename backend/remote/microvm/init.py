@@ -549,12 +549,19 @@ def serve_jobs(request):
         proof["guestGPUs"] = guest_gpus()
         if not proof["guestGPUs"]:
             raise RuntimeError("the q35 guest did not enumerate a passed-through GPU")
+    heartbeat = Path(CONTROL, "heartbeat")
+    heartbeat.touch()
     temporary = Path(CONTROL, "ready.new")
     temporary.write_text(json.dumps(proof))
     os.replace(temporary, Path(CONTROL, "ready.json"))
 
     workers = {}
+    last_heartbeat = time.monotonic()
     while not Path(CONTROL, "stop").exists():
+        respond_to_health_check(Path(CONTROL))
+        if time.monotonic() - last_heartbeat >= 1:
+            heartbeat.touch()
+            last_heartbeat = time.monotonic()
         for job in Path(CONTROL, "requests").iterdir():
             if (
                 (job / "started").exists()
@@ -573,6 +580,22 @@ def serve_jobs(request):
         time.sleep(0.05)
     for worker in workers.values():
         worker.join(timeout=5)
+
+
+def respond_to_health_check(control):
+    request, response = control / "health.request", control / "health.response"
+    try:
+        query = json.loads(request.read_text())
+        nonce = query.get("nonce", "")
+        if not re.fullmatch(r"[a-f0-9]{32}", nonce):
+            return
+        if response.exists() and json.loads(response.read_text()).get("nonce") == nonce:
+            return
+        temporary = control / "health.response.new"
+        temporary.write_text(json.dumps({"nonce": nonce}))
+        os.replace(temporary, response)
+    except (FileNotFoundError, ValueError):
+        pass  # The host may replace a request while it is being inspected.
 
 
 def guest_gpus():

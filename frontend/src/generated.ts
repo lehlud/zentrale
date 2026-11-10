@@ -307,7 +307,6 @@ export type Mutation = {
   setup: boolean | null;
   startEditor: EditorStartResult | null;
   stopAgent: boolean | null;
-  stopAgentVM: boolean | null;
   stopEditor: boolean | null;
   stopJob: boolean | null;
   submitInput: AgentInput | null;

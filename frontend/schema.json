@@ -570,14 +570,6 @@
             }
           },
           {
-            "name": "stopAgentVM",
-            "type": {
-              "kind": "SCALAR",
-              "name": "Boolean",
-              "ofType": null
-            }
-          },
-          {
             "name": "stopEditor",
             "type": {
               "kind": "SCALAR",

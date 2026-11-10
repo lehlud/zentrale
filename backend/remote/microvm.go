@@ -6,10 +6,13 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"regexp"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/lehlud/zentrale/domain"
 )
@@ -33,6 +36,17 @@ var managedMicroVMRelease json.RawMessage
 var managedVFIO string
 
 var microVMInvocationID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+type VMRecoveryRequired struct{ Reason string }
+
+func (failure *VMRecoveryRequired) Error() string {
+	return "managed environment requires recovery: " + failure.Reason
+}
+
+// VMRecovery runs under the environment's lifecycle lock, before retrying work.
+type VMRecovery interface {
+	RecoverVM(context.Context, *Connection, domain.Machine, Execution, string) error
+}
 
 // SandboxImplementationID invalidates observations made before a runner update.
 // Configuration alone cannot identify selections made by the old external-only
@@ -135,7 +149,22 @@ func microVMAction(
 		return "", err
 	}
 
-	return RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+	output, err := RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+	var exit *ssh.ExitError
+	if errors.As(err, &exit) && exit.ExitStatus() == 75 {
+		const marker = "ZENTRALE_VM_RECOVERY_REQUIRED "
+		for _, line := range strings.Split(output, "\n") {
+			if !strings.HasPrefix(line, marker) {
+				continue
+			}
+			var failure VMRecoveryRequired
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, marker)), &failure) == nil &&
+				(failure.Reason == "unresponsive" || failure.Reason == "configuration_changed") {
+				return "", &failure
+			}
+		}
+	}
+	return output, err
 }
 
 // ManageMicroVM operates only on the scope identified by both agent and project.

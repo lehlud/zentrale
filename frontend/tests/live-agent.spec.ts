@@ -33,6 +33,7 @@ for (const english of [false, true]) {
       let socket: WebSocketRoute | undefined;
       let eventID = 0;
       let running = true;
+      let phase = "model";
       let queryCount = 0;
       let stopAgent = 0;
       let stopJob = 0;
@@ -119,6 +120,7 @@ for (const english of [false, true]) {
           return send({
             ...transcript,
             agent: current(),
+            agentRunState: { agentId: agent.id, phase, error: "", hostKey: {} },
             messages,
             recentMessages: messages,
             jobs: [job],
@@ -153,6 +155,17 @@ for (const english of [false, true]) {
         }),
       ).toBeVisible();
       await expect(output.locator(".working-indicator")).toBeVisible();
+
+      phase = "recovering_sandbox";
+      durable();
+      await expect(output.getByRole("status")).toContainText(
+        label("Umgebung wird wiederhergestellt …", "Restoring environment …"),
+      );
+      phase = "model";
+      durable();
+      await expect(output.getByRole("status")).not.toContainText(
+        label("Umgebung wird wiederhergestellt …", "Restoring environment …"),
+      );
 
       const draft: LiveResponse = {
         id: "draft-1",

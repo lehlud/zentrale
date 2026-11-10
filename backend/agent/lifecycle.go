@@ -276,6 +276,7 @@ func (engine *Engine) runAgent(ctx context.Context, agentID string, cancel conte
 
 		engine.configMu.Unlock()
 		engine.cleanupVenvsIfIdle(agentID)
+		engine.scheduleVMIdleCheck(agentID)
 
 		return
 	}
