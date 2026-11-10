@@ -284,13 +284,18 @@ func TestPoolSandboxObservationUsesQualifiedMachineAndRejectsOldConfiguration(t 
 
 func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 	probeStarted := make(chan struct{})
+	var probeSignaled atomic.Bool
 	finishProbe := make(chan struct{})
 	engine, record, _ := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		t.Fatal("preflight must not call a provider")
 		return providers.Result{}, nil
 	}), func(command string, _ io.Reader, stdout, _ io.Writer) int {
 		if strings.Contains(command, "test -c /dev/kvm") {
-			close(probeStarted)
+			// Source preparation may inspect the sandbox again. Notify the
+			// waiter once, while retaining the barrier for every probe.
+			if probeSignaled.CompareAndSwap(false, true) {
+				close(probeStarted)
+			}
 			<-finishProbe
 			_, _ = fmt.Fprintln(stdout, "bwrap")
 		}
