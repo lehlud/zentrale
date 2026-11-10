@@ -57,6 +57,13 @@ func TestSharedEnvironmentStopsAfterLastWorkerAndRestartsOnResume(t *testing.T) 
 				fmt.Fprintln(stdout, "microvm")
 				return 0
 			}
+			if strings.Contains(command, " 'stage' ") || strings.Contains(command, " 'run' ") {
+				io.Copy(io.Discard, input)
+				if strings.Contains(command, " 'stage' ") {
+					fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
+				}
+				return 0
+			}
 			var payload struct {
 				Execution remote.Execution `json:"execution"`
 			}

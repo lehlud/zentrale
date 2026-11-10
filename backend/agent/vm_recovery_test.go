@@ -24,6 +24,10 @@ func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) 
 				return 0
 			}
 			io.Copy(io.Discard, input)
+			if strings.Contains(command, " 'stage' ") {
+				fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
+				return 0
+			}
 			if strings.Contains(command, " 'prepare' ") && prepares.Add(1) == 1 {
 				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"unresponsive"}`)
 				return 75

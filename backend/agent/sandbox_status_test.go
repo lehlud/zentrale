@@ -33,6 +33,7 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 			_, _ = fmt.Fprintln(stdout, `{"written":true}`)
 		}
 
+		_, _ = io.Copy(io.Discard, input)
 		return 0
 	}
 
@@ -289,7 +290,7 @@ func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 	engine, record, _ := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		t.Fatal("preflight must not call a provider")
 		return providers.Result{}, nil
-	}), func(command string, _ io.Reader, stdout, _ io.Writer) int {
+	}), func(command string, input io.Reader, stdout, _ io.Writer) int {
 		if strings.Contains(command, "test -c /dev/kvm") {
 			// Source preparation may inspect the sandbox again. Notify the
 			// waiter once, while retaining the barrier for every probe.
@@ -300,6 +301,7 @@ func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 			_, _ = fmt.Fprintln(stdout, "bwrap")
 		}
 
+		_, _ = io.Copy(io.Discard, input)
 		return 0
 	})
 
