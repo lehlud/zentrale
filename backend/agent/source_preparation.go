@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
@@ -22,6 +23,21 @@ func (engine *Engine) prepareProjectSources(
 	project domain.Project,
 	scope string,
 ) error {
+	return engine.prepareProjectSourcesForConnection(ctx, connection, machine, project, scope, false)
+}
+
+func (engine *Engine) prepareProjectSourcesForConnection(
+	ctx context.Context,
+	connection *remote.Connection,
+	machine domain.Machine,
+	project domain.Project,
+	scope string,
+	reuse bool,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	rows, err := engine.listAll("source", &project.ID)
 	if err != nil {
 		return err
@@ -45,17 +61,6 @@ func (engine *Engine) prepareProjectSources(
 		return nil
 	}
 
-	// Separate 9p guests cannot coordinate using directory flock locks. Hold
-	// this workspace's semaphore across inspection and cloning in the harness.
-	value, _ := engine.sourcePreparations.LoadOrStore(project.Directory, make(chan struct{}, 1))
-	lock := value.(chan struct{})
-	select {
-	case lock <- struct{}{}:
-		defer func() { <-lock }()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
 	// The root must be cloned before additional sources create subdirectories.
 	sort.Slice(sources, func(i, j int) bool {
 		if sources[i].ProjectRoot != sources[j].ProjectRoot {
@@ -65,9 +70,22 @@ func (engine *Engine) prepareProjectSources(
 		return sources[i].Name < sources[j].Name
 	})
 
-	temporary := agentTemporaryDirectory(scope)
-	if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
-		return err
+	// A successful check is valid for this live SSH connection and exact source
+	// configuration. Model rounds reuse it; explicit checks, editors, reconnects
+	// and changed sources still inspect the working tree before proceeding.
+	key := JSON([]any{project.ID, project.Directory, sources})
+	entry := engine.connectionEntry(scope)
+	if entry != nil {
+		entry.mutex.Lock()
+		current := entry.connection != nil && entry.connection.Client == connection.Client
+		prepared := current && entry.sourcesKey == key
+		if current && (!reuse || !prepared) {
+			entry.sourcesKey = ""
+		}
+		entry.mutex.Unlock()
+		if reuse && prepared {
+			return nil
+		}
 	}
 
 	checkouts := make([]map[string]any, 0, len(sources))
@@ -84,8 +102,34 @@ func (engine *Engine) prepareProjectSources(
 		})
 	}
 
-	run := func(configuration map[string]any, network bool) (string, error) {
-		command, _, err := remote.Sandbox(ctx, connection, machine, remote.Execution{
+	// Separate 9p guests cannot coordinate using directory flock locks. Hold
+	// this workspace's semaphore across inspection and cloning in the harness.
+	// Waiting behind another agent's clone must not use up an inspection's budget.
+	value, _ := engine.sourcePreparations.LoadOrStore(project.Directory, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	waitContext, cancelWait := context.WithTimeout(ctx, 15*time.Minute)
+	select {
+	case lock <- struct{}{}:
+		cancelWait()
+		defer func() { <-lock }()
+	case <-waitContext.Done():
+		defer cancelWait()
+		return fmt.Errorf("wait for another agent to prepare project repositories: %w", waitContext.Err())
+	}
+
+	temporary := agentTemporaryDirectory(scope)
+	workspaceContext, cancelWorkspace := context.WithTimeout(ctx, time.Minute)
+	err = prepareRemoteWorkspace(workspaceContext, connection, project.Directory, temporary)
+	cancelWorkspace()
+	if err != nil {
+		return fmt.Errorf("prepare repository workspace: %w", err)
+	}
+
+	run := func(configuration map[string]any, network bool, timeout time.Duration) (string, error) {
+		// Staging can prepare a guest, so give it a separate cold-boot budget.
+		// Start the command timeout only once its runtime is ready.
+		stageContext, cancelStage := context.WithTimeout(ctx, 10*time.Minute)
+		command, _, err := remote.Sandbox(stageContext, connection, machine, remote.Execution{
 			AgentID:            scope,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,
@@ -93,16 +137,18 @@ func (engine *Engine) prepareProjectSources(
 			Command:            "python3 -I -c " + remote.Quote(gitScript),
 			Network:            network,
 		})
+		cancelStage()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("prepare repository sandbox: %w", err)
 		}
 
-		return remote.RunPipe(ctx, connection.Client, command, strings.NewReader(JSON(configuration)))
+		runContext, cancelRun := context.WithTimeout(ctx, timeout)
+		defer cancelRun()
+		return remote.RunPipe(runContext, connection.Client, command, strings.NewReader(JSON(configuration)))
 	}
 
-	// Existing work needs no network request, private key or fetch. Check it on
-	// each preparation, including a reconnect, failover or service restart.
-	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false)
+	// Existing work needs no network request, private key or fetch.
+	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false, time.Minute)
 	if err != nil {
 		return fmt.Errorf("inspect project repositories: %w", err)
 	}
@@ -118,15 +164,25 @@ func (engine *Engine) prepareProjectSources(
 		}
 
 		directory, _ := sourceDirectory(project, source)
-		configuration, err := engine.sourceGitConfiguration(ctx, source, directory, temporary)
+		configurationContext, cancelConfiguration := context.WithTimeout(ctx, time.Minute)
+		configuration, err := engine.sourceGitConfiguration(configurationContext, source, directory, temporary)
+		cancelConfiguration()
 		if err == nil {
 			configuration["operation"] = "prepare"
-			_, err = run(configuration, true)
+			_, err = run(configuration, true, 15*time.Minute)
 		}
 
 		if err != nil {
 			return fmt.Errorf("prepare repository %q: %w", source.Name, err)
 		}
+	}
+
+	if entry != nil && ctx.Err() == nil {
+		entry.mutex.Lock()
+		if entry.connection != nil && entry.connection.Client == connection.Client {
+			entry.sourcesKey = key
+		}
+		entry.mutex.Unlock()
 	}
 
 	return nil

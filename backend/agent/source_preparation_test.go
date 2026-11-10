@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,13 +25,15 @@ import (
 )
 
 type repositoryFixture struct {
-	engine    *Engine
-	record    domain.Agent
-	project   domain.Project
-	source    domain.Source
-	directory string
-	server    *testssh.Server
-	clones    atomic.Int32
+	engine        *Engine
+	record        domain.Agent
+	project       domain.Project
+	source        domain.Source
+	directory     string
+	server        *testssh.Server
+	clones        atomic.Int32
+	inspections   atomic.Int32
+	beforeInspect func()
 }
 
 func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
@@ -36,6 +41,25 @@ func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
 	fixture := &repositoryFixture{}
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	engine, record, project, machine := managedWorkspaceEngine(t, func(command string, stdin io.Reader, stdout, stderr io.Writer) int {
+		if strings.Contains(command, "def checkout_exists(") {
+			input, err := io.ReadAll(stdin)
+			if err != nil {
+				return 1
+			}
+			var configuration struct {
+				Operation string `json:"operation"`
+			}
+			if err := json.Unmarshal(input, &configuration); err != nil {
+				return 1
+			}
+			if configuration.Operation == "inspect" {
+				fixture.inspections.Add(1)
+				if fixture.beforeInspect != nil {
+					fixture.beforeInspect()
+				}
+			}
+			stdin = bytes.NewReader(input)
+		}
 		if strings.Contains(command, "ZENTRALE_EDITOR_READY ") {
 			if _, err := os.Stat(filepath.Join(fixture.directory, "README.md")); err != nil {
 				t.Error("editor started before its repository was available", err)
@@ -108,6 +132,153 @@ func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
 		t.Fatal(err)
 	}
 	return fixture
+}
+
+func TestModelRoundsReusePreparedSourcesUntilReconnectOrConfigurationChanges(t *testing.T) {
+	fixture := newRepositoryFixture(t, nil)
+	engine, record := fixture.engine, fixture.record
+	var calls atomic.Int32
+	engine.Provider = withTestGoalReviewer(providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+		if request.Config.ID == "approver-provider" {
+			return providers.Result{Text: `{"allowed":true,"reason":"","blanket":false}`, UsageKnown: true}, nil
+		}
+		round := calls.Add(1)
+		if round < 4 {
+			return providers.Result{
+				Calls:      []providers.Call{{ID: NewID(), Name: "read_file", Arguments: map[string]any{"path": "README.md"}}},
+				UsageKnown: true,
+			}, nil
+		}
+		return providers.Result{Text: "Repository inspected.", UsageKnown: true}, nil
+	}))
+	if err := engine.Prompt(record.ID, "Read the repository in several steps"); err != nil {
+		t.Fatal(err)
+	}
+	if final := waitForAgent(t, engine, record.ID); final.Status != "idle" {
+		t.Fatal(final.Error)
+	}
+	if calls.Load() != 4 || fixture.inspections.Load() != 1 || fixture.clones.Load() != 1 {
+		t.Fatal("model rounds repeated repository preparation", calls.Load(), fixture.inspections.Load(), fixture.clones.Load())
+	}
+
+	// The lifecycle releases the SSH connection when a task finishes. Its next
+	// task must inspect again, even though it keeps the existing working tree.
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.inspections.Load() != 2 {
+		t.Fatal("a new connection reused stale readiness", fixture.inspections.Load())
+	}
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.inspections.Load() != 2 {
+		t.Fatal("unchanged sources were re-inspected", fixture.inspections.Load())
+	}
+
+	// A subagent preparing the same workspace must not make this agent wait
+	// for a repository check it has already completed on its live connection.
+	value, _ := engine.sourcePreparations.Load(fixture.directory)
+	lock := value.(chan struct{})
+	lock <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	err := engine.requireConnection(ctx, record.ID)
+	cancel()
+	<-lock
+	if err != nil {
+		t.Fatal("a prepared agent waited behind another agent", err)
+	}
+
+	additional := fixture.source
+	additional.ID, additional.Name, additional.ProjectRoot = NewID(), "library", false
+	if err := engine.Store.Save("source", additional.ID, record.ProjectID, additional); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.inspections.Load() != 3 || fixture.clones.Load() != 2 {
+		t.Fatal("changed sources were not prepared", fixture.inspections.Load(), fixture.clones.Load())
+	}
+	if _, err := os.Stat(filepath.Join(fixture.directory, "library", "README.md")); err != nil {
+		t.Fatal("new source missing", err)
+	}
+}
+
+func TestRepositoryWaitCanBeCancelledWithoutCachingSuccess(t *testing.T) {
+	fixture := newRepositoryFixture(t, nil)
+	engine, record := fixture.engine, fixture.record
+	connection, machine, project, err := engine.connect(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	lock := make(chan struct{}, 1)
+	lock <- struct{}{}
+	engine.sourcePreparations.Store(fixture.directory, lock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	err = engine.prepareProjectSourcesForConnection(ctx, connection, machine, project, record.ID, true)
+	if err == nil || !strings.Contains(err.Error(), "wait for another agent") || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatal("waiting did not report its own cancellable stage", err)
+	}
+	if fixture.inspections.Load() != 0 {
+		t.Fatal("inspected a workspace while another agent was cloning")
+	}
+	<-lock
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal("cancelled preparation was not retried", err)
+	}
+	if fixture.inspections.Load() != 1 || fixture.clones.Load() != 1 {
+		t.Fatal("cancelled preparation was cached", fixture.inspections.Load(), fixture.clones.Load())
+	}
+}
+
+func TestCancelledRepositoryInspectionInvalidatesEarlierSuccess(t *testing.T) {
+	fixture := newRepositoryFixture(t, nil)
+	engine, record := fixture.engine, fixture.record
+	started, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unblock)
+	var block atomic.Bool
+	fixture.beforeInspect = func() {
+		if block.CompareAndSwap(true, false) {
+			close(started)
+			<-release
+		}
+	}
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	block.Store(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := make(chan domain.MachineConnectionCheck, 1)
+	go func() { results <- engine.CheckAgentConnection(ctx, record.ID) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("explicit check did not inspect the repository again")
+	}
+	cancel()
+	select {
+	case result := <-results:
+		if result.Connected || !strings.Contains(result.Error, "context canceled") {
+			t.Fatal("inspection ignored cancellation", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation did not stop inspection")
+	}
+	unblock()
+	if err := engine.requireConnection(context.Background(), record.ID); err != nil {
+		t.Fatal("cancelled inspection could not recover", err)
+	}
+	if fixture.inspections.Load() != 3 || fixture.clones.Load() != 1 {
+		t.Fatal("cancelled inspection reused earlier success or recloned local work", fixture.inspections.Load(), fixture.clones.Load())
+	}
 }
 
 func TestRepositoriesAreClonedBeforeInferenceAndReusedWithoutNetwork(t *testing.T) {
