@@ -30,8 +30,11 @@ type editorSession struct {
 	socketPath string
 	err        error
 
-	activeRequests int
-	lastUsed       time.Time
+	activeRequests     int
+	lastUsed           time.Time
+	clients            int
+	disconnect         *time.Timer
+	disconnectRevision uint64
 }
 
 // Editors supervises one SSH remote agent per project. Workspace services use
@@ -41,18 +44,24 @@ type Editors struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mutex    sync.Mutex
-	sessions map[string]*editorSession
-	workers  sync.WaitGroup
+	mutex          sync.Mutex
+	sessions       map[string]*editorSession
+	workers        sync.WaitGroup
+	onClosed       func(domain.EditorSession)
+	reconnectGrace time.Duration
 }
 
-func NewEditors(remote *Manager) *Editors {
+func NewEditors(remote *Manager, onClosed ...func(domain.EditorSession)) *Editors {
 	ctx, cancel := context.WithCancel(context.Background())
 	editors := &Editors{
-		remote:   remote,
-		ctx:      ctx,
-		cancel:   cancel,
-		sessions: make(map[string]*editorSession),
+		remote:         remote,
+		ctx:            ctx,
+		cancel:         cancel,
+		sessions:       make(map[string]*editorSession),
+		reconnectGrace: 3 * time.Second,
+	}
+	if len(onClosed) > 0 {
+		editors.onClosed = onClosed[0]
 	}
 
 	editors.workers.Go(editors.expireIdleSessions)
@@ -146,7 +155,17 @@ func (editors *Editors) StartFor(
 }
 
 func (editors *Editors) run(ctx context.Context, session *editorSession) {
-	defer close(session.done)
+	defer func() {
+		editors.mutex.Lock()
+		if session.disconnect != nil {
+			session.disconnect.Stop()
+		}
+		close(session.done)
+		editors.mutex.Unlock()
+		if editors.onClosed != nil {
+			editors.onClosed(session.info)
+		}
+	}()
 	defer editors.remote.Release("ide:" + session.info.ID)
 
 	var readyOnce sync.Once
@@ -205,7 +224,16 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 		session.info.URL += "&agent=" + url.QueryEscape(session.target.AgentID)
 	}
 
+	if session.target.RuntimeLock != nil {
+		if err := session.target.RuntimeLock.Lock(ctx); err != nil {
+			ready(err)
+			return
+		}
+	}
 	session.runtime, err = prepareEditorRuntime(ctx, connection, machine, session.project, session.target, prefix)
+	if session.target.RuntimeLock != nil {
+		session.target.RuntimeLock.Unlock()
+	}
 	if err != nil {
 		ready(err)
 		return
@@ -227,11 +255,84 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 		readyOnce.Do(func() {
 			session.socketPath = socketPath
 			timer.Stop()
+			editors.mutex.Lock()
+			editors.expireDisconnected(session, 30*time.Second)
+			editors.mutex.Unlock()
 			close(session.ready)
 		})
 	})
 
 	ready(err)
+}
+
+// Each workbench keeps persistent sockets open. The final disconnect releases
+// its environment after a short reload/reconnect grace period.
+func (editors *Editors) Client(projectID, sessionID string) (func(), error) {
+	editors.mutex.Lock()
+	defer editors.mutex.Unlock()
+	session := editors.findSession(projectID, sessionID)
+	if session == nil {
+		return nil, errors.New("editor session expired; reconnect the editor")
+	}
+	select {
+	case <-session.done:
+		return nil, errors.New("editor disconnected; reconnect the editor")
+	default:
+	}
+	session.clients++
+	session.disconnectRevision++
+	if session.disconnect != nil {
+		session.disconnect.Stop()
+	}
+	return sync.OnceFunc(func() {
+		editors.mutex.Lock()
+		defer editors.mutex.Unlock()
+		session.clients--
+		if session.clients == 0 {
+			editors.expireDisconnected(session, editors.reconnectGrace)
+		}
+	}), nil
+}
+
+// Called with mutex held; active HTTP transfers also get to finish.
+func (editors *Editors) expireDisconnected(session *editorSession, after time.Duration) {
+	if session.disconnect != nil {
+		session.disconnect.Stop()
+	}
+	session.disconnectRevision++
+	revision := session.disconnectRevision
+	session.disconnect = time.AfterFunc(after, func() {
+		editors.mutex.Lock()
+		defer editors.mutex.Unlock()
+		key := session.project.ID + ":" + session.target.AgentID
+		if editors.sessions[key] != session || session.clients != 0 || session.disconnectRevision != revision {
+			return
+		}
+		if session.activeRequests != 0 {
+			editors.expireDisconnected(session, editors.reconnectGrace)
+			return
+		}
+		delete(editors.sessions, key)
+		session.cancel()
+	})
+}
+
+// A starting editor also holds its environment, before its readiness receipt.
+func (editors *Editors) HasActive(agents map[string]bool, machineID string) bool {
+	editors.mutex.Lock()
+	defer editors.mutex.Unlock()
+	for _, session := range editors.sessions {
+		if !agents[EditorScopeID(session.project.ID, session.target.AgentID)] ||
+			(session.target.MachineID != "" && session.target.MachineID != machineID) {
+			continue
+		}
+		select {
+		case <-session.done:
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // Info remains available after a tunnel failure, so Zentrale can keep serving

@@ -5,8 +5,9 @@
 ## Fedora guests
 
 Automatic sandbox selection prefers the integrated QEMU/KVM runner with Fedora
-Minimal 45. Each agent and project has its own persistent guest on the selected
-host. Tool calls and browser VS Code share it.
+Minimal 45. Each main conversation has one persistent guest per selected host.
+Its subagents and browser VS Code share packages, scratch files, and project
+files. Independent GPU jobs can still use additional hosts concurrently.
 
 Guests include Git, ripgrep, Python 3 and pip, curl, SSH clients, jq, less, Make,
 fish, and standard file, archive, and process tools. Missing standard packages
@@ -28,7 +29,8 @@ checksums live in [release.json](../backend/remote/microvm/release.json).
 Guests use 2 vCPUs, 4 GiB RAM, and a sparse disk capped at 8 GiB. Packages and
 guest files survive idle periods and stop/start. Project files and configured
 storage are mounted separately. Failover does not move a guest disk to another
-host. Deleting an agent removes its managed VMs and disks.
+host. Deleting a main agent removes its descendants and their managed VMs and
+disks. Removing a subagent preserves the main agent's shared guest.
 
 ## Permissions and lifecycle
 
@@ -44,12 +46,19 @@ provide host-level filesystem or network isolation.
 - `packages_install` installs guest RPMs and requires network permission.
 - `exec` with `guestRoot:true` grants administration only inside the managed guest.
 - `microvm_info` reports VM state, boot identity, and detected guest GPUs.
-- `microvm_reset` removes guest files, packages, and processes after jobs stop.
-  Project files and extra storage remain.
+- `microvm_reset` is available only to the main agent, after subagents and jobs
+  stop. It removes guest files, packages, and processes; project files and extra
+  storage remain.
 
-**Stop VM** on an idle conversation releases its running VM and GPU devices while
-retaining the disk. Active agents, jobs, or preparation prevent this action.
-Stopping a job alone does not stop its persistent VM.
+Zentrale starts environments automatically when a conversation continues and
+stops them when no agent, background job, preparation, or VS Code session needs
+them. Stops release RAM and GPU devices while retaining the disk and packages.
+Agents have no stop command, and the interface needs no manual VM controls.
+Cleanup also retries after connection failures and server restarts. Obsolete
+per-subagent guests are stopped without deleting their retained disks.
+
+The platform choice does not eliminate the cost of a full Fedora guest. See the
+[VM measurements and design decision](vm-lifecycle-analysis.md).
 
 Administrators can supply a custom `microvm_command` runner using the contract
 `runner --root PROJECT --temporary-directory AGENT_TMP --network=false -- /bin/sh -c COMMAND`.
@@ -97,9 +106,10 @@ supports Linux and macOS on x64 and ARM64; managed VMs have separate Linux host
 requirements.
 
 Sessions require authentication and use private SSH tunnels without a public
-editor port. Stop editor, service shutdown, or SSH loss closes the session;
-inactive sessions are released after 15 minutes. Closing the editor does not
-reset a persistent guest.
+editor port. Multiple workbenches share the conversation's editor. Closing the
+last workbench releases its session after a short reconnect grace period;
+active requests finish first. Service shutdown and SSH loss also close sessions.
+Closing the editor does not reset the guest disk.
 
 Cache paths can be changed through `ZENTRALE_VSCODE_CACHE` on the server and
 `ZENTRALE_VSCODE_SERVER_CACHE` / `ZENTRALE_VSCODE_SERVER_DATA` on SSH hosts.

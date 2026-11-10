@@ -101,6 +101,7 @@ type Engine struct {
 	sandboxMu sync.Mutex
 
 	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
+	vmOperations       sync.Map // Main agent and machine -> environment lifecycle.
 
 	connections     map[string]*agentConnection
 	preparing       map[string]int
@@ -138,12 +139,15 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		return nil, err
 	}
 
-	engine.Editors = remote.NewEditors(engine.Remote)
+	engine.Editors = remote.NewEditors(engine.Remote, func(session domain.EditorSession) {
+		engine.scheduleVMIdleCheck(remote.EditorScopeID(session.ProjectID, session.AgentID))
+	})
 
 	if err := engine.recoverInputs(); err != nil {
 		engine.Close()
 		return nil, err
 	}
+	engine.workers.Go(engine.superviseVMs)
 
 	return engine, nil
 }
@@ -208,4 +212,5 @@ func (engine *Engine) Close() {
 	for _, id := range ids {
 		engine.releaseConnection(id)
 	}
+	engine.stopUnusedVMsOnShutdown()
 }

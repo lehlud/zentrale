@@ -222,6 +222,56 @@ class MicroVMRunnerTests(unittest.TestCase):
         self.assertFalse(runner.alive("not a process"))
         self.assertFalse(runner.alive(str(os.getpid())))
 
+    def cached_session(self):
+        scope = self.root / "agent"
+        control = scope / "session"
+        (control / "requests").mkdir(parents=True)
+        configuration = {"runnerHash": "fixture", "vmType": "microvm"}
+        (control / "version").write_text(runner.session_identity(configuration, {}))
+        (control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
+        (control / "ready.json").write_text("{}")
+        return scope, control, configuration
+
+    def test_cached_supervisor_does_not_prove_guest_dispatcher_is_alive(self):
+        scope, control, configuration = self.cached_session()
+
+        class RestartRequested(Exception):
+            pass
+
+        with patch.object(runner, "stop_session", side_effect=RestartRequested) as stop:
+            with self.assertRaises(RestartRequested):
+                runner.ensure_session(scope, configuration, None, None, None, {})
+            stop.assert_called_once_with(scope)
+        (control / "heartbeat").touch()
+        with patch.object(runner, "stop_session") as stop:
+            self.assertEqual(
+                runner.ensure_session(scope, configuration, None, None, None, {}),
+                control,
+            )
+            stop.assert_not_called()
+        os.utime(control / "heartbeat", (1, 1))
+        self.assertFalse(runner.guest_responding(control))
+
+    def test_recovery_and_runtime_updates_preserve_live_jobs(self):
+        scope, control, configuration = self.cached_session()
+        job = control / "requests" / "job"
+        job.mkdir()
+        (job / "started").touch()
+        (job / "client.pid").write_text(json.dumps(runner.process_reference()))
+        for updated in (configuration, dict(configuration, runnerHash="updated")):
+            with (
+                self.subTest(updated=updated),
+                patch.object(runner, "stop_session") as stop,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "active jobs were preserved"):
+                    runner.ensure_session(scope, updated, None, None, None, {})
+                stop.assert_not_called()
+        (job / "cancel").touch()
+        self.assertFalse(runner.active_invocations(control))
+        (job / "cancel").unlink()
+        (job / "status").write_text("0")
+        self.assertFalse(runner.active_invocations(control))
+
     def test_scope_is_stable_but_separates_agents_and_projects(self):
         execution = {
             "agentId": "agent-a",

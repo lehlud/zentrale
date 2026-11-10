@@ -44,7 +44,11 @@ func (engine *Engine) runPython(
 			return nil, err
 		}
 
-		managedPrefix := agentTemporaryDirectory(agentRecord.ID) + "/venv-"
+		temporary, err := engine.temporaryDirectory(agentRecord.ID)
+		if err != nil {
+			return nil, err
+		}
+		managedPrefix := temporary + "/venv-"
 		if !strings.HasPrefix(environment, managedPrefix) {
 			environment, err = remote.Workspace(project.Directory, environment)
 			if err != nil {

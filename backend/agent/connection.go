@@ -54,6 +54,14 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 	if err := engine.Store.Load("agent", agentRecord.ID, &agentRecord); err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
 	}
+	owner, err := engine.vmOwner(agentRecord.ID)
+	if err != nil {
+		return nil, domain.Machine{}, domain.Project{}, err
+	}
+	preferredMachine := agentRecord.MachineID
+	if owner.ID != agentRecord.ID && owner.MachineID != "" {
+		preferredMachine = owner.MachineID
+	}
 
 	var project domain.Project
 	if err := engine.Store.Load("project", agentRecord.ProjectID, &project); err != nil {
@@ -72,7 +80,7 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 
 	if entry.connection != nil {
 		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-		alive := engine.canReuseConnection(probe, entry, projectKey, agentRecord.MachineID)
+		alive := engine.canReuseConnection(probe, entry, projectKey, preferredMachine)
 		cancel()
 
 		if !alive {
@@ -84,7 +92,7 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 	}
 
 	if entry.connection == nil {
-		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, agentRecord.MachineID, nil)
+		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, preferredMachine, nil)
 		if err != nil {
 			return nil, machine, project, &ProjectConnectionError{Cause: err}
 		}
@@ -198,6 +206,7 @@ func (engine *Engine) checkAgentConnection(ctx context.Context, agentID string, 
 		}
 
 		engine.mu.Unlock()
+		engine.scheduleVMIdleCheck(agentID)
 	}()
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -224,17 +233,19 @@ func (engine *Engine) checkAgentConnection(ctx context.Context, agentID string, 
 	status := remote.InspectSandbox(sandboxContext, connection, machine)
 	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 		engine.setRunState(agentID, "sandbox", nil)
-		temporary := agentTemporaryDirectory(record.ID)
-		if err := prepareRemoteWorkspace(sandboxContext, connection, project.Directory, temporary); err != nil {
+		temporary, err := engine.temporaryDirectory(record.ID)
+		if err != nil {
 			status.Error = err.Error()
-		} else if _, err := remote.ManageMicroVM(sandboxContext, connection, machine, "prepare", remote.Execution{
+		} else if err := prepareRemoteWorkspace(sandboxContext, connection, project.Directory, temporary); err != nil {
+			status.Error = err.Error()
+		} else if err := engine.rememberMicroVM(record, machine, project, status.Level); err != nil {
+			status.Error = err.Error()
+		} else if _, err := engine.manageVM(sandboxContext, connection, machine, "prepare", remote.Execution{
 			AgentID:            record.ID,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,
 			TemporaryDirectory: temporary,
 		}); err != nil {
-			status.Error = err.Error()
-		} else if err := engine.rememberMicroVM(record, machine, project, status.Level); err != nil {
 			status.Error = err.Error()
 		}
 	}

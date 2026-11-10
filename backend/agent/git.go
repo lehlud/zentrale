@@ -50,7 +50,11 @@ func (engine *Engine) runSourceGit(
 		return nil, err
 	}
 
-	configuration, err := engine.sourceGitConfiguration(ctx, source, directory, agentTemporaryDirectory(agentRecord.ID))
+	temporary, err := engine.temporaryDirectory(agentRecord.ID)
+	if err != nil {
+		return nil, err
+	}
+	configuration, err := engine.sourceGitConfiguration(ctx, source, directory, temporary)
 	if err != nil {
 		return nil, err
 	}

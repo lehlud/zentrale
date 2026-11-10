@@ -2,6 +2,7 @@ import { Input, Link, TextField, buttonVariants } from "@heroui/react";
 import { useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
+import { agentTree, branchContains, type AgentBranch } from "./agent-tree";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
 import type { Config } from "./config";
@@ -128,21 +129,18 @@ function SidebarConversations({
     "query($id:String!){agents(projectId:$id,limit:500){id projectId parentId approverId name role status}}",
     { id: projectId },
   );
-  const conversations = useBatch(
-    data?.agents.filter((agent) => agent.role !== "approver") ?? [],
-    projectId,
-  );
+  const conversations = useBatch(agentTree(data?.agents ?? []), projectId);
   const activeId =
     params.get("agent") ||
     data?.agents.find((agent) => agent.role === "main")?.id;
   const [renaming, setRenaming] = useState<Agent>();
   const action = useAction();
 
-  return (
-    <div className="ml-4 border-l border-border pl-1.5 py-1">
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
-      {conversations.items.map((agent) => (
-        <div key={agent.id} className="flex min-w-0 items-center">
+  const renderConversation = (branch: AgentBranch) => {
+    const { agent, children } = branch;
+    return (
+      <li key={agent.id} className="min-w-0">
+        <div className="flex min-w-0 items-center">
           <Link
             href={conversationHref(projectId, agent.id)}
             onPress={onNavigate}
@@ -189,16 +187,32 @@ function SidebarConversations({
                       "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
                       { kind: "agent", id: agent.id },
                     );
-                    if (activeId === agent.id)
+                    if (branchContains(branch, activeId ?? ""))
                       location.hash = `#/projects/${encodeURIComponent(projectId)}`;
-
                     onNavigate?.();
                   }),
               },
             ]}
           />
         </div>
-      ))}
+        {children.length > 0 && (
+          <ul
+            aria-label={t("Subagenten von {name}", { name: agent.name })}
+            className="ml-4 border-l border-border pl-1.5"
+          >
+            {children.map(renderConversation)}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
+  return (
+    <div className="ml-4 border-l border-border pl-1.5 py-1">
+      <Failure message={error || action.error} onRetry={() => api.refresh()} />
+      <ul aria-label={t("Unterhaltungen")}>
+        {conversations.items.map(renderConversation)}
+      </ul>
       <MoreButton batch={conversations} />
       {renaming && (
         <RenameConversation

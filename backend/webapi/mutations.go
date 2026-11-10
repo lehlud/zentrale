@@ -189,10 +189,6 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		return true, server.Engine.Stop(params.Args["agentId"].(string))
 	})
 
-	simple("stopAgentVM", strArg("agentId"), func(params graphql.ResolveParams) (any, error) {
-		return true, server.Engine.StopAgentVM(params.Context, params.Args["agentId"].(string))
-	})
-
 	simple("renameAgent", strArg("agentId", "name"), func(params graphql.ResolveParams) (any, error) {
 		return true, server.Engine.RenameAgent(params.Args["agentId"].(string), params.Args["name"].(string))
 	})

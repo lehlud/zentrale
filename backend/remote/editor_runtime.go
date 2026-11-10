@@ -25,6 +25,13 @@ type EditorTarget struct {
 	MachineID          string
 	CommitIdentity     domain.CommitIdentity
 	TemporaryDirectory string
+	RuntimeLock        RuntimeLock
+}
+
+// RuntimeLock serializes guest startup with automatic stop and removal.
+type RuntimeLock interface {
+	Lock(context.Context) error
+	Unlock()
 }
 
 func EditorScopeID(projectID, agentID string) string {

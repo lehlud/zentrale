@@ -549,12 +549,18 @@ def serve_jobs(request):
         proof["guestGPUs"] = guest_gpus()
         if not proof["guestGPUs"]:
             raise RuntimeError("the q35 guest did not enumerate a passed-through GPU")
+    heartbeat = Path(CONTROL, "heartbeat")
+    heartbeat.touch()
     temporary = Path(CONTROL, "ready.new")
     temporary.write_text(json.dumps(proof))
     os.replace(temporary, Path(CONTROL, "ready.json"))
 
     workers = {}
+    last_heartbeat = time.monotonic()
     while not Path(CONTROL, "stop").exists():
+        if time.monotonic() - last_heartbeat >= 1:
+            heartbeat.touch()
+            last_heartbeat = time.monotonic()
         for job in Path(CONTROL, "requests").iterdir():
             if (
                 (job / "started").exists()

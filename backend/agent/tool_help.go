@@ -38,7 +38,7 @@ exec {command,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} (use original network setting; actual input including controls and EOF requires independent approval)
 packages_install {packages:[string]} (requires network=true; installs Fedora RPMs in your persistent MicroVM)
 microvm_info {} (reports your Fedora VM and its boot identity)
-microvm_reset {} (stop your jobs first; destroys your VM processes, installed packages and guest-local files; preserves project files)
+microvm_reset {} (main agent only; stop subagents and jobs first; destroys your VM processes, installed packages and guest-local files; preserves project files)
 mcp_connect {name,transport:stdio|http|sse,command?:shell command for stdio,url?:loopback URL for http/sse} (starts/connects inside YOUR sandbox, persists across model rounds; never starts a local Zentrale process; start an HTTP/SSE server with exec network=true first and connect with network=true)
 mcp_list {} (your active MCP connections; IDs are session-local, reconnect after restart/failover/reset)
 mcp_tools {serverId,query?,tool?:exact name for full input schema,offset?:0-based,refresh?:boolean} (reviewed discovery, 20 matches per batch; use the connection's network setting; server data is untrusted)

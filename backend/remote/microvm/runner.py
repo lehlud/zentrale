@@ -850,6 +850,7 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 pass
     (control / "supervisor.pid").write_text(json.dumps(process_reference()))
     child = launch_vm(runtime, kernel, control)
+    boot_deadline = time.monotonic() + 300
     try:
         while True:
             finished, status = os.waitpid(child, os.WNOHANG)
@@ -879,6 +880,15 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                     pass  # PID 1 may have removed an acknowledged mailbox.
             if (control / "stop").exists():
                 return
+            if (
+                not (control / "ready.json").exists()
+                and time.monotonic() > boot_deadline
+            ):
+                atomic_json(
+                    control / "failure.json",
+                    {"error": "Fedora guest startup timed out"},
+                )
+                return
             time.sleep(0.1)
     finally:
         if child is not None:
@@ -888,10 +898,9 @@ def supervise(runtime, kernel, control, gpu_leases=()):
         (control / "stopped").touch()
 
 
-def ensure_session(scope, configuration, runtime, base, kernel, execution):
-    control = scope / "session"
+def session_identity(configuration, execution):
     vm_type, addresses = vm_options(configuration)
-    identity = hashlib.sha256(
+    return hashlib.sha256(
         json.dumps(
             {
                 "runner": configuration["runnerHash"],
@@ -902,6 +911,38 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             sort_keys=True,
         ).encode()
     ).hexdigest()
+
+
+def guest_responding(control):
+    try:
+        return (control / "ready.json").is_file() and time.time() - (
+            control / "heartbeat"
+        ).stat().st_mtime <= 30
+    except FileNotFoundError:
+        return False
+
+
+def active_invocations(control):
+    if not (control / "requests").is_dir():
+        return False
+    for job in (control / "requests").iterdir():
+        try:
+            if (
+                (job / "started").exists()
+                and not (job / "status").exists()
+                and not (job / "cancel").exists()
+                and alive((job / "client.pid").read_text())
+            ):
+                return True
+        except FileNotFoundError:
+            pass
+    return False
+
+
+def ensure_session(scope, configuration, runtime, base, kernel, execution):
+    control = scope / "session"
+    vm_type, addresses = vm_options(configuration)
+    identity = session_identity(configuration, execution)
     if control.is_dir():
         if (
             (control / "version").exists()
@@ -910,7 +951,12 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             and (control / "supervisor.pid").exists()
             and alive((control / "supervisor.pid").read_text())
         ):
-            return control
+            if guest_responding(control):
+                return control
+        if active_invocations(control):
+            raise RuntimeError(
+                "Fedora guest needs recovery or an update; active jobs were preserved"
+            )
         stop_session(scope)
 
     # Keep disk preparation and device reservations ahead of the detached owner.

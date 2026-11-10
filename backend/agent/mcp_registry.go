@@ -71,11 +71,17 @@ func (engine *Engine) mcpServersFor(agentID string) []mcpServerInfo {
 }
 
 func (engine *Engine) closeMCPServers(agentID string) {
+	engine.closeMCPServersMatching(func(server *mcpServer) bool {
+		return agentID == "" || server.agentID == agentID
+	})
+}
+
+func (engine *Engine) closeMCPServersMatching(matches func(*mcpServer) bool) {
 	engine.mu.Lock()
 	var selected []*mcpServer
 
 	for id, server := range engine.mcpServers {
-		if agentID == "" || server.agentID == agentID {
+		if matches(server) {
 			selected = append(selected, server)
 			delete(engine.mcpServers, id)
 		}
@@ -132,7 +138,10 @@ func (engine *Engine) connectMCP(
 		return nil, err
 	}
 
-	temporary := agentTemporaryDirectory(record.ID)
+	temporary, err := engine.temporaryDirectory(record.ID)
+	if err != nil {
+		return nil, err
+	}
 	if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
 		return nil, err
 	}
@@ -140,7 +149,7 @@ func (engine *Engine) connectMCP(
 	open := func(requestContext context.Context, command string, tooling bool) (*remote.Process, error) {
 		requestContext, stop := context.WithCancel(requestContext)
 		stopLifetime := context.AfterFunc(lifetime, stop)
-		wrapped, sandbox, err := remote.Sandbox(requestContext, connection, machine, remote.Execution{
+		wrapped, sandbox, err := engine.sandbox(requestContext, connection, machine, remote.Execution{
 			AgentID:            record.ID,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,

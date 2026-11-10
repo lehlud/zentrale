@@ -104,26 +104,20 @@ for (const english of [false, true]) {
     await expect(devices).toHaveValue("0000:01:00.0, 0000:01:00.1");
   });
 
-  test(`an idle conversation can release its VM: ${english ? "en" : "de"}`, async ({
+  test(`VM lifecycle does not require manual controls: ${english ? "en" : "de"}`, async ({
     page,
   }) => {
     const label = (de: string, en: string) => (english ? en : de);
     await page.addInitScript((english) => {
       localStorage.setItem("zentrale-locale", english ? "en" : "de");
     }, english);
-    let stopped = "";
     let status = "idle";
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
+      const { query } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
       if (query.includes("status{")) {
         return send({ status: { authenticated: true, needsSetup: false } });
-      }
-
-      if (query.includes("stopAgentVM")) {
-        stopped = variables.agentId;
-        return send({ stopAgentVM: true });
       }
 
       if (query.includes("recentMessages")) {
@@ -153,14 +147,12 @@ for (const english of [false, true]) {
         exact: true,
       });
     await actions.click();
-    await page
-      .getByRole("menuitem", {
+    await expect(
+      page.getByRole("menuitem", {
         name: label("VM stoppen", "Stop VM"),
         exact: true,
-      })
-      .click();
-
-    await expect.poll(() => stopped).toBe(agent.id);
+      }),
+    ).toHaveCount(0);
 
     status = "running";
     await page.reload();
@@ -171,6 +163,6 @@ for (const english of [false, true]) {
         name: label("VM stoppen", "Stop VM"),
         exact: true,
       }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
   });
 }

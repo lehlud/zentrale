@@ -117,7 +117,10 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		return fmt.Errorf("wait for another agent to prepare project repositories: %w", waitContext.Err())
 	}
 
-	temporary := agentTemporaryDirectory(scope)
+	temporary, err := engine.temporaryDirectory(scope)
+	if err != nil {
+		return err
+	}
 	workspaceContext, cancelWorkspace := context.WithTimeout(ctx, time.Minute)
 	err = prepareRemoteWorkspace(workspaceContext, connection, project.Directory, temporary)
 	cancelWorkspace()
@@ -129,7 +132,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		// Staging can prepare a guest, so give it a separate cold-boot budget.
 		// Start the command timeout only once its runtime is ready.
 		stageContext, cancelStage := context.WithTimeout(ctx, 10*time.Minute)
-		command, _, err := remote.Sandbox(stageContext, connection, machine, remote.Execution{
+		command, _, err := engine.sandbox(stageContext, connection, machine, remote.Execution{
 			AgentID:            scope,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,

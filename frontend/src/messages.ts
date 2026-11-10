@@ -75,7 +75,7 @@ export const english: Record<string, string> = {
   Läuft: "Running",
   "Live-Antwort": "Live response",
   "Agent stoppen": "Stop agent",
-  "VM stoppen": "Stop VM",
+  "Subagenten von {name}": "Subagents of {name}",
   "Antwort unterbrochen": "Response interrupted",
   "Antwort wird vorbereitet …": "Preparing response …",
   "Schreibt …": "Writing …",
