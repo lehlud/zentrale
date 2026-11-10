@@ -23,3 +23,12 @@ class ReportTests(unittest.TestCase):
         ])))
         self.assertEqual(len(result), 1)
         self.assertLess(len(result[0]), 12100)
+
+    def test_fatal_runtime_output_is_kept_without_a_test_fail_event(self):
+        result = list(annotations(map(json.dumps, [
+            {"Package": "p", "Test": "TestCrash", "Output": "panic: runtime failure\nstack trace\n"},
+            {"Package": "p", "Output": "x" * 20000},
+            {"Package": "p", "Action": "fail"},
+        ])))
+        self.assertEqual(len(result), 1)
+        self.assertIn("panic: runtime failure%0Astack trace", result[0])

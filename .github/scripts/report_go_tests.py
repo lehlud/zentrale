@@ -7,6 +7,7 @@ import sys
 
 def annotations(lines):
     output = collections.defaultdict(str)
+    diagnostics = {}
     for line in lines:
         try:
             event = json.loads(line)
@@ -16,9 +17,20 @@ def annotations(lines):
             continue
         key = (event.get("Package", ""), event.get("Test", ""))
         if event.get("Output"):
-            output[key] = (output[key] + event["Output"])[-12000:]
+            text = event["Output"]
+            package_key = (key[0], "")
+            output[package_key] = (output[package_key] + text)[-12000:]
+            if key[1]:
+                output[key] = (output[key] + text)[-12000:]
+            if any(marker in text for marker in ("panic:", "fatal error:", "WARNING: DATA RACE")):
+                diagnostics.setdefault(key[0], "")
+            if key[0] in diagnostics:
+                diagnostics[key[0]] = (diagnostics[key[0]] + text)[:12000]
         if event.get("Action") == "fail":
-            message = " / ".join(filter(None, key)) + "\n" + output.pop(key, "")
+            details = output.pop(key, "")
+            if not key[1]:
+                details = diagnostics.pop(key[0], details)
+            message = " / ".join(filter(None, key)) + "\n" + details
             message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
             yield "::error::" + message
         elif event.get("Action") == "pass":
