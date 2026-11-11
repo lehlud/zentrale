@@ -7,6 +7,14 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
+test.afterEach(async ({ page }) => {
+  if (!page.isClosed()) {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await session.detach();
+  }
+});
+
 test("long conversations keep typing isolated, observers bounded and updates responsive", async ({
   page,
 }, testInfo) => {

@@ -3,6 +3,7 @@ import { Chip, Link } from "@heroui/react";
 import { MoreButton, useBatch } from "./batches";
 import { parseJSON } from "./agent-activity";
 import { useI18n } from "./preferences";
+import { useProjectPath } from "./project-path";
 
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -178,6 +179,7 @@ export function ActivityValue({
   field?: string;
 }) {
   const { t, numberLocale } = useI18n();
+  const projectPath = useProjectPath();
   if (value === null || value === undefined || value === "") {
     return <span className="text-muted">{t("Keine Angabe")}</span>;
   }
@@ -236,7 +238,9 @@ export function ActivityValue({
       >
         {["sandbox", "role", "os", "action"].includes(field)
           ? t(values[value] ?? value)
-          : value}
+          : ["path", "filename", "workspace", "directory"].includes(field)
+            ? projectPath(value)
+            : value}
       </span>
     );
   }

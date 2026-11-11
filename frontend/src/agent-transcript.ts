@@ -25,7 +25,6 @@ export const olderMessagesQuery = `query($id:String!, $beforeId:String!) {
 
 export const transcriptQuery = `query($id:String!) {
   goal(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
-  goalHistory(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
   agentInputs(agentId:$id) { id agentId projectId text mode status createdAt deliveredAt }
   agentRunState(agentId:$id) { agentId phase error hostKey { host fingerprint publicKey } }
   agent(id:$id) { ${agentFields} }

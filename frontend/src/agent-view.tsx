@@ -87,21 +87,6 @@ export function AgentView({
   );
   const history = useTranscriptHistory(agentId, incoming, viewport.following);
   const visibleMessages = history.messages;
-  const goalHistory = useStableValue(data?.goalHistory ?? []);
-  const currentGoal = useStableValue(data?.goal);
-  const terminalGoals = useMemo(
-    () =>
-      [
-        ...new Map(
-          [...goalHistory, ...(currentGoal ? [currentGoal] : [])].map(
-            (goal) => [goal.id, goal],
-          ),
-        ).values(),
-      ].filter((goal) =>
-        ["complete", "cancelled", "superseded"].includes(goal.status),
-      ),
-    [goalHistory, currentGoal],
-  );
 
   useEffect(() => {
     if (!data) {
@@ -193,8 +178,8 @@ export function AgentView({
         ) : (
           <AgentConversation
             messages={visibleMessages}
-            goals={terminalGoals}
             projectDirectory={project.directory}
+            projectId={project.id}
             working={current?.status === "running"}
             onInspect={inspectModel}
           />

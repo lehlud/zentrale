@@ -17,7 +17,12 @@ import {
 } from "./activity-values";
 import type { Goal, Message, ToolActivity } from "./generated";
 import { AgentGoal } from "./agent-goal";
-import { ProjectDirectory } from "./project-path";
+import {
+  ProjectDirectory,
+  ProjectIdentifier,
+  relativeProjectPath,
+  useProjectPath,
+} from "./project-path";
 import { VirtualTranscriptItem } from "./virtual-transcript-item";
 import { FileDiff } from "./file-diff";
 import { MessageMarkdown } from "./message-markdown";
@@ -58,6 +63,7 @@ const ToolEntry = memo(function ToolEntry({
   hasParentChanges?: boolean;
 }) {
   const { t, showDiagnostics } = useI18n();
+  const projectPath = useProjectPath();
   const outcome = toolOutcome(message.content);
   const resultRecord = record(outcome.result);
 
@@ -115,7 +121,7 @@ const ToolEntry = memo(function ToolEntry({
                 {t(call ? toolLabel(call.name, call.arguments) : "Werkzeug")}
               </span>
               <span className="min-w-0 flex-1 truncate text-left font-normal text-muted">
-                {toolSummary(call)}
+                {projectPath(toolSummary(call))}
               </span>
               <span
                 className={
@@ -368,14 +374,14 @@ export const AgentConversation = memo(function AgentConversation({
   messages,
   working,
   onInspect,
-  goals = [],
   projectDirectory = "",
+  projectId = "",
 }: {
   messages: Message[];
   working: boolean;
   onInspect: (wire: string) => void;
-  goals?: Goal[];
   projectDirectory?: string;
+  projectId?: string;
 }) {
   const { t, showDiagnostics } = useI18n();
   const { callsByMessage, resultCalls, completed } = useMemo(
@@ -396,168 +402,171 @@ export const AgentConversation = memo(function AgentConversation({
           })
           .map((message) => ({
             message,
-            goal: undefined as Goal | undefined,
+            goal:
+              message.role === "goal"
+                ? (JSON.parse(message.content) as Goal)
+                : undefined,
             time: message.createdAt,
             id: message.id,
           })),
-        ...goals.map((goal) => ({
-          goal,
-          message: undefined as Message | undefined,
-          time: goal.updatedAt,
-          id: goal.id,
-        })),
       ].sort(
         (left, right) =>
           left.time.localeCompare(right.time) ||
           left.id.localeCompare(right.id),
       ),
-    [messages, goals, callsByMessage, completed, showDiagnostics],
+    [messages, callsByMessage, completed, showDiagnostics],
   );
 
   return (
     <ProjectDirectory.Provider value={projectDirectory}>
-      <ol
-        className="min-w-0"
-        aria-label={t("Nachrichten und Werkzeugaktivität")}
-      >
-        {timeline.map((entry) => (
-          <VirtualTranscriptItem
-            key={entry.id}
-            estimate={entry.message?.role === "tool" ? 48 : 140}
-          >
-            {() => {
-              if (entry.goal)
-                return (
-                  <li key={`goal-${entry.id}`} data-goal-id={entry.id}>
-                    <AgentGoal
-                      goal={entry.goal}
-                      working={false}
-                      reviewing={false}
-                    />
-                  </li>
-                );
-              const message = entry.message!;
-              const calls = callsByMessage.get(message.id) ?? [];
-              if (message.role === "tool") {
-                return (
-                  <ToolEntry
-                    key={message.id}
-                    message={message}
-                    call={resultCalls.get(message.id)}
-                    onInspect={onInspect}
-                  />
-                );
-              }
-
-              if (!message.content) {
-                const pending = calls.filter((call) => !completed.has(call));
-                if (pending.length) {
+      <ProjectIdentifier.Provider value={projectId}>
+        <ol
+          className="min-w-0"
+          aria-label={t("Nachrichten und Werkzeugaktivität")}
+        >
+          {timeline.map((entry) => (
+            <VirtualTranscriptItem
+              key={entry.id}
+              estimate={entry.message?.role === "tool" ? 48 : 140}
+            >
+              {() => {
+                if (entry.goal)
                   return (
-                    <li
+                    <li key={`goal-${entry.id}`} data-goal-id={entry.goal.id}>
+                      <AgentGoal
+                        goal={entry.goal}
+                        working={false}
+                        reviewing={false}
+                      />
+                    </li>
+                  );
+                const message = entry.message!;
+                const calls = callsByMessage.get(message.id) ?? [];
+                if (message.role === "tool") {
+                  return (
+                    <ToolEntry
                       key={message.id}
-                      className="space-y-1 border-l border-border py-2 pl-4 font-mono text-xs"
-                    >
-                      {pending.map((call, index) => (
-                        <p
-                          key={call.id || index}
-                          className="flex min-h-8 items-center gap-2"
-                        >
-                          <span aria-hidden="true" className="text-accent">
-                            ›
-                          </span>
-                          <span className="text-accent">
-                            {t(toolLabel(call.name, call.arguments))}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-muted">
-                            {toolSummary(call)}
-                          </span>
-                          <span className="text-muted">
-                            {t(working ? "Arbeitet" : "Werkzeugaufruf")}
-                          </span>
-                        </p>
-                      ))}
-                      {showDiagnostics && (
-                        <Button
-                          className="min-h-11"
-                          size="sm"
-                          variant="ghost"
-                          onPress={() => onInspect(message.wire)}
-                        >
-                          {t("Schrittdetails")}
-                        </Button>
-                      )}
+                      message={message}
+                      call={resultCalls.get(message.id)}
+                      onInspect={onInspect}
+                    />
+                  );
+                }
+
+                if (!message.content) {
+                  const pending = calls.filter((call) => !completed.has(call));
+                  if (pending.length) {
+                    return (
+                      <li
+                        key={message.id}
+                        className="space-y-1 border-l border-border py-2 pl-4 font-mono text-xs"
+                      >
+                        {pending.map((call, index) => (
+                          <p
+                            key={call.id || index}
+                            className="flex min-h-8 items-center gap-2"
+                          >
+                            <span aria-hidden="true" className="text-accent">
+                              ›
+                            </span>
+                            <span className="text-accent">
+                              {t(toolLabel(call.name, call.arguments))}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-muted">
+                              {relativeProjectPath(
+                                toolSummary(call),
+                                projectDirectory,
+                                projectId,
+                              )}
+                            </span>
+                            <span className="text-muted">
+                              {t(working ? "Arbeitet" : "Werkzeugaufruf")}
+                            </span>
+                          </p>
+                        ))}
+                        {showDiagnostics && (
+                          <Button
+                            className="min-h-11"
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => onInspect(message.wire)}
+                          >
+                            {t("Schrittdetails")}
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  }
+
+                  if (calls.length || !message.wire || !showDiagnostics) {
+                    return null;
+                  }
+
+                  return (
+                    <li key={message.id}>
+                      <Button
+                        className="min-h-11 font-mono text-xs"
+                        size="sm"
+                        variant="ghost"
+                        onPress={() => onInspect(message.wire)}
+                      >
+                        {t("Schrittdetails")}
+                      </Button>
                     </li>
                   );
                 }
 
-                if (calls.length || !message.wire || !showDiagnostics) {
-                  return null;
-                }
+                const user = message.role === "user";
 
                 return (
-                  <li key={message.id}>
-                    <Button
-                      className="min-h-11 font-mono text-xs"
-                      size="sm"
-                      variant="ghost"
-                      onPress={() => onInspect(message.wire)}
-                    >
-                      {t("Schrittdetails")}
-                    </Button>
-                  </li>
-                );
-              }
-
-              const user = message.role === "user";
-
-              return (
-                <li
-                  key={message.id}
-                  data-message-id={message.id}
-                  className={
-                    user
-                      ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
-                      : "min-w-0 py-5"
-                  }
-                >
-                  <div
+                  <li
+                    key={message.id}
+                    data-message-id={message.id}
                     className={
-                      message.role === "event"
-                        ? "mb-2 text-xs text-muted"
-                        : "sr-only"
+                      user
+                        ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
+                        : "min-w-0 py-5"
                     }
                   >
-                    <span>
-                      {t(
-                        user
-                          ? "Du"
-                          : message.role === "event"
-                            ? "System"
-                            : "Agent",
-                      )}
-                    </span>
-                    <span className="sr-only">
-                      <MessageTime message={message} />
-                    </span>
-                  </div>
-                  <MessageContent message={message} />
-                  {showDiagnostics && !user && message.wire && (
-                    <Button
-                      className="mt-1 min-h-11 text-xs text-muted"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t("Schrittdetails")}
-                      onPress={() => onInspect(message.wire)}
+                    <div
+                      className={
+                        message.role === "event"
+                          ? "mb-2 text-xs text-muted"
+                          : "sr-only"
+                      }
                     >
-                      {t("Schrittdetails")}
-                    </Button>
-                  )}
-                </li>
-              );
-            }}
-          </VirtualTranscriptItem>
-        ))}
-      </ol>
+                      <span>
+                        {t(
+                          user
+                            ? "Du"
+                            : message.role === "event"
+                              ? "System"
+                              : "Agent",
+                        )}
+                      </span>
+                      <span className="sr-only">
+                        <MessageTime message={message} />
+                      </span>
+                    </div>
+                    <MessageContent message={message} />
+                    {showDiagnostics && !user && message.wire && (
+                      <Button
+                        className="mt-1 min-h-11 text-xs text-muted"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t("Schrittdetails")}
+                        onPress={() => onInspect(message.wire)}
+                      >
+                        {t("Schrittdetails")}
+                      </Button>
+                    )}
+                  </li>
+                );
+              }}
+            </VirtualTranscriptItem>
+          ))}
+        </ol>
+      </ProjectIdentifier.Provider>
     </ProjectDirectory.Provider>
   );
 });

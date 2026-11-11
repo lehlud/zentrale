@@ -47,7 +47,12 @@ const completed: Goal = {
   updatedAt: "2026-01-01T00:02:00Z",
 };
 
-async function fixture(page: Page, messages: Message[], goals: Goal[] = []) {
+async function fixture(
+  page: Page,
+  messages: Message[],
+  goals: Goal[] = [],
+  olderDelay = 0,
+) {
   let socket: WebSocketRoute | undefined;
   const cursors: string[] = [];
   let eventId = 0;
@@ -66,22 +71,36 @@ async function fixture(page: Page, messages: Message[], goals: Goal[] = []) {
         },
       };
     else if (query.includes("recentMessages")) {
+      const history = [
+        ...messages,
+        ...goals.map((goal) => ({
+          ...message(`goal:${goal.id}`, "goal", JSON.stringify(goal), 0),
+          createdAt: goal.updatedAt,
+        })),
+      ];
+      if (goals.length)
+        history.sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        );
       if (variables.beforeId) {
         cursors.push(variables.beforeId);
-        const before = messages.findIndex(
+        if (olderDelay)
+          await new Promise((resolve) => setTimeout(resolve, olderDelay));
+        const before = history.findIndex(
           (item) => item.id === variables.beforeId,
         );
         data = {
-          messages: messages.slice(Math.max(0, before - 100), before).reverse(),
+          messages: history.slice(Math.max(0, before - 100), before).reverse(),
         };
       } else
         data = {
           ...transcript,
           agent: { ...agent, status: "idle" },
-          messages: messages.slice(-100).reverse(),
+          messages: history.slice(-100).reverse(),
           recentMessages: [],
           goal: goals.at(-1) ?? null,
-          goalHistory: goals,
           questions: [],
           jobs: [],
         };
@@ -134,6 +153,39 @@ test("completed goals stay between their historical messages after new output an
       "Vom Agenten formuliert. Die ursprünglichen Nutzeranweisungen gelten weiterhin.",
     ),
   ).toHaveCount(0);
+});
+
+test("old completed goals are absent until their ordinary scrollback page arrives", async ({
+  page,
+}) => {
+  const messages = Array.from({ length: 105 }, (_, index) =>
+    message(
+      `history-${index}`,
+      "assistant",
+      `History row ${index}\n\n` + "Content. ".repeat(30),
+      index + 10,
+    ),
+  );
+  const goals = Array.from({ length: 8 }, (_, index) => ({
+    ...completed,
+    id: `archived-${index}`,
+    objective: `Archived objective ${index}`,
+    updatedAt: new Date(Date.UTC(2026, 0, 1, 0, index + 1)).toISOString(),
+  }));
+  const state = await fixture(page, messages, goals, 1500);
+  await expect(page.getByText(/History row 104/)).toBeVisible();
+  await expect(page.locator("[data-goal-id]")).toHaveCount(0);
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect.poll(() => state.cursors.length).toBe(1);
+  // In-flight scrollback must not eagerly inject the full goal catalog.
+  await expect(page.locator("[data-goal-id]")).toHaveCount(0);
+  await expect
+    .poll(() => page.locator("[data-transcript-item]").count())
+    .toBe(113);
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect(
+    page.getByText("Archived objective 0", { exact: true }),
+  ).toBeVisible();
 });
 
 test("failed command output stays inside its disclosure and is not duplicated", async ({

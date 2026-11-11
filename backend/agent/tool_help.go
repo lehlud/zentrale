@@ -54,7 +54,8 @@ webfetch {url,raw}
 github {method,path,body}
 clone_source {sourceId}
 source_git {sourceId,arguments:[string]}
-machine_list {}
+machine_list {search?:string,limit?:1..100 (default 20),offset?:non-negative integer} (project-assigned machines including pool members; case-insensitive search across ID/name/host/properties, all whitespace-separated terms must match; sorted by ID; returns machines,total,offset,hasMore)
+machine_properties {} (separate catalog of all existing properties/tags of project-assigned machines including pool members, sorted and deduplicated with machine counts; use to discover machine_list search terms)
 machine_select {machineId}
 resource_list {} (configured GPU hosts, current GPU-job reservations and pool limits; runtime checks still verify host readiness)
 storage_list {} (project-scoped guest mounts)

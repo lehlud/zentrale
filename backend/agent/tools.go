@@ -14,34 +14,35 @@ type toolPolicy struct {
 }
 
 var reviewedTools = map[string]toolPolicy{
-	"apply_patch":      {},
-	"read_file":        {},
-	"list_files":       {},
-	"write_file":       {},
-	"delete_file":      {},
-	"exec":             {},
-	"python":           {},
-	"venv_create":      {},
-	"packages_install": {RequiresNetwork: true},
-	"microvm_reset":    {},
-	"microvm_info":     {},
-	"container":        {},
-	"websearch":        {RequiresNetwork: true},
-	"webfetch":         {RequiresNetwork: true},
-	"github":           {RequiresNetwork: true},
-	"clone_source":     {RequiresNetwork: true},
-	"source_git":       {},
-	"machine_list":     {},
-	"machine_select":   {},
-	"resource_list":    {},
-	"storage_list":     {},
-	"storage_quota":    {},
-	"subagent":         {},
-	"steer_agent":      {},
-	"inspect_agent":    {},
-	"mcp_connect":      {},
-	"mcp_tools":        {},
-	"mcp_call":         {},
+	"apply_patch":        {},
+	"read_file":          {},
+	"list_files":         {},
+	"write_file":         {},
+	"delete_file":        {},
+	"exec":               {},
+	"python":             {},
+	"venv_create":        {},
+	"packages_install":   {RequiresNetwork: true},
+	"microvm_reset":      {},
+	"microvm_info":       {},
+	"container":          {},
+	"websearch":          {RequiresNetwork: true},
+	"webfetch":           {RequiresNetwork: true},
+	"github":             {RequiresNetwork: true},
+	"clone_source":       {RequiresNetwork: true},
+	"source_git":         {},
+	"machine_list":       {},
+	"machine_properties": {},
+	"machine_select":     {},
+	"resource_list":      {},
+	"storage_list":       {},
+	"storage_quota":      {},
+	"subagent":           {},
+	"steer_agent":        {},
+	"inspect_agent":      {},
+	"mcp_connect":        {},
+	"mcp_tools":          {},
+	"mcp_call":           {},
 }
 
 func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, call providers.Call) (any, error) {
@@ -260,7 +261,9 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 	case "source_git":
 		return engine.sourceGitTool(ctx, agentRecord, request)
 	case "machine_list":
-		return engine.listProjectMachines(agentRecord)
+		return engine.listProjectMachines(agentRecord, arguments)
+	case "machine_properties":
+		return engine.listMachineProperties(agentRecord)
 	case "resource_list":
 		project, err := engine.project(agentRecord)
 		if err != nil {

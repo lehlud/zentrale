@@ -158,7 +158,7 @@ func TestProviderRetryLimitAdviceAndCancellation(t *testing.T) {
 		"/inference",
 		map[string]any{},
 	)
-	if err == nil || attempts != 3 || waits != 2 {
+	if err == nil || attempts != providerAttempts || waits != providerAttempts-1 {
 		t.Fatal(err, attempts, waits)
 	}
 
@@ -180,5 +180,31 @@ func TestProviderRetryLimitAdviceAndCancellation(t *testing.T) {
 	if delay, ok := providerRetryAfter(now.Add(5*time.Second).Format(http.TimeFormat), now); !ok ||
 		delay != 5*time.Second {
 		t.Fatal(delay, ok)
+	}
+}
+
+func TestProvider503BackoffGrowsAndExhaustionKeepsHTTPError(t *testing.T) {
+	client := New()
+	attempts := 0
+	waits := []time.Duration{}
+	client.HTTP.Transport = fixtureTransport(func(request *http.Request) (*http.Response, error) {
+		attempts++
+		_ = request.Body.Close()
+		return fixtureResponse(503, `{}`), nil
+	})
+	client.waitRetry = func(_ context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return nil
+	}
+	_, err := client.post(context.Background(), domain.Provider{BaseURL: "https://provider.example"}, "/inference", map[string]any{})
+	var failure *HTTPError
+	if !errors.As(err, &failure) || failure.Status != 503 || attempts != 4 || len(waits) != 3 {
+		t.Fatal(err, attempts, waits)
+	}
+	for index, delay := range waits {
+		base := time.Second * (1 << index)
+		if delay < base*9/10 || delay > base*11/10 || (index > 0 && delay <= waits[index-1]) {
+			t.Fatal("expected growing 1/2/4-second backoff with jitter", waits)
+		}
 	}
 }

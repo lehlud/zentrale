@@ -13,6 +13,7 @@ import { useI18n } from "./preferences";
 import { MessageMarkdown } from "./message-markdown";
 import { MCPRequest, MCPResult } from "./mcp-activity";
 import { goalStatusLabels } from "./goal-format";
+import { useProjectPath } from "./project-path";
 
 const toolLabels: Record<string, string> = {
   exec: "Befehl ausführen",
@@ -99,6 +100,7 @@ export function ActivityRequest({
   hasChanges?: boolean;
 }) {
   const { t, showDiagnostics } = useI18n();
+  const projectPath = useProjectPath();
   const decoded = structured(input);
   const args = record(decoded);
   if (name === "tool_search" || name === "job_stop") {
@@ -222,7 +224,9 @@ export function ActivityRequest({
       {content !== undefined && (
         <CodeSnippet
           text={content}
-          label={typeof args.path === "string" ? args.path : t("Inhalt")}
+          label={
+            typeof args.path === "string" ? projectPath(args.path) : t("Inhalt")
+          }
         />
       )}
       {typeof decoded === "string" && decoded && (

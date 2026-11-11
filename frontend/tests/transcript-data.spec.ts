@@ -1,6 +1,23 @@
 import { expect, test } from "@playwright/test";
 import { mergeMessages } from "../src/transcript-history";
 import { sameJSONValue } from "../src/stable-data";
+import { relativeProjectPath } from "../src/project-path";
+
+test("edit paths are relative across configured, resolved and clean VM roots", () => {
+  const path =
+    "/home/gunter/.local/share/zentrale/projects/project-example/backend/agent/machine_tools.go";
+  expect(relativeProjectPath(path, "", "example")).toBe(
+    "backend/agent/machine_tools.go",
+  );
+  expect(
+    relativeProjectPath("/home/zentrale/project/frontend/tests/a.ts", ""),
+  ).toBe("frontend/tests/a.ts");
+  expect(relativeProjectPath("/srv/repo/a.ts", "/srv/repo/")).toBe("a.ts");
+  expect(relativeProjectPath("/srv/repository/a.ts", "/srv/repo")).toBe(
+    "/srv/repository/a.ts",
+  );
+  expect(relativeProjectPath(path, "", "other")).toBe(path);
+});
 import { transcript } from "./fixtures/visual-data";
 import type { Message } from "../src/generated";
 

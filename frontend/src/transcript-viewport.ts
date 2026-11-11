@@ -15,10 +15,15 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
   }, []);
 
   useLayoutEffect(() => {
+    let previousY = scrollY;
     const update = () => {
       const distance =
         document.documentElement.scrollHeight - innerHeight - scrollY;
-      followingRef.current = distance < 100;
+      // A new/expanded row can increase scrollHeight before our resize callback
+      // follows it. That is not the reader scrolling away from the bottom.
+      if (distance < 100) followingRef.current = true;
+      else if (scrollY < previousY - 1) followingRef.current = false;
+      previousY = scrollY;
       setFollowing(followingRef.current);
     };
     window.addEventListener("scroll", update, { passive: true });

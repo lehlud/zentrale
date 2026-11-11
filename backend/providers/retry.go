@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const providerAttempts = 3
+const providerAttempts = 4
 const maximumRetryWait = 30 * time.Second
 
 // Retry explicit temporary HTTP rejections only. Transport failures and partial
@@ -47,7 +47,7 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 			return result, failure
 		}
 
-		delay := time.Duration(float64(500*time.Millisecond*(1<<attempt)) * (0.9 + rand.Float64()*0.2))
+		delay := time.Duration(float64(time.Second*(1<<attempt)) * (0.9 + rand.Float64()*0.2))
 
 		if advice, valid := providerRetryAfter(response.Header.Get("Retry-After"), received); valid {
 			delay = max(0, advice-time.Since(received))

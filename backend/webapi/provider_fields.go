@@ -29,7 +29,7 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			"beforeId": {Type: graphql.String, DefaultValue: ""},
 		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			rows, err := server.Store.MessagesBefore(params.Args["agentId"].(string), 100, params.Args["beforeId"].(string))
+			rows, err := server.Store.TranscriptBefore(params.Args["agentId"].(string), 100, params.Args["beforeId"].(string))
 			if err == nil {
 				err = server.attachFileChanges(rows, params.Info)
 			}
