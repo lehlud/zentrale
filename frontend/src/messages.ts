@@ -486,6 +486,10 @@ export const english: Record<string, string> = {
     "This SSH key is still in use. Remove its assignments first.",
   "project is still referenced":
     "This project still has agents or sources. Remove those assignments first.",
+  "Projekt mit allen Agenten, Verläufen und Quellen dauerhaft entfernen? Repository-Dateien bleiben erhalten.":
+    "Permanently remove this project with all agents, history and sources? Repository files will be preserved.",
+  "stop the project agents and their jobs before removing it":
+    "Stop this project's agents and their jobs before removing it.",
   "provider is still referenced":
     "Agents still use this provider. Select another provider first.",
   "model is required": "Enter a model ID.",
@@ -621,6 +625,8 @@ export const germanErrors: Record<string, string> = {
     "Dieser SSH-Schlüssel wird noch verwendet. Zuerst die Zuweisungen entfernen.",
   "project is still referenced":
     "Dieses Projekt hat noch Agenten oder Quellen.",
+  "stop the project agents and their jobs before removing it":
+    "Vor dem Löschen die Agenten dieses Projekts und ihre Jobs stoppen.",
   "provider is still referenced":
     "Agenten verwenden diesen Provider noch. Zuerst einen anderen Provider zuweisen.",
   "model is required": "Eine Modell-ID eingeben.",
