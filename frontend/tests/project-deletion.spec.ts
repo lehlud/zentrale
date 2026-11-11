@@ -49,7 +49,10 @@ for (const locale of ["de", "en"]) {
         .click();
     };
     await remove();
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", {
+      name: label("Entfernen bestätigen", "Confirm removal"),
+      exact: true,
+    });
     await expect(dialog).toContainText(
       label(
         "Projekt mit allen Agenten, Verläufen und Quellen dauerhaft entfernen? Repository-Dateien bleiben erhalten.",
