@@ -13,6 +13,18 @@ import (
 func (builder *schemaBuilder) mutations() graphql.Fields {
 	server := builder.server
 	mutations := graphql.Fields{}
+	// User-facing routes must not bypass parent-agent delegation. Internal
+	// SubmitInput/Prompt remain available to reviewed spawn/steer actions.
+	userInputTarget := func(agentID string) error {
+		var record domain.Agent
+		if err := server.Store.Load("agent", agentID, &record); err != nil {
+			return err
+		}
+		if record.Role != "main" || record.ParentID != "" {
+			return errors.New("send instructions to the main agent; subagents can only be paused or resumed by the user")
+		}
+		return nil
+	}
 
 	mutations["login"] = &graphql.Field{
 		Type: graphql.Boolean,
@@ -151,6 +163,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	})
 
 	simple("prompt", strArg("agentId", "text"), func(params graphql.ResolveParams) (any, error) {
+		if err := userInputTarget(params.Args["agentId"].(string)); err != nil {
+			return nil, err
+		}
 		return true, server.Engine.PromptContext(params.Context, params.Args["agentId"].(string), params.Args["text"].(string))
 	})
 
@@ -158,6 +173,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		Type: builder.output(reflect.TypeFor[domain.AgentInput]()),
 		Args: strArg("agentId", "id", "text", "mode"),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			if err := userInputTarget(params.Args["agentId"].(string)); err != nil {
+				return nil, err
+			}
 			input, err := server.Engine.SubmitInput(
 				params.Args["agentId"].(string),
 				params.Args["id"].(string),
@@ -170,6 +188,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	}
 
 	simple("cancelInput", strArg("agentId", "id"), func(params graphql.ResolveParams) (any, error) {
+		if err := userInputTarget(params.Args["agentId"].(string)); err != nil {
+			return nil, err
+		}
 		return true, server.Engine.CancelInput(params.Args["agentId"].(string), params.Args["id"].(string))
 	})
 
@@ -178,6 +199,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	})
 
 	simple("cancelGoal", strArg("agentId", "goalId"), func(params graphql.ResolveParams) (any, error) {
+		if err := userInputTarget(params.Args["agentId"].(string)); err != nil {
+			return nil, err
+		}
 		return true, server.Engine.CancelGoal(params.Args["agentId"].(string), params.Args["goalId"].(string))
 	})
 
@@ -194,6 +218,13 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	})
 
 	simple("answerQuestion", strArg("id", "answer", "status"), func(params graphql.ResolveParams) (any, error) {
+		var question domain.Question
+		if err := server.Store.Load("question", params.Args["id"].(string), &question); err != nil {
+			return nil, err
+		}
+		if err := userInputTarget(question.AgentID); err != nil {
+			return nil, err
+		}
 		return true, server.Engine.AnswerQuestion(
 			params.Args["id"].(string),
 			params.Args["answer"].(string),

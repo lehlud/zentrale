@@ -22,6 +22,16 @@ using `steer_agent {agentId,id,text}`. A stable `id` makes retries idempotent.
 Running children receive guidance at a safe tool-batch boundary; errored children
 can resume. Parent guidance never grants permissions beyond the user's task.
 
+Only main conversations accept user prompts. Subagent histories are read-only
+for the user, with pause/resume controls; user API calls cannot submit/queue
+prompts, answer a child's questions, or edit its delegated input/goal.
+`question_ask` from a subagent notifies its main agent. The main agent's
+`question_list` includes open questions from its direct children, and the reviewed
+`question_answer {id,answer}` tool answers only those children in the same project.
+Answers and their history events are saved atomically and retried idempotently.
+They do not override a user pause or grant new authorization. When a decision
+needs the user's approval, the main agent asks the user in its own conversation.
+
 Responses stream alongside tool activity, file diffs, and jobs. The conversation
 menu opens the independent approver's read-only history. **Stop** interrupts the
 agent and its running jobs and MCP processes. Jobs can also be stopped separately.

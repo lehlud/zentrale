@@ -185,7 +185,10 @@ export function AgentView({
           />
         )}
         {data?.questions
-          .filter((question) => question.status === "open")
+          .filter(
+            (question) =>
+              question.status === "open" && current?.role === "main",
+          )
           .map((question) => (
             <AgentQuestion key={question.id} question={question} />
           ))}
@@ -216,6 +219,7 @@ export function AgentView({
               goal={data.goal}
               working={current?.status === "running"}
               reviewing={data.agentRunState?.phase === "goal_review"}
+              allowDiscard={current?.role === "main"}
             />
           )}
         <Failure
@@ -251,7 +255,7 @@ export function AgentView({
           />
         )}
       </div>
-      {current?.role !== "approver" && (
+      {current?.role === "main" && (
         <AgentComposer
           key={agentId}
           agentId={agentId}
@@ -266,9 +270,33 @@ export function AgentView({
           sandboxMode={sandboxMode}
         />
       )}
-      {current?.role === "approver" && (
+      {current?.role !== "main" && (
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3 text-xs text-muted">
           <p>{t("Dieser Verlauf ist schreibgeschützt.")}</p>
+          {current?.role === "subagent" && (
+            <Button
+              size="sm"
+              variant="secondary"
+              isPending={action.busy}
+              onPress={() =>
+                action.run(() =>
+                  api.mutate(
+                    current.status === "running"
+                      ? "mutation($agentId:String!){stopAgent(agentId:$agentId)}"
+                      : "mutation($agentId:String!){resumeInputs(agentId:$agentId)}",
+                    { agentId },
+                    { announce: false },
+                  ),
+                )
+              }
+            >
+              {t(
+                current.status === "running"
+                  ? "Agent stoppen"
+                  : "Agent fortsetzen",
+              )}
+            </Button>
+          )}
           {data && <CostSummary totals={data.usageSummary} />}
         </footer>
       )}

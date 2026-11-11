@@ -40,6 +40,7 @@ var reviewedTools = map[string]toolPolicy{
 	"subagent":           {},
 	"steer_agent":        {},
 	"inspect_agent":      {},
+	"question_answer":    {},
 	"mcp_connect":        {},
 	"mcp_tools":          {},
 	"mcp_call":           {},
@@ -283,6 +284,8 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 		return engine.steerChildAgent(agentRecord, arguments)
 	case "inspect_agent":
 		return engine.inspectChildAgent(agentRecord, stringArg(arguments, "agentId"))
+	case "question_answer":
+		return engine.answerChildQuestion(agentRecord, arguments)
 	default:
 		return nil, errors.New("unknown reviewed tool")
 	}

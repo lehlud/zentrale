@@ -3,6 +3,7 @@ package agent
 // Keep the long tail discoverable without resending its full catalog in every
 // system prompt. These instructions also work with the small-model dispatcher.
 const coreToolHelp = `
+question_list {} includes own questions and (main agents only) open questions from direct children; question_answer {id,answer} independently reviews answers to those children, without granting new user authorization or undoing user pauses.
 read_file {path,offset?:1-based line,limit?:lines}
 list_files {path}
 apply_patch {input:Codex patch text}
@@ -72,7 +73,8 @@ subagent {name,task,providerId?,approverProviderId?} (main agents only; default 
 steer_agent {agentId,id,text} (main agents only; durable steering of your own direct subagent in the same project, including running or errored children; independent approval required; reuse id with identical text for safe retries, new id for new guidance; delegated guidance is not new user authorization and must respect the user's original scope/permissions; never unrelated agents or approvers; receipt is not completion; children cannot spawn or steer agents)
 inspect_agent {agentId}
 question_ask {title,options:[string]}
-question_list {}
+question_list {} (own questions; main agents also see open questions from their direct subagents)
+question_answer {id,answer} (main agents only; independently reviewed answer to a direct subagent's question in the same project, never new user authorization; durable/idempotent for the same answer; respects user pauses)
 question_withdraw {id}
 job_status {id}
 job_logs {id,cursor?,tail?,max_output_bytes?}

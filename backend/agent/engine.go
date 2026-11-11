@@ -97,8 +97,9 @@ type Engine struct {
 	subscribers   map[chan domain.Event]bool
 	liveResponses map[string]domain.LiveResponse
 
-	configMu  sync.Mutex
-	sandboxMu sync.Mutex
+	configMu   sync.Mutex
+	questionMu sync.Mutex
+	sandboxMu  sync.Mutex
 
 	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
 	vmOperations       sync.Map // Main agent and machine -> environment lifecycle.

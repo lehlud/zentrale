@@ -14,10 +14,12 @@ export function AgentGoal({
   goal,
   working,
   reviewing,
+  allowDiscard = true,
 }: {
   goal: Goal;
   working: boolean;
   reviewing: boolean;
+  allowDiscard?: boolean;
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -125,7 +127,7 @@ export function AgentGoal({
                         {t("Ziel fortsetzen")}
                       </Button>
                     )}
-                    {!working && (
+                    {!working && allowDiscard && (
                       <Button
                         size="sm"
                         variant="ghost"

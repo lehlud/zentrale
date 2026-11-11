@@ -895,6 +895,8 @@ Object.assign(english, {
   "Git ausführen": "Run Git",
   "Maschinen auflisten": "List machines",
   "Maschineneigenschaften auflisten": "List machine properties",
+  "Rückfrage beantworten": "Answer subagent question",
+  "Agent fortsetzen": "Resume agent",
   "Maschine auswählen": "Select machine",
   "Rechenressourcen prüfen": "Inspect compute resources",
   "Projektspeicher prüfen": "Inspect project storage",

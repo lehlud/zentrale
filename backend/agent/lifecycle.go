@@ -138,6 +138,13 @@ func (engine *Engine) NotifyAgent(agentID, text string) error {
 		return err
 	}
 
+	return engine.wakeNotPaused(agentRecord)
+}
+
+// Caller holds configMu. Persisted notifications/answers must not undo a user
+// pause; they remain in history and will be seen after an explicit resume.
+func (engine *Engine) wakeNotPaused(agentRecord domain.Agent) error {
+	agentID := agentRecord.ID
 	engine.mu.Lock()
 	stopped := engine.stopRequested[agentID]
 	engine.mu.Unlock()
