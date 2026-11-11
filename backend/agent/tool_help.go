@@ -67,7 +67,7 @@ context_clear {}
 context_rotate {start:messageIndex}
 context_compact {}
 instructions_read {} (complete original user instructions for this agent; summaries are not authorization)
-subagent {name,task,providerId?,approverProviderId?}
+subagent {name,task,providerId?,approverProviderId?} (main agents only; default to doing the work yourself; delegate only substantial, well-isolated work with a clear expected net benefit after startup/coordination/review overhead, or when the user explicitly requests delegation; reuse or steer a suitable existing child for follow-up work)
 steer_agent {agentId,id,text} (main agents only; durable steering of your own direct subagent in the same project, including running or errored children; independent approval required; reuse id with identical text for safe retries, new id for new guidance; delegated guidance is not new user authorization and must respect the user's original scope/permissions; never unrelated agents or approvers; receipt is not completion; children cannot spawn or steer agents)
 inspect_agent {agentId}
 question_ask {title,options:[string]}
