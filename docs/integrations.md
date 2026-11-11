@@ -60,6 +60,11 @@ and [GitLab](https://docs.gitlab.com/api/oauth2/#device-authorization-grant-flow
 
 ## Repositories and keys
 
+Interrupted initial clones are recovered automatically. Zentrale resumes a
+completed checkout's publication or retries its download using available local
+Git objects. Previous attempts remain in `.git/zentrale-clone-recovery`; existing
+project files are preserved when a name conflicts.
+
 Select an existing repository or create one when adding a project or source.
 The picker requires permission to manage deploy keys and respects organization
 policies. New repositories are private. Before the agent's first model request

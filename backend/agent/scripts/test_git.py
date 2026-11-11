@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -109,6 +110,248 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Existing files were preserved", result.stderr)
         self.assertEqual((partial / "download").read_text(), "incomplete")
+
+    def staged_clone(self, receipt=False):
+        seed = self.root / "seed"
+        subprocess.run(
+            ["git", "init", "-b", "main", str(seed)], check=True, capture_output=True
+        )
+        (seed / "README.md").write_text("repository content\n")
+        (seed / "docs").mkdir()
+        (seed / "docs" / "notes.txt").write_text("tracked notes\n")
+        for arguments in (
+            ["add", "."],
+            [
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "Initial content",
+            ],
+            ["push", str(self.origin), "HEAD:refs/heads/main"],
+        ):
+            subprocess.run(
+                ["git", "-C", str(seed), *arguments],
+                check=True,
+                capture_output=True,
+                env=repository_helper.git_environment(),
+            )
+        subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(self.origin),
+                "symbolic-ref",
+                "HEAD",
+                "refs/heads/main",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        self.directory.mkdir()
+        stage = Path(tempfile.mkdtemp(prefix=".zentrale-clone-", dir=self.directory))
+        checkout = stage / "repository"
+        subprocess.run(
+            ["git", "clone", str(self.origin), str(checkout)],
+            check=True,
+            capture_output=True,
+            env=repository_helper.git_environment(),
+        )
+        if receipt:
+            (stage / "clone.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "directory": str(self.directory),
+                        "url": str(self.origin),
+                        "phase": "ready",
+                        "entries": [entry.name for entry in checkout.iterdir()],
+                        "owner": None,
+                    }
+                )
+            )
+        return stage, checkout
+
+    def test_interrupted_legacy_checkout_is_retained_and_rebuilt(self):
+        stage, checkout = self.staged_clone()
+        (checkout / ".git" / "index").unlink()
+        (checkout / ".git" / "index.lock").write_bytes(b"partial index")
+        (checkout / "README.md").write_text("preserve staging edits")
+        (checkout / "draft.txt").write_text("preserve unknown data")
+        (checkout / "docs" / "notes.txt").unlink()
+        inspected = self.run_helper("inspect")
+        self.assertEqual(inspected.returncode, 0, inspected.stderr)
+        self.assertEqual(json.loads(inspected.stdout), ["root"])
+
+        prepared = self.run_helper("prepare")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual(
+            (self.directory / "README.md").read_text(), "repository content\n"
+        )
+        self.assertEqual(
+            (self.directory / "docs" / "notes.txt").read_text(), "tracked notes\n"
+        )
+        self.assertFalse((self.directory / ".git" / "index.lock").exists())
+        self.assertFalse(
+            (self.directory / ".git" / "objects" / "info" / "alternates").exists()
+        )
+        saved = (
+            self.directory
+            / ".git"
+            / "zentrale-clone-recovery"
+            / stage.name
+            / "repository"
+        )
+        self.assertEqual((saved / "README.md").read_text(), "preserve staging edits")
+        self.assertEqual((saved / "draft.txt").read_text(), "preserve unknown data")
+        self.assertEqual((saved / ".git" / "index.lock").read_bytes(), b"partial index")
+        self.assertEqual(list(self.directory.glob(".zentrale-clone-*")), [])
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_failed_recovery_preserves_the_previous_attempt_for_retry(self):
+        stage, checkout = self.staged_clone()
+        saved = checkout / "draft.txt"
+        saved.write_text("retain this")
+        unavailable = self.origin.with_name("unavailable.git")
+        self.origin.rename(unavailable)
+        failed = self.run_helper("prepare")
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(saved.read_text(), "retain this")
+        self.assertEqual(list(self.directory.iterdir()), [stage])
+        unavailable.rename(self.origin)
+        self.assertEqual(self.run_helper("prepare").returncode, 0)
+
+    def test_live_clone_is_left_alone_then_recovered_after_its_process_exits(self):
+        if not Path("/proc/sys/kernel/random/boot_id").exists():
+            self.skipTest("Linux clone ownership protocol")
+        self.directory.mkdir()
+        stage = Path(tempfile.mkdtemp(prefix=".zentrale-clone-", dir=self.directory))
+        (stage / "repository").mkdir()
+        (stage / "repository" / "draft.txt").write_text("keep partial checkout")
+        owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+
+        def stop(process):
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+
+        self.addCleanup(stop, owner)
+        started = (
+            Path(f"/proc/{owner.pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        )
+        (stage / "clone.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "directory": str(self.directory),
+                    "url": str(self.origin),
+                    "phase": "cloning",
+                    "entries": [],
+                    "owner": {
+                        "boot": Path("/proc/sys/kernel/random/boot_id")
+                        .read_text()
+                        .strip(),
+                        "pid": owner.pid,
+                        "started": started,
+                    },
+                }
+            )
+        )
+        configuration = {
+            **self.source,
+            "operation": "prepare",
+            "key": "TEST KEY",
+            "known": "",
+            "temporaryDirectory": str(self.credentials),
+            "readOnly": False,
+        }
+        helper = subprocess.Popen(
+            [sys.executable, "-I", str(Path(__file__).with_name("git.py"))],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(stop, helper)
+        helper.stdin.write(json.dumps(configuration))
+        helper.stdin.close()
+        helper.stdin = None
+        time.sleep(0.15)
+        self.assertIsNone(helper.poll())
+        self.assertFalse((self.directory / ".git").exists())
+        self.assertEqual(
+            (stage / "repository" / "draft.txt").read_text(), "keep partial checkout"
+        )
+        owner.terminate()
+        owner.wait(timeout=5)
+        _, error = helper.communicate(timeout=10)
+        self.assertEqual(helper.returncode, 0, error)
+        saved = self.directory / ".git" / "zentrale-clone-recovery" / stage.name
+        self.assertEqual(
+            (saved / "repository" / "draft.txt").read_text(), "keep partial checkout"
+        )
+
+    def test_publication_resumes_without_network_and_preserves_moved_file_edits(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        (checkout / "README.md").rename(self.directory / "README.md")
+        (self.directory / "README.md").write_text("edited after publication started")
+        self.origin.rename(self.origin.with_name("unavailable.git"))
+        inspected = self.run_helper("inspect")
+        self.assertEqual(inspected.returncode, 0, inspected.stderr)
+        self.assertEqual(json.loads(inspected.stdout), ["root"])
+        prepared = self.run_helper("prepare")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual(
+            (self.directory / "README.md").read_text(),
+            "edited after publication started",
+        )
+        self.assertEqual(
+            (self.directory / "docs" / "notes.txt").read_text(), "tracked notes\n"
+        )
+        self.assertTrue((self.directory / ".git").is_dir())
+        self.assertFalse(stage.exists())
+
+    def test_finished_publication_is_cleaned_during_configuration(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        for entry in sorted(checkout.iterdir(), key=lambda path: path.name == ".git"):
+            entry.rename(self.directory / entry.name)
+        self.assertEqual(json.loads(self.run_helper("inspect").stdout), [])
+        configured = self.configure()
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertFalse(stage.exists())
+
+    def test_publication_conflict_never_overwrites_existing_files(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        (self.directory / "README.md").write_text("existing user file")
+        prepared = self.run_helper("prepare")
+        self.assertNotEqual(prepared.returncode, 0)
+        self.assertIn("publication conflicts", prepared.stderr)
+        self.assertEqual(
+            (self.directory / "README.md").read_text(), "existing user file"
+        )
+        self.assertEqual((checkout / "README.md").read_text(), "repository content\n")
+        self.assertTrue((checkout / ".git").is_dir())
+
+    def test_unrelated_receipts_and_symlinked_checkouts_are_not_adopted(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        receipt = json.loads((stage / "clone.json").read_text())
+        receipt["url"] = str(self.root / "unrelated.git")
+        (stage / "clone.json").write_text(json.dumps(receipt))
+        rejected = self.run_helper("inspect")
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Existing files were preserved", rejected.stderr)
+        receipt["url"] = str(self.origin)
+        (stage / "clone.json").write_text(json.dumps(receipt))
+        outside = self.root / "outside"
+        checkout.rename(outside)
+        checkout.symlink_to(outside, target_is_directory=True)
+        rejected = self.run_helper("prepare")
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertEqual((outside / "README.md").read_text(), "repository content\n")
 
     def configure(self, **overrides):
         source = {

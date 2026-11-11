@@ -3,11 +3,13 @@
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 
@@ -171,6 +173,7 @@ def configure_project_git(configuration):
     for source in sources:
         if not checkout_exists(source):
             raise ValueError("Cannot configure a missing repository")
+        cleanup_finished_clones(source)
         directory = source["directory"]
         managed = managed_git_directory(project, directory)
         url = source["url"]
@@ -302,7 +305,13 @@ def checkout_exists(source, timeout=20):
         raise ValueError(f"Repository directory is not a directory: {directory}")
 
     if not (directory / ".git").exists():
-        if any(directory.iterdir()):
+        entries = list(directory.iterdir())
+        stages = interrupted_clones(source, timeout)
+        allowed = {stage.name for stage, _ in stages}
+        for _, receipt in stages:
+            if receipt and receipt["phase"] == "ready":
+                allowed.update(receipt["entries"])
+        if any(entry.name not in allowed for entry in entries):
             raise ValueError(
                 f"Repository directory is not empty and has no checkout: {directory}. "
                 "Existing files were preserved; select an empty project directory."
@@ -354,6 +363,167 @@ def checkout_exists(source, timeout=20):
     return True
 
 
+def clone_owner():
+    try:
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        started = (
+            Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        )
+        return {"boot": boot, "pid": os.getpid(), "started": started}
+    except OSError:
+        return None
+
+
+def clone_is_running(receipt):
+    owner = receipt.get("owner") if receipt else None
+    if not isinstance(owner, dict):
+        return False
+    try:
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        process = (
+            Path(f"/proc/{int(owner['pid'])}/stat")
+            .read_text()
+            .rsplit(")", 1)[1]
+            .split()
+        )
+        return (
+            owner["boot"] == boot
+            and owner["started"] == process[19]
+            and process[0] not in ("Z", "X")
+        )
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return False
+
+
+def interrupted_clones(source, timeout=20):
+    directory = Path(source["directory"])
+    stages = []
+    for stage in sorted(directory.iterdir()):
+        if not re.fullmatch(r"\.zentrale-clone-[a-z0-9_]{8}", stage.name):
+            continue
+        if not stage.is_dir() or stage.resolve() != stage:
+            continue
+        names = {entry.name for entry in stage.iterdir()}
+        if names - {"repository", "clone.json"}:
+            continue
+        checkout = stage / "repository"
+        if checkout.is_symlink() or (
+            checkout.exists() and checkout.resolve() != checkout
+        ):
+            continue
+        receipt_file = stage / "clone.json"
+        if receipt_file.is_file() and not receipt_file.is_symlink():
+            try:
+                receipt = json.loads(receipt_file.read_text())
+                entries = receipt["entries"]
+                valid = (
+                    receipt["version"] == 1
+                    and receipt["directory"] == str(directory)
+                    and receipt["url"] == source["url"]
+                    and receipt["phase"] in ("cloning", "ready")
+                    and isinstance(entries, list)
+                    and all(
+                        isinstance(name, str)
+                        and name not in ("", ".", "..")
+                        and Path(name).name == name
+                        for name in entries
+                    )
+                    and (receipt["phase"] != "ready" or ".git" in entries)
+                )
+                if valid:
+                    metadata = checkout / ".git"
+                    if receipt["phase"] == "ready" and metadata.exists():
+                        if (
+                            metadata.resolve() != metadata
+                            or (metadata / "config").is_symlink()
+                        ):
+                            continue
+                        if not checkout_exists(
+                            {**source, "directory": str(checkout)}, timeout
+                        ):
+                            continue
+                    stages.append((stage, receipt))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+        elif names == {"repository"}:
+            # Older versions had no receipt. Recognize only a real checkout of
+            # the selected source, and retain every byte when cloning again.
+            metadata = checkout / ".git"
+            if (
+                metadata.is_dir()
+                and metadata.resolve() == metadata
+                and not (metadata / "config").is_symlink()
+            ):
+                try:
+                    if checkout_exists({**source, "directory": str(checkout)}, timeout):
+                        stages.append((stage, None))
+                except ValueError:
+                    pass
+    return stages
+
+
+def cleanup_clone(stage):
+    # Remove only our receipt and empty staging directories, never unknown data.
+    checkout = stage / "repository"
+    if checkout.is_dir() and not checkout.is_symlink() and not any(checkout.iterdir()):
+        checkout.rmdir()
+    if {entry.name for entry in stage.iterdir()} == {"clone.json"}:
+        (stage / "clone.json").unlink()
+        stage.rmdir()
+
+
+def cleanup_finished_clones(source):
+    directory = Path(source["directory"])
+    for stage, receipt in interrupted_clones(source):
+        if (
+            receipt
+            and receipt["phase"] == "ready"
+            and not clone_is_running(receipt)
+            and all(
+                (directory / name).exists() or (directory / name).is_symlink()
+                for name in receipt["entries"]
+            )
+        ):
+            cleanup_clone(stage)
+
+
+def publish_clone(source, stage, receipt, previous):
+    directory = Path(source["directory"])
+    checkout = stage / "repository"
+    metadata = checkout / ".git"
+    if not metadata.is_dir() or metadata.resolve() != metadata:
+        raise ValueError(
+            "Interrupted clone has no safe Git metadata; existing files were preserved"
+        )
+    receipt["owner"] = clone_owner()
+    atomic_secret(stage, "clone.json", json.dumps(receipt))
+    for abandoned, _ in previous:
+        if abandoned == stage:
+            continue
+        recovery = private_directory(metadata / "zentrale-clone-recovery")
+        target = recovery / abandoned.name
+        if target.exists() or target.is_symlink():
+            raise ValueError(
+                "Clone recovery destination already exists; existing files were preserved"
+            )
+        abandoned.rename(target)
+    # A durable receipt makes each rename resumable. Git metadata is published
+    # last so inference/editor startup still requires a complete checkout.
+    for name in sorted(receipt["entries"], key=lambda name: name == ".git"):
+        entry, target = checkout / name, directory / name
+        if entry.exists() or entry.is_symlink():
+            if target.exists() or target.is_symlink():
+                raise ValueError(
+                    f"Checkout publication conflicts with {target}; existing files were preserved"
+                )
+            entry.rename(target)
+        elif not (target.exists() or target.is_symlink()):
+            raise ValueError(
+                f"Interrupted clone is missing {name}; existing files were preserved"
+            )
+    cleanup_clone(stage)
+
+
 def write_secret(directory, filename, content):
     destination = os.path.join(directory, filename)
     with open(destination, "w") as target:
@@ -383,18 +553,47 @@ def disable_push(directory):
 
 def clone_repository(configuration, environment):
     directory = Path(configuration["directory"])
-    # Keep a failed or interrupted transfer from looking like a ready checkout.
-    # Staging inside the workspace allows renames on the same shared filesystem.
-    with tempfile.TemporaryDirectory(
-        prefix=".zentrale-clone-", dir=directory
-    ) as staging:
-        checkout = Path(staging) / "repository"
+    previous = interrupted_clones(configuration)
+    while any(clone_is_running(receipt) for _, receipt in previous):
+        time.sleep(0.2)
+        if (directory / ".git").exists() and checkout_exists(configuration):
+            cleanup_finished_clones(configuration)
+            return
+        previous = interrupted_clones(configuration)
+    for stage, receipt in previous:
+        if receipt and receipt["phase"] == "ready":
+            publish_clone(configuration, stage, receipt, previous)
+            return
+
+    # Stay on the shared filesystem for atomic entry renames. Completed clones
+    # survive interrupted publication; an earlier attempt is retained in .git.
+    stage = Path(tempfile.mkdtemp(prefix=".zentrale-clone-", dir=directory))
+    checkout = stage / "repository"
+    receipt = {
+        "version": 1,
+        "directory": str(directory),
+        "url": configuration["url"],
+        "phase": "cloning",
+        "entries": [],
+        "owner": clone_owner(),
+    }
+    ready = False
+    try:
+        atomic_secret(stage, "clone.json", json.dumps(receipt))
+        references = []
+        for abandoned, _ in previous:
+            if (abandoned / "repository" / ".git").is_dir():
+                references.extend(
+                    ["--reference-if-able", str(abandoned / "repository")]
+                )
         subprocess.run(
             [
                 "git",
                 "-c",
                 "core.hooksPath=/dev/null",
                 "clone",
+                *references,
+                "--dissociate",
                 "--",
                 configuration["url"],
                 str(checkout),
@@ -404,14 +603,20 @@ def clone_repository(configuration, environment):
         )
         if configuration["readOnly"]:
             disable_push(checkout)
-        if any(entry != Path(staging) for entry in directory.iterdir()):
+        allowed = {stage, *(old for old, _ in previous)}
+        if any(entry not in allowed for entry in directory.iterdir()):
             raise ValueError(
                 f"Repository directory changed during checkout: {directory}"
             )
-        # Publish Git metadata last. A stopped preparation cannot silently
-        # accept a partly populated working tree as a successful initial clone.
-        for entry in sorted(checkout.iterdir(), key=lambda entry: entry.name == ".git"):
-            entry.rename(directory / entry.name)
+        receipt.update(
+            phase="ready", entries=[entry.name for entry in checkout.iterdir()]
+        )
+        atomic_secret(stage, "clone.json", json.dumps(receipt))
+        ready = True
+        publish_clone(configuration, stage, receipt, previous)
+    finally:
+        if not ready:
+            shutil.rmtree(stage)
 
 
 def run_git(configuration):
@@ -468,6 +673,7 @@ def main():
 
     if configuration["operation"] in ("clone", "prepare"):
         if checkout_exists(configuration):
+            cleanup_finished_clones(configuration)
             print(
                 json.dumps({"directory": configuration["directory"], "existing": True})
             )

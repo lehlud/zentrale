@@ -134,6 +134,51 @@ func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
 	return fixture
 }
 
+func TestRepositoryPreparationRecoversAnAbandonedClone(t *testing.T) {
+	fixture := newRepositoryFixture(t, nil)
+	connection, _, _, err := fixture.engine.connect(context.Background(), fixture.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	address, err := url.Parse(fixture.source.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(fixture.directory, ".zentrale-clone-abc123xy")
+	checkout := filepath.Join(stage, "repository")
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, arguments := range [][]string{
+		{"clone", address.Path, checkout},
+		{"-C", checkout, "remote", "set-url", "origin", fixture.source.URL},
+	} {
+		command := exec.Command("git", arguments...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatal(string(output), err)
+		}
+	}
+	if err := os.Remove(filepath.Join(checkout, ".git", "index")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".git", "index.lock"), []byte("interrupted"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if result := fixture.engine.CheckAgentConnection(context.Background(), fixture.record.ID); !result.Connected {
+		t.Fatal(result)
+	}
+	readme, err := os.ReadFile(filepath.Join(fixture.directory, "README.md"))
+	if err != nil || string(readme) != "Repository content\n" {
+		t.Fatal("project did not recover its repository", string(readme), err)
+	}
+	saved := filepath.Join(fixture.directory, ".git", "zentrale-clone-recovery", filepath.Base(stage), "repository", ".git", "index.lock")
+	if data, err := os.ReadFile(saved); err != nil || string(data) != "interrupted" {
+		t.Fatal("the previous attempt was not retained", string(data), err)
+	}
+}
+
 func TestModelRoundsReusePreparedSourcesUntilReconnectOrConfigurationChanges(t *testing.T) {
 	fixture := newRepositoryFixture(t, nil)
 	engine, record := fixture.engine, fixture.record
