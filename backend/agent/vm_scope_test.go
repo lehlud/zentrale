@@ -265,6 +265,23 @@ func TestEnvironmentLockWaitCanBeCancelled(t *testing.T) {
 	}
 }
 
+func TestIdleCleanupDoesNotWaitForAnEnvironmentBeingPrepared(t *testing.T) {
+	engine, main := testEngine(t, nil)
+	family := map[string]bool{main.ID: true}
+	release := engine.useEnvironment(main.ID)
+	defer release()
+	operation := engine.vmOperation(main.ID, "host")
+	if err := operation.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer operation.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := engine.stopVMRecord(ctx, map[string]any{"agentId": main.ID, "machineId": "host"}, family); err != nil {
+		t.Fatalf("idle cleanup waited behind a busy startup: %v", err)
+	}
+}
+
 func TestFailedStagingStillTracksGuestForAutomaticCleanup(t *testing.T) {
 	var stops atomic.Int32
 	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {

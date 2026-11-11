@@ -6,6 +6,7 @@ import json
 import os
 import runpy
 import re
+import selectors
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import threading
 import signal
 import shutil
 import socket
+import tempfile
 
 
 LIBC = ctypes.CDLL(None, use_errno=True)
@@ -168,7 +170,7 @@ GUEST_ENV = {
 }
 STANDARD_PACKAGES = {
     "fish": ("fish",),
-    "git": ("git",),
+    "git-core": ("git",),
     "ripgrep": ("rg",),
     "python3": ("python3",),
     "python3-pip": ("pip3",),
@@ -286,6 +288,88 @@ def enter_guest(root):
     return enter
 
 
+class PackageInstallFailure(RuntimeError):
+    def __init__(self, reason, message):
+        self.reason = reason
+        super().__init__(message)
+
+
+def package_journal(root):
+    journal = root / "var/lib/zentrale/package-install.json"
+    if not journal.resolve().is_relative_to(root.resolve()):
+        raise RuntimeError("package installation journal leaves the guest filesystem")
+    return journal
+
+
+def pending_packages(root):
+    journal = package_journal(root)
+    if not journal.exists():
+        return []
+    if journal.stat().st_size > 8192:
+        raise RuntimeError("invalid package installation journal")
+    packages = json.loads(journal.read_text())
+    if not isinstance(packages, list) or not all(
+        isinstance(name, str) and re.fullmatch(r"[a-z0-9][a-z0-9+_.-]*", name)
+        for name in packages
+    ):
+        raise RuntimeError("invalid package installation journal")
+    return packages
+
+
+def run_package_manager(arguments, root, timeout=900, idle_timeout=300):
+    # Progress extends the inactivity budget, never the overall startup budget.
+    # Kill the whole transaction group before rebooting, including RPM scripts.
+    started = last_output = time.monotonic()
+    with subprocess.Popen(
+        arguments,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        preexec_fn=enter_guest(root),
+        env=GUEST_ENV,
+        start_new_session=True,
+    ) as process:
+        try:
+            with selectors.DefaultSelector() as output:
+                output.register(process.stdout, selectors.EVENT_READ)
+                while process.poll() is None or output.get_map():
+                    now = time.monotonic()
+                    remaining = min(started + timeout, last_output + idle_timeout) - now
+                    if remaining <= 0:
+                        raise PackageInstallFailure(
+                            "package_install_timeout",
+                            "Fedora package installation timed out; transaction saved for retry",
+                        )
+                    for key, _ in output.select(min(remaining, 0.5)):
+                        chunk = os.read(key.fd, 65536)
+                        if not chunk:
+                            output.unregister(key.fileobj)
+                            continue
+                        last_output = time.monotonic()
+                        sys.stdout.write(chunk.decode("utf-8", errors="replace"))
+                        sys.stdout.flush()
+            if process.wait() != 0:
+                raise PackageInstallFailure(
+                    "package_install_failed",
+                    "Fedora package installation failed; transaction saved for retry",
+                )
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+            raise
+
+
 def install_guest_packages(root, packages):
     manager = next(
         (
@@ -301,13 +385,31 @@ def install_guest_packages(root, packages):
         )
 
     mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
-    subprocess.run(
-        ["/usr/bin/" + manager, "-y", "install", *packages],
-        check=True,
-        timeout=240,
-        preexec_fn=enter_guest(root),
-        env=GUEST_ENV,
+    journal = package_journal(root)
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=journal.parent, delete=False
+    ) as saved:
+        json.dump(packages, saved)
+        saved.flush()
+        os.fsync(saved.fileno())
+    os.replace(saved.name, journal)
+    descriptor = os.open(journal.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    run_package_manager(
+        [
+            "/usr/bin/" + manager,
+            "-y",
+            "--setopt=install_weak_deps=0",
+            "install",
+            *packages,
+        ],
+        root,
     )
+    journal.unlink()
 
 
 def missing_standard_packages(root):
@@ -344,12 +446,16 @@ done""",
 
 
 def prepare_standard_packages(root):
-    missing = missing_standard_packages(root)
+    # Commands can already exist when an interrupted RPM transaction has not
+    # finished. Replay its package set even if the executable probe succeeds.
+    missing = list(
+        dict.fromkeys([*pending_packages(root), *missing_standard_packages(root)])
+    )
     if not missing:
         return
     # Keep working providers such as curl-minimal, rather than replacing them
     # just because their RPM name differs from the default package name.
-    install_guest_packages(root, ["ca-certificates", *missing])
+    install_guest_packages(root, list(dict.fromkeys(["ca-certificates", *missing])))
 
     remaining = missing_standard_packages(root)
     if remaining:
@@ -628,6 +734,10 @@ def main():
         serve_jobs(request)
         status = 0
     except BaseException as error:
+        if isinstance(error, PackageInstallFailure):
+            Path(CONTROL, "startup-failure.json").write_text(
+                json.dumps({"reason": error.reason})
+            )
         print(
             "MicroVM guest initialization failed: " + str(error),
             file=sys.stderr,

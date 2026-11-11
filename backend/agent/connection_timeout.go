@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/lehlud/zentrale/remote"
 )
 
 // retryConnectionPreparation gives a contended startup one fresh budget, not an
 // unbounded retry loop. Caller cancellation/deadlines and engine shutdown always
 // win. This is deliberately not a general tool/network retry mechanism: only
-// typed deadline errors from harness-owned connection preparation qualify.
+// typed deadlines and managed guest initialization failures qualify.
 func retryConnectionPreparation(ctx context.Context, budget, backoff time.Duration, prepare func(context.Context) error) error {
 	const attempts = 2
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -30,11 +32,12 @@ func retryConnectionPreparation(ctx context.Context, budget, backoff time.Durati
 		if parentError := ctx.Err(); parentError != nil {
 			return parentError
 		}
-		if !errors.Is(err, context.DeadlineExceeded) {
+		var startup *remote.VMStartupFailure
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &startup) {
 			return err
 		}
 		if attempt == attempts {
-			return fmt.Errorf("project preparation timed out after %d attempts: %w", attempts, err)
+			return fmt.Errorf("project preparation failed after %d attempts: %w", attempts, err)
 		}
 
 		timer := time.NewTimer(backoff)

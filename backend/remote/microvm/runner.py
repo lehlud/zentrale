@@ -33,6 +33,8 @@ import traceback
 
 UNAVAILABLE = 78
 RECOVERY_REQUIRED = 75
+STARTUP_FAILED = 76
+STARTUP_TIMEOUT = 1080
 CONTROL_PROTOCOL = 1
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
@@ -49,6 +51,14 @@ class RecoveryRequired(RuntimeError):
     def __init__(self, reason):
         self.reason = reason
         super().__init__("managed environment requires recovery: " + reason)
+
+
+class StartupFailure(RuntimeError):
+    """An interrupted cold boot may be retried without replacing its disk."""
+
+    def __init__(self, reason, diagnostic):
+        self.reason = reason
+        super().__init__("Fedora MicroVM startup failed: " + reason + "\n" + diagnostic)
 
 
 def vm_options(configuration):
@@ -860,7 +870,7 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 pass
     (control / "supervisor.pid").write_text(json.dumps(process_reference()))
     child = launch_vm(runtime, kernel, control)
-    boot_deadline = time.monotonic() + 300
+    boot_deadline = time.monotonic() + STARTUP_TIMEOUT
     try:
         while True:
             finished, status = os.waitpid(child, os.WNOHANG)
@@ -896,7 +906,10 @@ def supervise(runtime, kernel, control, gpu_leases=()):
             ):
                 atomic_json(
                     control / "failure.json",
-                    {"error": "Fedora guest startup timed out"},
+                    {
+                        "error": "Fedora guest startup timed out",
+                        "reason": "startup_timeout",
+                    },
                 )
                 return
             time.sleep(0.1)
@@ -1078,7 +1091,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         os.close(descriptor)
 
     # Accept the new session only after the guest returns its boot proof.
-    deadline = time.monotonic() + 300
+    deadline = time.monotonic() + STARTUP_TIMEOUT + 15
     while time.monotonic() < deadline:
         if (control / "ready.json").exists():
             proof = json.loads((control / "ready.json").read_text())
@@ -1090,9 +1103,34 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             break
         time.sleep(0.1)
 
-    logs = (control / "boot.log").read_text()[-10000:]
+    failure = startup_failure(scope, control)
     stop_session(scope)
-    raise RuntimeError("Fedora MicroVM startup failed\n" + logs)
+    raise failure
+
+
+def startup_failure(scope, control):
+    with (control / "boot.log").open("rb") as source:
+        source.seek(0, os.SEEK_END)
+        source.seek(max(0, source.tell() - 10000))
+        logs = source.read().decode("utf-8", errors="replace")
+    reason = "startup_failed"
+    for name in ("failure.json", "startup-failure.json"):
+        try:
+            reported = json.loads((control / name).read_text()).get("reason")
+            if reported in (
+                "package_install_timeout",
+                "package_install_failed",
+                "startup_timeout",
+            ):
+                reason = reported
+        except (OSError, ValueError, AttributeError):
+            pass
+    # Session control is disposable; keep the last bounded diagnostic on its
+    # private scope so a retry or idle cleanup cannot erase the failure cause.
+    atomic_json(scope / "startup-failure.json", {"reason": reason, "output": logs})
+    if reason != "startup_failed":
+        return StartupFailure(reason, logs)
+    return RuntimeError("Fedora MicroVM startup failed\n" + logs)
 
 
 def stage(cache, execution, configuration, runtime, base, kernel):
@@ -1352,6 +1390,13 @@ if __name__ == "__main__":
             flush=True,
         )
         sys.exit(RECOVERY_REQUIRED)
+    except StartupFailure as error:
+        print(str(error), file=sys.stderr)
+        print(
+            "ZENTRALE_VM_STARTUP_FAILED " + json.dumps({"reason": error.reason}),
+            flush=True,
+        )
+        sys.exit(STARTUP_FAILED)
     except UnavailableError as error:
         if len(sys.argv) < 2 or sys.argv[1] != "select":
             print("MicroVM unavailable: " + str(error), file=sys.stderr)

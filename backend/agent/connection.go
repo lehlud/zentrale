@@ -252,7 +252,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 	// Recheck before inference, and retain failures for the machine diagnostics.
 	// VM setup has its own budget, including a possible cold boot. It must not
 	// consume the time allowed for the subsequent repository inspection.
-	sandboxContext, cancelSandbox := context.WithTimeout(ctx, 10*time.Minute)
+	sandboxContext, cancelSandbox := context.WithTimeout(ctx, remote.ManagedVMSetupTimeout)
 	engine.setRunState(agentID, "checking_sandbox", nil)
 	status := remote.InspectSandbox(sandboxContext, connection, machine)
 	var preparationError error

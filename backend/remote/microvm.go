@@ -11,6 +11,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -36,6 +37,18 @@ var managedMicroVMRelease json.RawMessage
 var managedVFIO string
 
 var microVMInvocationID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+// Leave time for artifact staging and the runner's bounded 18 minute cold boot.
+const ManagedVMSetupTimeout = 25 * time.Minute
+
+type VMStartupFailure struct {
+	Reason     string
+	Diagnostic string
+}
+
+func (failure *VMStartupFailure) Error() string {
+	return "managed environment startup failed: " + failure.Reason + "\n" + failure.Diagnostic
+}
 
 type VMRecoveryRequired struct{ Reason string }
 
@@ -151,6 +164,9 @@ func microVMAction(
 	}
 
 	output, err := RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+	if failure := parseVMStartupFailure(output, err); failure != nil {
+		return "", failure
+	}
 	var exit *ssh.ExitError
 	if errors.As(err, &exit) && exit.ExitStatus() == 75 {
 		const marker = "ZENTRALE_VM_RECOVERY_REQUIRED "
@@ -166,6 +182,32 @@ func microVMAction(
 		}
 	}
 	return output, err
+}
+
+func parseVMStartupFailure(output string, err error) *VMStartupFailure {
+	var exit *ssh.ExitError
+	if !errors.As(err, &exit) || exit.ExitStatus() != 76 {
+		return nil
+	}
+	const marker = "ZENTRALE_VM_STARTUP_FAILED "
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, marker) {
+			continue
+		}
+		var failure VMStartupFailure
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, marker)), &failure) != nil {
+			continue
+		}
+		switch failure.Reason {
+		case "package_install_timeout", "package_install_failed", "startup_timeout":
+			failure.Diagnostic = output
+			if len(failure.Diagnostic) > 12000 {
+				failure.Diagnostic = failure.Diagnostic[len(failure.Diagnostic)-12000:]
+			}
+			return &failure
+		}
+	}
+	return nil
 }
 
 // ManageMicroVM operates only on the scope identified by both agent and project.
