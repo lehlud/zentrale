@@ -318,7 +318,9 @@ for (const variant of [
 
     await expect(page).toHaveURL(/agent=research/);
     await expect(switcher()).toContainText("Recherche");
-    await expect(input).toHaveValue("");
+    // Subagents are user-read-only; the main conversation's draft survives
+    // switching away even though no composer is mounted for the child.
+    await expect(input).toHaveCount(0);
     await expect(switcher()).toBeFocused();
 
     await switcher().press("Enter");
