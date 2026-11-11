@@ -32,6 +32,7 @@ export function useTranscriptHistory(
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pageRevision, setPageRevision] = useState(0);
   const initialized = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const pending = useRef(false);
@@ -60,7 +61,7 @@ export function useTranscriptHistory(
         anchor.current.height,
     );
     anchor.current = undefined;
-  }, [messages]);
+  }, [messages, pageRevision]);
 
   useEffect(() => {
     if (!hasMore || following || !sentinel.current || !oldestId) return;
@@ -84,6 +85,9 @@ export function useTranscriptHistory(
               height: document.documentElement.scrollHeight,
             };
             setMessages((previous) => mergeMessages(previous, page.messages));
+            // Even an empty/duplicate page must consume its scroll anchor now
+            // that unchanged merges deliberately retain the message array.
+            setPageRevision((revision) => revision + 1);
             setOldestId(page.messages.at(-1)?.id);
             setHasMore(page.messages.length === 100);
           })

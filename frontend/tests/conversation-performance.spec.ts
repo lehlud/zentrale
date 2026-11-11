@@ -129,7 +129,7 @@ test("long conversations keep typing isolated, observers bounded and updates res
     stats.scrolls = stats.times = 0;
     stats.latencies = [];
   });
-  const draft = "A responsive draft while reading a very long conversation.";
+  let draft = "A responsive draft while reading a very long conversation.";
   await input.pressSequentially(draft);
   await expect(input).toHaveValue(draft);
   await page.evaluate(
@@ -169,6 +169,62 @@ test("long conversations keep typing isolated, observers bounded and updates res
     sorted[Math.floor(sorted.length * 0.95)],
     "p95 input-to-next-frame at 4x CPU slowdown",
   ).toBeLessThan(250);
+
+  await page.evaluate(() => {
+    (window as any).conversationPerf.latencies = [];
+  });
+  let liveRevision = 0;
+  const liveTimer = setInterval(() => {
+    socket!.send(
+      JSON.stringify({
+        type: "response",
+        data: JSON.stringify({
+          id: "perf-stream",
+          agentId: agent.id,
+          text: `Streaming output ${++liveRevision}`,
+          revision: liveRevision,
+          snapshot: true,
+          status: "running",
+          createdAt: new Date().toISOString(),
+        }),
+      }),
+    );
+  }, 40);
+  const suffix = " With live output.";
+  try {
+    await input.pressSequentially(suffix, { delay: 15 });
+    await expect.poll(() => liveRevision).toBeGreaterThan(2);
+    await expect(
+      page.getByRole("article", { name: "Live-Antwort" }),
+    ).toContainText("Streaming output");
+  } finally {
+    clearInterval(liveTimer);
+  }
+  draft += suffix;
+  await expect(input).toHaveValue(draft);
+  await expect(input).toBeFocused();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const liveLatencies = await page.evaluate(
+    () => (window as any).conversationPerf.latencies as number[],
+  );
+  liveLatencies.sort((a, b) => a - b);
+  await testInfo.attach("typing-with-live-output.json", {
+    body: JSON.stringify(liveLatencies),
+    contentType: "application/json",
+  });
+  expect(liveLatencies.length).toBeGreaterThan(5);
+  expect(liveLatencies[Math.floor(liveLatencies.length * 0.95)]).toBeLessThan(
+    250,
+  );
+  socket!.send(JSON.stringify({ type: "response_reset" }));
+  await expect(page.getByRole("article", { name: "Live-Antwort" })).toHaveCount(
+    0,
+  );
 
   const refresh = async () => {
     const before = queries;
