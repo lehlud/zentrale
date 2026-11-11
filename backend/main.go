@@ -28,9 +28,14 @@ func run() error {
 	dbPath := flag.String("db", "zentrale.duckdb", "DuckDB database path")
 	frontend := flag.String("frontend", "frontend/dist", "built frontend directory")
 
-	origin := flag.String("origin", "", "public origin, e.g. https://zentrale.example")
-	secure := flag.Bool("secure-cookie", false, "require HTTPS for session cookies")
+	public, err := publicServerFlags(flag.CommandLine)
+	if err != nil {
+		return err
+	}
 	flag.Parse()
+	if err := public.validate(); err != nil {
+		return err
+	}
 	store, err := datastore.Open(*dbPath)
 	if err != nil {
 		return err
@@ -53,8 +58,8 @@ func run() error {
 		Auth:         authentication,
 		Engine:       engine,
 		Frontend:     *frontend,
-		Origin:       *origin,
-		SecureCookie: *secure,
+		Origin:       public.Origin,
+		SecureCookie: public.SecureCookie,
 	}
 
 	handler, err := api.Handler()

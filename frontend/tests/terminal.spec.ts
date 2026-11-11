@@ -9,6 +9,54 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
+test("real rejected WebSocket handshake shows actionable origin diagnostics", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  await page.routeWebSocket("**/events?*", () => {});
+  // Do not mock the terminal WebSocket: the real backend rejects the fixture's
+  // nonexistent login. A failed upgrade must reach onerror and then the probe.
+  let probes = 0;
+  await page.route("**/terminal/**", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    probes++;
+    expect(route.request().headers()["origin"]).toBe(
+      new URL(page.url()).origin,
+    );
+    return route.fulfill({ status: 403, json: { message: "Forbidden" } });
+  });
+  await page.route("**/graphql", (route) => {
+    const { query } = route.request().postDataJSON();
+    const data = query.includes("status{")
+      ? { status: { needsSetup: false, authenticated: true } }
+      : query.includes("recentMessages")
+        ? {
+            ...transcript,
+            agent,
+            messages: [],
+            questions: [],
+            jobs: [],
+            recentMessages: [],
+          }
+        : query.includes("agents(projectId:")
+          ? { project, agents }
+          : config;
+    return route.fulfill({ json: { data } });
+  });
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await page
+    .getByRole("button", { name: "Terminal in der VM öffnen", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "VM-Terminal", exact: true });
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Terminal-Origin abgelehnt",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Erneut verbinden", exact: true }),
+  ).toBeVisible();
+  expect(probes).toBe(1);
+});
+
 for (const variant of [
   { locale: "de", theme: "light", width: 1440, height: 1000 },
   { locale: "en", theme: "dark", width: 390, height: 844 },

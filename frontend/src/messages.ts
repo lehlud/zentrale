@@ -1182,6 +1182,18 @@ Object.assign(english, {
   "VM und Terminal werden gestartet …": "Starting VM and terminal …",
   "Terminal-Verbindung beendet": "Terminal connection closed",
   "Terminal-Verbindung fehlgeschlagen.": "Terminal connection failed.",
+  "Terminal-Anmeldung abgelaufen. Bitte neu anmelden.":
+    "Terminal login expired. Please sign in again.",
+  "Terminal-Origin abgelehnt. Hinter einem HTTPS-Reverse-Proxy muss die öffentliche Origin mit -origin konfiguriert sein. Prüfe auch -secure-cookie.":
+    "Terminal origin rejected. Behind an HTTPS reverse proxy, configure the public origin with -origin. Also check -secure-cookie.",
+  "Terminal-Endpunkt nicht gefunden. Prüfe die Weiterleitung von /terminal/ im Reverse-Proxy und die Backend-Version.":
+    "Terminal endpoint not found. Check /terminal/ routing in the reverse proxy and the backend version.",
+  "Terminal-Server nicht verfügbar. Bitte Server-Logs und Reverse-Proxy prüfen.":
+    "Terminal server unavailable. Check server logs and the reverse proxy.",
+  "Terminal-Endpunkt erreichbar, aber WebSocket-Verbindung fehlgeschlagen. Prüfe WebSocket-Upgrades für /terminal/ im Reverse-Proxy.":
+    "Terminal endpoint reachable, but the WebSocket connection failed. Check WebSocket upgrades for /terminal/ in the reverse proxy.",
+  "Terminal-Endpunkt nicht erreichbar. Prüfe Netzwerk und Reverse-Proxy.":
+    "Terminal endpoint unreachable. Check the network and reverse proxy.",
   "Terminal konnte nicht initialisiert werden.":
     "Could not initialize terminal.",
   "Ungültige Antwort der Terminal-Verbindung.":

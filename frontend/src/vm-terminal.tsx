@@ -5,6 +5,7 @@ import "@wterm/dom/css";
 
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
+import { terminalConnectionError } from "./terminal-connection";
 
 type State = "starting" | "ready" | "closed" | "error";
 
@@ -63,6 +64,7 @@ export default function VMTerminal({
     let disposed = false;
     let ready = false;
     let finished = false;
+    const diagnosis = new AbortController();
     let socket: WebSocket | undefined;
     let resizeFrame = 0;
     const encoder = new TextEncoder();
@@ -118,9 +120,13 @@ export default function VMTerminal({
           .querySelector("textarea")
           ?.setAttribute("aria-label", inputLabel.current);
         terminal.fit();
-        socket = new WebSocket(
-          terminalURL(projectId, agentId, terminal.cols, terminal.rows),
+        const url = terminalURL(
+          projectId,
+          agentId,
+          terminal.cols,
+          terminal.rows,
         );
+        socket = new WebSocket(url);
         socket.binaryType = "arraybuffer";
         socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
           if (disposed || finished) return;
@@ -153,7 +159,15 @@ export default function VMTerminal({
             fail("Ungültige Antwort der Terminal-Verbindung.");
           }
         };
-        socket.onerror = () => fail("Terminal-Verbindung fehlgeschlagen.");
+        socket.onerror = () => {
+          if (disposed || finished) return;
+          fail("Terminal-Verbindung fehlgeschlagen.");
+          void terminalConnectionError(url, diagnosis.signal).then(
+            (message) => {
+              if (!disposed) setError(message);
+            },
+          );
+        };
         socket.onclose = () => {
           if (!disposed && !finished) {
             finished = true;
@@ -165,6 +179,7 @@ export default function VMTerminal({
       .catch(() => fail("Terminal konnte nicht initialisiert werden."));
     return () => {
       disposed = true;
+      diagnosis.abort();
       ready = false;
       cancelAnimationFrame(resizeFrame);
       if (socket) {

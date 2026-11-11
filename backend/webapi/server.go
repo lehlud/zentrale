@@ -93,6 +93,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 			if strings.HasPrefix(requestContext.Request().URL.Path, "/graphql") ||
 				strings.HasPrefix(requestContext.Request().URL.Path, "/events") ||
+				strings.HasPrefix(requestContext.Request().URL.Path, "/terminal/") ||
 				strings.HasPrefix(requestContext.Request().URL.Path, "/mcp") {
 				requestContext.Response().Header().Set("Cache-Control", "no-store")
 			}
@@ -178,6 +179,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 	e.GET("/events", server.events)
 	e.GET("/terminal/:project", server.terminal)
+	e.POST("/terminal/:project", server.terminal)
 	e.POST("/mcp", server.mcp)
 	e.Any("/ide/:project/:session/*", server.ide)
 	e.Any("/preview/:project/:session/:port/*", server.preview)

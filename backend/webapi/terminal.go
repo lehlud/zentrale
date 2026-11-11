@@ -74,6 +74,12 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+	// Browsers hide the HTTP status of rejected WebSocket handshakes. This
+	// authenticated, same-origin probe uses the very same guards and route,
+	// but never provisions a VM or opens a shell.
+	if request.Method == http.MethodPost {
+		return requestContext.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	}
 	connection, err := (&websocket.Upgrader{CheckOrigin: server.terminalOrigin, ReadBufferSize: 4096, WriteBufferSize: 32768}).Upgrade(requestContext.Response(), request, nil)
 	if err != nil {
 		return err

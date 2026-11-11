@@ -33,6 +33,25 @@ container needs neither privileged mode nor the Docker socket. Additional server
 flags can be appended after the image name, for example
 `-origin https://zentrale.example -secure-cookie` behind an HTTPS reverse proxy.
 
+On platforms such as Coolify, keep the image entrypoint unchanged and set these
+**runtime** environment variables instead (then redeploy):
+
+```dotenv
+ZENTRALE_ORIGIN=https://zentrale.example
+ZENTRALE_SECURE_COOKIE=true
+```
+
+Use your exact public origin, without an application path. Explicit `-origin`
+and `-secure-cookie` flags override the environment defaults. Invalid values
+fail startup instead of silently disabling the setting. Zentrale does not trust
+arbitrary `X-Forwarded-*` request headers to establish the public origin.
+
+Forward `/terminal/` including WebSocket upgrades through the proxy, as well as
+the other application routes. A terminal handshake rejected with HTTP 403 can
+mean the public HTTPS origin is missing or mismatched: TLS termination leaves
+the backend's connection as HTTP. The terminal error dialog distinguishes this
+from an expired session and a missing route. Do not disable origin checks.
+
 ## Build and run
 
 Install Go 1.27.3 or newer with CGO and a C/C++ toolchain, Node.js 22.12 or newer,

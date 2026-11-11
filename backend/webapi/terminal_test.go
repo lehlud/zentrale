@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +51,16 @@ func TestTerminalOriginIsStrict(t *testing.T) {
 }
 
 func TestTerminalWebSocketRealPTYSession(t *testing.T) {
+	for _, proxied := range []bool{false, true} {
+		name := "direct"
+		if proxied {
+			name = "TLS-terminating-proxy"
+		}
+		t.Run(name, func(t *testing.T) { testTerminalWebSocketRealPTYSession(t, proxied) })
+	}
+}
+
+func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 	fixture := newAPIFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -95,8 +107,33 @@ func TestTerminalWebSocketRealPTYSession(t *testing.T) {
 	if err := fixture.engine.Store.CreateSession(auth.TokenHash(token), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	header := http.Header{"Origin": {fixture.server.URL}, "Cookie": {"zentrale_session=" + token}}
-	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(fixture.server.URL, "http")+"/terminal/"+project.ID+"?cols=91&rows=33", header)
+	endpoint := fixture.server.URL
+	dialer := *websocket.DefaultDialer
+	if proxied {
+		authentication, err := auth.New(fixture.engine.Store, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		api := &Server{Store: fixture.engine.Store, Auth: authentication, Engine: fixture.engine}
+		handler, err := api.Handler()
+		if err != nil {
+			t.Fatal(err)
+		}
+		backend := httptest.NewServer(handler)
+		defer backend.Close()
+		upstream, err := url.Parse(backend.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(upstream))
+		defer proxy.Close()
+		// Trusted deployment configuration, not forwarded request headers.
+		api.Origin, api.SecureCookie = proxy.URL, true
+		endpoint = proxy.URL
+		dialer.TLSClientConfig = proxy.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	}
+	header := http.Header{"Origin": {endpoint}, "Cookie": {"zentrale_session=" + token}}
+	connection, _, err := dialer.Dial("ws"+strings.TrimPrefix(endpoint, "http")+"/terminal/"+project.ID+"?cols=91&rows=33", header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +209,50 @@ func TestTerminalGeometryBounds(t *testing.T) {
 	cols, rows, err := terminalGeometry(httptest.NewRequest("GET", "/terminal/p", nil))
 	if err != nil || cols != 80 || rows != 24 {
 		t.Fatal(cols, rows, err)
+	}
+}
+
+func TestTerminalProbeGuardsWithoutProvisioning(t *testing.T) {
+	fixture := newAPIFixture(t)
+	token := strings.Repeat("c", 43)
+	if err := fixture.engine.Store.CreateSession(auth.TokenHash(token), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, origin, query string
+		authenticated       bool
+		status              int
+	}{
+		{"no session", fixture.server.URL, "", false, 401},
+		{"no origin", "", "", true, 403},
+		{"foreign origin", "https://evil.test", "", true, 403},
+		{"invalid geometry", fixture.server.URL, "?cols=0", true, 400},
+		{"valid probe for nonexistent project", fixture.server.URL, "", true, 200},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := http.NewRequest("POST", fixture.server.URL+"/terminal/missing-project"+test.query, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Origin", test.origin)
+			if test.authenticated {
+				request.AddCookie(&http.Cookie{Name: "zentrale_session", Value: token})
+			}
+			response, err := fixture.client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != test.status || response.Header.Get("Cache-Control") != "no-store" {
+				t.Fatal(response.StatusCode, response.Header)
+			}
+			if test.status == 200 {
+				var result map[string]string
+				if err := json.NewDecoder(response.Body).Decode(&result); err != nil || result["status"] != "ok" {
+					t.Fatal(result, err)
+				}
+			}
+		})
 	}
 }
 
