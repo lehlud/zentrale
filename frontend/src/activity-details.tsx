@@ -101,6 +101,21 @@ export function ActivityRequest({
   const { t, showDiagnostics } = useI18n();
   const decoded = structured(input);
   const args = record(decoded);
+  if (name === "tool_search" || name === "job_stop") {
+    return (
+      <div className="min-w-0 space-y-2 text-sm">
+        {name === "tool_search" ? (
+          <ActivityFields value={{ query: args.query }} />
+        ) : (
+          <dl>
+            <dt className="text-xs text-muted">{t("Job")}</dt>
+            <dd className="break-all font-mono">{String(args.id ?? "")}</dd>
+          </dl>
+        )}
+        {justification && <p className="text-muted">{justification}</p>}
+      </div>
+    );
+  }
   if (["create_goal", "get_goal", "update_goal"].includes(name)) {
     return (
       <div className="space-y-2 text-sm">
@@ -363,6 +378,50 @@ function JobResult({
   );
 }
 
+function ToolSearchResults({ items }: { items: unknown[] }) {
+  const { t } = useI18n();
+  return (
+    <ul aria-label={t("Gefundene Werkzeuge")} className="min-w-0 space-y-2">
+      {items.map((item, index) => {
+        const signature = typeof item === "string" ? item : "";
+        const match = signature.match(/^([\w.:-]+)\s+(\{.*\})(?:\s+(.*))?$/s);
+        if (!match) {
+          return (
+            <li key={index}>
+              <ActivityValue value={item} />
+            </li>
+          );
+        }
+        const [, name, parameters, description] = match;
+        return (
+          <li
+            key={index}
+            className="min-w-0 space-y-2 rounded-lg border border-border p-3"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-sm font-medium">
+                {t(toolLabel(name, {}))}
+              </span>
+              <code className="break-all text-xs text-muted">{name}</code>
+            </div>
+            {description && (
+              <p className="break-words text-sm text-muted">{description}</p>
+            )}
+            <details className="text-xs">
+              <summary className="cursor-pointer py-1">
+                {t("Parameter")}
+              </summary>
+              <code className="block whitespace-pre-wrap break-words pt-1 [overflow-wrap:anywhere]">
+                {parameters}
+              </code>
+            </details>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function ActivityResult({
   name,
   value,
@@ -375,6 +434,12 @@ export function ActivityResult({
   const { t, showDiagnostics } = useI18n();
   const decoded = structured(value);
   const result = record(decoded);
+  if (name === "tool_search" && Array.isArray(decoded)) {
+    return <ToolSearchResults items={decoded} />;
+  }
+  if (name === "job_stop" && decoded === true) {
+    return <p className="text-sm">{t("Stopp angefordert.")}</p>;
+  }
   if (["create_goal", "get_goal", "update_goal"].includes(name)) {
     const goal = record(result.goal ?? decoded);
     return (

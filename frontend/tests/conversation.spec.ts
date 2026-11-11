@@ -109,6 +109,40 @@ for (const variant of [
         toolName: "inspect",
       }),
       message("assistant", "", {
+        wire: JSON.stringify([
+          {
+            type: "function_call",
+            call_id: "search",
+            name: "tool_search",
+            arguments: JSON.stringify({ query: "microvm status reset" }),
+          },
+          {
+            type: "function_call",
+            call_id: "stop",
+            name: "harness",
+            arguments: JSON.stringify({
+              action: "job_stop",
+              arguments: JSON.stringify({ id: "test-job-123" }),
+            }),
+          },
+        ]),
+      }),
+      message(
+        "tool",
+        JSON.stringify({
+          result: [
+            "microvm_info {} (reports your Fedora VM and its boot identity)",
+            "job_status {id} (read the job status)",
+            "an unfamiliar result without a signature",
+          ],
+        }),
+        { callId: "search", toolName: "tool_search" },
+      ),
+      message("tool", JSON.stringify({ result: true }), {
+        callId: "stop",
+        toolName: "harness",
+      }),
+      message("assistant", "", {
         wire: JSON.stringify({
           tool_calls: [
             {
@@ -305,7 +339,41 @@ for (const variant of [
           ),
         })
         .locator(":scope > li"),
-    ).toHaveCount(6);
+    ).toHaveCount(8);
+
+    const search = output.getByRole("button", { name: /microvm status reset/ });
+    await search.click();
+    const tools = output.getByRole("list", {
+      name: label("Gefundene Werkzeuge", "Discovered tools"),
+    });
+    await expect(tools.getByRole("listitem")).toHaveCount(3);
+    await expect(
+      tools.getByText("microvm_info", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      tools.getByText("an unfamiliar result without a signature"),
+    ).toBeVisible();
+    await expect(tools.getByText("{id}", { exact: true })).not.toBeVisible();
+    await tools.locator("summary").nth(1).click();
+    await expect(tools.getByText("{id}", { exact: true })).toBeVisible();
+    await search.click();
+
+    const stop = output.getByRole("button", {
+      name: new RegExp(label("Job beenden", "Stop job")),
+    });
+    await stop.click();
+    const stopDetails = output.getByRole("group", {
+      name: new RegExp(label("Job beenden", "Stop job")),
+    });
+    await expect(
+      stopDetails.getByText("test-job-123", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      stopDetails.getByText(label("Stopp angefordert.", "Stop requested."), {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await stop.click();
 
     const command = output.getByRole("button", {
       name: /python3 -m unittest -v/,

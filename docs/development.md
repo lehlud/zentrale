@@ -103,6 +103,10 @@ to `master`, manual dispatches and a weekly scheduled run. It needs no repositor
 secrets and has only read access to repository contents. Actions are pinned to
 commit hashes and are themselves maintained by Dependabot.
 
+CI and the frontend Docker build use Node 26, with matching Node type definitions.
+The frontend uses TypeScript 7 and Vite 8; `@vitejs/plugin-react` 6 requires Vite 8,
+so update those together rather than bypassing npm's peer-dependency checks.
+
 Three independent checks cover:
 
 - **Backend and Python:** module integrity, Go formatting, `go vet`, all Go tests
