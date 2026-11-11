@@ -1,7 +1,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 const schema = JSON.parse(
-  readFileSync(new URL("../schema.json", import.meta.url), "utf8"),
+  readFileSync(
+    process.argv[2] ?? new URL("../schema.json", import.meta.url),
+    "utf8",
+  ),
 ).__schema;
 
 const scalar = {

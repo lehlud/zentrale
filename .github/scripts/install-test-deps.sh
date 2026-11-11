@@ -3,8 +3,18 @@ set -eu
 
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT HUP INT TERM
-if sudo apt-get update >"$log" 2>&1 &&
-  sudo apt-get install -y --no-install-recommends "$@" >>"$log" 2>&1; then
+as_root() {
+  if command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  elif [ "$(id -u)" = 0 ]; then
+    "$@"
+  else
+    echo 'E: Native dependency installation requires root or sudo' >&2
+    return 1
+  fi
+}
+if as_root apt-get update >"$log" 2>&1 &&
+  as_root apt-get install -y --no-install-recommends "$@" >>"$log" 2>&1; then
   cat "$log"
 else
   cat "$log"

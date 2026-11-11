@@ -24,6 +24,10 @@ jobs:
   backend:
     name: Backend and Python
     runs-on: ubuntu-24.04
+    # The Ubuntu runner's archive DNS has repeatedly failed before tests.
+    # Match the production build's Debian toolchain instead of changing DNS,
+    # disabling package signatures, or silently skipping native dependencies.
+    container: golang:1.27.3-bookworm
     timeout-minutes: 30
     defaults:
       run:
@@ -38,7 +42,6 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Install native test dependencies
         run: |
-          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt
           sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Verify Go modules
         run: |
@@ -73,6 +76,7 @@ jobs:
   frontend:
     name: Frontend and browser integration
     runs-on: ubuntu-24.04
+    container: node:26-bookworm
     timeout-minutes: 30
     defaults:
       run:
@@ -92,7 +96,6 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Install backend fixture dependencies
         run: |
-          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt
           sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Install locked frontend dependencies
         run: npm ci
@@ -103,6 +106,9 @@ jobs:
       - name: Check generated TypeScript types
         run: |
           npm run generate
+          git diff --exit-code -- src/generated.ts
+          (cd ../backend && go run ./cmd/schema) > "$RUNNER_TEMP/backend-schema.json"
+          node scripts/generate-types.mjs "$RUNNER_TEMP/backend-schema.json"
           git diff --exit-code -- src/generated.ts
       - name: Build production frontend
         run: npm run build
