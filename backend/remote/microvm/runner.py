@@ -79,6 +79,16 @@ def vfio_helpers(configuration):
     return namespace
 
 
+def resolve_gpu_configuration(configuration):
+    vm_type, addresses = vm_options(configuration)
+    if vm_type == "q35" and not addresses:
+        return dict(
+            configuration,
+            gpuDevices=vfio_helpers(configuration)["discover_devices"](),
+        )
+    return configuration
+
+
 def storage_mounts(execution, configured=None):
     mounts = execution.get("storage") or []
     if not isinstance(mounts, list) or len(mounts) > 8:
@@ -1266,6 +1276,10 @@ def main():
     action = sys.argv[1]
     configuration = json.loads(sys.argv[2])
     guard_parent(os.getppid())
+    # Resolve once so preflight, session identity and QEMU use the same devices.
+    # Cleanup/info must remain possible even if the GPU inventory is unavailable.
+    if action in ("select", "ensure", "stage", "prepare"):
+        configuration = resolve_gpu_configuration(configuration)
     kernel = (
         prerequisites(configuration)
         if action in ("select", "ensure", "stage", "prepare")

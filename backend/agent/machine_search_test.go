@@ -4,7 +4,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/remote"
 )
 
 func TestMachineSearchPagination(t *testing.T) {
@@ -62,5 +64,39 @@ func TestMachinePropertyCatalogIsSeparateSortedAndCountsMachines(t *testing.T) {
 	}
 	if _, ok := reviewedTools["machine_properties"]; !ok {
 		t.Fatal("property catalog is not independently available")
+	}
+}
+
+func TestMachineCatalogIncludesAssignedPoolMembersButNotOtherProjects(t *testing.T) {
+	store, err := datastore.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, machine := range []domain.Machine{
+		{ID: "direct", Properties: []string{"cpu"}},
+		{ID: "foreign", Properties: []string{"private"}},
+	} {
+		if err := store.Save("machine", machine.ID, "", machine); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pool := domain.Pool{ID: "pool", Machines: []domain.Machine{{ID: "gpu", Properties: []string{"cuda", "gpu"}}}}
+	if err := store.Save("pool", pool.ID, "", pool); err != nil {
+		t.Fatal(err)
+	}
+	project := domain.Project{ID: "project", MachineIDs: []string{"direct", "pool/gpu"}, PoolIDs: []string{"pool"}}
+	if err := store.Save("project", project.ID, "", project); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Store: store, Remote: remote.NewManager(&remote.Connector{Store: store})}
+	agent := domain.Agent{ProjectID: project.ID}
+	page, err := engine.listProjectMachines(agent, map[string]any{"search": "CUDA"})
+	if err != nil || page.Total != 1 || page.Machines[0].ID != "pool/gpu" {
+		t.Fatal(page, err)
+	}
+	properties, err := engine.listMachineProperties(agent)
+	if err != nil || !reflect.DeepEqual(properties, []machinePropertyCount{{"cpu", 1}, {"cuda", 1}, {"gpu", 1}}) {
+		t.Fatal(properties, err)
 	}
 }

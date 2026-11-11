@@ -894,6 +894,7 @@ Object.assign(english, {
   "Quelle klonen": "Clone source",
   "Git ausführen": "Run Git",
   "Maschinen auflisten": "List machines",
+  "Maschineneigenschaften auflisten": "List machine properties",
   "Maschine auswählen": "Select machine",
   "Rechenressourcen prüfen": "Inspect compute resources",
   "Projektspeicher prüfen": "Inspect project storage",

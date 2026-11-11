@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const ManagedGuestWorkspace = "/home/zentrale/project"
+
 // Quote escapes one argument for a POSIX shell. It does not assemble commands or
 // allow callers to provide unquoted shell fragments through argument values.
 func Quote(argument string) string {
@@ -24,6 +26,13 @@ func Workspace(projectDirectory, requestedPath string) (string, error) {
 	}
 
 	projectDirectory = path.Clean(projectDirectory)
+	// File tools still operate on the host-backed project export. Accept the
+	// guest's stable absolute path without weakening project-boundary checks.
+	if requestedPath == ManagedGuestWorkspace {
+		requestedPath = ""
+	} else if strings.HasPrefix(requestedPath, ManagedGuestWorkspace+"/") {
+		requestedPath = strings.TrimPrefix(requestedPath, ManagedGuestWorkspace+"/")
+	}
 	resolvedPath := path.Join(projectDirectory, requestedPath)
 
 	if path.IsAbs(requestedPath) {

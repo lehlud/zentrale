@@ -93,7 +93,11 @@ func prepareEditorRuntimeOnce(
 		return editorRuntime{}, err
 	}
 
-	command := "python3 -u -I -c " + Quote(editorSupervisor) + " " + Quote(prefix) + " " + Quote(project.Directory) + " " + Quote(vscode.RemoteManifest())
+	directory := project.Directory
+	if level == SandboxMicroVM {
+		directory = ManagedGuestWorkspace
+	}
+	command := "python3 -u -I -c " + Quote(editorSupervisor) + " " + Quote(prefix) + " " + Quote(directory) + " " + Quote(vscode.RemoteManifest())
 
 	if level != SandboxMicroVM {
 		return editorRuntime{

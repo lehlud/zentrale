@@ -7,23 +7,35 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
   const composer = useRef<HTMLFormElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
+  const position = useRef({ y: 0, height: 0 });
   const [following, setFollowing] = useState(true);
   const latest = useCallback(() => {
     followingRef.current = true;
     setFollowing(true);
     window.scrollTo(0, document.documentElement.scrollHeight);
+    position.current = {
+      y: scrollY,
+      height: document.documentElement.scrollHeight,
+    };
   }, []);
 
   useLayoutEffect(() => {
-    let previousY = scrollY;
+    position.current = {
+      y: scrollY,
+      height: document.documentElement.scrollHeight,
+    };
     const update = () => {
-      const distance =
-        document.documentElement.scrollHeight - innerHeight - scrollY;
+      const height = document.documentElement.scrollHeight;
+      const distance = height - innerHeight - scrollY;
       // A new/expanded row can increase scrollHeight before our resize callback
       // follows it. That is not the reader scrolling away from the bottom.
       if (distance < 100) followingRef.current = true;
-      else if (scrollY < previousY - 1) followingRef.current = false;
-      previousY = scrollY;
+      else if (
+        scrollY < position.current.y - 1 &&
+        (height === position.current.height || scrollY === 0)
+      )
+        followingRef.current = false;
+      position.current = { y: scrollY, height };
       setFollowing(followingRef.current);
     };
     window.addEventListener("scroll", update, { passive: true });
@@ -52,6 +64,17 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       // Ordinary React renders/keystrokes do not read the document's layout.
       frame = requestAnimationFrame(() => {
         frame = 0;
+        // scroll events can be delivered after this animation frame. Preserve
+        // a reader's upward scroll even in that ordering, but ignore browser
+        // scroll anchoring caused by a simultaneous row measurement/resize.
+        const height = document.documentElement.scrollHeight;
+        if (
+          scrollY < position.current.y - 1 &&
+          (height === position.current.height || scrollY === 0)
+        ) {
+          followingRef.current = false;
+          setFollowing(false);
+        }
         if (root.current && composerHeight !== undefined) {
           const space = `${composerHeight + 24}px`;
           if (root.current.style.paddingBottom !== space) {
@@ -70,8 +93,13 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
           followingRef.current &&
           !suspended &&
           document.documentElement.scrollHeight - innerHeight - scrollY > 1
-        )
+        ) {
           window.scrollTo(0, document.documentElement.scrollHeight);
+          position.current = {
+            y: scrollY,
+            height: document.documentElement.scrollHeight,
+          };
+        }
       });
     });
     if (composer.current) observer.observe(composer.current);

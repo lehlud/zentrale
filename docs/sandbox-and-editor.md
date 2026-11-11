@@ -74,10 +74,23 @@ Administrators can supply a custom `microvm_command` runner using the contract
 It must implement VM isolation, mounts, networking, I/O, and cleanup itself.
 Browser editor sessions require the integrated runner.
 
+## Guest paths
+
+The managed Fedora user's home is `/home/zentrale`; commands, the integrated
+terminal and VS Code use `/home/zentrale/project` for the project. Guest scratch
+and cache paths use `/tmp/zentrale`, independent of the SSH host's username and
+project ID. These are mounts of the existing project/scratch, not new checkouts
+or moves of host data. Old project/scratch paths remain compatibility mounts for
+queued actions and existing Git SSH settings; they do not expose the host home.
+File tools also accept `/home/zentrale/project/...` with the same project-boundary
+and symlink checks. Other sources within the project remain intact.
+
 ## GPU passthrough
 
-Choose `q35` and assign the GPU's host PCI addresses. Pools can set the VM default,
-but PCI addresses belong to individual members. This fragment belongs inside a
+Choose `q35` to automatically discover prepared, non-boot GPUs and their
+same-slot companion functions at VM startup. Explicit `gpu_devices` still takes
+priority when only selected GPUs should be assigned. Pools can set the VM default,
+but explicit PCI addresses belong to individual members. This fragment belongs inside a
 [complete pool configuration](machines.md#import-a-pool):
 
 ```yaml
@@ -95,6 +108,13 @@ functions, such as GPU audio. Zentrale checks device class, IOMMU groups,
 `vfio-pci` binding, complete group assignment, VFIO access, and at least 4 GiB of
 lockable memory. Host administration must prepare these prerequisites; Zentrale
 does not rebind drivers or change host device permissions.
+
+Automatic discovery uses only GPUs already bound to `vfio-pci`; native host
+drivers and the host boot GPU are never taken over. All selected companion
+functions must also satisfy the existing IOMMU/VFIO checks. Missing safe GPUs or
+unavailable groups produce a diagnostic, not a silent CPU-only fallback. Device
+discovery does not acquire or bypass the VM lifetime leases. Stopping, inspecting
+or removing a VM does not require successful rediscovery.
 
 IOMMU groups remain reserved for the VM's lifetime. PCI passthrough also needs a
 compatible guest driver. CUDA requires matching NVIDIA driver and user-space

@@ -196,6 +196,19 @@ STANDARD_PACKAGES = {
 }
 
 
+def project_exports(request):
+    # Stable guest paths are independent of the host username/project ID. Keep
+    # the old paths as compatibility mounts for queued actions and existing Git
+    # SSH commands; these expose only the same project/scratch, never host HOME.
+    exports = [
+        ("workspace", request["workspace"]),
+        ("temporary", request["temporaryDirectory"]),
+        ("workspace", "/home/zentrale/project"),
+        ("temporary", "/tmp/zentrale"),
+    ]
+    return list(dict.fromkeys(exports))
+
+
 def prepare_fedora(request):
     load_module("virtio_blk")
     load_module("ext4")
@@ -248,10 +261,7 @@ def prepare_fedora(request):
     for number, name in enumerate(("stdin", "stdout", "stderr")):
         (root / "dev" / name).symlink_to("/proc/self/fd/" + str(number))
     mount("sysfs", str(root / "sys"), "sysfs", READONLY | NOSUID | NODEV | NOEXEC)
-    for source, destination in [
-        ("workspace", request["workspace"]),
-        ("temporary", request["temporaryDirectory"]),
-    ] + [
+    for source, destination in project_exports(request) + [
         ("storage-" + str(index), entry["guestPath"])
         for index, entry in enumerate(request.get("storage") or [])
     ]:
@@ -518,10 +528,7 @@ def prepare_tooling(request):
     (root / "dev/fd").symlink_to("/proc/self/fd")
     for number, name in enumerate(("stdin", "stdout", "stderr")):
         (root / "dev" / name).symlink_to("/proc/self/fd/" + str(number))
-    for source, destination in [
-        ("workspace", request["workspace"]),
-        ("temporary", request["temporaryDirectory"]),
-    ] + [
+    for source, destination in project_exports(request) + [
         ("storage-" + str(index), entry["guestPath"])
         for index, entry in enumerate(request.get("storage") or [])
     ]:

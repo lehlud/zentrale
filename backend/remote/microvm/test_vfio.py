@@ -2,6 +2,7 @@
 
 import errno
 import importlib.util
+import json
 import os
 from pathlib import Path
 import resource
@@ -60,6 +61,51 @@ class VFIOTests(unittest.TestCase):
         (device / "iommu_group").symlink_to(directory, target_is_directory=True)
         (directory / "devices" / address).symlink_to(device, target_is_directory=True)
         (self.dev / group).touch()
+
+    def test_discovery_includes_prepared_gpu_and_slot_companions(self):
+        self.assertEqual(vfio.discover_devices(self.pci), [self.gpu, self.audio])
+        self.assertEqual(self.inspect(vfio.discover_devices(self.pci)), self.inspect())
+
+    def test_discovery_skips_boot_and_native_host_gpus_without_rebinding(self):
+        host = "0000:00:02.0"
+        self.add_device(host, "0x030000", "8")
+        (self.pci / host / "boot_vga").write_text("1")
+        self.assertEqual(vfio.discover_devices(self.pci), [self.gpu, self.audio])
+        (self.pci / host / "boot_vga").unlink()
+        native = self.root / "drivers/nvidia"
+        native.mkdir()
+        driver = self.pci / host / "driver"
+        driver.unlink()
+        driver.symlink_to(native, target_is_directory=True)
+        self.assertEqual(vfio.discover_devices(self.pci), [self.gpu, self.audio])
+        self.assertEqual(driver.resolve(), native)
+
+    def test_discovery_reports_no_safe_gpu_instead_of_cpu_fallback(self):
+        boot = self.pci / self.gpu / "boot_vga"
+        boot.write_text("1")
+        with self.assertRaisesRegex(RuntimeError, "host boot GPU"):
+            vfio.discover_devices(self.pci)
+        with self.assertRaisesRegex(RuntimeError, "host boot GPU"):
+            self.inspect()
+        boot.unlink()
+        (self.pci / self.gpu / "driver").unlink()
+        with self.assertRaisesRegex(RuntimeError, "not bound to vfio-pci"):
+            vfio.discover_devices(self.pci)
+        empty = self.root / "empty"
+        empty.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "no display/3D"):
+            vfio.discover_devices(empty)
+        with self.assertRaisesRegex(RuntimeError, "inventory could not be read"):
+            vfio.discover_devices(self.root / "missing")
+
+    def test_discovery_still_enforces_iommu_groups_and_companion_drivers(self):
+        (self.pci / self.audio / "driver").unlink()
+        with self.assertRaisesRegex(RuntimeError, "bound to none"):
+            self.inspect(vfio.discover_devices(self.pci))
+        (self.pci / self.audio / "driver").symlink_to(self.driver, target_is_directory=True)
+        self.add_device("0000:02:00.0", "0x010802")
+        with self.assertRaisesRegex(RuntimeError, "all companion"):
+            self.inspect(vfio.discover_devices(self.pci))
 
     def query(self, descriptor, operation, argument, mutate=False):
         if operation == vfio.VFIO_GROUP_GET_STATUS:
@@ -298,6 +344,64 @@ class Q35ArgumentTests(unittest.TestCase):
         modules = [call.args[0][-1] for call in probe.call_args_list]
         self.assertIn("virtio_pci", modules)
         self.assertNotIn("virtio_mmio", modules)
+
+
+class Q35DiscoveryTests(unittest.TestCase):
+    def test_explicit_selection_and_microvm_do_not_discover(self):
+        for configuration in (
+            {"vmType": "q35", "gpuDevices": ["0000:03:00.0"]},
+            {"vmType": "microvm"},
+        ):
+            with patch.object(runner, "vfio_helpers") as helpers:
+                self.assertIs(runner.resolve_gpu_configuration(configuration), configuration)
+            helpers.assert_not_called()
+
+    def test_resolution_preserves_input_and_reaches_session_identity(self):
+        configuration = {"vmType": "q35", "runnerHash": "test"}
+        addresses = ["0000:01:00.0", "0000:01:00.1"]
+        discover = Mock(return_value=addresses)
+        with patch.object(runner, "vfio_helpers", return_value={"discover_devices": discover}):
+            resolved = runner.resolve_gpu_configuration(configuration)
+        self.assertNotIn("gpuDevices", configuration)
+        self.assertEqual(resolved["gpuDevices"], addresses)
+        self.assertEqual(
+            runner.session_identity(resolved, {}),
+            runner.session_identity(dict(configuration, gpuDevices=addresses), {}),
+        )
+        discover.assert_called_once_with()
+
+    def test_regular_start_resolves_before_preflight(self):
+        addresses = ["0000:01:00.0", "0000:01:00.1"]
+        for action in ("select", "ensure"):
+            with self.subTest(action=action):
+                discover = Mock(return_value=addresses)
+                with (
+                    patch.object(runner.sys, "argv", ["runner.py", action, json.dumps({"vmType": "q35"})]),
+                    patch.object(runner, "guard_parent"),
+                    patch.object(runner, "vfio_helpers", return_value={"discover_devices": discover}),
+                    patch.object(runner, "prerequisites", return_value=None) as preflight,
+                    patch.object(runner, "cache_directory", return_value=Path("/cache")),
+                    patch.object(runner, "ensure_ready") as ready,
+                    patch("builtins.print"),
+                ):
+                    self.assertEqual(runner.main(), 0)
+                discover.assert_called_once_with()
+                configuration = preflight.call_args.args[0]
+                self.assertEqual(configuration["gpuDevices"], addresses)
+                ready.assert_called_once_with(Path("/cache"), configuration, None)
+
+    def test_detection_failure_never_reaches_cpu_start(self):
+        with (
+            patch.object(runner.sys, "argv", ["runner.py", "prepare", json.dumps({"vmType": "q35"})]),
+            patch.object(runner, "guard_parent"),
+            patch.object(runner, "vfio_helpers", return_value={"discover_devices": Mock(side_effect=RuntimeError("no safely prepared GPU"))}),
+            patch.object(runner, "prerequisites") as preflight,
+            patch.object(runner, "ensure_ready") as ready,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "no safely prepared GPU"):
+                runner.main()
+        preflight.assert_not_called()
+        ready.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -240,6 +240,13 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 	}
 
 	session.info.Sandbox = session.runtime.sandbox
+	if session.runtime.sandbox == SandboxMicroVM {
+		session.info.Directory = ManagedGuestWorkspace
+		session.info.URL = prefix + "/?folder=" + url.QueryEscape(ManagedGuestWorkspace)
+		if session.target.AgentID != "" {
+			session.info.URL += "&agent=" + url.QueryEscape(session.target.AgentID)
+		}
+	}
 	err = runEditorProcess(ctx, connection.Client, session.runtime.command, func(output string) {
 		select {
 		case <-session.ready:

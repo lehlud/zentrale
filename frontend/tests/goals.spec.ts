@@ -175,7 +175,30 @@ for (const english of [false, true])
           return send({
             ...transcript,
             agent: approver ? { ...agents[1], status: "idle" } : main,
-            messages: approver ? reviewMessages : messages,
+            messages: approver
+              ? reviewMessages
+              : [
+                  ...messages,
+                  ...(["complete", "cancelled", "superseded"].includes(
+                    goal.status,
+                  )
+                    ? [
+                        {
+                          ...transcript.messages[0],
+                          id: `goal:${goal.id}`,
+                          role: "goal",
+                          content: JSON.stringify(goal),
+                          wire: "",
+                          callId: "",
+                          toolName: "",
+                          createdAt: goal.updatedAt,
+                          activities: [],
+                          change: null,
+                          changes: [],
+                        },
+                      ]
+                    : []),
+                ],
             recentMessages: [],
             questions: [],
             jobs: [],

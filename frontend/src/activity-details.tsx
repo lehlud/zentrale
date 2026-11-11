@@ -49,6 +49,7 @@ const toolLabels: Record<string, string> = {
   clone_source: "Quelle klonen",
   source_git: "Git ausführen",
   machine_list: "Maschinen auflisten",
+  machine_properties: "Maschineneigenschaften auflisten",
   machine_select: "Maschine auswählen",
   resource_list: "Rechenressourcen prüfen",
   storage_list: "Projektspeicher prüfen",

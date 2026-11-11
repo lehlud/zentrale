@@ -101,6 +101,19 @@ For FAU CIP, use `/proj/ciptmp/<user>` and `quota_command: [/usr/bin/cip-quota]`
 
 ## Parallel work and failover
 
+### Discovering machines without a large inventory response
+
+`machine_list {search?, limit?, offset?}` searches the project's assigned machines
+and pool members. Search is case-insensitive across ID, name, host and properties
+(tags); all whitespace-separated terms must match. Results are sorted by ID and
+paginated after filtering, with `total` and `hasMore`. The default page size is
+20, with an explicit limit of 1–100. Duplicate assignments are returned once.
+
+The separate `machine_properties {}` tool lists all existing properties/tags
+within that same project scope, sorted and deduplicated with machine counts.
+It does not return every machine or invent a second tagging system. Use it to
+discover useful search terms before fetching machine details.
+
 `exec_command {cmd, gpu:true, background:true}` can reserve separate prepared GPU
 hosts for independent jobs. Optional `machineId` pins a job without changing the
 default machine. The harness allows at most one requested GPU job per host and

@@ -184,7 +184,7 @@ test("old completed goals are absent until their ordinary scrollback page arrive
     .toBe(113);
   await page.evaluate(() => scrollTo(0, 0));
   await expect(
-    page.getByText("Archived objective 0", { exact: true }),
+    page.getByRole("button", { name: /Arbeitsziel Archived objective 0/ }),
   ).toBeVisible();
 });
 

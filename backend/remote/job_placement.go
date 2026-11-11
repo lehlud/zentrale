@@ -40,7 +40,7 @@ func (manager *Manager) ConnectForJob(
 			return nil, domain.Machine{}, err
 		}
 
-		if gpu && (configured.VMType != VMTypeQ35 || len(configured.GPUDevices) == 0) {
+		if gpu && configured.VMType != VMTypeQ35 {
 			continue
 		}
 
@@ -137,7 +137,7 @@ func (manager *Manager) ResourceState(project domain.Project) (map[string]any, e
 			}
 		}
 
-		if len(machine.GPUDevices) > 0 {
+		if machine.VMType == VMTypeQ35 {
 			machines = append(
 				machines,
 				map[string]any{
@@ -146,6 +146,7 @@ func (manager *Manager) ResourceState(project domain.Project) (map[string]any, e
 					"properties":     machine.Properties,
 					"vmType":         machine.VMType,
 					"gpuDevices":     machine.GPUDevices,
+					"gpuDiscovery":   len(machine.GPUDevices) == 0,
 					"gpuJobReserved": busyGPU[candidate.id],
 				},
 			)

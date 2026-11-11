@@ -102,15 +102,15 @@ def execute(request, session, command):
         "SHELL": login_shell(root, guest_root, tooling),
         "USER": "root" if guest_root else "zentrale",
         "LOGNAME": "root" if guest_root else "zentrale",
-        "TMPDIR": session["temporaryDirectory"],
-        "XDG_CACHE_HOME": session["temporaryDirectory"] + "/cache",
+        "TMPDIR": "/tmp/zentrale",
+        "XDG_CACHE_HOME": "/tmp/zentrale/cache",
         "ZENTRALE_SANDBOX": "microvm",
     }
     if request.get("tty"):
         environment["TERM"] = "xterm-256color"
 
     os.chroot(root)
-    os.chdir(session["workspace"])
+    os.chdir("/home/zentrale/project")
     for number in (0, 1, 2):
         os.fchown(
             number,

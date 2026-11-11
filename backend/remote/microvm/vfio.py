@@ -32,6 +32,40 @@ def validate_addresses(addresses):
     return addresses
 
 
+def discover_devices(pci_root=Path("/sys/bus/pci/devices")):
+    """Find prepared non-boot GPUs without changing drivers or taking leases."""
+    try:
+        functions = sorted(
+            device for device in pci_root.iterdir()
+            if PCI_ADDRESS.fullmatch(device.name)
+        )
+        selected = set()
+        diagnostics = []
+        for device in functions:
+            if int((device / "class").read_text().strip(), 16) >> 16 != 0x03:
+                continue
+            boot = device / "boot_vga"
+            driver = device / "driver"
+            if boot.exists() and boot.read_text().strip() != "0":
+                diagnostics.append(device.name + " is a host boot GPU")
+            elif not driver.exists() or driver.resolve().name != "vfio-pci":
+                diagnostics.append(device.name + " is not bound to vfio-pci")
+            else:
+                selected.add(device.name.rsplit(".", 1)[0])
+        if not selected:
+            raise RuntimeError(
+                "q35 GPU autodetection found no safely prepared GPU: "
+                + ("; ".join(diagnostics) or "no display/3D controller found")
+                + "; an administrator must prepare a non-boot GPU with IOMMU/VFIO"
+            )
+        return validate_addresses([
+            device.name for device in functions
+            if device.name.rsplit(".", 1)[0] in selected
+        ])
+    except (OSError, ValueError) as error:
+        raise RuntimeError("q35 GPU inventory could not be read: " + str(error)) from error
+
+
 def group_status(group, device_root=Path("/dev/vfio")):
     if not re.fullmatch(r"[0-9]+", group):
         raise RuntimeError("invalid VFIO IOMMU group")
@@ -74,6 +108,11 @@ def inspect_devices(
                 "configured GPU PCI function is unavailable: " + address
             ) from error
         is_gpu = device_class >> 16 == 0x03
+        boot = device / "boot_vga"
+        if boot.exists() and boot.read_text().strip() != "0":
+            raise RuntimeError(
+                "GPU PCI function " + address + " is a host boot GPU; refusing passthrough"
+            )
         if is_gpu:
             gpu_slots.add(address.rsplit(".", 1)[0])
 
