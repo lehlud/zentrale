@@ -9,6 +9,7 @@ import {
 import { fetchGraphQL } from "./transport";
 import { LiveResponses } from "./live-responses";
 import { InputDelivery } from "./input-delivery";
+import { sameJSONValue } from "./stable-data";
 
 export class API {
   readonly responses = new LiveResponses();
@@ -255,7 +256,11 @@ export function useQuery<T>(
             return;
           }
 
-          setResult({ key: requestKey, value });
+          setResult((previous) =>
+            previous?.key === requestKey && sameJSONValue(previous.value, value)
+              ? previous
+              : { key: requestKey, value },
+          );
           setFailure(undefined);
         })
         .catch((err) => {

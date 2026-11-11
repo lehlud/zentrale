@@ -1,5 +1,5 @@
 import { Link } from "@heroui/react";
-import { isValidElement, type ReactNode } from "react";
+import { isValidElement, memo, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -91,7 +91,11 @@ const components: Components = {
   ),
 };
 
-export function MessageMarkdown({ content }: { content: string }) {
+export const MessageMarkdown = memo(function MessageMarkdown({
+  content,
+}: {
+  content: string;
+}) {
   return (
     <div className="min-w-0 space-y-3 break-words text-sm leading-7 [overflow-wrap:anywhere]">
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
@@ -99,4 +103,4 @@ export function MessageMarkdown({ content }: { content: string }) {
       </Markdown>
     </div>
   );
-}
+});

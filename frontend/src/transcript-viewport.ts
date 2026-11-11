@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 // The document is the transcript's only vertical scroll container. Keep space
 // for the fixed composer, and follow new output only while the reader is at the end.
@@ -8,11 +8,11 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
   const header = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
   const [following, setFollowing] = useState(true);
-  const latest = () => {
+  const latest = useCallback(() => {
     followingRef.current = true;
     setFollowing(true);
     window.scrollTo(0, document.documentElement.scrollHeight);
-  };
+  }, []);
 
   useLayoutEffect(() => {
     const update = () => {
@@ -31,22 +31,43 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       return;
     }
 
-    const observer = new ResizeObserver(() => {
-      if (root.current && composer.current) {
-        const space = `${composer.current.getBoundingClientRect().height + 24}px`;
-        root.current.style.paddingBottom = space;
-        root.current.style.setProperty("--composer-space", space);
+    let frame = 0;
+    let composerHeight: number | undefined;
+    let headerHeight: number | undefined;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height =
+          entry.borderBoxSize[0]?.blockSize ??
+          entry.target.getBoundingClientRect().height;
+        if (entry.target === composer.current) composerHeight = height;
+        if (entry.target === header.current) headerHeight = height;
       }
-
-      if (root.current && header.current) {
-        root.current.style.setProperty(
-          "--chat-header-space",
-          `${header.current.getBoundingClientRect().height + 12}px`,
-        );
-      }
-
-      if (followingRef.current && !suspended)
-        window.scrollTo(0, document.documentElement.scrollHeight);
+      if (frame) return;
+      // Coalesce streaming, row measurements and composer resize into one frame.
+      // Ordinary React renders/keystrokes do not read the document's layout.
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (root.current && composerHeight !== undefined) {
+          const space = `${composerHeight + 24}px`;
+          if (root.current.style.paddingBottom !== space) {
+            root.current.style.paddingBottom = space;
+            root.current.style.setProperty("--composer-space", space);
+          }
+        }
+        if (root.current && headerHeight !== undefined) {
+          const space = `${headerHeight + 12}px`;
+          if (
+            root.current.style.getPropertyValue("--chat-header-space") !== space
+          )
+            root.current.style.setProperty("--chat-header-space", space);
+        }
+        if (
+          followingRef.current &&
+          !suspended &&
+          document.documentElement.scrollHeight - innerHeight - scrollY > 1
+        )
+          window.scrollTo(0, document.documentElement.scrollHeight);
+      });
     });
     if (composer.current) observer.observe(composer.current);
 
@@ -54,13 +75,11 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
 
     if (root.current) observer.observe(root.current);
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [suspended, ready]);
-
-  useLayoutEffect(() => {
-    if (followingRef.current && !suspended)
-      window.scrollTo(0, document.documentElement.scrollHeight);
-  });
 
   return { root, composer, header, following, latest };
 }

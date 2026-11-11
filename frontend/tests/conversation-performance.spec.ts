@@ -186,6 +186,13 @@ test("long conversations keep typing isolated, observers bounded and updates res
     await page.evaluate(() => (window as any).conversationPerf.times),
   ).toBe(0);
   await expect(input).toHaveValue(draft);
+  messages.at(-1)!.content = "Revised existing message after a server update";
+  await refresh();
+  await expect(
+    page.getByText("Revised existing message after a server update", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await page.evaluate(() => scrollTo(0, 0));
   await expect(page.getByText(/^Performance message 0\n/)).toBeVisible();
   messages.push({

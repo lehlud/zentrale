@@ -1,5 +1,5 @@
-import { Button, Label, TextArea, TextField } from "@heroui/react";
-import { useEffect, useState } from "react";
+import { Button } from "@heroui/react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAPI, useQuery } from "./api";
 import { CostSummary } from "./usage-summary";
@@ -14,17 +14,16 @@ import { HostKeyTrust } from "./ssh-trust";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
 import { JobsPanel, ContextPanel } from "./agent-panels";
-import { useDraft } from "./drafts";
 import { AgentControls } from "./agent-controls";
 import { AgentConversation } from "./agent-conversation";
 import { ApproverLog } from "./approver-log";
 import { useTranscriptViewport } from "./transcript-viewport";
-import { Icon } from "./icons";
 import { SandboxBadge } from "./sandbox-badge";
 import { useRoute } from "./navigation";
 import { RenameConversation } from "./rename-conversation";
 import { LiveAssistantResponse } from "./live-assistant-response";
-import { AgentInbox } from "./agent-inbox";
+import { AgentComposer } from "./agent-composer";
+import { useStableValue } from "./stable-data";
 import { AgentGoal } from "./agent-goal";
 
 export function AgentView({
@@ -64,7 +63,6 @@ export function AgentView({
     id: agentId,
   });
 
-  const [prompt, setPrompt] = useDraft(`prompt:${agentId}`);
   const [inspection, setInspection] = useState<{
     title: string;
     content: string;
@@ -74,7 +72,10 @@ export function AgentView({
   const connectionChallenge = data?.agentRunState?.hostKey.publicKey
     ? data.agentRunState.hostKey
     : undefined;
-  const current = data?.agent ?? agents.find((agent) => agent.id === agentId);
+  const current = useStableValue(
+    data?.agent ?? agents.find((agent) => agent.id === agentId),
+  );
+  const inputs = useStableValue(data?.agentInputs ?? []);
   const viewport = useTranscriptViewport(
     detailsOpen || renaming || Boolean(inspection),
     Boolean(data),
@@ -86,14 +87,20 @@ export function AgentView({
   );
   const history = useTranscriptHistory(agentId, incoming, viewport.following);
   const visibleMessages = history.messages;
-  const terminalGoals = [
-    ...new Map(
-      [...(data?.goalHistory ?? []), ...(data?.goal ? [data.goal] : [])].map(
-        (goal) => [goal.id, goal],
+  const goalHistory = useStableValue(data?.goalHistory ?? []);
+  const currentGoal = useStableValue(data?.goal);
+  const terminalGoals = useMemo(
+    () =>
+      [
+        ...new Map(
+          [...goalHistory, ...(currentGoal ? [currentGoal] : [])].map(
+            (goal) => [goal.id, goal],
+          ),
+        ).values(),
+      ].filter((goal) =>
+        ["complete", "cancelled", "superseded"].includes(goal.status),
       ),
-    ).values(),
-  ].filter((goal) =>
-    ["complete", "cancelled", "superseded"].includes(goal.status),
+    [goalHistory, currentGoal],
   );
 
   useEffect(() => {
@@ -109,15 +116,13 @@ export function AgentView({
     );
   }, [api, data]);
 
-  const send = (mode: "steer" | "queue" = "steer") => {
-    if (!prompt.trim()) {
-      return;
-    }
-
-    viewport.latest();
-    api.inputs.submit(agentId, prompt, mode);
-    setPrompt("");
-  };
+  const openDetails = useCallback(() => setDetailsOpen(true), []);
+  const detailsTitle = t("Schrittdetails");
+  const inspectModel = useCallback(
+    (content: string) =>
+      setInspection({ title: detailsTitle, content, kind: "model" }),
+    [detailsTitle],
+  );
   const resume = () =>
     action.run(() =>
       api.mutate(
@@ -172,13 +177,7 @@ export function AgentView({
             messages={visibleMessages}
             parentId={current.parentId}
             working={current.status === "running"}
-            onInspect={(content) =>
-              setInspection({
-                title: t("Schrittdetails"),
-                content,
-                kind: "model",
-              })
-            }
+            onInspect={inspectModel}
           />
         ) : !visibleMessages.length && !error ? (
           <div className="flex min-h-[calc(100dvh-19rem)] flex-col items-center justify-center gap-3 px-3 py-8 text-center">
@@ -197,13 +196,7 @@ export function AgentView({
             goals={terminalGoals}
             projectDirectory={project.directory}
             working={current?.status === "running"}
-            onInspect={(content) =>
-              setInspection({
-                title: t("Schrittdetails"),
-                content,
-                kind: "model",
-              })
-            }
+            onInspect={inspectModel}
           />
         )}
         {data?.questions
@@ -274,144 +267,19 @@ export function AgentView({
         )}
       </div>
       {current?.role !== "approver" && (
-        <form
-          ref={viewport.composer}
-          className="fixed inset-x-0 bottom-0 z-20 bg-surface px-4 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 lg:left-[var(--sidebar-width,260px)] lg:px-8"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <div className="relative mx-auto max-w-3xl">
-            <AgentInbox
-              agentId={agentId}
-              inputs={data?.agentInputs ?? []}
-              onEdit={(text) => setPrompt(prompt ? prompt + "\n" + text : text)}
-            />
-            {!viewport.following && (
-              <Button
-                isIconOnly
-                size="sm"
-                aria-label={t("Zu neuesten Einträgen ↓")}
-                className="absolute -top-10 right-1.5 size-8 min-h-8 min-w-8 rounded-full border border-border bg-surface text-muted shadow-none"
-                variant="secondary"
-                onPress={viewport.latest}
-              >
-                <Icon name="down" className="size-3.5" />
-              </Button>
-            )}
-            <div className="flex items-end gap-3">
-              <TextField
-                fullWidth
-                className="min-w-0 flex-1"
-                value={prompt}
-                onChange={setPrompt}
-                autoFocus={params.get("compose") === "1" && !focusAgentSwitcher}
-              >
-                <Label className="sr-only">
-                  {t("Aufgabe oder neue Instruktion")}
-                </Label>
-                <TextArea
-                  className="min-h-16 max-h-40 resize-none [field-sizing:content]"
-                  placeholder={t("Was soll der Agent erledigen?")}
-                  rows={2}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Tab" &&
-                      !event.shiftKey &&
-                      !event.ctrlKey &&
-                      !event.metaKey &&
-                      !event.altKey &&
-                      !event.nativeEvent.isComposing &&
-                      prompt.trim()
-                    ) {
-                      event.preventDefault();
-                      send("queue");
-                    } else if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      if (prompt.trim()) send();
-                    }
-                  }}
-                />
-              </TextField>
-              <Button
-                isIconOnly
-                className="min-h-11 min-w-11 shrink-0"
-                aria-label={
-                  current?.status === "running" && !prompt.trim()
-                    ? t("Agent stoppen")
-                    : `${current?.status === "running" ? t("Instruktion senden") : t("Starten")} ↑`
-                }
-                type={
-                  current?.status === "running" && !prompt.trim()
-                    ? "button"
-                    : "submit"
-                }
-                isPending={action.busy}
-                isDisabled={!prompt.trim() && current?.status !== "running"}
-                onPress={
-                  current?.status === "running" && !prompt.trim()
-                    ? () =>
-                        action.run(() =>
-                          api.mutate(
-                            "mutation($agentId:String!){stopAgent(agentId:$agentId)}",
-                            { agentId },
-                            { announce: false },
-                          ),
-                        )
-                    : undefined
-                }
-              >
-                <Icon
-                  name={
-                    current?.status === "running" && !prompt.trim()
-                      ? "stop"
-                      : "arrow"
-                  }
-                  className={
-                    current?.status === "running" && !prompt.trim()
-                      ? "size-4 fill-current"
-                      : "size-5 -rotate-90"
-                  }
-                />
-              </Button>
-            </div>
-            <div className="mt-2 flex min-h-7 min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-2 text-[11px] text-muted">
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label={
-                  current?.modelId
-                    ? t("Agentendetails für {model}", {
-                        model: current.modelId,
-                      })
-                    : t("Agentendetails")
-                }
-                className="min-h-7 min-w-0 max-w-[45%] px-2 text-[11px] text-muted"
-                onPress={() => setDetailsOpen(true)}
-              >
-                <span className="truncate">
-                  {current?.modelId || t("Agentendetails")}
-                </span>
-              </Button>
-              {current?.machineId && (
-                <SandboxBadge
-                  compact
-                  mode={sandboxMode ?? sandboxStatus?.mode ?? "unknown"}
-                  status={
-                    sandboxStatus?.machineId === current.machineId
-                      ? sandboxStatus
-                      : undefined
-                  }
-                />
-              )}
-            </div>
-          </div>
-        </form>
+        <AgentComposer
+          key={agentId}
+          agentId={agentId}
+          current={current}
+          inputs={inputs}
+          following={viewport.following}
+          latest={viewport.latest}
+          composerRef={viewport.composer}
+          autoFocus={params.get("compose") === "1" && !focusAgentSwitcher}
+          onDetails={openDetails}
+          sandboxStatus={sandboxStatus}
+          sandboxMode={sandboxMode}
+        />
       )}
       {current?.role === "approver" && (
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3 text-xs text-muted">

@@ -5,6 +5,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  observeTranscriptVisibility,
+  observeTranscriptHeight,
+} from "./transcript-observers";
 
 // Keep measured space in the document, but don't retain expensive Markdown,
 // syntax highlighting and disclosure trees for the entire scrollback.
@@ -18,29 +22,23 @@ export function VirtualTranscriptItem({
   const root = useRef<HTMLLIElement>(null);
   const height = useRef(estimate);
   const [visible, setVisible] = useState(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const pinned = useRef(false);
   useEffect(() => {
     if (!root.current) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (root.current?.contains(document.activeElement)) return;
-        if (!entry.isIntersecting && root.current && visible)
-          height.current = root.current.getBoundingClientRect().height;
-        setVisible(entry.isIntersecting || pinned.current);
-      },
-      { rootMargin: "1200px 0px" },
-    );
-    observer.observe(root.current);
-    return () => observer.disconnect();
-  }, [visible]);
+    return observeTranscriptVisibility(root.current, (entry) => {
+      if (root.current?.contains(document.activeElement)) return;
+      if (!entry.isIntersecting && visibleRef.current)
+        height.current = entry.boundingClientRect.height;
+      setVisible(entry.isIntersecting || pinned.current);
+    });
+  }, []);
   useLayoutEffect(() => {
     if (!visible || !root.current) return;
-    const observer = new ResizeObserver(() => {
-      if (root.current)
-        height.current = root.current.getBoundingClientRect().height;
+    return observeTranscriptHeight(root.current, (measured) => {
+      height.current = measured;
     });
-    observer.observe(root.current);
-    return () => observer.disconnect();
   }, [visible]);
   return (
     <li

@@ -1,4 +1,5 @@
 import { Accordion, Button } from "@heroui/react";
+import { memo, useMemo } from "react";
 
 import {
   parseJSON,
@@ -23,7 +24,11 @@ import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { Icon } from "./icons";
 
-function MessageTime({ message }: { message: Message }) {
+const MessageTime = memo(function MessageTime({
+  message,
+}: {
+  message: Message;
+}) {
   const { numberLocale } = useI18n();
   return (
     <time
@@ -36,9 +41,9 @@ function MessageTime({ message }: { message: Message }) {
       })}
     </time>
   );
-}
+});
 
-function ToolEntry({
+const ToolEntry = memo(function ToolEntry({
   message,
   call,
   onInspect,
@@ -196,7 +201,7 @@ function ToolEntry({
         changes.map((change) => <FileDiff key={change.id} change={change} />)}
     </li>
   );
-}
+});
 
 function CodeModeActivities({
   activities,
@@ -243,7 +248,11 @@ function CodeModeActivities({
   );
 }
 
-function MessageContent({ message }: { message: Message }) {
+const MessageContent = memo(function MessageContent({
+  message,
+}: {
+  message: Message;
+}) {
   const { t } = useI18n();
   if (message.role === "event") {
     const feedback = record(parseJSON(message.content));
@@ -353,9 +362,9 @@ function MessageContent({ message }: { message: Message }) {
   }
 
   return <MessageMarkdown content={message.content} />;
-}
+});
 
-export function AgentConversation({
+export const AgentConversation = memo(function AgentConversation({
   messages,
   working,
   onInspect,
@@ -369,33 +378,40 @@ export function AgentConversation({
   projectDirectory?: string;
 }) {
   const { t, showDiagnostics } = useI18n();
-  const { callsByMessage, resultCalls, completed } =
-    correlateToolCalls(messages);
-  const timeline = [
-    ...messages
-      .filter((message) => {
-        if (message.content || message.role === "tool") return true;
-        const calls = callsByMessage.get(message.id) ?? [];
-        return (
-          calls.some((call) => !completed.has(call)) ||
-          (!calls.length && Boolean(message.wire) && showDiagnostics)
-        );
-      })
-      .map((message) => ({
-        message,
-        goal: undefined as Goal | undefined,
-        time: message.createdAt,
-        id: message.id,
-      })),
-    ...goals.map((goal) => ({
-      goal,
-      message: undefined as Message | undefined,
-      time: goal.updatedAt,
-      id: goal.id,
-    })),
-  ].sort(
-    (left, right) =>
-      left.time.localeCompare(right.time) || left.id.localeCompare(right.id),
+  const { callsByMessage, resultCalls, completed } = useMemo(
+    () => correlateToolCalls(messages),
+    [messages],
+  );
+  const timeline = useMemo(
+    () =>
+      [
+        ...messages
+          .filter((message) => {
+            if (message.content || message.role === "tool") return true;
+            const calls = callsByMessage.get(message.id) ?? [];
+            return (
+              calls.some((call) => !completed.has(call)) ||
+              (!calls.length && Boolean(message.wire) && showDiagnostics)
+            );
+          })
+          .map((message) => ({
+            message,
+            goal: undefined as Goal | undefined,
+            time: message.createdAt,
+            id: message.id,
+          })),
+        ...goals.map((goal) => ({
+          goal,
+          message: undefined as Message | undefined,
+          time: goal.updatedAt,
+          id: goal.id,
+        })),
+      ].sort(
+        (left, right) =>
+          left.time.localeCompare(right.time) ||
+          left.id.localeCompare(right.id),
+      ),
+    [messages, goals, callsByMessage, completed, showDiagnostics],
   );
 
   return (
@@ -544,4 +560,4 @@ export function AgentConversation({
       </ol>
     </ProjectDirectory.Provider>
   );
-}
+});

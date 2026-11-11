@@ -2,10 +2,18 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAPI } from "./api";
 import { olderMessagesQuery } from "./agent-transcript";
 import type { Message } from "./generated";
+import { sameJSONValue } from "./stable-data";
 
 export function mergeMessages(previous: Message[], incoming: Message[]) {
   const messages = new Map(previous.map((message) => [message.id, message]));
-  for (const message of incoming) messages.set(message.id, message);
+  let changed = false;
+  for (const message of incoming) {
+    if (sameJSONValue(messages.get(message.id), message)) continue;
+    messages.set(message.id, message);
+    changed = true;
+  }
+  // Avoid another render and retain parsed-call/row caches on polling refreshes.
+  if (!changed) return previous;
   return [...messages.values()].sort(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) ||
