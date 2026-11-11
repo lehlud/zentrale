@@ -13,7 +13,7 @@ import (
 	"github.com/lehlud/zentrale/internal/testssh"
 )
 
-func TestQ35GPUConfigurationAndPoolInheritance(t *testing.T) {
+func TestMicroVMGPUConfigurationAndPoolInheritance(t *testing.T) {
 	base := domain.Machine{
 		ID:      "gpu",
 		Name:    "GPU",
@@ -26,10 +26,9 @@ func TestQ35GPUConfigurationAndPoolInheritance(t *testing.T) {
 
 	base.GPUDevices = []string{"0000:0A:00.0", "0000:0A:00.1"}
 	machine := WithMachineDefaults(base)
-	if machine.VMType != VMTypeQ35 ||
-		machine.GPUDevices[0] != "0000:0a:00.0" ||
+	if machine.GPUDevices[0] != "0000:0a:00.0" ||
 		base.GPUDevices[0] != "0000:0A:00.0" {
-		t.Fatal("GPU defaults mutated their input or failed to select q35", machine, base)
+		t.Fatal("GPU normalization changed the original input", machine, base)
 	}
 
 	if err := ValidateMachine(machine); err != nil {
@@ -40,8 +39,6 @@ func TestQ35GPUConfigurationAndPoolInheritance(t *testing.T) {
 		name string
 		edit func(*domain.Machine)
 	}{
-		{"unknown type", func(m *domain.Machine) { m.VMType = "arbitrary-qemu-option" }},
-		{"mmio GPU", func(m *domain.Machine) { m.VMType = VMTypeMicroVM }},
 		{"disabled sandbox", func(m *domain.Machine) { m.Sandbox = SandboxDisabled }},
 		{"container fallback", func(m *domain.Machine) { m.Sandbox = SandboxBubblewrap }},
 		{"custom runner", func(m *domain.Machine) { m.MicroVMCommand = "/opt/custom" }},
@@ -69,19 +66,28 @@ func TestQ35GPUConfigurationAndPoolInheritance(t *testing.T) {
 		})
 	}
 
-	configuration := strings.Replace(validPool, "sandbox: bwrap", "sandbox: auto\nvm_type: q35", 1)
+	configuration := strings.Replace(validPool, "sandbox: bwrap", "sandbox: auto", 1)
 	configuration += "    gpu_devices: [\"0000:01:00.0\", \"0000:01:00.1\"]\n"
 	pool, err := ParsePool(configuration)
-	if err != nil || pool.Machines[0].VMType != VMTypeQ35 || len(pool.Machines[0].GPUDevices) != 2 {
+	if err != nil || len(pool.Machines[0].GPUDevices) != 2 {
 		t.Fatal(pool, err)
-	}
-
-	if _, err := ParsePool(strings.Replace(configuration, "vm_type: q35", "vm_type: microvm", 1)); err == nil {
-		t.Fatal("pool inherited incompatible machine type")
 	}
 }
 
-func TestExplicitQ35NeverFallsBackToHostExecution(t *testing.T) {
+func TestPoolRejectsVMTypeOnPoolAndMembers(t *testing.T) {
+	for _, value := range []string{"microvm", "q35", "other"} {
+		for _, configuration := range []string{
+			validPool + "vm_type: " + value + "\n",
+			strings.Replace(validPool, "    user: developer", "    user: developer\n    vm_type: "+value, 1),
+		} {
+			if _, err := ParsePool(configuration); err == nil || !strings.Contains(err.Error(), "vm_type") {
+				t.Fatalf("vm_type must be rejected: %v", err)
+			}
+		}
+	}
+}
+
+func TestExplicitGPUNeverFallsBackToHostExecution(t *testing.T) {
 	var attempts atomic.Int32
 	peer, err := testssh.StartWithCommandHandler(func(command string, _ io.Reader, _, stderr io.Writer) int {
 		attempts.Add(1)
@@ -91,7 +97,7 @@ func TestExplicitQ35NeverFallsBackToHostExecution(t *testing.T) {
 			t.Error("GPU requirement weakened isolation")
 		}
 
-		_, _ = io.WriteString(stderr, "MicroVM unavailable: q35 missing")
+		_, _ = io.WriteString(stderr, "MicroVM unavailable: GPU unavailable")
 
 		return 78
 	})
@@ -117,14 +123,14 @@ func TestExplicitQ35NeverFallsBackToHostExecution(t *testing.T) {
 	}
 
 	machine := WithMachineDefaults(domain.Machine{
-		ID:      "gpu",
-		Name:    "GPU",
-		Host:    peer.Host,
-		Port:    peer.Port,
-		User:    "user",
-		KeyID:   key.ID,
-		Sandbox: SandboxAutomatic,
-		VMType:  VMTypeQ35,
+		ID:         "gpu",
+		Name:       "GPU",
+		Host:       peer.Host,
+		Port:       peer.Port,
+		User:       "user",
+		KeyID:      key.ID,
+		Sandbox:    SandboxAutomatic,
+		Properties: []string{"GPU"},
 	})
 	if err := store.Save("machine", machine.ID, "", machine); err != nil {
 		t.Fatal(err)
@@ -150,31 +156,29 @@ func TestExplicitQ35NeverFallsBackToHostExecution(t *testing.T) {
 		command != "" ||
 		level != "" ||
 		attempts.Load() != 1 ||
-		!strings.Contains(err.Error(), "q35 missing") {
+		!strings.Contains(err.Error(), "GPU unavailable") {
 		t.Fatal(command, level, err, attempts.Load())
 	}
 }
 
 func TestVMConfigurationIdentityIncludesBackendAndDeviceAssignment(t *testing.T) {
-	var original, q35, gpu map[string]any
+	var original, automatic, gpu map[string]any
 
 	for _, test := range []struct {
 		machine domain.Machine
 		value   *map[string]any
 	}{
 		{domain.Machine{}, &original},
-		{domain.Machine{VMType: VMTypeQ35}, &q35},
-		{domain.Machine{VMType: VMTypeQ35, GPUDevices: []string{"0000:01:00.0"}}, &gpu},
+		{domain.Machine{Properties: []string{"GPU"}}, &automatic},
+		{domain.Machine{GPUDevices: []string{"0000:01:00.0"}}, &gpu},
 	} {
 		if err := json.Unmarshal([]byte(microVMConfiguration(test.machine)), test.value); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if original["vmType"] != VMTypeMicroVM ||
-		q35["vmType"] != VMTypeQ35 ||
-		original["runnerHash"] == q35["runnerHash"] ||
-		q35["runnerHash"] == gpu["runnerHash"] {
+	if original["runnerHash"] == automatic["runnerHash"] ||
+		automatic["runnerHash"] == gpu["runnerHash"] {
 		t.Fatal("different assignments could reuse the same live VM")
 	}
 

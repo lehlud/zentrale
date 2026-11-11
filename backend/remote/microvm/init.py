@@ -51,11 +51,11 @@ def initialize_filesystems():
     exports = []
     for part in Path("/proc/cmdline").read_text().split():
         match = re.fullmatch(
-            r"virtme_initmount([0-9]+)=(/run/zentrale-(workspace|temporary|control|kernel|storage-[0-7]))",
+            r"virtme_initmount([0-9]+)=(/run/zentrale-(workspace|temporary|control|kernel|nvidia|storage-[0-7]))",
             part,
         )
         if match:
-            exports.append((int(match[1]), match[2], match[3] == "kernel"))
+            exports.append((int(match[1]), match[2], match[3] in ("kernel", "nvidia")))
     if not {"/run/zentrale-workspace", "/run/zentrale-temporary", CONTROL}.issubset(
         {entry[1] for entry in exports}
     ):
@@ -261,6 +261,9 @@ def prepare_fedora(request):
     for number, name in enumerate(("stdin", "stdout", "stderr")):
         (root / "dev" / name).symlink_to("/proc/self/fd/" + str(number))
     mount("sysfs", str(root / "sys"), "sysfs", READONLY | NOSUID | NODEV | NOEXEC)
+    # CUDA and other startup probes need /proc even when no package install
+    # runs. Individual jobs later mount their own PID namespace's procfs.
+    mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
     for source, destination in project_exports(request) + [
         ("storage-" + str(index), entry["guestPath"])
         for index, entry in enumerate(request.get("storage") or [])
@@ -394,7 +397,8 @@ def install_guest_packages(root, packages):
             "Fedora package manager is missing; cannot install " + ", ".join(packages)
         )
 
-    mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
+    if not (root / "proc/self/stat").is_file():
+        mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
     journal = package_journal(root)
     journal.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -642,6 +646,10 @@ def serve_jobs(request):
     prepare_fedora(request)
     if request.get("provision"):
         return
+    nvidia = None
+    if request.get("gpuBackend") == "nvidia":
+        nvidia = runpy.run_path(CONTROL + "/nvidia.py", run_name="zentrale_nvidia")
+        nvidia["initialize_guest"](Path(FEDORA), request, load_module, mount, BIND)
     socket.sethostname("zentrale-microvm")
     configure_network(True)
     prepare_standard_packages(Path(FEDORA))
@@ -651,7 +659,6 @@ def serve_jobs(request):
         "os": "fedora",
         "version": "45",
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
-        "vmType": request.get("vmType", "microvm"),
         "gpuDevices": request.get("gpuDevices", []),
         "storage": [
             {"id": entry["id"], "path": entry["guestPath"]}
@@ -661,7 +668,12 @@ def serve_jobs(request):
     if proof["gpuDevices"]:
         proof["guestGPUs"] = guest_gpus()
         if not proof["guestGPUs"]:
-            raise RuntimeError("the q35 guest did not enumerate a passed-through GPU")
+            raise RuntimeError(
+                "the MicroVM guest did not enumerate a passed-through GPU"
+            )
+    if nvidia:
+        proof["gpuBackend"] = "nvidia"
+        proof["gpuInventory"] = nvidia["verify_guest"](Path(FEDORA))
     heartbeat = Path(CONTROL, "heartbeat")
     heartbeat.touch()
     temporary = Path(CONTROL, "ready.new")

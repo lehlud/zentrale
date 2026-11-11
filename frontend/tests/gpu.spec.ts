@@ -10,7 +10,7 @@ import {
 import { chooseContextAction } from "./fixtures/context-actions";
 
 for (const english of [false, true]) {
-  test(`q35 GPU configuration preserves assignments: ${english ? "mobile-en" : "desktop-de"}`, async ({
+  test(`MicroVM GPU configuration preserves assignments: ${english ? "mobile-en" : "desktop-de"}`, async ({
     page,
   }) => {
     const label = (de: string, en: string) => (english ? en : de);
@@ -32,12 +32,6 @@ for (const english of [false, true]) {
       }
 
       if (query.includes("saveMachine")) {
-        if (variables.input.vmType !== "q35") {
-          return route.fulfill({
-            json: { errors: [{ message: "gpu_devices requires vm_type q35" }] },
-          });
-        }
-
         saved = variables.input;
         Object.assign(state.machines[0], variables.input);
 
@@ -68,34 +62,9 @@ for (const english of [false, true]) {
       .getByRole("button", { name: label("Speichern", "Save"), exact: true })
       .click();
 
-    await expect(
-      dialog.getByText("gpu_devices requires vm_type q35", { exact: true }),
-    ).toBeVisible();
-    await expect(devices).toHaveValue("0000:01:00.0, 0000:01:00.1");
-
-    await dialog
-      .getByRole("button", {
-        name: new RegExp(label("VM-Typ", "VM type") + "$"),
-      })
-      .click();
-    await page
-      .getByRole("option", { name: "q35 (PCI/GPU)", exact: true })
-      .click();
-
-    await expect(
-      page.getByRole("dialog", {
-        name: label("VM-Typ", "VM type"),
-        exact: true,
-      }),
-    ).not.toBeVisible();
-
-    await page.screenshot({ path: test.info().outputPath("q35-machine.png") });
-    await dialog
-      .getByRole("button", { name: label("Speichern", "Save"), exact: true })
-      .click();
-
     await expect(dialog).not.toBeVisible();
-    expect(saved?.vmType).toBe("q35");
+    expect(saved).not.toHaveProperty("vmType");
+    await expect(dialog.getByLabel(label("VM-Typ", "VM type"))).toHaveCount(0);
     expect(saved?.gpuDevices).toEqual(["0000:01:00.0", "0000:01:00.1"]);
     expect(saved).not.toHaveProperty("gpuDevicesText");
 

@@ -102,7 +102,9 @@ class VFIOTests(unittest.TestCase):
         (self.pci / self.audio / "driver").unlink()
         with self.assertRaisesRegex(RuntimeError, "bound to none"):
             self.inspect(vfio.discover_devices(self.pci))
-        (self.pci / self.audio / "driver").symlink_to(self.driver, target_is_directory=True)
+        (self.pci / self.audio / "driver").symlink_to(
+            self.driver, target_is_directory=True
+        )
         self.add_device("0000:02:00.0", "0x010802")
         with self.assertRaisesRegex(RuntimeError, "all companion"):
             self.inspect(vfio.discover_devices(self.pci))
@@ -241,12 +243,12 @@ class VFIOTests(unittest.TestCase):
         self.assertFalse((self.root / "outside").exists())
 
 
-class Q35ArgumentTests(unittest.TestCase):
+class GPUArgumentTests(unittest.TestCase):
     def test_general_preflight_can_run_while_qemu_owns_the_gpu(self):
         probe = Mock()
-        configuration = {"vmType": "q35", "gpuDevices": ["0000:01:00.0"]}
+        configuration = {"gpuDevices": ["0000:01:00.0"]}
         available = subprocess.CompletedProcess(
-            [], 0, 'q35 PC Q35\nname "vfio-pci"\n', ""
+            [], 0, 'microvm MicroVM\nname "vfio-pci"\n', ""
         )
         with (
             patch.object(runner.platform, "system", return_value="Linux"),
@@ -277,21 +279,20 @@ class Q35ArgumentTests(unittest.TestCase):
                 request,
             )
 
-    def test_q35_uses_pci_transports_and_fixed_gpu_root_ports(self):
+    def test_microvm_enables_pci_for_gpu_and_keeps_mmio_transports(self):
         arguments = self.arguments(
             {
-                "vmType": "q35",
                 "editorPort": 12345,
                 "gpuDevices": ["0000:01:00.1", "0000:01:00.0"],
             }
         )
-        self.assertEqual(arguments[arguments.index("--arch") + 1], "x86_64")
+        self.assertEqual(arguments[arguments.index("--arch") + 1], "microvm")
         for option in (
-            "q35,accel=kvm",
+            "microvm,accel=kvm,pcie=on,acpi=on",
             "-nodefaults",
             "-no-user-config",
-            "virtio-blk-pci,drive=fedora",
-            "virtio-net-pci,netdev=zentrale",
+            "virtio-blk-device,drive=fedora",
+            "virtio-net-device,netdev=zentrale",
         ):
             self.assertIn(option, arguments)
         self.assertTrue(
@@ -314,22 +315,20 @@ class Q35ArgumentTests(unittest.TestCase):
         self.assertIn("multifunction=on", functions[0])
 
     def test_base_image_provisioning_never_claims_a_gpu(self):
-        arguments = self.arguments(
-            {"vmType": "q35", "gpuDevices": ["0000:01:00.0"], "provision": True}
-        )
+        arguments = self.arguments({"gpuDevices": ["0000:01:00.0"], "provision": True})
         self.assertFalse(any(option.startswith("vfio-pci,") for option in arguments))
 
-    def test_gpu_requirements_cannot_be_passed_to_microvm_or_arbitrary_qemu_options(
+    def test_gpu_requirements_cannot_be_arbitrary_qemu_options(
         self,
     ):
         for request in [
-            {"gpuDevices": ["0000:01:00.0"]},
-            {"vmType": "q35", "gpuDevices": ["0000:01:00.0,romfile=evil"]},
+            {"gpuDevices": "0000:01:00.0"},
+            {"gpuDevices": ["0000:01:00.0,romfile=evil"]},
         ]:
             with self.assertRaises(RuntimeError):
                 self.arguments(request)
 
-    def test_q35_probes_pci_instead_of_requiring_mmio_modules(self):
+    def test_gpu_guest_requires_both_pci_and_mmio_modules(self):
         import subprocess
 
         with (
@@ -340,27 +339,31 @@ class Q35ArgumentTests(unittest.TestCase):
                 return_value=subprocess.CompletedProcess([], 0, "", ""),
             ) as probe,
         ):
-            runner.check_guest_kernel_modules(vm_type="q35")
+            runner.check_guest_kernel_modules(pci=True)
         modules = [call.args[0][-1] for call in probe.call_args_list]
         self.assertIn("virtio_pci", modules)
-        self.assertNotIn("virtio_mmio", modules)
+        self.assertIn("virtio_mmio", modules)
 
 
-class Q35DiscoveryTests(unittest.TestCase):
+class GPUDiscoveryTests(unittest.TestCase):
     def test_explicit_selection_and_microvm_do_not_discover(self):
         for configuration in (
-            {"vmType": "q35", "gpuDevices": ["0000:03:00.0"]},
-            {"vmType": "microvm"},
+            {"gpuDevices": ["0000:03:00.0"]},
+            {},
         ):
             with patch.object(runner, "vfio_helpers") as helpers:
-                self.assertIs(runner.resolve_gpu_configuration(configuration), configuration)
+                self.assertIs(
+                    runner.resolve_gpu_configuration(configuration), configuration
+                )
             helpers.assert_not_called()
 
     def test_resolution_preserves_input_and_reaches_session_identity(self):
-        configuration = {"vmType": "q35", "runnerHash": "test"}
+        configuration = {"gpu": True, "runnerHash": "test"}
         addresses = ["0000:01:00.0", "0000:01:00.1"]
         discover = Mock(return_value=addresses)
-        with patch.object(runner, "vfio_helpers", return_value={"discover_devices": discover}):
+        with patch.object(
+            runner, "vfio_helpers", return_value={"discover_devices": discover}
+        ):
             resolved = runner.resolve_gpu_configuration(configuration)
         self.assertNotIn("gpuDevices", configuration)
         self.assertEqual(resolved["gpuDevices"], addresses)
@@ -376,11 +379,27 @@ class Q35DiscoveryTests(unittest.TestCase):
             with self.subTest(action=action):
                 discover = Mock(return_value=addresses)
                 with (
-                    patch.object(runner.sys, "argv", ["runner.py", action, json.dumps({"vmType": "q35"})]),
+                    patch.object(
+                        runner.sys,
+                        "argv",
+                        [
+                            "runner.py",
+                            action,
+                            json.dumps({"gpu": True}),
+                        ],
+                    ),
                     patch.object(runner, "guard_parent"),
-                    patch.object(runner, "vfio_helpers", return_value={"discover_devices": discover}),
-                    patch.object(runner, "prerequisites", return_value=None) as preflight,
-                    patch.object(runner, "cache_directory", return_value=Path("/cache")),
+                    patch.object(
+                        runner,
+                        "vfio_helpers",
+                        return_value={"discover_devices": discover},
+                    ),
+                    patch.object(
+                        runner, "prerequisites", return_value=None
+                    ) as preflight,
+                    patch.object(
+                        runner, "cache_directory", return_value=Path("/cache")
+                    ),
                     patch.object(runner, "ensure_ready") as ready,
                     patch("builtins.print"),
                 ):
@@ -392,9 +411,25 @@ class Q35DiscoveryTests(unittest.TestCase):
 
     def test_detection_failure_never_reaches_cpu_start(self):
         with (
-            patch.object(runner.sys, "argv", ["runner.py", "prepare", json.dumps({"vmType": "q35"})]),
+            patch.object(
+                runner.sys,
+                "argv",
+                [
+                    "runner.py",
+                    "prepare",
+                    json.dumps({"gpu": True}),
+                ],
+            ),
             patch.object(runner, "guard_parent"),
-            patch.object(runner, "vfio_helpers", return_value={"discover_devices": Mock(side_effect=RuntimeError("no safely prepared GPU"))}),
+            patch.object(
+                runner,
+                "vfio_helpers",
+                return_value={
+                    "discover_devices": Mock(
+                        side_effect=RuntimeError("no safely prepared GPU")
+                    )
+                },
+            ),
             patch.object(runner, "prerequisites") as preflight,
             patch.object(runner, "ensure_ready") as ready,
         ):

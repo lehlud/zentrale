@@ -259,11 +259,11 @@ class MicroVMRunnerTests(unittest.TestCase):
         scope = self.root / "agent"
         control = scope / "session"
         (control / "requests").mkdir(parents=True)
-        configuration = {"runnerHash": "fixture", "vmType": "microvm"}
+        configuration = {"runnerHash": "fixture"}
         (control / "version").write_text(runner.session_identity(configuration, {}))
         (control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
         (control / "ready.json").write_text("{}")
-        (control / "request.json").write_text(json.dumps({"vmType": "microvm"}))
+        (control / "request.json").write_text(json.dumps({}))
         return scope, control, configuration
 
     def test_cached_supervisor_does_not_prove_guest_dispatcher_is_alive(self):
@@ -308,7 +308,7 @@ class MicroVMRunnerTests(unittest.TestCase):
                 stop.assert_not_called()
         for responsive, changed, reason in [
             (False, configuration, "unresponsive"),
-            (True, dict(configuration, vmType="q35"), "configuration_changed"),
+            (True, dict(configuration, gpu=True), "configuration_changed"),
         ]:
             with (
                 self.subTest(reason=reason),

@@ -138,10 +138,6 @@ func poolMachine(pool domain.Pool, id string, machine domain.Machine) domain.Mac
 		machine.QuotaCommand = pool.QuotaCommand
 	}
 
-	if machine.VMType == "" {
-		machine.VMType = pool.VMType
-	}
-
 	if machine.Sandbox == "" {
 		machine.Sandbox = pool.Sandbox
 	}

@@ -19,7 +19,7 @@ machines:
     name: Worker
     host: example.org
     user: developer
-    properties: [GPU, RTX3070]
+    properties: [LINUX, RTX3070]
 `
 
 func TestBuiltInMicroVMDoesNotRequireAnExternalRunner(t *testing.T) {

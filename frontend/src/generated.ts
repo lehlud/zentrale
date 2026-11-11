@@ -203,7 +203,6 @@ export type Machine = {
   singleUser: boolean;
   storage: Array<StorageVolume>;
   user: string;
-  vmType: string;
   workspaceRoot: string;
 };
 export type MachineConnectionCheck = {
@@ -228,7 +227,6 @@ export type MachineInput = {
   singleUser?: boolean | null;
   storage?: Array<StorageVolumeInput> | null;
   user?: string | null;
-  vmType?: string | null;
   workspaceRoot?: string | null;
 };
 export type Message = {
@@ -334,7 +332,6 @@ export type Pool = {
   sharedHome: boolean;
   singleUser: boolean;
   storage: Array<StorageVolume>;
-  vmType: string;
   workspaceRoot: string;
 };
 export type PoolConnectionCheck = {

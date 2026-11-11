@@ -55,7 +55,7 @@ func TestAutomaticVMStopPreservesScopeAndDisk(t *testing.T) {
 	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		calls.Add(1)
 
-		if !strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'stop' ") {
+		if !strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'stop'") {
 			t.Error("stopping a VM invoked an action other than stop")
 			return 1
 		}
@@ -157,7 +157,7 @@ func TestAgentMicroVMStartupFailureBlocksInference(t *testing.T) {
 	}), func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		if strings.Contains(command, "test -c /dev/kvm") {
 			fmt.Fprintln(stdout, "microvm")
-		} else if strings.Contains(command, "MicroVM requires an agent and project identity") {
+		} else if strings.Contains(command, "<zentrale-microvm>") {
 			io.Copy(io.Discard, input)
 			fmt.Fprintln(stderr, "Fedora guest disk cannot be mounted; reset required")
 

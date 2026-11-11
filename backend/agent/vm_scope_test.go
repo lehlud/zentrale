@@ -51,15 +51,15 @@ func TestSharedEnvironmentStopsAfterLastWorkerAndRestartsOnResume(t *testing.T) 
 	var prepared []remote.Execution
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	engine, main, project := executionTestEngine(t, provider, func(command string, input io.Reader, stdout, stderr io.Writer) int {
-		if strings.Contains(command, "MicroVM requires an agent and project identity") {
+		if strings.Contains(command, "<zentrale-microvm>") {
 			command = strings.ReplaceAll(command, `'"'"'`, `'`)
-			if strings.Contains(command, " 'select' ") || strings.Contains(command, " 'ensure' ") {
+			if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
 				fmt.Fprintln(stdout, "microvm")
 				return 0
 			}
-			if strings.Contains(command, " 'stage' ") || strings.Contains(command, " 'run' ") {
+			if strings.Contains(command, " 'stage'") || strings.Contains(command, " 'run'") {
 				io.Copy(io.Discard, input)
-				if strings.Contains(command, " 'stage' ") {
+				if strings.Contains(command, " 'stage'") {
 					fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
 				}
 				return 0
@@ -71,11 +71,11 @@ func TestSharedEnvironmentStopsAfterLastWorkerAndRestartsOnResume(t *testing.T) 
 				t.Error(err)
 				return 1
 			}
-			if strings.Contains(command, " 'prepare' ") {
+			if strings.Contains(command, " 'prepare'") {
 				mutex.Lock()
 				prepared = append(prepared, payload.Execution)
 				mutex.Unlock()
-			} else if strings.Contains(command, " 'stop' ") {
+			} else if strings.Contains(command, " 'stop'") {
 				stops.Add(1)
 			} else {
 				t.Error("unexpected lifecycle action")
@@ -286,12 +286,12 @@ func TestFailedStagingStillTracksGuestForAutomaticCleanup(t *testing.T) {
 	var stops atomic.Int32
 	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
-		if strings.Contains(command, " 'stage' ") {
+		if strings.Contains(command, " 'stage'") {
 			io.Copy(io.Discard, input)
 			fmt.Fprintln(stderr, "guest startup failed")
 			return 1
 		}
-		if strings.Contains(command, " 'stop' ") {
+		if strings.Contains(command, " 'stop'") {
 			io.Copy(io.Discard, input)
 			stops.Add(1)
 			fmt.Fprint(stdout, `{}`)
@@ -332,7 +332,7 @@ func TestDeletingFamilyRemovesDescendantsButChildKeepsSharedDisk(t *testing.T) {
 	var removals atomic.Int32
 	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, _ io.Writer) int {
 		io.Copy(io.Discard, input)
-		if strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'remove' ") {
+		if strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'remove'") {
 			removals.Add(1)
 		}
 		fmt.Fprint(stdout, `{}`)

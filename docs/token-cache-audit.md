@@ -147,7 +147,7 @@ Arbeitsbereiche werden dabei nicht gelöscht oder automatisch konvertiert.
 Alle Go-Pakete, die Python-Suiten für Agentenwerkzeuge und Remote-Ausführung
 sowie 51 VM-Runner-Tests und die TypeScript-Prüfung bestehen. Für die betroffenen
 Backend-Pakete wurden Race-Tests ausgeführt. Zehn Browserprüfungen decken die
-Verbrauchsanzeige, Pool-YAML-Editor, q35-Konfiguration, VM-Freigabe und
+Verbrauchsanzeige, Pool-YAML-Editor, GPU-Konfiguration, VM-Freigabe und
 Protokolldarstellung ab. `go vet`, Frontend-Formatierung und `git diff --check`
 wurden ebenfalls geprüft. Diese lokalen Tests verwenden isolierte Testdaten
 und keine kostenpflichtigen Modellaufrufe.

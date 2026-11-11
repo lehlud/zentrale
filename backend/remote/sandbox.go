@@ -105,7 +105,7 @@ func Sandbox(
 }
 
 func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Machine) (string, error) {
-	if machine.VMType == VMTypeQ35 || len(machine.GPUDevices) > 0 || len(machine.Storage) > 0 {
+	if GPUEnabled(machine) || len(machine.Storage) > 0 {
 		if err := validateSandboxConfiguration(WithMachineDefaults(machine)); err != nil {
 			return "", err
 		}

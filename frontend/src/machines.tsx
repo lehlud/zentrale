@@ -70,20 +70,11 @@ export function Machines() {
     },
     { key: "sandbox", label: "Sandbox", type: "select", options: sandbox },
     {
-      key: "vmType",
-      label: t("VM-Typ"),
-      type: "select",
-      options: [
-        { key: "microvm", label: t("MicroVM (CPU)") },
-        { key: "q35", label: t("q35 (PCI/GPU)") },
-      ],
-    },
-    {
       key: "gpuDevicesText",
       label: t("GPU-PCI-Geräte"),
       placeholder: "0000:01:00.0, 0000:01:00.1",
       description: t(
-        "Kommagetrennte PCI-Adressen der GPU und ihrer zugehörigen Funktionen. Benötigt q35 sowie eine administrative VFIO-Freigabe auf der Fernmaschine und passende Treiber im Gast.",
+        "Die Eigenschaft GPU aktiviert die automatische Erkennung, auch für NVIDIA ohne Root-Rechte. Explizite PCI-Adressen benötigen administrative VFIO-Freigabe und passende Gasttreiber.",
       ),
     },
     { key: "propertiesText", label: t("Eigenschaften (kommagetrennt)") },
@@ -128,7 +119,6 @@ export function Machines() {
                 name: "",
                 port: 22,
                 sandbox: "auto",
-                vmType: "microvm",
                 jumps: [],
                 properties: [],
                 workspaceRoot: "~/.local/share/zentrale/projects",
@@ -184,7 +174,6 @@ export function Machines() {
                         machine.workspaceRoot ||
                         "~/.local/share/zentrale/projects",
                       propertiesText: machine.properties.join(", "),
-                      vmType: machine.vmType || "microvm",
                       gpuDevicesText: (machine.gpuDevices || []).join(", "),
                     })
                   }
@@ -255,7 +244,6 @@ export function Machines() {
                     fields: [
                       "workspaceRoot",
                       "sandbox",
-                      "vmType",
                       "singleUser",
                       "containers",
                     ],

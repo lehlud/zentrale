@@ -29,5 +29,26 @@
     "manifest": "sha256:1ed8d85ef60c86f1e8065167c598574d0fe363975e0e373b76cfc8dbd1ce27d1",
     "source": "https://fedoraproject.org/en/misc/",
     "license": "Fedora-License-Data"
+  },
+  "nvidia": {
+    "version": "nvkvm-v0.2.5",
+    "directory": "nvkvm-v0.2.5",
+    "url": "https://github.com/reindertpelsma/nvkvm-pv/releases/download/v0.2.5/nvkvm-v0.2.5-linux-x86_64.tar.gz",
+    "sha256": "84abb588e3f1b86c0ac0b754c6f4bdc8b3df1a9067656ca6d66826e7ff2adcca",
+    "source": "https://github.com/reindertpelsma/nvkvm-pv/tree/v0.2.5",
+    "license": "Apache-2.0 AND GPL-2.0-only",
+    "headers": {
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/linux-virt-dev-6.12.115-r0.apk",
+      "sha256": "26e4dae58330da31b7f4bc1b42a9c245e6ad7c71120a5f1295e5c549cd3fffdc",
+      "version": "6.12.115-0-virt",
+      "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/linux-lts",
+      "license": "GPL-2.0-only"
+    },
+    "musl": {
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/musl-1.2.5-r13.apk",
+      "sha256": "359890bc7c4dc5fee7a85192de60a471c987e4664767288578beca60a44db2c8",
+      "source": "https://musl.libc.org/",
+      "license": "MIT"
+    }
   }
 }

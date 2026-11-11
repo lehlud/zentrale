@@ -54,7 +54,7 @@ def discover_devices(pci_root=Path("/sys/bus/pci/devices")):
                 selected.add(device.name.rsplit(".", 1)[0])
         if not selected:
             raise RuntimeError(
-                "q35 GPU autodetection found no safely prepared GPU: "
+                "MicroVM GPU autodetection found no safely prepared GPU: "
                 + ("; ".join(diagnostics) or "no display/3D controller found")
                 + "; an administrator must prepare a non-boot GPU with IOMMU/VFIO"
             )
@@ -63,7 +63,7 @@ def discover_devices(pci_root=Path("/sys/bus/pci/devices")):
             if device.name.rsplit(".", 1)[0] in selected
         ])
     except (OSError, ValueError) as error:
-        raise RuntimeError("q35 GPU inventory could not be read: " + str(error)) from error
+        raise RuntimeError("MicroVM GPU inventory could not be read: " + str(error)) from error
 
 
 def group_status(group, device_root=Path("/dev/vfio")):

@@ -61,16 +61,11 @@ class StartupFailure(RuntimeError):
         super().__init__("Fedora MicroVM startup failed: " + reason + "\n" + diagnostic)
 
 
-def vm_options(configuration):
-    vm_type = configuration.get("vmType", "microvm")
+def gpu_devices(configuration):
     addresses = configuration.get("gpuDevices", [])
-    if vm_type not in ("microvm", "q35"):
-        raise RuntimeError("vm_type must be microvm or q35")
     if not isinstance(addresses, list) or len(addresses) > 16:
         raise RuntimeError("gpu_devices must be a list of at most 16 PCI addresses")
-    if addresses and vm_type != "q35":
-        raise RuntimeError("GPU passthrough requires vm_type q35")
-    return vm_type, addresses
+    return addresses
 
 
 def vfio_helpers(configuration):
@@ -79,13 +74,30 @@ def vfio_helpers(configuration):
     return namespace
 
 
+def nvidia_helpers(configuration):
+    namespace = {"__name__": "zentrale_nvidia"}
+    exec(configuration["nvidia"], namespace)
+    return namespace
+
+
 def resolve_gpu_configuration(configuration):
-    vm_type, addresses = vm_options(configuration)
-    if vm_type == "q35" and not addresses:
-        return dict(
-            configuration,
-            gpuDevices=vfio_helpers(configuration)["discover_devices"](),
-        )
+    addresses = gpu_devices(configuration)
+    if configuration.get("gpu") and not addresses:
+        try:
+            return dict(
+                configuration,
+                gpuDevices=vfio_helpers(configuration)["discover_devices"](),
+            )
+        except RuntimeError as vfio_error:
+            if "nvidia" not in configuration:
+                raise
+            try:
+                inventory = nvidia_helpers(configuration)["discover"]()
+            except (OSError, RuntimeError) as error:
+                raise RuntimeError(
+                    str(vfio_error) + "; NVIDIA forwarding: " + str(error)
+                ) from error
+            return dict(configuration, gpuBackend="nvidia", gpuInventory=inventory)
     return configuration
 
 
@@ -123,7 +135,7 @@ def storage_mounts(execution, configured=None):
 
 def prerequisites(configuration=None):
     configuration = configuration or {}
-    vm_type, addresses = vm_options(configuration)
+    addresses = gpu_devices(configuration)
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise UnavailableError("managed MicroVMs currently require Linux x86_64")
     if sys.version_info < (3, 10):
@@ -158,10 +170,8 @@ def prerequisites(configuration=None):
         text=True,
         timeout=10,
     )
-    if not any(line.startswith(vm_type + " ") for line in machines.stdout.splitlines()):
-        raise UnavailableError(
-            "installed QEMU does not provide the " + vm_type + " machine"
-        )
+    if not any(line.startswith("microvm ") for line in machines.stdout.splitlines()):
+        raise UnavailableError("installed QEMU does not provide the microvm machine")
 
     if addresses:
         features = subprocess.run(
@@ -176,10 +186,14 @@ def prerequisites(configuration=None):
                 "installed QEMU does not provide vfio-pci GPU passthrough"
             )
         vfio_helpers(configuration)["inspect_devices"](addresses, probe_groups=False)
-    return compatible_host_kernel(vm_type)
+    return (
+        compatible_host_kernel(pci=True)
+        if addresses or configuration.get("gpuBackend")
+        else compatible_host_kernel()
+    )
 
 
-def compatible_host_kernel(vm_type="microvm"):
+def compatible_host_kernel(pci=False):
     version = platform.release()
     kernel = Path("/boot/vmlinuz-" + version)
     if not kernel.is_file() or not os.access(kernel, os.R_OK):
@@ -208,35 +222,35 @@ def compatible_host_kernel(vm_type="microvm"):
         "PROC_FS",
         "SYSFS",
     ]
-    if vm_type == "q35":
-        required += ["PCI", "PCI_MSI"]
+    if pci:
+        required += ["PCI", "PCI_MSI", "ACPI"]
     for name in required:
         if "# CONFIG_" + name + " is not set" in settings:
             return None
 
     try:
-        if vm_type == "microvm":
-            check_guest_kernel_modules()
+        if pci:
+            check_guest_kernel_modules(pci=True)
         else:
-            check_guest_kernel_modules(vm_type=vm_type)
+            check_guest_kernel_modules()
     except RuntimeError:
         return None
     return kernel
 
 
-def check_guest_kernel_modules(root=Path("/"), version=None, vm_type="microvm"):
+def check_guest_kernel_modules(root=Path("/"), version=None, pci=False):
     # A readable kernel and KVM alone do not establish that the guest can boot.
     # Probe without loading modules or executing host modprobe install hooks.
     modprobe = shutil.which("modprobe", path=SYSTEM_PATH)
     for module in (
         "9p",
         "9pnet_virtio",
-        "virtio_pci" if vm_type == "q35" else "virtio_mmio",
+        "virtio_mmio",
         "virtio_console",
         "virtio_blk",
         "ext4",
         "virtio_net",
-    ):
+    ) + (("virtio_pci",) if pci else ()):
         result = subprocess.run(
             [
                 modprobe,
@@ -450,7 +464,7 @@ def guard_parent(expected_parent):
 
 
 def virtme_arguments(runtime, kernel, invocation, request):
-    vm_type, addresses = vm_options(request)
+    addresses = gpu_devices(request)
     if request.get("provision"):
         addresses = []
     if addresses:
@@ -470,9 +484,11 @@ def virtme_arguments(runtime, kernel, invocation, request):
     arguments = [
         "virtme-run",
         "--arch",
-        "x86_64" if vm_type == "q35" else "microvm",
+        "microvm",
         "--qemu-bin",
-        shutil.which("qemu-system-x86_64", path=SYSTEM_PATH),
+        str(Path(request["gpuRuntime"]) / "qemu/bin/qemu-system-x86_64")
+        if request.get("gpuBackend") == "nvidia" and not request.get("provision")
+        else shutil.which("qemu-system-x86_64", path=SYSTEM_PATH),
         "--kimg",
         str(kernel),
         "--mods",
@@ -500,6 +516,13 @@ def virtme_arguments(runtime, kernel, invocation, request):
         arguments.extend(
             ["--rodir", "/run/zentrale-kernel=" + str(kernel.parent.parent)]
         )
+    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+        arguments.extend(
+            [
+                "--rodir",
+                "/run/zentrale-nvidia=" + str(Path(request["gpuRuntime"]) / "guest"),
+            ]
+        )
     for index, entry in enumerate(request.get("storage") or []):
         arguments.extend(
             [
@@ -521,8 +544,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
             + ",if=none,id=fedora,format="
             + request.get("diskFormat", "qcow2"),
             "-device",
-            ("virtio-blk-pci" if vm_type == "q35" else "virtio-blk-device")
-            + ",drive=fedora",
+            "virtio-blk-device,drive=fedora",
         ]
     )
     if request.get("editorPort"):
@@ -535,13 +557,28 @@ def virtme_arguments(runtime, kernel, invocation, request):
                 + str(request["editorPort"])
                 + "-:9842",
                 "-device",
-                ("virtio-net-pci" if vm_type == "q35" else "virtio-net-device")
-                + ",netdev=zentrale",
+                "virtio-net-device,netdev=zentrale",
             ]
         )
-    if vm_type == "q35":
+    if not request.get("provision") and (
+        addresses or request.get("gpuBackend") == "nvidia"
+    ):
         arguments.extend(
-            ["-machine", "q35,accel=kvm", "-nodefaults", "-no-user-config"]
+            [
+                "-machine",
+                "microvm,accel=kvm,pcie=on,acpi=on",
+                "-nodefaults",
+                "-no-user-config",
+            ]
+        )
+    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+        arguments.extend(
+            [
+                "-device",
+                "virtio-nvgpu-pci-non-transitional,id=zentrale-nvidia",
+                "-device",
+                "nvkvm-gpu,addr=0x1e",
+            ]
         )
 
     slots = {}
@@ -568,6 +605,12 @@ def execute_vm(runtime, kernel, invocation):
     os.environ["PATH"] = SYSTEM_PATH
     os.environ["HOME"] = str(private_directory(runtime.parent / "tool-home"))
     os.environ.pop("PYTHONPATH", None)
+    # A host login shell must not disable the forwarding helper's safeguards.
+    for name in list(os.environ):
+        if name.startswith("NVKVM_"):
+            os.environ.pop(name)
+    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+        os.environ["NVKVM_ISOLATE_MODE"] = "auto"
 
     # The wheel's QEMU path forks once and then execs. Keep the dependency
     # unmodified while ensuring that this child dies with its trusted runner.
@@ -655,6 +698,8 @@ def prepare_control(directory, configuration, runtime, request):
     (directory / "guest.py").write_text(configuration["guest"], encoding="utf-8")
     (directory / "streams.py").write_text(configuration["streams"], encoding="utf-8")
     (directory / "terminal.py").write_text(configuration["terminal"], encoding="utf-8")
+    if "nvidia" in configuration:
+        (directory / "nvidia.py").write_text(configuration["nvidia"], encoding="utf-8")
     entry = directory / "virtme-init"
     entry.write_text(configuration["init"], encoding="utf-8")
     entry.chmod(0o700)
@@ -692,6 +737,12 @@ def terminate_vm(child, control):
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
         if os.waitpid(child, os.WNOHANG)[0]:
+            # virtme may exit before QEMU or its GPU helpers. They belong to
+            # this private session's process group and must not outlive it.
+            try:
+                os.killpg(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             return
         time.sleep(0.05)
     try:
@@ -717,7 +768,6 @@ def provision_base(cache, configuration, runtime, kernel):
             "temporaryDirectory": str(scratch),
             "provision": True,
             "diskFormat": "raw",
-            "vmType": configuration.get("vmType", "microvm"),
         }
         prepare_control(control, configuration, runtime, request)
         (control / "rootfs.tar.gz").symlink_to(archive)
@@ -798,14 +848,25 @@ def ensure_ready(cache, configuration, kernel):
         fcntl.flock(lock, fcntl.LOCK_EX)
         if kernel is None:
             kernel = install_kernel(cache, configuration["release"]["kernel"])
-            if configuration.get("vmType") == "q35":
+            if configuration.get("gpu") or configuration.get("gpuDevices"):
                 check_guest_kernel_modules(
                     kernel.parent.parent,
                     configuration["release"]["kernel"]["version"],
-                    vm_type="q35",
+                    pci=True,
                 )
         runtime = install_runtime(cache, configuration["release"])
         base = provision_base(cache, configuration, runtime, kernel)
+        if configuration.get("gpuBackend") == "nvidia":
+            kernel, configuration["gpuRuntime"] = nvidia_helpers(configuration)[
+                "prepare"
+            ](
+                cache,
+                configuration["release"],
+                kernel,
+                configuration["gpuInventory"],
+                download,
+                install_kernel,
+            )
     return runtime, base, kernel
 
 
@@ -885,6 +946,10 @@ def supervise(runtime, kernel, control, gpu_leases=()):
         while True:
             finished, status = os.waitpid(child, os.WNOHANG)
             if finished:
+                try:
+                    os.killpg(child, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 child = None
                 atomic_json(
                     control / "failure.json",
@@ -932,13 +997,14 @@ def supervise(runtime, kernel, control, gpu_leases=()):
 
 
 def session_identity(configuration, execution):
-    vm_type, addresses = vm_options(configuration)
+    addresses = gpu_devices(configuration)
     return hashlib.sha256(
         json.dumps(
             {
                 "runner": configuration["runnerHash"],
-                "vmType": vm_type,
                 "gpuDevices": addresses,
+                "gpu": bool(configuration.get("gpu")),
+                "gpuInventory": configuration.get("gpuInventory"),
                 "storage": execution.get("storage") or [],
             },
             sort_keys=True,
@@ -980,11 +1046,13 @@ def guest_responding(control):
 def compatible_session(control, configuration, execution):
     try:
         previous = json.loads((control / "request.json").read_text())
-        vm_type, devices = vm_options(configuration)
+        devices = gpu_devices(configuration)
         return (
             previous.get("controlProtocol", 1) == CONTROL_PROTOCOL
-            and previous.get("vmType", "microvm") == vm_type
             and (previous.get("gpuDevices") or []) == devices
+            and bool(previous.get("gpu")) == bool(configuration.get("gpu"))
+            and previous.get("gpuBackend") == configuration.get("gpuBackend")
+            and previous.get("gpuInventory") == configuration.get("gpuInventory")
             and (previous.get("storage") or []) == (execution.get("storage") or [])
         )
     except (FileNotFoundError, ValueError):
@@ -1010,7 +1078,7 @@ def active_invocations(control):
 
 def ensure_session(scope, configuration, runtime, base, kernel, execution):
     control = scope / "session"
-    vm_type, addresses = vm_options(configuration)
+    addresses = gpu_devices(configuration)
     identity = session_identity(configuration, execution)
     if control.is_dir():
         active = active_invocations(control)
@@ -1045,10 +1113,17 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         gid=os.getgid(),
         network=True,
         editorPort=editor_port,
-        vmType=vm_type,
         controlProtocol=CONTROL_PROTOCOL,
         gpuDevices=addresses,
+        gpu=bool(configuration.get("gpu")),
     )
+    if configuration.get("gpuBackend") == "nvidia":
+        request.update(
+            {
+                key: configuration[key]
+                for key in ("gpuBackend", "gpuRuntime", "gpuInventory")
+            }
+        )
     prepare_control(control, configuration, runtime, request)
     (control / "version").write_text(identity)
     disk = scope / "root.qcow2"

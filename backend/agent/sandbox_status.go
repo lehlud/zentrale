@@ -129,10 +129,6 @@ func (engine *Engine) SandboxStatuses() ([]domain.SandboxStatus, error) {
 				machine.QuotaCommand = pool.QuotaCommand
 			}
 
-			if machine.VMType == "" {
-				machine.VMType = pool.VMType
-			}
-
 			configurations[machine.ID] = JSON(remote.WithMachineDefaults(machine))
 		}
 	}

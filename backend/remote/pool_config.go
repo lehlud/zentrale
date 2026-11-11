@@ -71,10 +71,6 @@ func validatePoolSettings(pool domain.Pool) error {
 		return err
 	}
 
-	if pool.VMType != "" && pool.VMType != VMTypeMicroVM && pool.VMType != VMTypeQ35 {
-		return errors.New("pool vm_type must be microvm or q35")
-	}
-
 	if !ValidID(pool.ID) {
 		return errors.New("pool id is invalid")
 	}
@@ -130,10 +126,6 @@ func normalizePoolMachines(pool *domain.Pool) error {
 
 		if machine.Sandbox == "" {
 			machine.Sandbox = pool.Sandbox
-		}
-
-		if machine.VMType == "" {
-			machine.VMType = pool.VMType
 		}
 
 		machine.SingleUser = machine.SingleUser || pool.SingleUser
