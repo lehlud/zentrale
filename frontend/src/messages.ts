@@ -1,6 +1,8 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Modellverbindung unterbrochen, neuer Versuch …":
+    "Model connection interrupted, retrying …",
   Denkintensität: "Reasoning effort",
   "Standard (regulär)": "Default (regular)",
   "Provider-Standard": "Provider default",

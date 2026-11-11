@@ -134,3 +134,63 @@ func TestCancelledLiveResponseDoesNotBecomeConversationHistory(t *testing.T) {
 		t.Fatal("partial generation entered model history", messages, err)
 	}
 }
+
+func TestRetriedLiveResponseReplacesTheDraftAndCommitsOnlyTheFinalAnswer(t *testing.T) {
+	retry, finish := make(chan struct{}), make(chan struct{})
+	engine, agent := testEngine(t, providerFunction(func(ctx context.Context, request providers.Request) (providers.Result, error) {
+		request.OnText("Discard this draft")
+		<-retry
+		request.OnText(" and this pending frame")
+		request.OnRetry(providers.Retry{Attempt: 2, MaxAttempts: 4})
+		<-finish
+		request.OnText("Recovered answer")
+		return providers.Result{Text: "Recovered answer"}, nil
+	}))
+	events, unsubscribe := engine.Subscribe()
+	defer unsubscribe()
+	engine.setRunState(agent.ID, "model", nil)
+
+	completed := make(chan domain.Message, 1)
+	go func() {
+		_, message, err := engine.completeVisible(context.Background(), agent.ID, providers.Request{})
+		if err != nil {
+			t.Error(err)
+		}
+		completed <- message
+	}()
+	start := nextLiveResponse(t, events)
+	draft := nextLiveResponse(t, events)
+	if draft.Delta != "Discard this draft" {
+		t.Fatal(draft)
+	}
+	close(retry)
+	reset := nextLiveResponse(t, events)
+	if reset.ID != start.ID || !reset.Snapshot || reset.Text != "" || reset.Revision <= draft.Revision || reset.Status != "running" {
+		t.Fatal("retry did not replace the entire draft", reset)
+	}
+	if state := engine.RunState(agent.ID); state.Phase != "retrying_model" {
+		t.Fatal(state)
+	}
+
+	reconnected, disconnect := engine.Subscribe()
+	defer disconnect()
+	if snapshot := nextLiveResponse(t, reconnected); snapshot.Text != "" || snapshot.Revision != reset.Revision {
+		t.Fatal("reconnect restored the discarded draft", snapshot)
+	}
+	close(finish)
+	message := <-completed
+	last := nextLiveResponse(t, events)
+	if last.Status != "completed" || last.Text != "Recovered answer" || message.ID != start.ID {
+		t.Fatal(last, message)
+	}
+	if state := engine.RunState(agent.ID); state.Phase != "model" {
+		t.Fatal(state)
+	}
+	if err := engine.persistMessage(message, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	history, err := engine.loadHistory(agent.ID)
+	if err != nil || len(history) != 1 || history[0].Content != "Recovered answer" {
+		t.Fatal("discarded generation entered model history", history, err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
@@ -77,21 +78,18 @@ func TestProviderRetriesTemporaryRejectionsWithIdenticalRequest(t *testing.T) {
 	}
 }
 
-func TestProviderDoesNotReplayAmbiguousOrPermanentFailures(t *testing.T) {
+func TestProviderDoesNotRetryPermanentFailures(t *testing.T) {
 	for _, fixture := range []struct {
-		name           string
-		status         int
-		body, advice   string
-		transportError bool
+		name         string
+		status       int
+		body, advice string
 	}{
-		{"invalid credentials", 401, `{}`, "", false},
-		{"invalid model", 400, `{}`, "", false},
-		{"billing quota", 429, `{"error":{"code":"insufficient_quota"}}`, "", false},
-		{"anthropic billing", 429, `{"error":{"type":"credit_balance_too_low"}}`, "", false},
-		{"long server backoff", 429, `{}`, "3600", false},
-		{"malformed response", 200, `invalid`, "", false},
-		{"incomplete SSE", 200, "event: response.created\ndata: {}\n\n", "", false},
-		{"transport disconnect", 0, "", "", true},
+		{"invalid credentials", 401, `{}`, ""},
+		{"invalid model", 400, `{}`, ""},
+		{"billing quota", 429, `{"error":{"code":"insufficient_quota"}}`, ""},
+		{"anthropic billing", 429, `{"error":{"type":"credit_balance_too_low"}}`, ""},
+		{"long server backoff", 429, `{}`, "3600"},
+		{"malformed response", 200, `invalid`, ""},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			client, attempts := New(), 0
@@ -103,10 +101,6 @@ func TestProviderDoesNotReplayAmbiguousOrPermanentFailures(t *testing.T) {
 			client.HTTP.Transport = fixtureTransport(func(request *http.Request) (*http.Response, error) {
 				attempts++
 				_ = request.Body.Close()
-
-				if fixture.transportError {
-					return nil, io.ErrUnexpectedEOF
-				}
 
 				response := fixtureResponse(fixture.status, fixture.body)
 				response.Header.Set("Retry-After", fixture.advice)
@@ -207,4 +201,23 @@ func TestProvider503BackoffGrowsAndExhaustionKeepsHTTPError(t *testing.T) {
 			t.Fatal("expected growing 1/2/4-second backoff with jitter", waits)
 		}
 	}
+}
+
+func TestSlowGenerationDoesNotConsumeTheRetryBackoffBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, attempts := New(), 0
+		client.HTTP.Transport = fixtureTransport(func(request *http.Request) (*http.Response, error) {
+			attempts++
+			request.Body.Close()
+			if attempts == 1 {
+				time.Sleep(time.Minute)
+				return fixtureResponse(503, `{}`), nil
+			}
+			return fixtureResponse(200, `{"ok":true}`), nil
+		})
+		result, err := client.post(context.Background(), domain.Provider{BaseURL: "https://provider.example"}, "/inference", map[string]any{})
+		if err != nil || result["ok"] != true || attempts != 2 {
+			t.Fatal("a slow first attempt prevented recovery", result, err, attempts)
+		}
+	})
 }

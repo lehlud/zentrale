@@ -4,58 +4,101 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const providerAttempts = 4
 const maximumRetryWait = 30 * time.Second
 
-// Retry explicit temporary HTTP rejections only. Transport failures and partial
-// successful streams can already have generated a billed response; replaying
-// those requests would be ambiguous. Environmental tools are never replayed.
+type Retry struct {
+	Attempt     int
+	MaxAttempts int
+	Delay       time.Duration
+}
+
+// Only inference is repeated. Partial responses are display-only and tools are
+// dispatched after Complete returns a completed response. A retry can still be
+// billable at the provider; incomplete attempts never enter conversation replay.
 func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...streamRequest) (map[string]any, error) {
-	started := time.Now()
+	var totalWait time.Duration
 
 	for attempt := 0; ; attempt++ {
 		if err := original.Context().Err(); err != nil {
 			return nil, err
 		}
 
-		request := original.Clone(original.Context())
 		body, err := original.GetBody()
 		if err != nil {
 			return nil, err
 		}
 
+		ctx, activity := watchProviderActivity(original.Context(), client.idleTimeout)
+		request := original.Clone(ctx)
 		request.Body = body
 		response, err := client.HTTP.Do(request)
+		received := time.Now()
+
+		var result map[string]any
+		var failure error
 		if err != nil {
-			return nil, fmt.Errorf("provider request failed: %w", err)
+			failure = fmt.Errorf("provider request failed: %w", err)
+		} else {
+			activity.touch()
+			response.Body = &activeProviderBody{ReadCloser: response.Body, activity: activity}
+			result, failure = decodeProviderResponse(response, streaming...)
+
+			if failure == nil && (result["error"] != nil || result["status"] == "failed" || result["status"] == "incomplete") {
+				failure = responseFailure(result)
+			}
 		}
 
-		received := time.Now()
-		result, failure := decodeProviderResponse(response, streaming...)
-		_ = response.Body.Close()
-		var httpFailure *HTTPError
-		if attempt+1 == providerAttempts ||
-			!errors.As(failure, &httpFailure) ||
-			!temporaryProviderError(httpFailure) {
-			return result, failure
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		cause := context.Cause(ctx)
+		activity.close()
+
+		if err := original.Context().Err(); err != nil {
+			return nil, err
+		}
+
+		if errors.Is(cause, errProviderIdle) && (response == nil || response.StatusCode >= 200 && response.StatusCode < 300) {
+			failure = errProviderIdle
+		}
+
+		if failure == nil {
+			return result, nil
+		}
+
+		if attempt+1 == providerAttempts || !temporaryProviderFailure(failure) {
+			return nil, failure
 		}
 
 		delay := time.Duration(float64(time.Second*(1<<attempt)) * (0.9 + rand.Float64()*0.2))
 
-		if advice, valid := providerRetryAfter(response.Header.Get("Retry-After"), received); valid {
-			delay = max(0, advice-time.Since(received))
+		if response != nil {
+			if advice, valid := providerRetryAfter(response.Header.Get("Retry-After"), received); valid {
+				delay = max(0, advice-time.Since(received))
+			}
 		}
 
 		// Do not shorten a long Retry-After and hit the server before its deadline.
-		if time.Since(started)+delay > maximumRetryWait {
+		// Generation time is not backoff time. Otherwise a single slow attempt
+		// would consume this budget before its first retry can even begin.
+		if totalWait+delay > maximumRetryWait {
 			return nil, failure
+		}
+
+		totalWait += delay
+		if len(streaming) > 0 && streaming[0].onRetry != nil {
+			streaming[0].onRetry(Retry{Attempt: attempt + 2, MaxAttempts: providerAttempts, Delay: delay})
 		}
 
 		wait := client.waitRetry
@@ -67,6 +110,38 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 			return nil, err
 		}
 	}
+}
+
+func temporaryProviderFailure(failure error) bool {
+	var readFailure *providerReadError
+	if errors.As(failure, &readFailure) {
+		return true
+	}
+
+	var httpFailure *HTTPError
+	if errors.As(failure, &httpFailure) {
+		return temporaryProviderError(httpFailure)
+	}
+
+	var responseFailure *ResponseError
+	if errors.As(failure, &responseFailure) {
+		switch strings.ToLower(responseFailure.Code) {
+		case "server_error", "internal_server_error", "overloaded_error", "rate_limit_error", "rate_limit_exceeded":
+			return true
+		default:
+			return false
+		}
+	}
+
+	if errors.Is(failure, errProviderIdle) || errors.Is(failure, errStreamInterrupted) ||
+		errors.Is(failure, context.DeadlineExceeded) || errors.Is(failure, io.ErrUnexpectedEOF) ||
+		errors.Is(failure, io.EOF) || errors.Is(failure, syscall.ECONNRESET) ||
+		errors.Is(failure, syscall.ECONNREFUSED) || errors.Is(failure, syscall.EPIPE) {
+		return true
+	}
+
+	var networkFailure net.Error
+	return errors.As(failure, &networkFailure) && networkFailure.Timeout()
 }
 
 func temporaryProviderError(failure *HTTPError) bool {

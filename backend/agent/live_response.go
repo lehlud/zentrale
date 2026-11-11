@@ -14,13 +14,14 @@ import (
 const responseFrameInterval = 35 * time.Millisecond
 
 type responseWriter struct {
-	engine  *Engine
-	mutex   sync.Mutex
-	state   domain.LiveResponse
-	text    strings.Builder
-	pending strings.Builder
-	timer   *time.Timer
-	closed  bool
+	engine   *Engine
+	mutex    sync.Mutex
+	state    domain.LiveResponse
+	text     strings.Builder
+	pending  strings.Builder
+	timer    *time.Timer
+	closed   bool
+	retrying bool
 }
 
 func liveResponseEvent(response domain.LiveResponse) domain.Event {
@@ -83,6 +84,11 @@ func (writer *responseWriter) append(text string) {
 		return
 	}
 
+	if writer.retrying {
+		writer.retrying = false
+		writer.engine.setRunState(writer.state.AgentID, "model", nil)
+	}
+
 	writer.text.WriteString(text)
 	writer.pending.WriteString(text)
 
@@ -97,7 +103,7 @@ func (writer *responseWriter) flush() {
 
 	writer.timer = nil
 
-	if writer.closed {
+	if writer.closed || writer.pending.Len() == 0 {
 		return
 	}
 
@@ -107,6 +113,29 @@ func (writer *responseWriter) flush() {
 	update.Text, update.Delta, update.Snapshot = "", writer.pending.String(), false
 	writer.pending.Reset()
 	writer.engine.publishResponse(writer.state, update, false)
+}
+
+func (writer *responseWriter) restart() {
+	writer.mutex.Lock()
+	defer writer.mutex.Unlock()
+
+	if writer.closed {
+		return
+	}
+
+	if writer.timer != nil {
+		writer.timer.Stop()
+		writer.timer = nil
+	}
+
+	writer.text.Reset()
+	writer.pending.Reset()
+	writer.state.Text = ""
+	writer.state.Revision++
+	writer.retrying = true
+
+	writer.engine.setRunState(writer.state.AgentID, "retrying_model", nil)
+	writer.engine.publishResponse(writer.state, writer.state, false)
 }
 
 func (writer *responseWriter) finish(status, finalText string) {
@@ -139,6 +168,7 @@ func (engine *Engine) completeVisible(
 ) (result providers.Result, message domain.Message, err error) {
 	writer := engine.beginResponse(agentID)
 	request.OnText = writer.append
+	request.OnRetry = func(providers.Retry) { writer.restart() }
 	defer func() {
 		status := "completed"
 

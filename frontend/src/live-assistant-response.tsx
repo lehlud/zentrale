@@ -67,25 +67,27 @@ export function LiveAssistantResponse({
           label={t(
             phase === "accepted"
               ? "Nachricht übernommen …"
-              : phase === "goal_review"
-                ? "Auto-Approver prüft den Zielabschluss …"
-                : phase === "connecting"
-                  ? "Verbindung zur Maschine wird hergestellt …"
-                  : phase === "checking_sandbox"
-                    ? "Sandbox wird geprüft …"
-                    : phase === "recovering_sandbox"
-                      ? "Umgebung wird wiederhergestellt …"
-                      : phase === "workspace"
-                        ? "Projektverzeichnis wird vorbereitet …"
-                        : phase === "sandbox"
-                          ? "Sandbox wird vorbereitet …"
-                          : phase === "repository"
-                            ? "Repository wird vorbereitet …"
-                            : generating
-                              ? text
-                                ? "Schreibt …"
-                                : "Antwort wird vorbereitet …"
-                              : "Arbeitet …",
+              : phase === "retrying_model"
+                ? "Modellverbindung unterbrochen, neuer Versuch …"
+                : phase === "goal_review"
+                  ? "Auto-Approver prüft den Zielabschluss …"
+                  : phase === "connecting"
+                    ? "Verbindung zur Maschine wird hergestellt …"
+                    : phase === "checking_sandbox"
+                      ? "Sandbox wird geprüft …"
+                      : phase === "recovering_sandbox"
+                        ? "Umgebung wird wiederhergestellt …"
+                        : phase === "workspace"
+                          ? "Projektverzeichnis wird vorbereitet …"
+                          : phase === "sandbox"
+                            ? "Sandbox wird vorbereitet …"
+                            : phase === "repository"
+                              ? "Repository wird vorbereitet …"
+                              : generating
+                                ? text
+                                  ? "Schreibt …"
+                                  : "Antwort wird vorbereitet …"
+                                : "Arbeitet …",
           )}
         />
       )}

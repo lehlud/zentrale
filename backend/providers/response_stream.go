@@ -9,9 +9,16 @@ import (
 )
 
 type streamRequest struct {
-	kind   string
-	onText func(string)
+	kind    string
+	onText  func(string)
+	onRetry func(Retry)
 }
+
+func (request Request) stream() streamRequest {
+	return streamRequest{onText: request.OnText, onRetry: request.OnRetry}
+}
+
+var errStreamInterrupted = errors.New("provider stream ended before completion")
 
 func (request streamRequest) text(value string) {
 	if request.onText != nil && value != "" {
@@ -50,7 +57,7 @@ func readProviderStream(body io.Reader, request streamRequest) (map[string]any, 
 	var data []string
 	var eventName string
 
-	consume := func() (bool, error) {
+	consume := func(atEOF bool) (bool, error) {
 		if len(data) == 0 {
 			eventName = ""
 
@@ -66,6 +73,10 @@ func readProviderStream(body io.Reader, request streamRequest) (map[string]any, 
 
 		var event map[string]any
 		if err := json.Unmarshal([]byte(encoded), &event); err != nil || event == nil {
+			if atEOF && truncatedProviderJSON([]byte(encoded)) {
+				return false, errStreamInterrupted
+			}
+
 			return false, errors.New("invalid provider stream event")
 		}
 
@@ -85,7 +96,7 @@ func readProviderStream(body io.Reader, request streamRequest) (map[string]any, 
 	for scanner.Scan() {
 		line := strings.TrimPrefix(scanner.Text(), "\xef\xbb\xbf")
 		if line == "" {
-			done, err := consume()
+			done, err := consume(false)
 			if err != nil {
 				return nil, err
 			}
@@ -104,7 +115,7 @@ func readProviderStream(body io.Reader, request streamRequest) (map[string]any, 
 		return nil, err
 	}
 
-	if _, err := consume(); err != nil {
+	if _, err := consume(true); err != nil {
 		return nil, err
 	}
 
@@ -142,7 +153,7 @@ func (stream *responsesStream) consume(event map[string]any) (bool, error) {
 
 func (stream *responsesStream) result() (map[string]any, error) {
 	if stream.completed == nil {
-		return nil, errors.New("provider stream ended before completion")
+		return nil, errStreamInterrupted
 	}
 
 	return stream.completed, nil

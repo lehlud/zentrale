@@ -39,6 +39,21 @@ Prices are USD per million tokens. Usage separates metered costs from
 API-equivalent costs for fixed-price accounts and marks estimated or missing
 token and cache data.
 
+### Interrupted model connections
+
+Zentrale automatically retries connection failures, timeouts, interrupted response
+streams, and temporary provider errors, with at most four attempts. Backoff grows
+from roughly one to two to four seconds; a provider's `Retry-After` is respected
+within a 30-second total backoff budget. Healthy streams have no fixed overall
+deadline. Five minutes without incoming data cancels the stalled attempt.
+
+The conversation shows when a retry starts and replaces the unfinished answer
+draft. Only a complete response enters conversation history or starts tools, so
+repeating a model request does not repeat environmental actions. Failed attempts
+may still be billed by the provider; their unavailable usage is not included in
+the completed response's token counts. Stopping the agent cancels retries.
+Invalid credentials, billing limits, and permanent response errors are not retried.
+
 ## Connect GitHub or GitLab
 
 Git connections use device login, available in Settings or directly in the

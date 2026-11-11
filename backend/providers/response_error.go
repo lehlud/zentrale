@@ -59,8 +59,13 @@ func responseFailure(envelope map[string]any) *ResponseError {
 		detail = value
 	}
 
+	code := asString(detail["code"])
+	if code == "" {
+		code = asString(detail["type"])
+	}
+
 	return &ResponseError{
-		Code:    asString(detail["code"]),
+		Code:    code,
 		Message: asString(detail["message"]),
 		Param:   asString(detail["param"]),
 		Reason:  asString(asObject(response["incomplete_details"])["reason"]),
