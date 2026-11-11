@@ -27,7 +27,9 @@ for (const variant of [
     const sockets: WebSocketRoute[] = [];
     const input: Buffer[] = [];
     const sizes: { cols: number; rows: number }[] = [];
-    let closed = 0;
+    // A mocked socket can report close again when effect cleanup calls close()
+    // after an exit/error has already closed it. Count distinct sessions.
+    const closed = new Set<WebSocketRoute>();
     await page.routeWebSocket("**/terminal/**", (socket) => {
       const url = new URL(socket.url());
       expect(url.pathname).toBe(`/terminal/${project.id}`);
@@ -36,7 +38,7 @@ for (const variant of [
       expect(Number(url.searchParams.get("rows"))).toBeGreaterThan(1);
       sockets.push(socket);
       socket.onClose(() => {
-        closed++;
+        closed.add(socket);
       });
       socket.onMessage((data) => {
         if (typeof data !== "string") input.push(data);
@@ -143,7 +145,7 @@ for (const variant of [
     });
     await page.keyboard.press("Alt+Shift+T");
     await expect(dialog).not.toBeVisible();
-    await expect.poll(() => closed).toBe(1);
+    await expect.poll(() => closed.size).toBe(1);
     await expect(launch).toBeFocused();
 
     await launch.press("Enter");
@@ -170,7 +172,7 @@ for (const variant of [
       .getByRole("button", { name: label("Schließen", "Close"), exact: true })
       .click();
     await expect(dialog).not.toBeVisible();
-    await expect.poll(() => closed).toBe(4);
+    await expect.poll(() => closed.size).toBe(4);
     expect(sockets).toHaveLength(4);
   });
 }
