@@ -37,9 +37,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install native test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++ fish python3 openssh-client
+        run: sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Verify Go modules
         run: |
           go mod download
@@ -91,9 +89,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install backend fixture dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++ fish python3 openssh-client
+        run: sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Install locked frontend dependencies
         run: npm ci
       - name: Check formatting and types
