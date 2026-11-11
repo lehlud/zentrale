@@ -24,9 +24,10 @@ type Execution struct {
 	GuestRoot      bool
 	Tooling        bool // Trusted file harness; never supplied by a model.
 
-	ProtocolIO      bool // Persistent stdin configured by the harness for MCP or interactive commands.
-	TTY             bool
-	EditorSessionID string // A starting editor must not wait for its own shutdown.
+	ProtocolIO       bool // Persistent stdin configured by the harness for MCP or interactive commands.
+	TTY              bool
+	TerminalProtocol bool   // Trusted browser terminal: bounded JSON input/resize frames.
+	EditorSessionID  string // A starting editor must not wait for its own shutdown.
 }
 
 const userScopeCommand = "systemd-run --user --scope --quiet --no-ask-password -p MemoryMax=4G -p TasksMax=256"
@@ -63,7 +64,7 @@ func Sandbox(
 	}
 
 	if execution.TTY && (level != SandboxMicroVM || machine.MicroVMCommand != "") {
-		execution.Command = terminalCommand(execution.Command)
+		execution.Command = terminalCommandWithProtocol(execution.Command, execution.TerminalProtocol)
 		command = "cd " + Quote(execution.Workspace) + " && " + execution.Command
 	}
 

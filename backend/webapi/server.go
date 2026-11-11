@@ -177,6 +177,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	})
 
 	e.GET("/events", server.events)
+	e.GET("/terminal/:project", server.terminal)
 	e.POST("/mcp", server.mcp)
 	e.Any("/ide/:project/:session/*", server.ide)
 	e.Any("/preview/:project/:session/:port/*", server.preview)
@@ -203,7 +204,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		requestContext.Response().Header().Set(
 			"Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+			"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
 		)
 
 		return requestContext.File(filepath.Join(root, "index.html"))

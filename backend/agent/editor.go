@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 
 	"github.com/lehlud/zentrale/domain"
@@ -59,6 +60,15 @@ func (engine *Engine) CurrentEditor(projectID, agentID string) (domain.EditorSes
 // Starting an editor is an explicit user action. Provisioning and package
 // installation stay in the same managed guest used by subsequent agent tools.
 func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string) (domain.EditorSession, error) {
+	return engine.withEditorEnvironment(ctx, projectID, agentID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, project domain.Project, target remote.EditorTarget) (domain.EditorSession, error) {
+		return engine.Editors.StartFor(ctx, project, target)
+	})
+}
+
+// withEditorEnvironment shares source/credential preparation and holds the
+// existing project, agent and VM activity guards until use returns. Terminal
+// callers deliberately keep use running until the PTY has been closed.
+func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agentID string, use func(context.Context, *remote.Connection, domain.Machine, domain.Project, remote.EditorTarget) (domain.EditorSession, error)) (domain.EditorSession, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -92,6 +102,8 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 
 	if selected.ID != "" {
 		engine.preparing[selected.ID]++
+	} else {
+		engine.preparing[remote.EditorScopeID(projectID, "")]++
 	}
 
 	engine.mu.Unlock()
@@ -104,12 +116,10 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 			delete(engine.editorPreparing, projectID)
 		}
 
-		if selected.ID != "" {
-			engine.preparing[selected.ID]--
-
-			if engine.preparing[selected.ID] == 0 {
-				delete(engine.preparing, selected.ID)
-			}
+		scope := remote.EditorScopeID(projectID, selected.ID)
+		engine.preparing[scope]--
+		if engine.preparing[scope] == 0 {
+			delete(engine.preparing, scope)
 		}
 
 		engine.mu.Unlock()
@@ -124,11 +134,13 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 	var connection *remote.Connection
 	var machine domain.Machine
 	scope := remote.EditorScopeID(project.ID, selected.ID)
+	leaseOwner := selected.ID
 
 	if selected.ID != "" {
 		connection, machine, project, err = engine.connect(ctx, selected)
 	} else {
-		owner := "ide-prepare:" + scope
+		owner := "ide-prepare:" + scope + ":" + rand.Text()
+		leaseOwner = owner
 		defer engine.Remote.Release(owner)
 
 		connection, machine, err = engine.Remote.Connect(ctx, project, owner, "", nil)
@@ -144,6 +156,11 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 		return domain.EditorSession{}, err
 	}
 	defer connection.Close()
+	// Cached agent connections may expire independently while a terminal is
+	// still open. Retain the selected pool/GPU lease for this whole operation.
+	lease := "workspace:" + rand.Text()
+	engine.Remote.Hold(leaseOwner, lease)
+	defer engine.Remote.Release("job:" + lease)
 
 	if len(machine.Storage) > 0 && len(machine.StorageMounts) == 0 {
 		machine.StorageMounts, err = engine.Remote.PrepareStorage(ctx, connection, machine, project)
@@ -193,15 +210,18 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 		return domain.EditorSession{}, err
 	}
 
-	return engine.Editors.StartFor(
+	return use(
 		ctx,
+		connection,
+		machine,
 		project,
 		remote.EditorTarget{
-			AgentID:        selected.ID,
-			MachineID:      machine.ID,
-			CommitIdentity: identity,
-			RuntimeLock:    engine.vmOperation(scope, machine.ID),
-			Recovery:       engine,
+			AgentID:            selected.ID,
+			MachineID:          machine.ID,
+			CommitIdentity:     identity,
+			RuntimeLock:        engine.vmOperation(scope, machine.ID),
+			Recovery:           engine,
+			TemporaryDirectory: temporary,
 		},
 	)
 }

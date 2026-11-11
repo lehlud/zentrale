@@ -141,6 +141,9 @@ def main():
     checked(LIBC.unshare(CLONE_NEWPID), "isolate task processes")
     if request.get("tty"):
         relay = runpy.run_path(CONTROL + "/terminal.py")["run_terminal"]
+        if request.get("terminalProtocol"):
+            return relay(lambda: execute(request, session, command), namespace_init=True,
+                         protocol=True)
         return relay(lambda: execute(request, session, command), namespace_init=True)
 
     child = os.fork()

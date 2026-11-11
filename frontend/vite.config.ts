@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       "/graphql": "http://127.0.0.1:8080",
       "/events": { target: "ws://127.0.0.1:8080", ws: true },
+      "/terminal": { target: "ws://127.0.0.1:8080", ws: true },
       "/ide": { target: "http://127.0.0.1:8080", ws: true },
     },
   },

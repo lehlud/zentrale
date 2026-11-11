@@ -140,7 +140,8 @@ func microVMAction(
 
 			"protocolIO": execution.ProtocolIO,
 
-			"tty": execution.TTY,
+			"tty":              execution.TTY,
+			"terminalProtocol": execution.TerminalProtocol,
 
 			"storage": machine.StorageMounts,
 		},

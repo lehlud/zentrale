@@ -1,6 +1,21 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+.vm-terminal-dialog {
+  height: var(--visual-viewport-height, 100dvh);
+  max-height: var(--visual-viewport-height, 100dvh);
+  padding: 0;
+  overflow: hidden;
+}
+
+.vm-terminal-screen.wterm {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 /* Use HeroUI's field tokens so every control has a visible boundary without
    relying on a shadow. Focus, invalid and disabled states stay with HeroUI. */
 :root {

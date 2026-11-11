@@ -10,6 +10,7 @@ import { SidebarToggle } from "./shell";
 import { AgentSwitcher } from "./agent-switcher";
 import { Icon } from "./icons";
 import { editorLaunchHref } from "./navigation";
+import { TerminalLauncher } from "./terminal-launcher";
 
 export function AgentControls({
   current,
@@ -93,6 +94,13 @@ export function AgentControls({
           >
             <Icon name="code" className="size-5" />
           </Link>
+          <TerminalLauncher
+            projectId={project.id}
+            projectName={project.name}
+            agentId={
+              current?.role === "approver" ? current.parentId : current?.id
+            }
+          />
           {(current || project) && (
             <Dropdown>
               <Button

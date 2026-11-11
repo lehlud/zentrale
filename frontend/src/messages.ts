@@ -1169,6 +1169,24 @@ Object.assign(english, {
   "Maschinenschlüssel gehören in ~/.ssh/authorized_keys. Repo-Schlüssel werden automatisch als Deploy-Keys hinterlegt. Private Schlüssel bleiben in der Zentrale.":
     "Machine keys belong in ~/.ssh/authorized_keys. Repository keys are registered automatically as deploy keys. Private keys stay in Zentrale.",
   "Gefundene Werkzeuge": "Discovered tools",
+  "Terminal in der VM öffnen": "Open terminal in VM",
+  "Terminal wird geladen …": "Loading terminal …",
+  "VM-Terminal": "VM terminal",
+  Verbunden: "Connected",
+  "Verbindung fehlgeschlagen": "Connection failed",
+  "Terminal-Ein- und Ausgabe": "Terminal input and output",
+  "Terminal-Eingabe": "Terminal input",
+  "VM und Terminal werden gestartet …": "Starting VM and terminal …",
+  "Terminal-Verbindung beendet": "Terminal connection closed",
+  "Terminal-Verbindung fehlgeschlagen.": "Terminal connection failed.",
+  "Terminal konnte nicht initialisiert werden.":
+    "Could not initialize terminal.",
+  "Ungültige Antwort der Terminal-Verbindung.":
+    "Invalid terminal connection response.",
+  "Zu viele ausstehende Terminal-Eingaben. Verbindung beendet.":
+    "Too much pending terminal input. Connection closed.",
+  "Esc bleibt im Terminal. Alt+Umschalt+T oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.":
+    "Esc stays in the terminal. Alt+Shift+T or Close ends this session. The VM stops automatically when no longer in use.",
   "Stopp angefordert.": "Stop requested.",
   "Optionaler Token für GitHub-API-Werkzeuge. Die Repo-Auswahl verwendet die Git-Verbindung.":
     "Optional token for GitHub API tools. Repository selection uses the Git connection.",

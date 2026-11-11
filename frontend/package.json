@@ -17,6 +17,7 @@
   "dependencies": {
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.0.0",
+    "@wterm/dom": "0.5.10",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.70.0",
     "monaco-editor": "0.57.0",
