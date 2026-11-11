@@ -144,7 +144,10 @@ func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
 
 	// This is the shape of the old auto-sandbox probe. It fails before any user
 	// command is reached when SSH sends it directly to fish.
-	probe := "if test -d /; then printf 'ready'; else exit 1; fi"
+	// `if ...; then ...; fi` is accidentally accepted by some fish versions.
+	// POSIX case syntax is consistently incompatible across supported fish
+	// versions, while remaining valid in the POSIX wrapper under test.
+	probe := "case ready in ready) printf 'ready';; esac"
 	session, err := connection.Client.NewSession()
 	if err != nil {
 		t.Fatal(err)
