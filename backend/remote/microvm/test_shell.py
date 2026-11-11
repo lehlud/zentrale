@@ -1,11 +1,15 @@
 """Guest shell installation and migration, without mounting or changing the host."""
 
 import importlib.util
+import contextlib
+import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -57,14 +61,21 @@ class GuestShellTests(unittest.TestCase):
         with (
             patch.object(guest_init, "mount") as mount,
             patch.object(
-                guest_init.subprocess, "run", side_effect=installed
+                guest_init, "run_package_manager", side_effect=installed
             ) as install,
         ):
             guest_init.prepare_user_shell(self.root)
             guest_init.prepare_user_shell(self.root)
         self.assertEqual(install.call_count, 1)
         self.assertEqual(
-            install.call_args.args[0], ["/usr/bin/microdnf", "-y", "install", "fish"]
+            install.call_args.args[0],
+            [
+                "/usr/bin/microdnf",
+                "-y",
+                "--setopt=install_weak_deps=0",
+                "install",
+                "fish",
+            ],
         )
         mount.assert_called_once()
         self.assertIn(
@@ -95,25 +106,27 @@ class GuestShellTests(unittest.TestCase):
             patch.object(
                 guest_init,
                 "missing_standard_packages",
-                side_effect=[["git", "ripgrep"], [], []],
+                side_effect=[["git-core", "ripgrep"], [], []],
             ),
             patch.object(guest_init, "mount") as mount,
-            patch.object(guest_init.subprocess, "run") as install,
+            patch.object(guest_init, "run_package_manager") as install,
         ):
             guest_init.prepare_standard_packages(self.root)
             guest_init.prepare_standard_packages(self.root)
         install.assert_called_once()
         self.assertEqual(
             install.call_args.args[0],
-            ["/usr/bin/microdnf", "-y", "install", "ca-certificates", "git", "ripgrep"],
+            [
+                "/usr/bin/microdnf",
+                "-y",
+                "--setopt=install_weak_deps=0",
+                "install",
+                "ca-certificates",
+                "git-core",
+                "ripgrep",
+            ],
         )
-        with (
-            patch.object(guest_init.os, "chroot") as chroot,
-            patch.object(guest_init.os, "chdir") as chdir,
-        ):
-            install.call_args.kwargs["preexec_fn"]()
-            chroot.assert_called_once_with(self.root)
-            chdir.assert_called_once_with("/")
+        self.assertEqual(install.call_args.args[1], self.root)
         mount.assert_called_once()
         self.assertEqual(state.read_text(), "retain me")
 
@@ -139,6 +152,115 @@ class GuestShellTests(unittest.TestCase):
         ):
             guest_init.prepare_standard_packages(self.root)
         install.assert_not_called()
+
+    def test_interrupted_transaction_replays_even_after_commands_appear(self):
+        (self.root / "usr/bin/microdnf").touch()
+        saved = self.root / "user-data"
+        saved.write_text("keep this")
+        failure = guest_init.PackageInstallFailure("package_install_timeout", "timeout")
+        with (
+            patch.object(guest_init, "mount"),
+            patch.object(
+                guest_init,
+                "missing_standard_packages",
+                side_effect=[["git-core"], [], []],
+            ),
+            patch.object(
+                guest_init, "run_package_manager", side_effect=[failure, None]
+            ) as install,
+        ):
+            with self.assertRaises(guest_init.PackageInstallFailure):
+                guest_init.prepare_standard_packages(self.root)
+            self.assertEqual(
+                guest_init.pending_packages(self.root), ["ca-certificates", "git-core"]
+            )
+            guest_init.prepare_standard_packages(self.root)
+        self.assertEqual(install.call_args_list[0], install.call_args_list[1])
+        self.assertEqual(guest_init.pending_packages(self.root), [])
+        self.assertEqual(saved.read_text(), "keep this")
+
+    def test_package_journal_cannot_follow_a_symlink_out_of_the_guest(self):
+        with tempfile.TemporaryDirectory() as outside:
+            (self.root / "var").symlink_to(outside)
+            with self.assertRaisesRegex(RuntimeError, "leaves the guest"):
+                guest_init.pending_packages(self.root)
+            self.assertEqual(list(Path(outside).iterdir()), [])
+
+    def run_transaction(self, script, **timeouts):
+        output = io.StringIO()
+        with (
+            patch.object(guest_init, "enter_guest", return_value=None),
+            contextlib.redirect_stdout(output),
+        ):
+            guest_init.run_package_manager(
+                [sys.executable, "-u", "-c", script], self.root, **timeouts
+            )
+        return output.getvalue()
+
+    def test_package_progress_extends_inactivity_budget(self):
+        output = self.run_transaction(
+            "import time\nfor i in range(6):\n print('installing', flush=True)\n time.sleep(0.1)",
+            timeout=3,
+            idle_timeout=0.4,
+        )
+        self.assertEqual(output.count("installing"), 6)
+
+    def test_silent_package_transaction_times_out(self):
+        with self.assertRaises(guest_init.PackageInstallFailure) as failure:
+            self.run_transaction(
+                "import time; time.sleep(60)", timeout=3, idle_timeout=0.1
+            )
+        self.assertEqual(failure.exception.reason, "package_install_timeout")
+
+    def test_progress_cannot_extend_total_package_budget(self):
+        with self.assertRaises(guest_init.PackageInstallFailure):
+            self.run_transaction(
+                "import time\nwhile True:\n print('progress', flush=True)\n time.sleep(0.02)",
+                timeout=0.2,
+                idle_timeout=1,
+            )
+
+    def test_nonzero_package_exit_is_a_retryable_setup_failure(self):
+        with self.assertRaises(guest_init.PackageInstallFailure) as failure:
+            self.run_transaction("raise SystemExit(1)")
+        self.assertEqual(failure.exception.reason, "package_install_failed")
+
+    @unittest.skipUnless(
+        sys.platform == "linux", "Linux package transaction process groups"
+    )
+    def test_timeout_also_kills_a_package_script_descendant(self):
+        script = "import signal,os,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print(os.getpid(),flush=True); time.sleep(60)"
+        parent = (
+            "import subprocess,sys,time; subprocess.Popen([sys.executable,'-u','-c',"
+            + repr(script)
+            + "]); time.sleep(60)"
+        )
+        output = io.StringIO()
+        with (
+            patch.object(guest_init, "enter_guest", return_value=None),
+            contextlib.redirect_stdout(output),
+            self.assertRaises(guest_init.PackageInstallFailure),
+        ):
+            guest_init.run_package_manager(
+                [sys.executable, "-u", "-c", parent],
+                self.root,
+                timeout=2,
+                idle_timeout=0.4,
+            )
+        pid = int(output.getvalue().strip())
+        for _ in range(20):
+            try:
+                # A killed child can briefly await reaping by the host's PID 1.
+                if (
+                    Path(f"/proc/{pid}/stat").read_text().split(")", 1)[1].split()[0]
+                    == "Z"
+                ):
+                    return
+                os.kill(pid, 0)
+            except (FileNotFoundError, ProcessLookupError):
+                return
+            time.sleep(0.05)
+        self.fail("package script survived transaction timeout")
 
     def test_unsuccessful_standard_install_cannot_be_reported_as_ready(self):
         with (

@@ -208,6 +208,11 @@ func (engine *Engine) stopVMRecords(ctx context.Context, records []map[string]an
 
 func (engine *Engine) stopVMRecord(ctx context.Context, record map[string]any, family map[string]bool) error {
 	agentID, machineID := stringArg(record, "agentId"), stringArg(record, "machineId")
+	// An in-progress boot owns this lock. Idle reconciliation must not queue
+	// behind it just to discover that preparation still holds the environment.
+	if family != nil && engine.environmentBusy(family, machineID) {
+		return nil
+	}
 	operation := engine.vmOperation(agentID, machineID)
 	if err := operation.Lock(ctx); err != nil {
 		return err

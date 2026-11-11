@@ -13,6 +13,55 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
+func TestVMPreflightRetriesOnlyRecognizedStartupFailures(t *testing.T) {
+	for _, test := range []struct {
+		reason string
+		status int
+		retry  bool
+	}{
+		{"package_install_timeout", 76, true},
+		{"package_install_failed", 76, true},
+		{"startup_timeout", 76, true},
+		{"unknown_failure", 76, false},
+		{"package_install_timeout", 1, false},
+	} {
+		t.Run(fmt.Sprintf("%s/exit%d", test.reason, test.status), func(t *testing.T) {
+			var prepares atomic.Int32
+			shell := shellPeerHandler("/bin/sh", os.Environ())
+			engine, main, _ := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+				if !strings.Contains(command, "MicroVM requires an agent and project identity") {
+					return shell(command, input, stdout, stderr)
+				}
+				command = strings.ReplaceAll(command, `'"'"'`, `'`)
+				if strings.Contains(command, " 'select' ") || strings.Contains(command, " 'ensure' ") {
+					fmt.Fprintln(stdout, "microvm")
+					return 0
+				}
+				io.Copy(io.Discard, input)
+				if strings.Contains(command, " 'stage' ") {
+					fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
+					return 0
+				}
+				if strings.Contains(command, " 'prepare' ") && prepares.Add(1) == 1 {
+					fmt.Fprintln(stderr, "Installing 129/130")
+					fmt.Fprintf(stdout, "ZENTRALE_VM_STARTUP_FAILED {\"reason\":%q}\n", test.reason)
+					return test.status
+				}
+				fmt.Fprint(stdout, `{"os":"fedora","version":"45"}`)
+				return 0
+			})
+			check := engine.CheckAgentConnection(context.Background(), main.ID)
+			expected := int32(1)
+			if test.retry {
+				expected = 2
+			}
+			if check.Connected != test.retry || prepares.Load() != expected {
+				t.Fatalf("connected=%v prepares=%d error=%s", check.Connected, prepares.Load(), check.Error)
+			}
+		})
+	}
+}
+
 func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) {
 	var prepares, stops atomic.Int32
 	shell := shellPeerHandler("/bin/sh", os.Environ())

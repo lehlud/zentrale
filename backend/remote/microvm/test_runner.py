@@ -83,6 +83,39 @@ class MicroVMRunnerTests(unittest.TestCase):
                 with self.subTest(workspace=workspace), self.assertRaises(RuntimeError):
                     runner.cache_directory([workspace])
 
+    def test_cold_boot_failure_keeps_disk_and_diagnostics_for_retry(self):
+        scope = self.root / "scope"
+        control = scope / "session"
+        control.mkdir(parents=True)
+        disk = scope / "root.qcow2"
+        disk.write_bytes(b"existing guest files")
+        (control / "boot.log").write_text("x" * 20000 + "\nInstalling 129/130\n")
+        # The supervisor's generic exit must not hide PID 1's specific cause.
+        (control / "failure.json").write_text(
+            '{"error":"MicroVM stopped unexpectedly"}'
+        )
+        (control / "startup-failure.json").write_text(
+            '{"reason":"package_install_timeout"}'
+        )
+        failure = runner.startup_failure(scope, control)
+        self.assertIsInstance(failure, runner.StartupFailure)
+        self.assertEqual(failure.reason, "package_install_timeout")
+        runner.stop_session(scope)
+        self.assertFalse(control.exists())
+        self.assertEqual(disk.read_bytes(), b"existing guest files")
+        diagnostic = json.loads((scope / "startup-failure.json").read_text())
+        self.assertLessEqual(len(diagnostic["output"]), 10000)
+        self.assertIn("Installing 129/130", diagnostic["output"])
+
+    def test_unknown_boot_errors_do_not_become_retryable(self):
+        control = self.root / "session"
+        control.mkdir()
+        (control / "boot.log").write_text("invalid guest configuration")
+        (control / "startup-failure.json").write_text('{"reason":"unknown"}')
+        self.assertNotIsInstance(
+            runner.startup_failure(self.root, control), runner.StartupFailure
+        )
+
     def test_cache_rejects_symlinks_and_shared_directory_permissions(self):
         link = self.root / "link"
         link.symlink_to(self.cache, target_is_directory=True)

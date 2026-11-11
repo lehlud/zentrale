@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lehlud/zentrale/remote"
 )
 
 func TestConnectionPreparationRetriesWrappedDeadlineWithFreshBudget(t *testing.T) {
@@ -25,6 +27,36 @@ func TestConnectionPreparationRetriesWrappedDeadlineWithFreshBudget(t *testing.T
 		return nil
 	})
 	if err != nil || calls != 2 {
+		t.Fatalf("calls=%d, error=%v", calls, err)
+	}
+}
+
+func TestConnectionPreparationRetriesGuestInstallOnTheSameEnvironment(t *testing.T) {
+	for _, reason := range []string{"package_install_timeout", "package_install_failed", "startup_timeout"} {
+		t.Run(reason, func(t *testing.T) {
+			calls := 0
+			err := retryConnectionPreparation(context.Background(), time.Second, 0, func(context.Context) error {
+				calls++
+				if calls == 1 {
+					return fmt.Errorf("prepare repository sandbox: %w", &remote.VMStartupFailure{Reason: reason})
+				}
+				return nil
+			})
+			if err != nil || calls != 2 {
+				t.Fatalf("calls=%d, error=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestRepeatedGuestSetupFailureRetainsDiagnosticsAndStopsRetrying(t *testing.T) {
+	calls := 0
+	err := retryConnectionPreparation(context.Background(), time.Second, 0, func(context.Context) error {
+		calls++
+		return &remote.VMStartupFailure{Reason: "package_install_failed", Diagnostic: "RPM transaction failed"}
+	})
+	var failure *remote.VMStartupFailure
+	if calls != 2 || !errors.As(err, &failure) || !strings.Contains(err.Error(), "RPM transaction failed") {
 		t.Fatalf("calls=%d, error=%v", calls, err)
 	}
 }

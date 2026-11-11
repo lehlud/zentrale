@@ -133,7 +133,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	run := func(configuration map[string]any, network bool, timeout time.Duration) (string, error) {
 		// Staging can prepare a guest, so give it a separate cold-boot budget.
 		// Start the command timeout only once its runtime is ready.
-		stageContext, cancelStage := context.WithTimeout(ctx, 10*time.Minute)
+		stageContext, cancelStage := context.WithTimeout(ctx, remote.ManagedVMSetupTimeout)
 		command, _, err := engine.sandbox(stageContext, connection, machine, remote.Execution{
 			AgentID:            scope,
 			ProjectID:          project.ID,
