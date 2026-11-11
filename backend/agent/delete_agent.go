@@ -27,17 +27,32 @@ func (engine *Engine) deleteAgent(agentID string) error {
 		return errors.New("stop the agent and its jobs before removing it")
 	}
 
+	ids, err := engine.prepareAgentRemoval(selected)
+	if err != nil {
+		return err
+	}
+	if err := engine.Store.RemoveAgents(ids); err != nil {
+		return err
+	}
+
+	engine.Emit("resources", "", map[string]string{"removedAgent": agentID})
+	return nil
+}
+
+// Release runtime resources before committing any database deletions. The caller
+// holds configMu and has checked the complete set for active work.
+func (engine *Engine) prepareAgentRemoval(selected map[string]bool) ([]string, error) {
 	ids := make([]string, 0, len(selected))
 
 	for id := range selected {
 		engine.closeMCPServers(id)
 
 		if err := engine.Editors.StopAgent(id); err != nil {
-			return err
+			return nil, err
 		}
 
 		if err := engine.removeAgentMicroVMs(id); err != nil {
-			return err
+			return nil, err
 		}
 
 		engine.invalidate(id)
@@ -48,13 +63,7 @@ func (engine *Engine) deleteAgent(agentID string) error {
 		ids = append(ids, id)
 	}
 
-	if err := engine.Store.RemoveAgents(ids); err != nil {
-		return err
-	}
-
-	engine.Emit("resources", "", map[string]string{"removedAgent": agentID})
-
-	return nil
+	return ids, nil
 }
 
 func (engine *Engine) agentsAreBusy(selected map[string]bool) bool {

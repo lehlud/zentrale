@@ -112,9 +112,11 @@ export class API {
                   ? "Zugang wirklich trennen?"
                   : variables.kind === "agent"
                     ? "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?"
-                    : variables.trust === "distrust"
-                      ? "Vertrauen wirklich entziehen?"
-                      : "Dieses Element dauerhaft entfernen?",
+                    : variables.kind === "project"
+                      ? "Projekt mit allen Agenten, Verläufen und Quellen dauerhaft entfernen? Repository-Dateien bleiben erhalten."
+                      : variables.trust === "distrust"
+                        ? "Vertrauen wirklich entziehen?"
+                        : "Dieses Element dauerhaft entfernen?",
           query.includes("stopEditor")
             ? "Editor beenden"
             : query.includes("stopJob")

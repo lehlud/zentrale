@@ -15,6 +15,9 @@ func (engine *Engine) Delete(kind, id string) error {
 	if kind == "agent" {
 		return engine.deleteAgent(id)
 	}
+	if kind == "project" {
+		return engine.deleteProject(id)
+	}
 
 	switch kind {
 	case "machine", "pool", "project", "source", "provider":
@@ -43,37 +46,6 @@ func (engine *Engine) Delete(kind, id string) error {
 			if err := engine.Store.SaveProjectRepository(project, nil); err != nil {
 				return err
 			}
-		}
-	}
-
-	if kind == "project" {
-		engine.mu.Lock()
-		starting := engine.editorPreparing[id] > 0
-		engine.mu.Unlock()
-
-		if starting {
-			return errors.New("the project editor is still starting; retry after it finishes")
-		}
-
-		if err := engine.Editors.StopProject(id); err != nil {
-			return err
-		}
-
-		scope := remote.EditorScopeID(id, "")
-		if err := engine.removeAgentMicroVMs(scope); err != nil {
-			return err
-		}
-
-		if err := engine.Store.ReplaceCollection("microvm", scope, nil); err != nil {
-			return err
-		}
-
-		if err := engine.Store.ReplaceCollection("project_workspace", id, nil); err != nil {
-			return err
-		}
-
-		if err := engine.Store.ReplaceCollection("project_storage", id, nil); err != nil {
-			return err
 		}
 	}
 
