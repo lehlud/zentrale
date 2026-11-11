@@ -38,7 +38,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Install native test dependencies
         run: |
-          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
+          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt
           sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Verify Go modules
         run: |
@@ -92,7 +92,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Install backend fixture dependencies
         run: |
-          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
+          sudo python3 ../.github/scripts/canonical_ubuntu_mirror.py /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt
           sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Install locked frontend dependencies
         run: npm ci

@@ -6,6 +6,13 @@ from canonical_ubuntu_mirror import canonicalize
 
 
 class TestCanonicalMirror(unittest.TestCase):
+    def test_runner_mirror_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "apt-mirrors.txt"
+            path.write_text("http://azure.archive.ubuntu.com/ubuntu/\nhttps://security.ubuntu.com/ubuntu/\n")
+            canonicalize(path)
+            self.assertEqual(path.read_text(), "http://archive.ubuntu.com/ubuntu/\nhttps://security.ubuntu.com/ubuntu/\n")
+
     def test_only_exact_archive_hostname_changes(self):
         original = (
             "URIs: https://azure.archive.ubuntu.com/ubuntu/\n"
