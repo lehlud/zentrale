@@ -1162,6 +1162,8 @@ Object.assign(english, {
     "Keys allow access to machines and repositories. Each key has a dedicated purpose.",
   "Maschinenschlüssel gehören in ~/.ssh/authorized_keys. Repo-Schlüssel werden automatisch als Deploy-Keys hinterlegt. Private Schlüssel bleiben in der Zentrale.":
     "Machine keys belong in ~/.ssh/authorized_keys. Repository keys are registered automatically as deploy keys. Private keys stay in Zentrale.",
+  "Gefundene Werkzeuge": "Discovered tools",
+  "Stopp angefordert.": "Stop requested.",
   "Optionaler Token für GitHub-API-Werkzeuge. Die Repo-Auswahl verwendet die Git-Verbindung.":
     "Optional token for GitHub API tools. Repository selection uses the Git connection.",
 });
