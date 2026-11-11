@@ -229,6 +229,54 @@ test("long conversations keep typing isolated, observers bounded and updates res
   expect(liveLatencies[Math.floor(liveLatencies.length * 0.95)]).toBeLessThan(
     250,
   );
+  // Even the first SMALL upward gesture must suspend following. Previously
+  // the <100px "near bottom" threshold immediately re-enabled it, and concurrent
+  // virtual-row measurements made the height-based scroll heuristic miss it.
+  const latest = page.getByRole("button", {
+    name: "Zu neuesten Einträgen ↓",
+    exact: true,
+  });
+  if (await latest.isVisible()) await latest.click();
+  await page.mouse.move(1100, 400);
+  await page.mouse.wheel(0, -40);
+  await expect(latest).toBeVisible();
+  socket!.send(
+    JSON.stringify({
+      type: "response",
+      data: JSON.stringify({
+        id: "perf-stream",
+        agentId: agent.id,
+        text:
+          "Streaming output with changing height\n\n" +
+          "A growing paragraph.\n\n".repeat(40),
+        revision: ++liveRevision,
+        snapshot: true,
+        status: "running",
+        createdAt: new Date().toISOString(),
+      }),
+    }),
+  );
+  await page.waitForTimeout(400);
+  await expect(latest).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight - innerHeight - scrollY,
+    ),
+  ).toBeGreaterThan(20);
+  // Keyboard scrolling must work too, without depending on a wheel event.
+  await latest.click();
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await page.keyboard.press("PageUp");
+  await expect(latest).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollHeight - innerHeight - scrollY,
+    ),
+  ).toBeGreaterThan(100);
+  await latest.click();
+  await expect(latest).not.toBeVisible();
+  await input.focus();
   socket!.send(JSON.stringify({ type: "response_reset" }));
   await expect(page.getByRole("article", { name: "Live-Antwort" })).toHaveCount(
     0,

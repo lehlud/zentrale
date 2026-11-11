@@ -28,6 +28,7 @@ import { FileDiff } from "./file-diff";
 import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { Icon } from "./icons";
+import { QuestionExchange } from "./question-exchange";
 
 const MessageTime = memo(function MessageTime({
   message,
@@ -262,6 +263,12 @@ const MessageContent = memo(function MessageContent({
   const { t } = useI18n();
   if (message.role === "event") {
     const feedback = record(parseJSON(message.content));
+    if (
+      feedback.kind === "subagent_question" ||
+      feedback.kind === "parent_question_answer"
+    ) {
+      return <QuestionExchange value={feedback} />;
+    }
     if (feedback.kind === "goal_feedback") {
       return (
         <div className="space-y-2 text-sm leading-6">

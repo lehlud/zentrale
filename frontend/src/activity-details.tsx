@@ -14,6 +14,7 @@ import { MessageMarkdown } from "./message-markdown";
 import { MCPRequest, MCPResult } from "./mcp-activity";
 import { goalStatusLabels } from "./goal-format";
 import { useProjectPath } from "./project-path";
+import { GitHubResult } from "./github-activity";
 
 const toolLabels: Record<string, string> = {
   exec: "Befehl ausführen",
@@ -440,6 +441,7 @@ export function ActivityResult({
   const { t, showDiagnostics } = useI18n();
   const decoded = structured(value);
   const result = record(decoded);
+  if (name === "github") return <GitHubResult value={decoded} />;
   if (name === "tool_search" && Array.isArray(decoded)) {
     return <ToolSearchResults items={decoded} />;
   }

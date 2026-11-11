@@ -1182,6 +1182,13 @@ Object.assign(english, {
   "VM und Terminal werden gestartet …": "Starting VM and terminal …",
   "Terminal-Verbindung beendet": "Terminal connection closed",
   "Terminal-Verbindung fehlgeschlagen.": "Terminal connection failed.",
+  "Rückfrage des Subagenten": "Question from subagent",
+  "Antwort des Hauptagenten": "Answer from main agent",
+  "Technische Details": "Technical details",
+  "GitHub-Ergebnis": "GitHub result",
+  Einträge: "Entries",
+  "Vollständige API-Antwort": "Full API response",
+  "Keine Antwortdaten": "No response data",
   "Terminal-Anmeldung abgelaufen. Bitte neu anmelden.":
     "Terminal login expired. Please sign in again.",
   "Terminal-Origin abgelehnt. Hinter einem HTTPS-Reverse-Proxy muss die öffentliche Origin mit -origin konfiguriert sein. Prüfe auch -secure-cookie.":

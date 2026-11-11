@@ -1,5 +1,27 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+function nestedScrollConsumes(target: EventTarget | null, delta: number) {
+  let element = target instanceof Element ? target : null;
+  while (
+    element &&
+    element !== document.body &&
+    element !== document.documentElement
+  ) {
+    if (element.scrollHeight > element.clientHeight + 1) {
+      const overflow = getComputedStyle(element).overflowY;
+      if (
+        (overflow === "auto" || overflow === "scroll") &&
+        (delta < 0
+          ? element.scrollTop > 0
+          : element.scrollTop + element.clientHeight < element.scrollHeight - 1)
+      )
+        return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
+}
+
 // The document is the transcript's only vertical scroll container. Keep space
 // for the fixed composer, and follow new output only while the reader is at the end.
 export function useTranscriptViewport(suspended: boolean, ready: boolean) {
@@ -7,9 +29,12 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
   const composer = useRef<HTMLFormElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
+  const direction = useRef(0);
+  const pointerDown = useRef(false);
   const position = useRef({ y: 0, height: 0 });
   const [following, setFollowing] = useState(true);
   const latest = useCallback(() => {
+    direction.current = 0;
     followingRef.current = true;
     setFollowing(true);
     window.scrollTo(0, document.documentElement.scrollHeight);
@@ -29,18 +54,91 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       const distance = height - innerHeight - scrollY;
       // A new/expanded row can increase scrollHeight before our resize callback
       // follows it. That is not the reader scrolling away from the bottom.
-      if (distance < 100) followingRef.current = true;
-      else if (
+      if (
         scrollY < position.current.y - 1 &&
-        (height === position.current.height || scrollY === 0)
+        (height === position.current.height ||
+          scrollY === 0 ||
+          direction.current < 0 ||
+          pointerDown.current)
       )
         followingRef.current = false;
+      else if (
+        distance <= 2 &&
+        direction.current >= 0 &&
+        scrollY >= position.current.y
+      )
+        followingRef.current = true;
       position.current = { y: scrollY, height };
       setFollowing(followingRef.current);
     };
+    // Latch the reader's intent BEFORE scrolling/layout/ResizeObserver callbacks.
+    // Virtualized rows can change document height in the same frame; comparing
+    // scroll positions alone mistakes that real upward scroll for anchoring.
+    const intent = (target: EventTarget | null, delta: number) => {
+      if (!delta || nestedScrollConsumes(target, delta)) return;
+      direction.current = Math.sign(delta);
+      if (delta < 0) {
+        followingRef.current = false;
+        setFollowing(false);
+      }
+    };
+    const wheel = (event: WheelEvent) => {
+      if (!event.defaultPrevented && !event.ctrlKey)
+        intent(event.target, event.deltaY);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            "input, textarea, select, button, a, [contenteditable], [role=textbox]",
+          ))
+      )
+        return;
+      if (
+        ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
+        (event.key === " " && event.shiftKey)
+      )
+        intent(event.target, -1);
+      else if (["ArrowDown", "PageDown", "End", " "].includes(event.key))
+        intent(event.target, 1);
+    };
+    let touchY: number | undefined;
+    const touchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY;
+    };
+    const touchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY;
+      if (!event.defaultPrevented && y !== undefined && touchY !== undefined)
+        intent(event.target, touchY - y);
+      touchY = y;
+    };
+    const down = () => {
+      pointerDown.current = true;
+      direction.current = 0;
+    };
+    const up = () => {
+      pointerDown.current = false;
+    };
     window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("wheel", wheel, { passive: true });
+    window.addEventListener("keydown", key);
+    window.addEventListener("touchstart", touchStart, { passive: true });
+    window.addEventListener("touchmove", touchMove, { passive: true });
+    window.addEventListener("pointerdown", down, { passive: true });
+    window.addEventListener("pointerup", up, { passive: true });
+    window.addEventListener("pointercancel", up, { passive: true });
 
-    return () => window.removeEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("wheel", wheel);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("touchstart", touchStart);
+      window.removeEventListener("touchmove", touchMove);
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -70,7 +168,10 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
         const height = document.documentElement.scrollHeight;
         if (
           scrollY < position.current.y - 1 &&
-          (height === position.current.height || scrollY === 0)
+          (height === position.current.height ||
+            scrollY === 0 ||
+            direction.current < 0 ||
+            pointerDown.current)
         ) {
           followingRef.current = false;
           setFollowing(false);
