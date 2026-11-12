@@ -19,6 +19,17 @@ var fileScript string
 //go:embed scripts/patch.py
 var patchScript string
 
+func fileOperationScript(action string) string {
+	if action != "apply_patch" {
+		return fileScript
+	}
+	// Keep the helper library's CLI inactive while loading the patch CLI.
+	return "import sys, types\n" +
+		"file_helpers = types.ModuleType('zentrale_files')\n" +
+		"exec(" + JSON(fileScript) + ", file_helpers.__dict__)\n" +
+		"sys.modules['zentrale_files'] = file_helpers\n" + patchScript
+}
+
 func fileReadOptions(arguments map[string]any) (map[string]int, error) {
 	offset, err := outputInteger(arguments, "offset", 1, 1, 10000000)
 	if err != nil {
@@ -62,7 +73,7 @@ func (engine *Engine) file(
 		return nil, err
 	}
 
-	script := fileScript
+	script := fileOperationScript(action)
 	payload := remote.Encode(stringArg(args, "content"))
 
 	if action == "apply_patch" {
@@ -71,12 +82,6 @@ func (engine *Engine) file(
 			return nil, errors.New("patch exceeds 1 MiB or contains invalid characters")
 		}
 
-		// Load the same file snapshot/diff helpers used by write_file. The library
-		// module name keeps its CLI entry point inactive; all execution is remote.
-		script = "import sys, types\n" +
-			"file_helpers = types.ModuleType('zentrale_files')\n" +
-			"exec(" + JSON(fileScript) + ", file_helpers.__dict__)\n" +
-			"sys.modules['zentrale_files'] = file_helpers\n" + patchScript
 	}
 
 	target := stringArg(args, "machineId")
@@ -151,14 +156,37 @@ func (engine *Engine) file(
 		return nil, fmt.Errorf("remote file operation: %w", err)
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
+	result, err := decodeFileResult(out)
+	if err != nil {
 		return nil, err
 	}
 
 	result["sandbox"] = level
 	result["machineId"] = machine.ID
 
+	return result, nil
+}
+
+// Only the fixed file helpers emit this private envelope. Expected operation
+// failures travel over a successful helper transport, then become tool errors
+// here; arbitrary subprocess output/tracebacks remain untouched by RunPipe.
+func decodeFileResult(output string) (map[string]any, error) {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, errors.New("invalid remote file result")
+	}
+	if raw, exists := result["_toolError"]; exists {
+		failure, ok := raw.(map[string]any)
+		code, _ := failure["code"].(string)
+		message, _ := failure["message"].(string)
+		if !ok || len(result) != 1 || code == "" || message == "" {
+			return nil, errors.New("invalid remote file error response")
+		}
+		return nil, fmt.Errorf("file operation: %s [%s]", message, code)
+	}
 	return result, nil
 }
 

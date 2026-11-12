@@ -14,8 +14,15 @@ import type { FileChange, Message } from "../src/generated";
 for (const english of [false, true]) {
   test(`native tools, persistent plan and multi-file patch: ${english ? "mobile-en-dark" : "desktop-de-light"}`, async ({
     page,
+    context,
   }) => {
     const label = (de: string, en: string) => (english ? en : de);
+    const formatterRequests: string[] = [];
+    page.on("request", (request) => {
+      if (/format-javascript|javascript-format/.test(request.url()))
+        formatterRequests.push(request.url());
+    });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.setViewportSize({ width: english ? 390 : 1440, height: 950 });
     await page.addInitScript(
       ({ english }) => {
@@ -277,6 +284,10 @@ for (const english of [false, true]) {
       output.getByText("2 tests passed", { exact: true }).first(),
     ).toBeVisible();
 
+    expect(
+      formatterRequests,
+      "Collapsed tool calls must not load the formatter",
+    ).toHaveLength(0);
     await output
       .getByRole("button", {
         name: new RegExp(label("Werkzeuge kombinieren", "Combine tools")),
@@ -295,6 +306,18 @@ for (const english of [false, true]) {
       'const read = await tools.read_file({ path: "answer.py" });',
     );
     await expect(javascript).not.toHaveAttribute("aria-busy", "true");
+    expect(
+      formatterRequests.some((url) => url.includes("javascript-format.worker")),
+    ).toBe(true);
+    await javascript
+      .locator("..")
+      .getByRole("button", { name: label("Kopieren", "Copy"), exact: true })
+      .click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(
+        'const read=await tools.read_file({path:"answer.py"});print(read.content.includes("42"));',
+      );
 
     await expect(activity.getByRole("listitem")).toHaveCount(2);
 

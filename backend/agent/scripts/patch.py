@@ -9,7 +9,9 @@ import json
 import os
 import sys
 
-from zentrale_files import file_change, stage_file, text_snapshot, within
+from zentrale_files import (
+    ToolInputError, file_change, run_cli, stage_file, text_snapshot, within,
+)
 
 MAX_PATCH_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -19,20 +21,20 @@ FILE_MARKERS = ("*** Add File: ", "*** Update File: ", "*** Delete File: ")
 
 def resolve_path(workspace, temporary_directory, requested):
     if not requested or "\x00" in requested:
-        raise ValueError("patch needs a nonempty file path")
+        raise ToolInputError("patch needs a nonempty file path")
     filename = os.path.realpath(os.path.join(workspace, requested))
     roots = (workspace, temporary_directory)
     if filename in roots or not any(within(root, filename) for root in roots):
-        raise ValueError("patch path leaves the project or overwrites a workspace root")
+        raise ToolInputError("patch path leaves the project or overwrites a workspace root")
     return filename
 
 
 def parse_patch(patch):
     if len(patch.encode("utf-8")) > MAX_PATCH_BYTES or "\x00" in patch:
-        raise ValueError("patch exceeds 1 MiB or contains a NUL character")
+        raise ToolInputError("patch exceeds 1 MiB or contains a NUL character")
     lines = patch.strip().splitlines()
     if len(lines) < 3 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
-        raise ValueError(
+        raise ToolInputError(
             "patch must start with *** Begin Patch and end with *** End Patch"
         )
 
@@ -41,7 +43,7 @@ def parse_patch(patch):
         header = lines[index]
         marker = next((item for item in FILE_MARKERS if header.startswith(item)), None)
         if marker is None:
-            raise ValueError("expected Add File, Update File or Delete File marker")
+            raise ToolInputError("expected Add File, Update File or Delete File marker")
         operation = {
             "kind": marker.split()[1].lower(),
             "path": header[len(marker) :],
@@ -56,7 +58,7 @@ def parse_patch(patch):
             index += 1
         operations.append(operation)
         if len(operations) > 50:
-            raise ValueError("patch may change at most 50 files")
+            raise ToolInputError("patch may change at most 50 files")
     return operations
 
 
@@ -74,32 +76,35 @@ def update_chunks(lines):
             }
         elif line == "*** End of File":
             if current is None or current["eof"]:
-                raise ValueError("unexpected End of File marker")
+                raise ToolInputError("unexpected End of File marker")
             current["eof"] = True
         elif line[:1] in (" ", "+", "-"):
             if current is None:
                 current = {"anchor": "", "old": [], "new": [], "eof": False}
             if current["eof"]:
-                raise ValueError("End of File must end the change chunk")
+                raise ToolInputError("End of File must end the change chunk")
             if line[0] != "+":
                 current["old"].append(line[1:])
             if line[0] != "-":
                 current["new"].append(line[1:])
         else:
-            raise ValueError("update lines must begin with a space, + or -")
+            raise ToolInputError("update lines must begin with a space, + or -")
     if current is not None:
         chunks.append(current)
 
     empty_chunk = any(not chunk["old"] and not chunk["new"] for chunk in chunks)
     if not chunks or empty_chunk:
-        raise ValueError("Update File requires a nonempty change chunk")
+        raise ToolInputError("Update File requires a nonempty change chunk")
     return chunks
 
 
 def updated_content(original, patch_lines):
     if b"\x00" in original:
-        raise ValueError("cannot update a binary file with a text patch")
-    text = original.decode("utf-8")
+        raise ToolInputError("cannot update a binary file with a text patch")
+    try:
+        text = original.decode("utf-8")
+    except UnicodeDecodeError as failure:
+        raise ToolInputError("patch target is not valid UTF-8; use a binary-safe write instead") from failure
     uses_crlf = "\r\n" in text and text.count("\n") == text.count("\r\n")
     newline = "\r\n" if uses_crlf else "\n"
     lines = text.splitlines()
@@ -110,7 +115,7 @@ def updated_content(original, patch_lines):
             try:
                 search_start = lines.index(chunk["anchor"], cursor) + 1
             except ValueError as failure:
-                raise ValueError(
+                raise ToolInputError(
                     "patch anchor was not found: " + chunk["anchor"][:160]
                 ) from failure
         old = chunk["old"]
@@ -126,7 +131,7 @@ def updated_content(original, patch_lines):
             None,
         )
         if position is None:
-            raise ValueError(
+            raise ToolInputError(
                 "patch context did not match; read the current file before retrying"
             )
         output.extend(lines[cursor:position])
@@ -150,17 +155,17 @@ def prepare_changes(workspace, temporary_directory, operations):
         nonlocal total
         filename = resolve_path(workspace, temporary_directory, requested)
         if filename in originals:
-            raise ValueError(
+            raise ToolInputError(
                 "use one file marker with multiple @@ chunks for each path"
             )
         content, mode = None, None
         if os.path.lexists(filename):
             if not os.path.isfile(filename):
-                raise ValueError("patch targets must be regular files")
+                raise ToolInputError("patch targets must be regular files")
             with open(filename, "rb") as source:
                 content = source.read(MAX_FILE_BYTES + 1)
             if len(content) > MAX_FILE_BYTES:
-                raise ValueError("patch target exceeds 2 MiB")
+                raise ToolInputError("patch target exceeds 2 MiB")
             mode = os.stat(filename).st_mode
             total += len(content)
         originals[filename], modes[filename] = content, mode
@@ -172,24 +177,27 @@ def prepare_changes(workspace, temporary_directory, operations):
         kind, lines = operation["kind"], operation["lines"]
         if kind == "add":
             if old is not None or any(not line.startswith("+") for line in lines):
-                raise ValueError("Add File requires a new path and + prefixed lines")
+                raise ToolInputError("Add File requires a new path and + prefixed lines")
             content = "\n".join(line[1:] for line in lines)
             if lines:
                 content += "\n"
             replacements[filename] = content.encode("utf-8")
         else:
             if old is None:
-                raise ValueError("patch target does not exist: " + operation["path"])
+                raise ToolInputError("patch target does not exist: " + operation["path"])
             if kind == "delete":
                 if lines:
-                    raise ValueError("Delete File does not accept content lines")
+                    raise ToolInputError("Delete File does not accept content lines")
                 replacements[filename] = None
             else:
-                replacement = updated_content(old, lines)
+                try:
+                    replacement = updated_content(old, lines)
+                except ToolInputError as failure:
+                    raise ToolInputError(operation["path"] + ": " + str(failure)) from failure
                 if operation.get("move"):
                     destination = reserve(operation["move"])
                     if originals[destination] is not None:
-                        raise ValueError("move destination already exists")
+                        raise ToolInputError("move destination already exists")
                     replacements[filename], replacements[destination] = (
                         None,
                         replacement,
@@ -201,7 +209,7 @@ def prepare_changes(workspace, temporary_directory, operations):
             len(value) for value in replacements.values() if value is not None
         )
         if total + replacement_bytes > MAX_TOTAL_BYTES:
-            raise ValueError("patch working set exceeds 16 MiB")
+            raise ToolInputError("patch working set exceeds 16 MiB")
     return originals, modes, replacements
 
 
@@ -223,16 +231,16 @@ def commit_changes(originals, modes, replacements):
         # Revalidate every original before committing the first replacement.
         for filename, original in originals.items():
             if os.path.realpath(filename) != filename:
-                raise ValueError(
+                raise ToolInputError(
                     "patch path changed during preparation; retry after inspection"
                 )
             if original is None:
                 if os.path.lexists(filename):
-                    raise ValueError("patch destination was created during preparation")
+                    raise ToolInputError("patch destination was created during preparation")
             else:
                 with open(filename, "rb") as source:
                     if source.read(MAX_FILE_BYTES + 1) != original:
-                        raise ValueError(
+                        raise ToolInputError(
                             "patch target changed during preparation; read it again"
                         )
 
@@ -261,7 +269,7 @@ def commit_changes(originals, modes, replacements):
                     + ", ".join(incomplete)
                 ) from failure
             raise OSError(
-                "patch write failed; original files were restored"
+                failure.errno, "patch write failed; original files were restored", failure.filename
             ) from failure
     finally:
         for filename in [*staged.values(), *backups.values()]:
@@ -301,9 +309,12 @@ def apply_patch(workspace, temporary_directory, patch):
 
 def main():
     workspace, temporary_directory = sys.argv[1:3]
-    patch = sys.stdin.buffer.read(MAX_PATCH_BYTES + 1).decode("utf-8")
+    try:
+        patch = sys.stdin.buffer.read(MAX_PATCH_BYTES + 1).decode("utf-8")
+    except UnicodeDecodeError as failure:
+        raise ToolInputError("patch input must be valid UTF-8") from failure
     print(json.dumps(apply_patch(workspace, temporary_directory, patch)))
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

@@ -152,8 +152,8 @@ pixels and WebGPU computed and verified 4,096 values on the NVIDIA adapter with 
 Set `gpu_devices` on an individual pool member to keep exclusive PCI passthrough:
 
 ```yaml
-    properties: [GPU]
-    gpu_devices: ["0000:01:00.0", "0000:01:00.1"]
+properties: [GPU]
+gpu_devices: ["0000:01:00.0", "0000:01:00.1"]
 ```
 
 Addresses must include required companion functions and complete IOMMU groups.
@@ -191,3 +191,29 @@ VM setup diagnostics are kept in the private runtime directory at
 HTTP servers started in the editor can be opened through the authenticated
 [HTTPS preview gateway](preview.md), including a frontend and API on different
 guest ports. No additional public host or container ports are required.
+
+### Terminal and editor startup
+
+Opening the integrated fullscreen terminal or VS Code reuses a prepared native
+VM only after checking the complete readiness fingerprint and its live boot
+generation. Changes to sources, credentials, trust, storage, configuration or
+the VM invalidate that proof and run preparation again. Explicit connection
+checks still perform their full checks. GPU guests retain the existing
+`microvm` PCIe/ACPI path; startup optimization does not change their VM type or
+isolation.
+
+The `workspace environment preparation` server log separates selection,
+connection, readiness validation and cold preparation phases (`phases_ms`),
+with `warm` and total `duration_ms`. It stops measuring before an interactive
+session starts: keeping a terminal open for hours is not a slow startup.
+These measurements include more than kernel boot; first-time downloads,
+package installation, source preparation and VS Code installation have
+different costs. Minimal-kernel boot benchmarks are not Fedora readiness
+guarantees.
+
+While the fullscreen terminal covers a conversation, its large conversation
+snapshot subscription is suspended. Other projects, connection status and
+terminal traffic continue normally. Closing the terminal restores the
+subscription once and receives the current server-pushed snapshot, without
+HTTP polling or periodic WebSocket queries. The last chat snapshot and
+scrollback stay in the UI during suspension.

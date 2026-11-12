@@ -1,7 +1,9 @@
 """Fixed remote file operations; never interpret caller input as Python code."""
 
 import base64
+import binascii
 import difflib
+import errno
 import hashlib
 import json
 import os
@@ -13,6 +15,52 @@ MAX_DIFF_INPUT = 256 * 1024
 MAX_DIFF_LINES = 5000
 MAX_PATCH_BYTES = 128 * 1024
 MAX_PATCH_LINES = 800
+
+
+class ToolInputError(ValueError):
+    """An explicitly validated, expected tool-input failure, not a Python bug."""
+
+
+def run_cli(operation):
+    """Report known failures to Go's decodeFileResult; preserve internal bugs.
+
+    Exit zero means helper transport success. The private error envelope is
+    converted into a tool error by the Go wrapper, never into a success result.
+    """
+    try:
+        operation()
+        return
+    except ToolInputError as failure:
+        code, message = "invalid_input", str(failure)
+    except OSError as failure:
+        expected = {
+            errno.ENOENT: "path not found",
+            errno.ENOTDIR: "a path component is not a directory",
+            errno.EISDIR: "expected a file, found a directory",
+            errno.EEXIST: "path already exists",
+            errno.EACCES: "permission denied",
+            errno.EPERM: "operation not permitted",
+            errno.EROFS: "read-only filesystem",
+            errno.ENOSPC: "no space left on device",
+            errno.EDQUOT: "storage quota exceeded",
+            errno.ENAMETOOLONG: "path is too long",
+            errno.ELOOP: "too many symbolic links",
+            errno.EIO: "filesystem I/O error",
+        }
+        if failure.errno not in expected:
+            raise
+        code = errno.errorcode[failure.errno]
+        message = expected[failure.errno]
+        if failure.filename:
+            message += ": " + json.dumps(os.fsdecode(failure.filename))
+        if failure.filename2:
+            message += " -> " + json.dumps(os.fsdecode(failure.filename2))
+        if failure.strerror and "original files were restored" in failure.strerror:
+            message += "; original files were restored"
+    message = message.replace("\r", "\\r").replace("\n", "\\n")
+    if len(message) > 800:
+        message = message[:797] + "..."
+    print(json.dumps({"_toolError": {"code": code, "message": message}}))
 
 
 def text_snapshot(content, exists=True):
@@ -96,7 +144,7 @@ def read_file(filename, options=None):
     with open(filename, "rb") as source:
         content = source.read(2 * 1024 * 1024 + 1)
     if len(content) > 2 * 1024 * 1024:
-        raise ValueError("file exceeds 2 MiB")
+        raise ToolInputError("file exceeds 2 MiB; use a bounded command to inspect it")
     result = {
         "path": filename,
         "content": content.decode("utf-8", errors="replace"),
@@ -111,7 +159,7 @@ def read_file(filename, options=None):
             or offset < 1
             or not 1 <= limit <= 2000
         ):
-            raise ValueError("invalid file line range")
+            raise ToolInputError("invalid file line range")
         lines = result["content"].splitlines(keepends=True)
         result.update(
             content="".join(lines[offset - 1 : offset - 1 + limit]),
@@ -139,7 +187,10 @@ def stage_file(filename, content, mode=None):
 
 
 def write_file(filename, encoded_content, workspace):
-    content = base64.b64decode(encoded_content)
+    try:
+        content = base64.b64decode(encoded_content, validate=True)
+    except (binascii.Error, ValueError) as failure:
+        raise ToolInputError("write_file content must be valid base64") from failure
     before = snapshot_file(filename)
     mode = os.stat(filename).st_mode if os.path.isfile(filename) else None
     temporary_file = stage_file(filename, content, mode)
@@ -161,6 +212,8 @@ def main():
     )
     if action == "write_file" and content == "-":
         content = sys.stdin.read()
+    if "\x00" in requested_path:
+        raise ToolInputError("file path contains a NUL character")
     workspace = os.path.realpath(workspace)
     temporary_directory = os.path.realpath(temporary_directory)
     filename = os.path.realpath(
@@ -169,15 +222,19 @@ def main():
         else os.path.join(workspace, requested_path)
     )
     if not any(within(root, filename) for root in (workspace, temporary_directory)):
-        raise ValueError("path leaves the project and its managed temporary directory")
+        raise ToolInputError("path leaves the project and its managed temporary directory")
     if action in ("write_file", "delete_file") and filename in (
         workspace,
         temporary_directory,
     ):
-        raise ValueError("cannot overwrite or remove a workspace root")
+        raise ToolInputError("cannot overwrite or remove a workspace root")
 
     if action == "read_file":
-        result = read_file(filename, json.loads(options[0]) if options else None)
+        try:
+            read_options = json.loads(options[0]) if options else None
+        except json.JSONDecodeError as failure:
+            raise ToolInputError("invalid file line options JSON") from failure
+        result = read_file(filename, read_options)
     elif action == "write_file":
         result = write_file(filename, content, workspace)
     elif action == "list_files":
@@ -207,10 +264,10 @@ def main():
             ),
         }
     else:
-        raise ValueError("unknown file operation")
+        raise ToolInputError("unknown file operation")
 
     print(json.dumps(result))
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)
