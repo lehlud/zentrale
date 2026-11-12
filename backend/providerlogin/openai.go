@@ -46,8 +46,8 @@ func (client *Client) beginOpenAI(ctx context.Context, providerID string) (Trans
 	}, nil
 }
 
-// Poll performs one step. The web client schedules subsequent steps using the
-// provider's interval; no blocking polling loop occupies an HTTP request.
+// Poll performs one external device-protocol step. The backend owns interval,
+// cancellation and expiry scheduling; the browser subscribes to public state.
 func (client *Client) Poll(ctx context.Context, transaction Transaction) (*domain.OAuthTokens, bool, error) {
 	if time.Now().After(transaction.Session.ExpiresAt) {
 		return nil, false, errors.New("provider login expired")
@@ -59,7 +59,10 @@ func (client *Client) Poll(ctx context.Context, transaction Transaction) (*domai
 		"user_code":      transaction.Session.UserCode,
 	}, false)
 	if err != nil {
-		return nil, false, err
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
+		return nil, false, &RetryablePollError{Err: err}
 	}
 
 	if status == http.StatusForbidden || status == http.StatusNotFound {
@@ -67,9 +70,14 @@ func (client *Client) Poll(ctx context.Context, transaction Transaction) (*domai
 	}
 
 	if status != http.StatusOK {
+		if status == http.StatusTooManyRequests || status >= 500 {
+			return nil, false, &RetryablePollError{Err: tokenError(status)}
+		}
 		switch stringValue(response["error"]) {
-		case "authorization_pending", "slow_down":
+		case "authorization_pending":
 			return nil, true, nil
+		case "slow_down":
+			return nil, true, &SlowDownPollError{}
 		default:
 			return nil, false, tokenError(status)
 		}

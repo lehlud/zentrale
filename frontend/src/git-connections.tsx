@@ -262,15 +262,25 @@ function GitDeviceLogin({
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const request = useRef<
-    | { attempt: number; promise: Promise<{ beginGitLogin: GitLogin }> }
+    | {
+        attempt: number;
+        connectionId: string;
+        promise: Promise<{ beginGitLogin: GitLogin }>;
+      }
     | undefined
   >(undefined);
+  const lifecycle = useRef(0);
 
   useEffect(() => {
     let active = true;
-    if (request.current?.attempt !== attempt)
+    const generation = ++lifecycle.current;
+    if (
+      request.current?.attempt !== attempt ||
+      request.current.connectionId !== connection.id
+    )
       request.current = {
         attempt,
+        connectionId: connection.id,
         promise: api.mutate(
           `mutation($connectionId:String!){beginGitLogin(connectionId:$connectionId){${loginFields}}}`,
           { connectionId: connection.id },
@@ -278,7 +288,8 @@ function GitDeviceLogin({
         ),
       };
 
-    request.current.promise
+    const promise = request.current.promise;
+    promise
       .then((value) => {
         if (active) {
           setLogin(value.beginGitLogin);
@@ -291,41 +302,46 @@ function GitDeviceLogin({
 
     return () => {
       active = false;
+      // StrictMode reuses the same begin request on its immediate remount.
+      // Cancel only a real close/replacement, including a begin still in flight.
+      queueMicrotask(() => {
+        if (
+          lifecycle.current !== generation &&
+          request.current?.promise === promise
+        )
+          return;
+        void promise
+          .then((value) =>
+            api.query(
+              "mutation($connectionId:String!,$loginId:String!){cancelGitLogin(connectionId:$connectionId,loginId:$loginId)}",
+              { connectionId: connection.id, loginId: value.beginGitLogin.id },
+            ),
+          )
+          .catch(() => {});
+      });
     };
   }, [api, connection.id, attempt]);
 
+  const loginId = login?.id;
   useEffect(() => {
-    if (!login || login.status !== "pending" || error) {
-      return;
-    }
-
-    let active = true;
-    const timer = setTimeout(
-      () => {
-        api
-          .mutate<{ pollGitLogin: GitLogin }>(
-            `mutation($connectionId:String!,$loginId:String!){pollGitLogin(connectionId:$connectionId,loginId:$loginId){${loginFields}}}`,
-            { connectionId: connection.id, loginId: login.id },
-            { announce: false, refresh: false },
-          )
-          .then((value) => {
-            if (active) {
-              setLogin(value.pollGitLogin);
-              if (value.pollGitLogin.status === "connected") api.refresh();
-            }
-          })
-          .catch((failure: Error) => {
-            if (active) setError(failure.message);
-          });
+    if (!loginId) return;
+    return api.watch<{ gitLogin: GitLogin | null }>(
+      `query($connectionId:String!,$loginId:String!){gitLogin(connectionId:$connectionId,loginId:$loginId){${loginFields}}}`,
+      { connectionId: connection.id, loginId },
+      (value) => {
+        if (value.gitLogin) {
+          setLogin(value.gitLogin);
+          setError("");
+        } else {
+          setLogin((previous) =>
+            previous ? { ...previous, status: "cancelled" } : previous,
+          );
+          setError("This login is no longer current; start again.");
+        }
       },
-      Math.max(5, login.interval) * 1000,
+      (failure) => setError(failure.message),
     );
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [api, connection.id, login, error]);
+  }, [api, connection.id, loginId]);
 
   const restart = () => {
     setLogin(undefined);
@@ -374,17 +390,9 @@ function GitDeviceLogin({
           </Alert>
         )}
         <div className="flex flex-wrap justify-end gap-2">
-          {error && login?.status === "pending" && (
-            <Button
-              variant="secondary"
-              className="min-h-11"
-              onPress={() => setError("")}
-            >
-              {t("Erneut versuchen")}
-            </Button>
-          )}
           {(error ||
             login?.status === "failed" ||
+            login?.status === "cancelled" ||
             login?.status === "expired") && (
             <Button variant="secondary" className="min-h-11" onPress={restart}>
               {t("Anmeldung neu starten")}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -73,6 +74,10 @@ func (engine *Engine) RefreshProviderModels(ctx context.Context, providerID stri
 }
 
 func (engine *Engine) scheduleModelRefresh(providerID string) {
+	// Callers hold configMu, serializing worker registration with Close.
+	if engine.ctx.Err() != nil {
+		return
+	}
 	engine.workers.Add(1)
 	go func() {
 		defer engine.workers.Done()
@@ -82,6 +87,33 @@ func (engine *Engine) scheduleModelRefresh(providerID string) {
 }
 
 func (engine *Engine) BeginProviderLogin(ctx context.Context, providerID string) (domain.ProviderLogin, error) {
+	engine.stopLoginPolling("provider:"+providerID, "")
+	login, err := engine.beginProviderLogin(ctx, providerID)
+	if err != nil {
+		return login, err
+	}
+	err = engine.startProviderLogin(login)
+	if err != nil {
+		_ = engine.CancelProviderLogin(login.ID)
+		return login, err
+	}
+	engine.Emit("provider_login", "", map[string]string{"id": login.ID})
+	return login, nil
+}
+
+func (engine *Engine) startProviderLogin(login domain.ProviderLogin) error {
+	var poll func(context.Context) (loginPollState, error)
+	if login.Method == "device" {
+		poll = func(ctx context.Context) (loginPollState, error) {
+			value, err := engine.PollProviderLogin(ctx, login.ID, "")
+			return loginPollState{status: value.Status, interval: value.Interval}, err
+		}
+	}
+	return engine.startLoginPolling("provider:"+login.ProviderID, login.ID, login.ExpiresAt, login.Interval, poll,
+		func(reason string) { _ = engine.endProviderLogin(login.ID, reason) })
+}
+
+func (engine *Engine) beginProviderLogin(ctx context.Context, providerID string) (domain.ProviderLogin, error) {
 	engine.accountMu.Lock()
 	defer engine.accountMu.Unlock()
 
@@ -104,12 +136,60 @@ func (engine *Engine) BeginProviderLogin(ctx context.Context, providerID string)
 	return transaction.Session, nil
 }
 
+// Public state is read without accountMu: a remote OAuth request must not block
+// read-only snapshots, and only the public Session is ever returned.
+func (engine *Engine) ProviderLogin(loginID string) (*domain.ProviderLogin, error) {
+	var transaction providerlogin.Transaction
+	if err := engine.Store.Load("provider_login", loginID, &transaction); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &transaction.Session, nil
+}
+
+func (engine *Engine) endProviderLogin(loginID, status string) error {
+	engine.accountMu.Lock()
+	var transaction providerlogin.Transaction
+	err := engine.Store.Load("provider_login", loginID, &transaction)
+	if errors.Is(err, sql.ErrNoRows) {
+		engine.accountMu.Unlock()
+		return nil
+	}
+	if err != nil {
+		engine.accountMu.Unlock()
+		return err
+	}
+	if transaction.Session.Status != "pending" {
+		engine.accountMu.Unlock()
+		return nil
+	}
+	transaction.Session.Status = status
+	if status == "cancelled" {
+		transaction.Session.Error = "provider login cancelled; start again"
+	}
+	if status == "expired" {
+		transaction.Session.Error = "provider login expired"
+	}
+	transaction.CodeVerifier, transaction.DeviceAuthorizationID = "", ""
+	err = engine.Store.Save("provider_login", loginID, transaction.Session.ProviderID, transaction)
+	engine.accountMu.Unlock()
+	if err == nil {
+		engine.Emit("provider_login", "", map[string]string{"id": loginID})
+	}
+	return err
+}
+
 func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizationCode string) (domain.ProviderLogin, error) {
 	// Serialize exchanges: a device grant and an authorization code are single-use.
 	engine.accountMu.Lock()
 	var transaction providerlogin.Transaction
 	if err := engine.Store.Load("provider_login", loginID, &transaction); err != nil {
 		engine.accountMu.Unlock()
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ProviderLogin{Status: "cancelled"}, nil
+		}
 		return domain.ProviderLogin{}, err
 	}
 
@@ -117,6 +197,7 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 		engine.accountMu.Unlock()
 		return transaction.Session, nil
 	}
+	before := transaction.Session
 
 	if time.Now().After(transaction.Session.ExpiresAt) {
 		transaction.Session.Status = "expired"
@@ -129,8 +210,28 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 
 		transaction.NextPollAt = time.Now().Add(time.Duration(max(5, transaction.Session.Interval)) * time.Second)
 		tokens, pending, err := engine.AccountLogin.Poll(ctx, transaction)
+		if ctx.Err() != nil {
+			engine.accountMu.Unlock()
+			return transaction.Session, ctx.Err()
+		}
+		var retryable *providerlogin.RetryablePollError
+		var slower *providerlogin.SlowDownPollError
 
 		switch {
+		case errors.As(err, &slower):
+			transaction.Session.Interval = max(5, transaction.Session.Interval) + 5
+			transaction.NextPollAt = time.Now().Add(time.Duration(transaction.Session.Interval) * time.Second)
+		case errors.As(err, &retryable):
+			transaction.Session.Error = "provider login temporarily unavailable; retrying"
+			if saveErr := engine.Store.Save("provider_login", loginID, transaction.Session.ProviderID, transaction); saveErr != nil {
+				engine.accountMu.Unlock()
+				return transaction.Session, saveErr
+			}
+			engine.accountMu.Unlock()
+			if before != transaction.Session {
+				engine.Emit("provider_login", "", map[string]string{"id": loginID})
+			}
+			return transaction.Session, err
 		case err != nil:
 			transaction.Session.Status = "error"
 			transaction.Session.Error = err.Error()
@@ -144,9 +245,15 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 				transaction.Session.Status = "error"
 				transaction.Session.Error = err.Error()
 			}
+		default:
+			transaction.Session.Error = ""
 		}
 	} else if authorizationCode != "" {
 		credential, err := engine.AccountLogin.CompleteBrowser(ctx, transaction, authorizationCode)
+		if ctx.Err() != nil {
+			engine.accountMu.Unlock()
+			return transaction.Session, ctx.Err()
+		}
 		if err == nil {
 			err = engine.Store.Patch("provider", transaction.Session.ProviderID, map[string]any{
 				"credential": credential,
@@ -161,7 +268,7 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 		}
 	}
 
-	if transaction.Session.Status == "connected" {
+	if transaction.Session.Status != "pending" {
 		transaction.CodeVerifier = ""
 		transaction.DeviceAuthorizationID = ""
 	}
@@ -172,25 +279,34 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 	if err != nil {
 		return transaction.Session, err
 	}
+	if before != transaction.Session {
+		engine.Emit("provider_login", "", map[string]string{"id": loginID})
+	}
 
 	if transaction.Session.Status == "connected" {
+		engine.stopLoginPolling("provider:"+transaction.Session.ProviderID, loginID)
 		engine.configMu.Lock()
 		engine.catalogRevisions[transaction.Session.ProviderID]++
-		engine.configMu.Unlock()
 		engine.scheduleModelRefresh(transaction.Session.ProviderID)
+		engine.configMu.Unlock()
 	}
 
 	return transaction.Session, nil
 }
 
 func (engine *Engine) CancelProviderLogin(loginID string) error {
+	engine.stopLoginPolling("", loginID)
 	engine.accountMu.Lock()
-	defer engine.accountMu.Unlock()
-
-	return engine.Store.Remove("provider_login", loginID)
+	err := engine.Store.Remove("provider_login", loginID)
+	engine.accountMu.Unlock()
+	if err == nil {
+		engine.Emit("provider_login", "", map[string]string{"id": loginID})
+	}
+	return err
 }
 
 func (engine *Engine) DisconnectProvider(providerID string) error {
+	engine.stopLoginPolling("provider:"+providerID, "")
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
 

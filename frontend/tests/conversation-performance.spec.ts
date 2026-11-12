@@ -92,7 +92,7 @@ test("long conversations keep typing isolated, observers bounded and updates res
     if (query.includes("status{"))
       data = { status: { authenticated: true, needsSetup: false } };
     else if (query.includes("submitInput(")) {
-      submitted.push(variables);
+      submitted.push({ text: variables.text, mode: variables.mode });
       data = {
         submitInput: {
           ...variables,

@@ -81,7 +81,12 @@ for (const english of [false, true]) {
           });
           if (!inputs.has(variables.id))
             inputs.set(variables.id, {
-              ...variables,
+              id: variables.id,
+              agentId: variables.agentId,
+              text: variables.text,
+              mode: variables.mode,
+              attachmentIds: variables.attachmentIds ?? [],
+              attachments: [],
               projectId: project.id,
               status: variables.mode === "queue" ? "queued" : "pending",
               createdAt: new Date().toISOString(),

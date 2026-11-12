@@ -72,42 +72,34 @@ export function ProviderSignIn({
     };
   }, [api, provider.id, attempt, cancel]);
 
+  const loginId = login?.id;
   useEffect(() => {
-    if (login?.method !== "device" || login.status !== "pending" || error) {
-      return;
-    }
-
-    let active = true;
-    const timer = setTimeout(
-      () => {
-        api
-          .query<{ pollProviderLogin: ProviderLogin }>(
-            `mutation($id:String!){pollProviderLogin(id:$id){${loginFields}}}`,
-            { id: login.id },
-          )
-          .then((result) => {
-            if (!active) {
-              return;
-            }
-
-            setLogin(result.pollProviderLogin);
-            if (result.pollProviderLogin.status === "connected") api.refresh();
-          })
-          .catch((error: Error) => {
-            if (active) setError(error.message);
-          });
+    if (!loginId) return;
+    // Device OAuth polling belongs to the server. One read-only subscription
+    // also receives manual/browser flow completion and expiry; no UI timers.
+    return api.watch<{ providerLogin: ProviderLogin | null }>(
+      `query($id:String!){providerLogin(id:$id){${loginFields}}}`,
+      { id: loginId },
+      (value) => {
+        if (value.providerLogin) {
+          setLogin(value.providerLogin);
+          setError("");
+        } else {
+          setLogin((previous) =>
+            previous ? { ...previous, status: "cancelled" } : previous,
+          );
+          setError("This login is no longer current; start again.");
+        }
       },
-      Math.max(5, login.interval) * 1000,
+      (failure) => setError(failure.message),
     );
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [api, login, error]);
+  }, [api, loginId]);
 
   const failed = Boolean(
-    error || login?.status === "error" || login?.status === "expired",
+    error ||
+    login?.status === "error" ||
+    login?.status === "expired" ||
+    login?.status === "cancelled",
   );
   const body = (
     <div className="space-y-5">
@@ -186,9 +178,7 @@ export function ProviderSignIn({
                     { id: login.id, code: code.trim() },
                   );
                   setLogin(result.pollProviderLogin);
-                  if (result.pollProviderLogin.status === "connected")
-                    api.refresh();
-                  else if (result.pollProviderLogin.error)
+                  if (result.pollProviderLogin.error)
                     codeInput.current?.focus();
                 });
               }}

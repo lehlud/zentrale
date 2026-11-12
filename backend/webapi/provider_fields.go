@@ -13,6 +13,17 @@ import (
 func (builder *schemaBuilder) providerQueries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["providerLogin"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()),
+		Args: gitStringArgs("id"),
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			value, err := server.Engine.ProviderLogin(params.Args["id"].(string))
+			if err != nil || value == nil {
+				return nil, err
+			}
+			return mapOf(*value), nil
+		}),
+	}
 	queries["usageSummary"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.UsageSummary]()),
 		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},

@@ -34,6 +34,16 @@ type Transaction struct {
 	CodeVerifier          string               `json:"codeVerifier,omitempty"`
 }
 
+// Public error text must not expose transport URLs, token bodies or device IDs.
+type RetryablePollError struct{ Err error }
+
+func (err *RetryablePollError) Error() string { return "provider login temporarily unavailable" }
+func (err *RetryablePollError) Unwrap() error { return err.Err }
+
+type SlowDownPollError struct{}
+
+func (*SlowDownPollError) Error() string { return "provider requested a slower login interval" }
+
 func New() *Client {
 	return &Client{
 		HTTP:          &http.Client{Timeout: 30 * time.Second},

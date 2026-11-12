@@ -76,6 +76,8 @@ type Engine struct {
 	GitForge     *gitforge.Service
 
 	accountMu        sync.Mutex
+	loginPollMu      sync.Mutex
+	loginPollers     map[string]*loginPoller
 	catalogMu        sync.Mutex
 	catalogRevisions map[string]uint64
 
@@ -152,6 +154,10 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		engine.scheduleVMIdleCheck(remote.EditorScopeID(session.ProjectID, session.AgentID))
 	})
 
+	if err := engine.recoverLoginProtocols(); err != nil {
+		engine.Close()
+		return nil, err
+	}
 	if err := engine.recoverInputs(); err != nil {
 		engine.Close()
 		return nil, err

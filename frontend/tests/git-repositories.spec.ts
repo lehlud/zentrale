@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import { config, gitConnections } from "./fixtures/visual-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 
 test("GitHub workflow reauthorization is visible and clears after consent", async ({
   page,
@@ -27,13 +28,21 @@ test("GitHub workflow reauthorization is visible and clears after consent", asyn
     interval: 5,
     error: "",
   };
+  let browserPolls = 0;
+  const push = await installPushFixture(page, (query) => {
+    if (query.includes("gitLogin(")) return { gitLogin: login };
+    if (query.includes("gitConnections"))
+      return { gitConnections: connections };
+    if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
+    return config;
+  });
   await page.route("**/graphql", async (route) => {
     const { query } = route.request().postDataJSON();
     const send = (value: unknown) => route.fulfill({ json: { data: value } });
     if (query.includes("beginGitLogin")) return send({ beginGitLogin: login });
     if (query.includes("pollGitLogin")) {
-      connections[0].reauthorizationRequired = false;
-      return send({ pollGitLogin: { ...login, status: "connected" } });
+      browserPolls++;
+      return send({ pollGitLogin: login });
     }
     if (query.includes("status")) {
       return send({ status: { needsSetup: false, authenticated: true } });
@@ -55,6 +64,18 @@ test("GitHub workflow reauthorization is visible and clears after consent", asyn
     .click();
   const dialog = page.locator('[data-slot="modal-dialog"]:not([data-exiting])');
   await expect(dialog.getByText("WORK-FLOW", { exact: true })).toBeVisible();
+  await page.clock.install();
+  await page.clock.runFor(15000);
+  expect(browserPolls).toBe(0);
+  expect(
+    push.frames.filter(
+      (frame) =>
+        frame.type === "subscribe" && frame.query.includes("gitLogin("),
+    ),
+  ).toHaveLength(1);
+  connections[0].reauthorizationRequired = false;
+  login.status = "connected";
+  await push.push();
   const done = dialog.getByRole("button", { name: "Done", exact: true });
   await expect(done).toBeVisible({ timeout: 12000 });
   await done.click();
@@ -104,6 +125,33 @@ for (const english of [false, true]) {
       interval: 5,
       error: "",
     };
+    const push = await installPushFixture(page, (query, variables) => {
+      if (query.includes("gitLogin(")) return { gitLogin: login };
+      if (query.includes("gitConnections"))
+        return { gitConnections: connections };
+      if (query.includes("gitNamespaces"))
+        return {
+          gitNamespaces: [
+            { id: "gunter", name: "gunter", personal: true },
+            { id: "team", name: "team", personal: false },
+          ],
+        };
+      if (query.includes("gitRepositories")) {
+        const items = repos.filter((repository) =>
+          repository.fullName.includes(variables.search ?? ""),
+        );
+        const offset = variables.offset ?? 0;
+        return {
+          gitRepositories: {
+            items: items.slice(offset, offset + 50),
+            hasMore: offset + 50 < items.length,
+            nextOffset: Math.min(offset + 50, items.length),
+          },
+        };
+      }
+      if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
+      return data;
+    });
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (value: unknown) => route.fulfill({ json: { data: value } });
@@ -312,6 +360,9 @@ for (const english of [false, true]) {
         name: label("Anmeldeseite öffnen ↗", "Open sign-in page ↗"),
       }),
     ).toHaveAttribute("target", "_blank");
+    connections[0] = { ...connections[0], connected: true, userName: "gunter" };
+    login.status = "connected";
+    await push.push();
     await expect(
       signIn.getByRole("button", {
         name: label("Fertig", "Done"),

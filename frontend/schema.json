@@ -309,6 +309,14 @@
             }
           },
           {
+            "name": "cancelGitLogin",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "cancelInput",
             "type": {
               "kind": "SCALAR",
@@ -890,6 +898,14 @@
             }
           },
           {
+            "name": "gitLogin",
+            "type": {
+              "kind": "OBJECT",
+              "name": "GitLogin",
+              "ofType": null
+            }
+          },
+          {
             "name": "gitNamespaces",
             "type": {
               "kind": "LIST",
@@ -1063,6 +1079,14 @@
                 "name": "ProviderKind",
                 "ofType": null
               }
+            }
+          },
+          {
+            "name": "providerLogin",
+            "type": {
+              "kind": "OBJECT",
+              "name": "ProviderLogin",
+              "ofType": null
             }
           },
           {

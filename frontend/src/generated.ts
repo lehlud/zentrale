@@ -301,6 +301,7 @@ export type Mutation = {
   answerQuestion: boolean | null;
   beginGitLogin: GitLogin | null;
   beginProviderLogin: ProviderLogin | null;
+  cancelGitLogin: boolean | null;
   cancelGoal: boolean | null;
   cancelInput: boolean | null;
   cancelProviderLogin: boolean | null;
@@ -454,6 +455,7 @@ export type Query = {
   conversationBootstrap: ConversationBootstrap | null;
   editorSession: EditorSession | null;
   gitConnections: Array<GitConnection | null> | null;
+  gitLogin: GitLogin | null;
   gitNamespaces: Array<GitNamespace | null> | null;
   gitRepositories: GitRepositoryPage | null;
   goal: Goal | null;
@@ -470,6 +472,7 @@ export type Query = {
   project: Project | null;
   projects: Array<Project | null> | null;
   providerKinds: Array<ProviderKind | null> | null;
+  providerLogin: ProviderLogin | null;
   providers: Array<Provider | null> | null;
   questions: Array<Question | null> | null;
   recentMessages: Array<Message | null> | null;

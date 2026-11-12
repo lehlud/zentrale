@@ -271,6 +271,7 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 
 	if !service.Now().Before(transaction.Public.ExpiresAt) {
 		transaction.Public.Status, transaction.Public.Error = "expired", "Git login expired; start again"
+		transaction.DeviceCode = ""
 		return transaction.Public, service.save(value)
 	}
 
@@ -295,8 +296,19 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 		},
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return transaction.Public, ctx.Err()
+		}
+		transaction.Public.Error = "Git login temporarily unavailable; retrying"
+		if saveErr := service.save(value); saveErr != nil {
+			return transaction.Public, saveErr
+		}
 		return transaction.Public, err
 	}
+	if ctx.Err() != nil {
+		return transaction.Public, ctx.Err()
+	}
+	transaction.Public.Error = ""
 
 	transaction.NextPollAt = service.Now().Add(time.Duration(transaction.Public.Interval) * time.Second)
 
@@ -323,7 +335,7 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 
 		return service.finishLogin(ctx, &value)
 	default:
-		transaction.Public.Status, transaction.Public.Error, transaction.DeviceCode = "failed", "Git login failed: "+code, ""
+		transaction.Public.Status, transaction.Public.Error, transaction.DeviceCode = "failed", "Git login was rejected; start again", ""
 	}
 
 	return transaction.Public, service.save(value)
@@ -340,7 +352,16 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 		false,
 		&user,
 	); err != nil {
+		if ctx.Err() == nil {
+			value.Login.Public.Error = "Git account identity temporarily unavailable; retrying"
+			if saveErr := service.save(*value); saveErr != nil {
+				return value.Login.Public, saveErr
+			}
+		}
 		return value.Login.Public, err
+	}
+	if ctx.Err() != nil {
+		return value.Login.Public, ctx.Err()
 	}
 
 	value.Public.UserName = text(user["login"])
@@ -359,9 +380,71 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 	}
 
 	value.Public.Connected, value.Login.Public.Status = true, "connected"
+	value.Login.Public.Error = ""
 	delete(service.cache, value.Public.ID)
 
 	return value.Login.Public, service.save(*value)
+}
+
+// Read only persisted public state, without waiting behind remote OAuth I/O.
+func (service *Service) PendingLogin(id string) (*domain.GitLogin, error) {
+	var value account
+	if err := service.Store.Load("git_account", id, &value); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if value.Login == nil || value.Login.Public.Status != "pending" {
+		return nil, nil
+	}
+	return &value.Login.Public, nil
+}
+
+func (service *Service) Login(id, loginID string) (*domain.GitLogin, error) {
+	if id != "github" && id != "gitlab" {
+		return nil, errors.New("unknown Git connection")
+	}
+	var value account
+	if err := service.Store.Load("git_account", id, &value); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if value.Login == nil || value.Login.Public.ID != loginID {
+		return nil, nil
+	}
+	return &value.Login.Public, nil
+}
+
+func (service *Service) EndLogin(id, loginID, status string) error {
+	if status != "cancelled" && status != "expired" {
+		return errors.New("invalid login final state")
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value, err := service.account(id)
+	if err != nil {
+		return err
+	}
+	if value.Login == nil || value.Login.Public.ID != loginID || value.Login.Public.Status != "pending" {
+		return nil
+	}
+	if value.Login.DeviceCode == "" && value.Public.UserName == "" {
+		value.AccessToken, value.RefreshToken, value.Scopes = "", "", nil
+		value.TokenExpiry = time.Time{}
+	}
+	value.Login.DeviceCode = ""
+	value.Login.Public.Status = status
+	value.Login.Public.Error = ""
+	if status == "cancelled" {
+		value.Login.Public.Error = "Git login cancelled; start again"
+	}
+	if status == "expired" {
+		value.Login.Public.Error = "Git login expired; start again"
+	}
+	return service.save(value)
 }
 
 func (service *Service) acceptToken(value *account, response map[string]any) error {

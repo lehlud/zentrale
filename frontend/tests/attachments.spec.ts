@@ -225,3 +225,93 @@ test("failed upload preserves draft and retries with the same stable attachment 
   expect(ids[1]).toBe(ids[0]);
   await expect(input).toHaveValue("");
 });
+
+test("canceling an upload retains files and text and never submits a partial message", async ({
+  page,
+}) => {
+  const { form, input, submissions } = await setup(page);
+  let uploads = 0;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/attachments/**", async (route) => {
+    uploads++;
+    if (uploads === 1) {
+      await held;
+      await route.abort().catch(() => {});
+      return;
+    }
+    const id = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    await route.fulfill({
+      json: {
+        id,
+        name: "retained.txt",
+        mimeType: "text/plain",
+        size: 4,
+        path: `/tmp/zentrale/attachments/${id}/retained.txt`,
+        machineId: "vm",
+      },
+    });
+  });
+  await input.fill("Keep text while canceled");
+  await form
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "retained.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("data"),
+    });
+  await input.press("Enter");
+  await expect(
+    form.getByRole("button", { name: "Upload abbrechen", exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => uploads).toBe(1);
+  await form
+    .getByRole("button", { name: "Upload abbrechen", exact: true })
+    .click();
+  release();
+  await expect(
+    form.getByText(
+      "Upload abgebrochen. Entwurf und Anhänge bleiben erhalten.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(input).toHaveValue("Keep text while canceled");
+  await expect(form.getByText("retained.txt", { exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(0);
+  await input.press("Enter");
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0].text).toBe("Keep text while canceled");
+  expect(submissions[0].attachmentIds).toHaveLength(1);
+});
+
+test("attachment count is bounded without discarding an existing draft", async ({
+  page,
+}) => {
+  const { form, input } = await setup(page);
+  await input.fill("Keep this text");
+  const file = (n: number) => ({
+    name: `file-${n}.txt`,
+    mimeType: "text/plain",
+    buffer: Buffer.from("x"),
+  });
+  await form
+    .locator('input[type="file"]')
+    .setInputFiles(Array.from({ length: 10 }, (_, n) => file(n)));
+  await expect(
+    form
+      .getByRole("list", { name: "Anhänge", exact: true })
+      .getByRole("listitem"),
+  ).toHaveCount(10);
+  await form.locator('input[type="file"]').setInputFiles(file(11));
+  await expect(
+    form.getByText("Höchstens 10 Anhänge pro Nachricht.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    form
+      .getByRole("list", { name: "Anhänge", exact: true })
+      .getByRole("listitem"),
+  ).toHaveCount(10);
+  await expect(input).toHaveValue("Keep this text");
+});

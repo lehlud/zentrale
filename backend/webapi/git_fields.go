@@ -24,6 +24,17 @@ func (builder *schemaBuilder) gitQueries() graphql.Fields {
 	args["offset"] = &graphql.ArgumentConfig{Type: graphql.Int, DefaultValue: 0}
 
 	return graphql.Fields{
+		"gitLogin": &graphql.Field{
+			Type: builder.output(reflect.TypeFor[domain.GitLogin]()),
+			Args: gitStringArgs("connectionId", "loginId"),
+			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+				value, err := service().Login(params.Args["connectionId"].(string), params.Args["loginId"].(string))
+				if err != nil || value == nil {
+					return nil, err
+				}
+				return mapOf(*value), nil
+			}),
+		},
 		"gitConnections": &graphql.Field{
 			Type: graphql.NewList(builder.output(reflect.TypeFor[domain.GitConnection]())),
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
@@ -101,6 +112,7 @@ func (builder *schemaBuilder) gitMutations() graphql.Fields {
 					return nil, err
 				}
 
+				engine.StopGitLogin(input.Kind)
 				value, err := service().Configure(input)
 
 				return mapOf(value), err
@@ -112,7 +124,7 @@ func (builder *schemaBuilder) gitMutations() graphql.Fields {
 			Args: gitStringArgs("connectionId"),
 
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				value, err := service().Begin(params.Context, params.Args["connectionId"].(string))
+				value, err := engine.BeginGitLogin(params.Context, params.Args["connectionId"].(string))
 				return mapOf(value), err
 			}),
 		},
@@ -122,17 +134,25 @@ func (builder *schemaBuilder) gitMutations() graphql.Fields {
 			Args: gitStringArgs("connectionId", "loginId"),
 
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				value, err := service().Poll(params.Context, params.Args["connectionId"].(string), params.Args["loginId"].(string))
+				value, err := engine.PollGitLogin(params.Context, params.Args["connectionId"].(string), params.Args["loginId"].(string))
 				return mapOf(value), err
 			}),
 		},
 
+		"cancelGitLogin": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: gitStringArgs("connectionId", "loginId"),
+			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+				return true, engine.CancelGitLogin(params.Args["connectionId"].(string), params.Args["loginId"].(string))
+			}),
+		},
 		"disconnectGitConnection": &graphql.Field{
 			Type: graphql.Boolean,
 			Args: gitStringArgs("connectionId"),
 
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 				id := params.Args["connectionId"].(string)
+				engine.StopGitLogin(id)
 				if err := service().Disconnect(id); err != nil {
 					return false, err
 				}
