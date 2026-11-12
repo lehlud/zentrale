@@ -1,11 +1,48 @@
 package webapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestConversationBootstrapDoesNotTransferStoredDetailMegabytes(t *testing.T) {
+	f := bootstrapFixture(t)
+	saveBootstrapResource(t, f, "project", "payload-project", "", map[string]any{"name": "Payload regression"})
+	saveBootstrapResource(t, f, "agent", "payload-agent", "payload-project", map[string]any{
+		"projectId": "payload-project", "role": "main", "summary": strings.Repeat("summary", 16384),
+	})
+	for index := 0; index < 32; index++ {
+		saveBootstrapResource(t, f, "job", fmt.Sprintf("payload-job-%02d", index), "payload-agent", map[string]any{
+			"agentId": "payload-agent", "status": "completed", "command": "build", "output": strings.Repeat("output", 10923),
+		})
+	}
+	saveBootstrapResource(t, f, "message", "payload-message", "payload-agent", map[string]any{"agentId": "payload-agent", "role": "assistant", "content": "A short visible reply"})
+	started := time.Now()
+	compact := f.query(t, `query{conversationBootstrap(projectId:"payload-project"){project{id name} agents{id name} agent{id name} messages{id role content} jobs{id command status} questions{id title status} agentInputs{id text status}}}`, nil)
+	requireData(t, compact)
+	compactDuration := time.Since(started)
+	legacy := f.query(t, `query{agent(id:"payload-agent"){id summary} messages:recentMessages(agentId:"payload-agent"){id content wire} jobs(agentId:"payload-agent",limit:500){id command status output}}`, nil)
+	requireData(t, legacy)
+	compactJSON, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyJSON, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacyJSON) < 1024*1024 {
+		t.Fatal("fixture no longer represents megabyte-sized legacy detail queries")
+	}
+	if len(compactJSON) > 16*1024 || len(compactJSON)*100 > len(legacyJSON) {
+		t.Fatalf("bootstrap transferred detail blobs: compact=%d legacy=%d", len(compactJSON), len(legacyJSON))
+	}
+	t.Logf("fixture response bytes: bootstrap=%d legacy=%d; bootstrap HTTP+resolver duration=%s (not a production latency benchmark)", len(compactJSON), len(legacyJSON), compactDuration)
+}
 
 const bootstrapTestQuery = `query($projectId:String!, $agentId:String) {
  conversationBootstrap(projectId:$projectId,agentId:$agentId) {

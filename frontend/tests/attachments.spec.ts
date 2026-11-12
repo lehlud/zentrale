@@ -255,13 +255,11 @@ test("canceling an upload retains files and text and never submits a partial mes
     });
   });
   await input.fill("Keep text while canceled");
-  await form
-    .locator('input[type="file"]')
-    .setInputFiles({
-      name: "retained.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("data"),
-    });
+  await form.locator('input[type="file"]').setInputFiles({
+    name: "retained.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("data"),
+  });
   await input.press("Enter");
   await expect(
     form.getByRole("button", { name: "Upload abbrechen", exact: true }),
