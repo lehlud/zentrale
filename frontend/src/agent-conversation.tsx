@@ -161,7 +161,8 @@ const ToolEntry = memo(function ToolEntry({
                   <Accordion.Indicator className="shrink-0 text-muted" />
                 </Accordion.Trigger>
               </Accordion.Heading>
-              <Accordion.Panel>
+              {/* Tall lazy results need their final geometry for scrolling. */}
+              <Accordion.Panel className="transition-none">
                 {isExpanded && (
                   <Accordion.Body className="space-y-3 pb-3 pl-5">
                     {call &&
@@ -361,7 +362,7 @@ const MessageContent = memo(function MessageContent({
                   <Accordion.Indicator />
                 </Accordion.Trigger>
               </Accordion.Heading>
-              <Accordion.Panel>
+              <Accordion.Panel className="transition-none">
                 {isExpanded && (
                   <Accordion.Body className="space-y-4 pb-3">
                     <ActivityRequest

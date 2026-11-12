@@ -381,6 +381,16 @@ for (const variant of [
 
     await expect(listing.getByRole("listitem")).toHaveCount(30);
 
+    // A large lazy result must have its final height before scrolling to its
+    // end; animating a clipped panel can otherwise leave that end off screen.
+    expect(
+      await listing.evaluate(
+        (element) =>
+          getComputedStyle(element.closest("[data-slot=accordion-panel]")!)
+            .transitionProperty,
+      ),
+    ).toBe("none");
+
     await listing.getByRole("listitem").last().scrollIntoViewIfNeeded();
     await expect(
       output.getByRole("button", {
