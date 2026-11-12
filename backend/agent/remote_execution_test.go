@@ -145,8 +145,9 @@ func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
 	// This is the shape of the old auto-sandbox probe. It fails before any user
 	// command is reached when SSH sends it directly to fish.
 	// `if ...; then ...; fi` is accidentally accepted by some fish versions.
-	// POSIX case syntax is consistently incompatible across supported fish
-	// versions, while remaining valid in the POSIX wrapper under test.
+	// POSIX case syntax is incompatible across supported fish versions, while
+	// remaining valid in the wrapper. Debian's older fish prints the diagnostic
+	// but exits zero for this parser error; current fish exits 127.
 	probe := "case ready in ready) printf 'ready';; esac"
 	session, err := connection.Client.NewSession()
 	if err != nil {
@@ -156,7 +157,8 @@ func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
 	directOutput, directError := session.CombinedOutput(probe)
 	_ = session.Close()
 	var exitStatus *ssh.ExitError
-	if !errors.As(directError, &exitStatus) || exitStatus.ExitStatus() != 127 {
+	if !strings.Contains(string(directOutput), "not inside of switch block") ||
+		(directError != nil && (!errors.As(directError, &exitStatus) || exitStatus.ExitStatus() != 127)) {
 		t.Fatalf("expected the original fish failure using %s, got %v, output=%q", fish, directError, directOutput)
 	}
 

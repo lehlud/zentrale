@@ -111,11 +111,22 @@ jobs:
           npm run typecheck
       - name: Check generated TypeScript types
         run: |
+          # Compare actual files, also when checkout uses its archive fallback
+          # or the job container's Git rejects the runner-owned worktree.
+          cp src/generated.ts "$RUNNER_TEMP/checked-in-generated.ts"
+          check_generated() {
+            if ! cmp -s "$RUNNER_TEMP/checked-in-generated.ts" src/generated.ts; then
+              difference=$(diff -u "$RUNNER_TEMP/checked-in-generated.ts" src/generated.ts || true)
+              difference=$(printf '%s' "$difference" | python3 -c 'import sys; print(sys.stdin.read().replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))')
+              printf '::error file=frontend/src/generated.ts::%s\n' "$difference"
+              exit 1
+            fi
+          }
           npm run generate
-          git diff --exit-code -- src/generated.ts
+          check_generated
           (cd ../backend && go run ./cmd/schema) > "$RUNNER_TEMP/backend-schema.json"
           node scripts/generate-types.mjs "$RUNNER_TEMP/backend-schema.json"
-          git diff --exit-code -- src/generated.ts
+          check_generated
       - name: Build production frontend
         run: npm run build
       - name: Build backend for browser integration

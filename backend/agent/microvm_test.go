@@ -122,7 +122,7 @@ func TestMicroVMActionsRequireApprovalAndPackagesRequireNetwork(t *testing.T) {
 			Name: "harness",
 			Arguments: map[string]any{
 				"action":        action,
-				"arguments":     `{"packages":["python3"]}`,
+				"arguments":     `{"packages":["python3"],"timeout_ms":120000}`,
 				"network":       network,
 				"justification": "test guest administration",
 			},
