@@ -42,20 +42,24 @@ for (const variant of [
     const label = (de: string, en: string) =>
       variant.locale === "de" ? de : en;
     const readClipboard = () =>
-      test.step("Read actual browser clipboard (bounded)", async () => {
-        await page.bringToFront();
-        return page.evaluate(() =>
-          Promise.race([
-            navigator.clipboard.readText(),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error("Browser clipboard read timed out")),
-                5000,
+      test.step(
+        "Read actual browser clipboard (bounded)",
+        async () => {
+          await page.bringToFront();
+          return page.evaluate(() =>
+            Promise.race([
+              navigator.clipboard.readText(),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error("Browser clipboard read timed out")),
+                  5000,
+                ),
               ),
-            ),
-          ]),
-        );
-      });
+            ]),
+          );
+        },
+        { timeout: 10000 },
+      );
     await page.setViewportSize(variant);
     await page.addInitScript(({ locale, theme }) => {
       localStorage.setItem("zentrale-locale", locale);
@@ -181,14 +185,19 @@ for (const variant of [
         });
       }
     });
-    const shot = async (name: string) => {
-      await mkdir("artifacts/ui", { recursive: true });
-      await page.screenshot({
-        path: `artifacts/ui/admin-${variant.name}-${name}.png`,
-        animations: "disabled",
-        timeout: 10000,
-      });
-    };
+    const shot = (name: string) =>
+      test.step(
+        `Screenshot ${name}`,
+        async () => {
+          await mkdir("artifacts/ui", { recursive: true });
+          await page.screenshot({
+            path: `artifacts/ui/admin-${variant.name}-${name}.png`,
+            animations: "disabled",
+            timeout: 10000,
+          });
+        },
+        { timeout: 15000 },
+      );
     await page.goto("/#/projects");
     await page
       .getByRole("searchbox", {
@@ -253,8 +262,14 @@ for (const variant of [
       ),
     ).toBeVisible();
 
-    await page.bringToFront();
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await test.step(
+      "Grant real clipboard permissions",
+      async () => {
+        await page.bringToFront();
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      },
+      { timeout: 10000 },
+    );
     await page
       .getByRole("button", {
         name: label("Öffentlichen Schlüssel kopieren", "Copy public key"),
