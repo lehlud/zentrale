@@ -453,10 +453,10 @@ export function useQuery<T>(
 export const CONFIG = `query {
   sandboxStatuses { machineId mode level checkedAt error }
   machines(limit:500) {
-    id name host port user keyId jumps properties sandbox singleUser containers microVMCommand workspaceRoot vmType gpuDevices storage { id path shared description } quotaCommand
+    id name host port user keyId jumps properties sandbox singleUser containers microVMCommand workspaceRoot gpuDevices storage { id path shared description } quotaCommand
   }
   pools(limit:500) {
-    id name keyId maxMachines sharedHome workspaceRoot singleUser sandbox vmType storage { id path shared description } quotaCommand machines { id name host user vmType gpuDevices }
+    id name keyId maxMachines sharedHome workspaceRoot singleUser sandbox storage { id path shared description } quotaCommand machines { id name host user gpuDevices }
   }
   providers(limit:500) {
     id name kind baseUrl authMode billingMode connected accountLabel catalogStatus catalogError modelCount

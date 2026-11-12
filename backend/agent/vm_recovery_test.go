@@ -29,20 +29,20 @@ func TestVMPreflightRetriesOnlyRecognizedStartupFailures(t *testing.T) {
 			var prepares atomic.Int32
 			shell := shellPeerHandler("/bin/sh", os.Environ())
 			engine, main, _ := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
-				if !strings.Contains(command, "MicroVM requires an agent and project identity") {
+				if !strings.Contains(command, "<zentrale-microvm>") {
 					return shell(command, input, stdout, stderr)
 				}
 				command = strings.ReplaceAll(command, `'"'"'`, `'`)
-				if strings.Contains(command, " 'select' ") || strings.Contains(command, " 'ensure' ") {
+				if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
 					fmt.Fprintln(stdout, "microvm")
 					return 0
 				}
 				io.Copy(io.Discard, input)
-				if strings.Contains(command, " 'stage' ") {
+				if strings.Contains(command, " 'stage'") {
 					fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
 					return 0
 				}
-				if strings.Contains(command, " 'prepare' ") && prepares.Add(1) == 1 {
+				if strings.Contains(command, " 'prepare'") && prepares.Add(1) == 1 {
 					fmt.Fprintln(stderr, "Installing 129/130")
 					fmt.Fprintf(stdout, "ZENTRALE_VM_STARTUP_FAILED {\"reason\":%q}\n", test.reason)
 					return test.status
@@ -66,22 +66,22 @@ func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) 
 	var prepares, stops atomic.Int32
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
-		if strings.Contains(command, "MicroVM requires an agent and project identity") {
+		if strings.Contains(command, "<zentrale-microvm>") {
 			command = strings.ReplaceAll(command, `'"'"'`, `'`)
-			if strings.Contains(command, " 'select' ") || strings.Contains(command, " 'ensure' ") {
+			if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
 				fmt.Fprintln(stdout, "microvm")
 				return 0
 			}
 			io.Copy(io.Discard, input)
-			if strings.Contains(command, " 'stage' ") {
+			if strings.Contains(command, " 'stage'") {
 				fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
 				return 0
 			}
-			if strings.Contains(command, " 'prepare' ") && prepares.Add(1) == 1 {
+			if strings.Contains(command, " 'prepare'") && prepares.Add(1) == 1 {
 				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"unresponsive"}`)
 				return 75
 			}
-			if strings.Contains(command, " 'stop' ") {
+			if strings.Contains(command, " 'stop'") {
 				stops.Add(1)
 			}
 			fmt.Fprint(stdout, `{"os":"fedora","version":"45"}`)
@@ -127,18 +127,18 @@ func TestStagingRecoversBeforeStartingTheRequestedCommand(t *testing.T) {
 	var stages, stops atomic.Int32
 	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
-		if strings.Contains(command, " 'ensure' ") {
+		if strings.Contains(command, " 'ensure'") {
 			fmt.Fprintln(stdout, "microvm")
 			return 0
 		}
 		io.Copy(io.Discard, input)
-		if strings.Contains(command, " 'stage' ") {
+		if strings.Contains(command, " 'stage'") {
 			if stages.Add(1) == 1 {
 				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"unresponsive"}`)
 				return 75
 			}
 			fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
-		} else if strings.Contains(command, " 'stop' ") {
+		} else if strings.Contains(command, " 'stop'") {
 			stops.Add(1)
 			fmt.Fprint(stdout, `{}`)
 		} else {

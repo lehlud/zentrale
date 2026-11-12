@@ -55,7 +55,7 @@ func (client *HTTPClient) chat(ctx context.Context, request Request) (Result, er
 	}
 
 	applyReasoning(body, request, "chat")
-	data, err := client.post(ctx, request.Config, "/chat/completions", body, request.OnText)
+	data, err := client.post(ctx, request.Config, "/chat/completions", body, request.stream())
 	if err != nil {
 		return Result{}, err
 	}

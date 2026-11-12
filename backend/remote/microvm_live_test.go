@@ -49,12 +49,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 	}
 
 	machine.Sandbox, machine.MicroVMCommand = SandboxAutomatic, ""
-	vmType := os.Getenv("ZENTRALE_MICROVM_TEST_VM_TYPE")
 	storageRoot := os.Getenv("ZENTRALE_MICROVM_TEST_STORAGE_ROOT")
-
-	if vmType != "" {
-		machine.VMType = vmType
-	}
 
 	if storageRoot != "" {
 		machine.Storage = []domain.StorageVolume{{ID: "live-storage", Path: storageRoot, Shared: true}}
@@ -64,7 +59,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 		machine.QuotaCommand = []string{command}
 	}
 
-	if vmType != "" || storageRoot != "" {
+	if storageRoot != "" {
 		// Editor sessions resolve the machine through the connector again. Keep
 		// their configuration in this disposable snapshot consistent with ours.
 		if parts := strings.SplitN(machineID, "/", 2); len(parts) == 2 {
@@ -75,7 +70,6 @@ func TestManagedMicroVMLive(t *testing.T) {
 
 			for index := range pool.Machines {
 				if pool.Machines[index].ID == parts[1] {
-					pool.Machines[index].VMType = machine.VMType
 					pool.Machines[index].GPUDevices = nil
 					pool.Machines[index].Storage = machine.Storage
 					pool.Machines[index].QuotaCommand = machine.QuotaCommand
@@ -89,7 +83,6 @@ func TestManagedMicroVMLive(t *testing.T) {
 			"machine",
 			machineID,
 			map[string]any{
-				"vmType":       machine.VMType,
 				"gpuDevices":   []string{},
 				"storage":      machine.Storage,
 				"quotaCommand": machine.QuotaCommand,
@@ -212,8 +205,8 @@ func TestManagedMicroVMLive(t *testing.T) {
 	}
 
 	info, err := ManageMicroVM(ctx, connection, machine, "info", first)
-	if err != nil || info["vmType"] != WithMachineDefaults(machine).VMType {
-		t.Fatalf("guest booted the wrong machine type: %v %v", info, err)
+	if err != nil || info["os"] != "fedora" {
+		t.Fatalf("invalid guest proof: %v %v", info, err)
 	}
 
 	t.Run("additional project storage and host quota", func(t *testing.T) {

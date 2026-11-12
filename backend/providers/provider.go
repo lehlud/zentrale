@@ -62,9 +62,9 @@ type Request struct {
 	// OnText publishes visible assistant text in provider order.
 	// Reasoning and partial tool arguments stay within the provider adapter.
 	OnText func(string)
-	// OnRetry discards the previous attempt's transient text. Tools and durable
-	// assistant messages are only produced from a complete successful result.
-	OnRetry func()
+	// OnRetry discards the previous attempt's display-only text and reports the
+	// upcoming attempt. No tools or conversation messages have committed yet.
+	OnRetry func(Retry)
 }
 
 type Client interface {
@@ -72,13 +72,14 @@ type Client interface {
 }
 
 type HTTPClient struct {
-	HTTP      *http.Client
-	waitRetry func(context.Context, time.Duration) error
+	HTTP        *http.Client
+	waitRetry   func(context.Context, time.Duration) error
+	idleTimeout time.Duration
 }
 
 func New() *HTTPClient {
 	return &HTTPClient{
-		HTTP: &http.Client{Timeout: 3 * time.Minute},
+		HTTP: &http.Client{},
 	}
 }
 
@@ -160,7 +161,7 @@ func (client *HTTPClient) post(
 	configuration domain.Provider,
 	endpoint string,
 	body any,
-	textCallbacks ...func(string),
+	callbacks ...streamRequest,
 ) (map[string]any, error) {
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -210,8 +211,9 @@ func (client *HTTPClient) post(
 
 	stream := streamRequest{kind: configuration.Kind}
 
-	if len(textCallbacks) > 0 {
-		stream.onText = textCallbacks[0]
+	if len(callbacks) > 0 {
+		stream.onText = callbacks[0].onText
+		stream.onRetry = callbacks[0].onRetry
 	}
 
 	result, failure := client.postWithRetry(req, stream)
@@ -251,9 +253,6 @@ func sanitizeResponseFailure(failure error, configuration domain.Provider) error
 
 func (client *HTTPClient) Complete(ctx context.Context, request Request) (result Result, err error) {
 	defer func() { err = sanitizeResponseFailure(err, request.Config) }()
-	if request.OnRetry != nil {
-		ctx = context.WithValue(ctx, providerRetryResetKey{}, request.OnRetry)
-	}
 
 	if request.Model.ID == "" || strings.ContainsAny(request.Model.ID, "?#\r\n") {
 		return Result{}, errors.New("select an available language model")

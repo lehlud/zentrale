@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
+func TestMicroVMGPUConfigurationRoundTripsThroughAPI(t *testing.T) {
 	fixture := newAPIFixture(t)
 	requireData(
 		t,
@@ -21,7 +21,6 @@ func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
 		"user":    "user",
 		"keyId":   key["id"],
 		"sandbox": "auto",
-		"vmType":  "q35",
 		"gpuDevices": []string{
 			"0000:01:00.0",
 			"0000:01:00.1",
@@ -32,13 +31,13 @@ func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
 		t,
 		fixture.query(
 			t,
-			`mutation($input:MachineInput!){saveMachine(input:$input){id vmType gpuDevices}}`,
+			`mutation($input:MachineInput!){saveMachine(input:$input){id gpuDevices}}`,
 			map[string]any{
 				"input": input,
 			},
 		),
 	)["saveMachine"].(map[string]any)
-	if machine["vmType"] != "q35" || len(machine["gpuDevices"].([]any)) != 2 {
+	if len(machine["gpuDevices"].([]any)) != 2 {
 		t.Fatal(machine)
 	}
 
@@ -51,7 +50,7 @@ func TestQ35GPUConfigurationRoundTripsThroughAPI(t *testing.T) {
 			"input": input,
 		},
 	)["errors"] == nil {
-		t.Fatal("API accepted GPU assignment with incompatible machine type")
+		t.Fatal("API still exposes the removed VM type option")
 	}
 }
 

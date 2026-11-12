@@ -83,7 +83,7 @@ func TestProviderDoesNotDuplicatePublishedTextOnReadTimeout(t *testing.T) {
 		return response, nil
 	})
 	var text string
-	_, err := client.post(context.Background(), domain.Provider{Kind: "openai", BaseURL: "https://provider.example"}, "/inference", map[string]any{}, func(value string) { text += value })
+	_, err := client.post(context.Background(), domain.Provider{Kind: "openai", BaseURL: "https://provider.example"}, "/inference", map[string]any{}, streamRequest{onText: func(value string) { text += value }})
 	if err == nil || attempts != 1 || text != "hello" {
 		t.Fatal(err, attempts, text)
 	}
@@ -107,8 +107,10 @@ func TestProviderReadTimeoutCanResetTransientDraftBeforeRetry(t *testing.T) {
 		response.Body = &timeoutBody{prefix: strings.NewReader("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"discard me\"}\n\n")}
 		return response, nil
 	})
-	ctx := context.WithValue(context.Background(), providerRetryResetKey{}, func() { text = ""; resets++ })
-	result, err := client.post(ctx, domain.Provider{Kind: "openai", BaseURL: "https://provider.example"}, "/inference", map[string]any{}, func(value string) { text += value })
+	result, err := client.post(context.Background(), domain.Provider{Kind: "openai", BaseURL: "https://provider.example"}, "/inference", map[string]any{}, streamRequest{
+		onText:  func(value string) { text += value },
+		onRetry: func(Retry) { text = ""; resets++ },
+	})
 	if err != nil || result["ok"] != true || attempts != 2 || resets != 1 || text != "" {
 		t.Fatal(result, err, attempts, resets, text)
 	}

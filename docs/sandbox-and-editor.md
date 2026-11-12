@@ -14,11 +14,10 @@ fish, and standard file, archive, and process tools. Missing standard packages
 are added without resetting an existing disk. Interactive guest terminals use
 fish; harness commands use a POSIX shell.
 
-The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm` or
-`q35`, `qemu-img`, Python 3.10+, `mkfs.ext4`, `tar`, and `modprobe`. Preparing a
+The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm`, `qemu-img`, Python 3.10+, `mkfs.ext4`, `tar`, and `modprobe`. Preparing a
 fallback kernel's modules also needs `depmod`. Automatic CPU selection can use
 Bubblewrap with cgroups v2 and `systemd-run --user` when VM prerequisites are
-absent. An explicit q35 or GPU assignment never falls back to weaker execution.
+absent. An explicit GPU assignment never falls back to weaker execution.
 Download and boot failures are reported as errors.
 
 A compatible readable host kernel is reused. Only when necessary does Zentrale
@@ -87,39 +86,83 @@ and symlink checks. Other sources within the project remain intact.
 
 ## GPU passthrough
 
-Choose `q35` to automatically discover prepared, non-boot GPUs and their
-same-slot companion functions at VM startup. Explicit `gpu_devices` still takes
-priority when only selected GPUs should be assigned. Pools can set the VM default,
-but explicit PCI addresses belong to individual members. This fragment belongs inside a
-[complete pool configuration](machines.md#import-a-pool):
+All managed guests use QEMU’s `microvm` machine. Add the `GPU` property and
+leave `gpu_devices` empty for automatic GPU setup. Zentrale
+first looks for GPUs already prepared for VFIO. Otherwise, an accessible NVIDIA
+host driver can be shared with the guest through
+[NVKVM](https://github.com/reindertpelsma/nvkvm-pv/tree/v0.2.5). This works without
+host root, IOMMU groups, driver rebinding, or host package installation. CPU
+machines do not download the GPU runtime.
 
 ```yaml
-vm_type: q35
 machines:
   - id: gpu-a
     name: GPU A
     host: gpu-a.example.org
     user: developer
+    properties: [GPU]
+```
+
+This fragment belongs inside a [complete pool configuration](machines.md#import-a-pool).
+The same selection applies to agent commands, subagents, background jobs, and
+browser VS Code in the conversation's shared guest. GPU jobs can still be
+scheduled across multiple pool members.
+
+CPU guests keep the minimal virtio-MMIO machine. GPU guests enable its PCIe
+bridge and ACPI for the forwarded device. There is no VM type setting in the
+API or pool YAML; `vm_type` is rejected at both pool and member level.
+
+### Rootless NVIDIA
+
+The host needs an existing working NVIDIA driver, readable matching userspace
+libraries, access to `/dev/nvidiactl`, `/dev/nvidia0`, `/dev/nvidia-uvm`, and its
+normal KVM prerequisites. Building the small guest module also needs GCC, Make,
+and binutils already on the host. The pinned QEMU binary needs glibc 2.38+ and
+libslirp 4.7+. Zentrale verifies the runtime, matching guest headers, and private
+build tools against their SHA-256 hashes, builds without privileges, and caches
+the result outside guest-writable exports. A compatible host kernel with headers
+is reused; the pinned guest kernel is needed when matching headers or required
+guest features are unavailable.
+
+Only the forwarding module and a read-only copy of the matching NVIDIA libraries
+are attached to Fedora. CUDA, OpenCL, Vulkan, OpenGL/EGL, NVENC, and NVDEC use the
+host driver through virtio. Applications still need their normal guest packages,
+such as PyTorch, an OpenCL/Vulkan loader, GLVND, or FFmpeg. No proprietary NVIDIA
+kernel driver needs to be installed in Fedora. Readiness checks initialize CUDA
+and require at least one device; missing GPU support fails rather than silently
+starting a CPU-only environment. Driver changes require a fresh session after
+existing work has ended.
+
+This is shared driver forwarding, not an exclusive GPU or a hardened GPU tenant
+boundary. NVKVM's syscall filter stays enabled; hosts with user namespaces use
+its stronger namespace isolation. On the CIPs, which disable user namespaces,
+its automatic mode uses seccomp without separate host UIDs or filesystem
+namespaces for GPU helpers. GPU memory and faults remain shared host resources;
+the VM's RAM limit does not cap all host GPU/pinned-memory allocations. Use this
+mode for trusted workloads under the SSH account's existing GPU permissions.
+
+Integration tested on a FAU CIP RTX 2080 with NVIDIA 615.71.10: 4,096-element
+CUDA, OpenCL, and Vulkan kernels, OpenGL 4.6 and OpenGL ES 3.2 shaders,
+and H.264 NVENC/NVDEC at 1920×1080, 30 frames. Hardware-decoded output matched
+93,312,000 reference bytes exactly. Chromium WebGL verified rendered
+pixels and WebGPU computed and verified 4,096 values on the NVIDIA adapter with software fallback disabled.
+
+### Explicit VFIO
+
+Set `gpu_devices` on an individual pool member to keep exclusive PCI passthrough:
+
+```yaml
+    properties: [GPU]
     gpu_devices: ["0000:01:00.0", "0000:01:00.1"]
 ```
 
-Addresses must match the actual hardware and include required companion
-functions, such as GPU audio. Zentrale checks device class, IOMMU groups,
-`vfio-pci` binding, complete group assignment, VFIO access, and at least 4 GiB of
-lockable memory. Host administration must prepare these prerequisites; Zentrale
-does not rebind drivers or change host device permissions.
-
-Automatic discovery uses only GPUs already bound to `vfio-pci`; native host
-drivers and the host boot GPU are never taken over. All selected companion
-functions must also satisfy the existing IOMMU/VFIO checks. Missing safe GPUs or
-unavailable groups produce a diagnostic, not a silent CPU-only fallback. Device
-discovery does not acquire or bypass the VM lifetime leases. Stopping, inspecting
-or removing a VM does not require successful rediscovery.
-
-IOMMU groups remain reserved for the VM's lifetime. PCI passthrough also needs a
-compatible guest driver. CUDA requires matching NVIDIA driver and user-space
-packages; host drivers are not copied into the guest. The fallback kernel does
-not include a proprietary NVIDIA driver. A GPU tag does not prove readiness.
+Addresses must include required companion functions and complete IOMMU groups.
+Zentrale checks non-boot device class, `vfio-pci` binding, group assignment,
+VFIO access, and at least 4 GiB of lockable memory. An administrator must prepare
+these prerequisites. Zentrale never rebinds host drivers or changes host device
+permissions. Groups stay reserved for the VM's lifetime, and explicit addresses
+never fall back to driver forwarding. The guest needs compatible GPU drivers.
+Stopping or removing a VM does not require successful GPU rediscovery.
 
 ## Browser VS Code
 

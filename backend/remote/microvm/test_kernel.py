@@ -32,6 +32,47 @@ class GuestKernelTests(unittest.TestCase):
             "sha256": "a" * 64,
         }
 
+    def test_existing_guest_mounts_procfs_without_a_package_install(self):
+        root = self.cache / "fedora"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc/passwd").write_text(
+            "zentrale:x:1000:1000::/home/zentrale:/bin/fish\n"
+        )
+        exists = Path.exists
+        with (
+            patch.object(guest, "FEDORA", str(root)),
+            patch.object(guest, "load_module"),
+            patch.object(guest, "mount") as mount,
+            patch.object(guest.os, "chown"),
+            patch.object(guest.LIBC, "prctl"),
+            patch.object(
+                Path,
+                "exists",
+                autospec=True,
+                side_effect=lambda path: str(path) == "/dev/vda" or exists(path),
+            ),
+        ):
+            guest.prepare_fedora(
+                {
+                    "workspace": "/project",
+                    "temporaryDirectory": "/temporary",
+                    "uid": 1000,
+                    "gid": 1000,
+                }
+            )
+        self.assertTrue(
+            any(
+                call.args
+                == (
+                    "proc",
+                    str(root / "proc"),
+                    "proc",
+                    guest.NOSUID | guest.NODEV | guest.NOEXEC,
+                )
+                for call in mount.call_args_list
+            )
+        )
+
     def package(self, extra=None):
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode="w:gz") as archive:

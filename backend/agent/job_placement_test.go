@@ -54,9 +54,9 @@ func TestBackgroundGPUJobsOverlapOnDifferentHostsWithoutChangingDefault(t *testi
 			plain := strings.ReplaceAll(command, `'"'"'`, `'`)
 
 			switch {
-			case strings.Contains(plain, " 'ensure' "):
+			case strings.Contains(plain, " 'ensure'"):
 				fmt.Fprintln(stdout, "microvm")
-			case strings.Contains(plain, " 'stage' "):
+			case strings.Contains(plain, " 'stage'"):
 				if id == "gpu-0" {
 					fmt.Fprintln(stderr, "VFIO group is held by another persistent VM")
 					return 1
@@ -72,7 +72,7 @@ func TestBackgroundGPUJobsOverlapOnDifferentHostsWithoutChangingDefault(t *testi
 				}
 
 				fmt.Fprint(stdout, "/var/tmp/zentrale-test/requests/0123456789abcdef0123456789abcdef")
-			case strings.Contains(plain, " 'run' "):
+			case strings.Contains(plain, " 'run'"):
 				started <- id
 				<-release
 				fmt.Fprintln(stdout, "finished "+id)
@@ -104,7 +104,6 @@ func TestBackgroundGPUJobsOverlapOnDifferentHostsWithoutChangingDefault(t *testi
 				User:    "developer",
 				KeyID:   original.KeyID,
 				Sandbox: "auto",
-				VMType:  "q35",
 				GPUDevices: []string{
 					"0000:01:00.0",
 				},

@@ -65,7 +65,7 @@ func (client *HTTPClient) anthropic(ctx context.Context, request Request) (Resul
 	}
 
 	applyReasoning(body, request, "anthropic")
-	data, err := client.post(ctx, request.Config, "/messages", body, request.OnText)
+	data, err := client.post(ctx, request.Config, "/messages", body, request.stream())
 	if err != nil {
 		return Result{}, err
 	}

@@ -24,6 +24,8 @@ export const english: Record<string, string> = {
     "Upload canceled. Your draft and attachments are preserved.",
   "Ordner bitte als Archiv anhängen.": "Please attach folders as archives.",
   "Ungültige Upload-Bestätigung.": "Invalid upload confirmation.",
+  "Modellverbindung unterbrochen, neuer Versuch …":
+    "Model connection interrupted, retrying …",
   Denkintensität: "Reasoning effort",
   "Standard (regulär)": "Default (regular)",
   "Provider-Standard": "Provider default",
@@ -90,12 +92,9 @@ export const english: Record<string, string> = {
   "Stichprobe geprüft": "Sample checked",
   "{successful} von {checked} geprüften Rechnern bereit ({total} im Pool).":
     "{successful} of {checked} checked machines ready ({total} in the pool).",
-  "VM-Typ": "VM type",
-  "MicroVM (CPU)": "MicroVM (CPU)",
-  "q35 (PCI/GPU)": "q35 (PCI/GPU)",
   "GPU-PCI-Geräte": "GPU PCI devices",
-  "Kommagetrennte PCI-Adressen der GPU und ihrer zugehörigen Funktionen. Benötigt q35 sowie eine administrative VFIO-Freigabe auf der Fernmaschine und passende Treiber im Gast.":
-    "Comma-separated PCI addresses of the GPU and its companion functions. Requires q35, administrator-provided VFIO access on the remote machine, and matching guest drivers.",
+  "Die Eigenschaft GPU aktiviert die automatische Erkennung, auch für NVIDIA ohne Root-Rechte. Explizite PCI-Adressen benötigen administrative VFIO-Freigabe und passende Gasttreiber.":
+    "The GPU property enables automatic discovery, including rootless NVIDIA access. Explicit PCI addresses require administrator-provided VFIO access and matching guest drivers.",
   "Pool-Schlüssel": "Pool key",
   "Den Anmeldeschlüssel verwaltet die Zentrale automatisch. Hostschlüssel und CAs können unter known_hosts hinterlegt werden.":
     "Zentrale manages the login key automatically. Host keys and CAs can be included under known_hosts.",

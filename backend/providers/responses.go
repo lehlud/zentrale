@@ -68,7 +68,7 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 			"type": "json_schema", "name": "zentrale_approval", "strict": true, "schema": request.OutputSchema,
 		}}
 	}
-	data, err := client.post(ctx, request.Config, "/responses", body, request.OnText)
+	data, err := client.post(ctx, request.Config, "/responses", body, request.stream())
 	if err != nil {
 		return Result{}, err
 	}

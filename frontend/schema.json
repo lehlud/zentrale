@@ -2799,18 +2799,6 @@
             }
           },
           {
-            "name": "vmType",
-            "type": {
-              "kind": "NON_NULL",
-              "name": null,
-              "ofType": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              }
-            }
-          },
-          {
             "name": "workspaceRoot",
             "type": {
               "kind": "NON_NULL",
@@ -3465,18 +3453,6 @@
           },
           {
             "name": "user",
-            "type": {
-              "kind": "NON_NULL",
-              "name": null,
-              "ofType": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              }
-            }
-          },
-          {
-            "name": "vmType",
             "type": {
               "kind": "NON_NULL",
               "name": null,
@@ -4720,14 +4696,6 @@
           },
           {
             "name": "user",
-            "type": {
-              "kind": "SCALAR",
-              "name": "String",
-              "ofType": null
-            }
-          },
-          {
-            "name": "vmType",
             "type": {
               "kind": "SCALAR",
               "name": "String",

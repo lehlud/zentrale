@@ -36,6 +36,12 @@ Responses stream alongside tool activity, file diffs, and jobs. The conversation
 menu opens the independent approver's read-only history. **Stop** interrupts the
 agent and its running jobs and MCP processes. Jobs can also be stopped separately.
 
+Context is compacted automatically near the model's context limit. Empty or
+oversized text summaries are regenerated with validation feedback, with at most
+three attempts per fragment. Original history and the previous checkpoint stay
+intact until every fragment succeeds. Summary requests count toward usage without
+replacing the active conversation's token estimate.
+
 ## Goals and review
 
 Each conversation has at most one unfinished goal. An agent can create it from

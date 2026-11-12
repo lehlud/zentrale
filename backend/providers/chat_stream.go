@@ -1,9 +1,6 @@
 package providers
 
-import (
-	"errors"
-	"slices"
-)
+import "slices"
 
 type chatStream struct {
 	request streamRequest
@@ -121,8 +118,10 @@ func orderedStreamItems(items map[int]map[string]any) []any {
 func (stream *chatStream) result() (map[string]any, error) {
 	switch stream.finish {
 	case "stop", "tool_calls", "function_call":
+	case "":
+		return nil, errStreamInterrupted
 	default:
-		return nil, errors.New("provider stream ended before completion")
+		return nil, &ResponseError{Reason: stream.finish}
 	}
 
 	if len(stream.tools) > 0 {

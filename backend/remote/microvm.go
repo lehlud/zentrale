@@ -1,9 +1,12 @@
 package remote
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,6 +38,9 @@ var managedMicroVMRelease json.RawMessage
 
 //go:embed microvm/vfio.py
 var managedVFIO string
+
+//go:embed microvm/nvidia.py
+var managedNVIDIA string
 
 var microVMInvocationID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
@@ -78,12 +84,12 @@ func microVMConfiguration(machines ...domain.Machine) string {
 
 	machine = WithMachineDefaults(machine)
 	options, _ := json.Marshal(map[string]any{
-		"vmType":     machine.VMType,
+		"gpu":        GPUEnabled(machine),
 		"gpuDevices": machine.GPUDevices,
 		"storage":    machine.Storage,
 	})
 
-	digest := sha256.Sum256([]byte(managedMicroVMRunner + managedMicroVMGuest + managedMicroVMInit + managedMicroVMStreams + managedVFIO + terminalRelay + string(managedMicroVMRelease) + string(options)))
+	digest := sha256.Sum256([]byte(managedMicroVMRunner + managedMicroVMGuest + managedMicroVMInit + managedMicroVMStreams + managedVFIO + managedNVIDIA + terminalRelay + string(managedMicroVMRelease) + string(options)))
 	configuration, err := json.Marshal(map[string]any{
 		"release":    managedMicroVMRelease,
 		"guest":      managedMicroVMGuest,
@@ -91,7 +97,8 @@ func microVMConfiguration(machines ...domain.Machine) string {
 		"streams":    managedMicroVMStreams,
 		"terminal":   terminalRelay,
 		"vfio":       managedVFIO,
-		"vmType":     machine.VMType,
+		"nvidia":     managedNVIDIA,
+		"gpu":        GPUEnabled(machine),
 		"gpuDevices": machine.GPUDevices,
 		"storage":    machine.Storage,
 		"runnerHash": hex.EncodeToString(digest[:]),
@@ -104,7 +111,26 @@ func microVMConfiguration(machines ...domain.Machine) string {
 }
 
 func microVMCommand(action string, machines ...domain.Machine) string {
-	return "python3 -I -c " + Quote(managedMicroVMRunner) + " " + Quote(action) + " " + Quote(microVMConfiguration(machines...))
+	// SSH servers pass the entire command through one shell argument. Keep the
+	// trusted program and configuration below Linux's per-argument size limit,
+	// including when another sandbox-selection shell quotes this command again.
+	bundle, err := json.Marshal(map[string]any{
+		"runner":        managedMicroVMRunner,
+		"configuration": json.RawMessage(microVMConfiguration(machines...)),
+	})
+	if err != nil {
+		panic(err)
+	}
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	_, _ = writer.Write(bundle)
+	_ = writer.Close()
+	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
+	bootstrap := "import base64,json,sys,zlib; " +
+		"bundle=json.loads(zlib.decompress(base64.b64decode('" + encoded + "'))); " +
+		"sys.argv.insert(2,json.dumps(bundle['configuration'])); " +
+		"exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))"
+	return "python3 -I -c " + Quote(bootstrap) + " " + Quote(action)
 }
 
 // Stage the invocation over stdin. Commands and file contents can exceed the

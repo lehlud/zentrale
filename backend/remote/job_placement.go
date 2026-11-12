@@ -40,7 +40,7 @@ func (manager *Manager) ConnectForJob(
 			return nil, domain.Machine{}, err
 		}
 
-		if gpu && configured.VMType != VMTypeQ35 {
+		if gpu && !GPUEnabled(configured) {
 			continue
 		}
 
@@ -66,7 +66,7 @@ func (manager *Manager) ConnectForJob(
 	}
 
 	if !eligible {
-		return nil, domain.Machine{}, errors.New("no assigned machine matches the requested machineId/GPU configuration; GPU tags alone do not enable VM passthrough")
+		return nil, domain.Machine{}, errors.New("no assigned machine matches the requested machineId/GPU configuration; mark GPU hosts with the GPU property or assign gpu_devices")
 	}
 
 	return nil, domain.Machine{}, fmt.Errorf(
@@ -137,14 +137,13 @@ func (manager *Manager) ResourceState(project domain.Project) (map[string]any, e
 			}
 		}
 
-		if machine.VMType == VMTypeQ35 {
+		if GPUEnabled(machine) {
 			machines = append(
 				machines,
 				map[string]any{
 					"id":             candidate.id,
 					"name":           machine.Name,
 					"properties":     machine.Properties,
-					"vmType":         machine.VMType,
 					"gpuDevices":     machine.GPUDevices,
 					"gpuDiscovery":   len(machine.GPUDevices) == 0,
 					"gpuJobReserved": busyGPU[candidate.id],

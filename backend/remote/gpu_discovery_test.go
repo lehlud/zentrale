@@ -7,23 +7,23 @@ import (
 	"github.com/lehlud/zentrale/domain"
 )
 
-func TestResourceCatalogIncludesQ35AutodetectionButNotGPULabels(t *testing.T) {
+func TestResourceCatalogIncludesGPUDiscoveryAndExplicitAssignments(t *testing.T) {
 	store, err := datastore.Open("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	for _, machine := range []domain.Machine{
-		{ID: "automatic", VMType: VMTypeQ35},
-		{ID: "explicit", VMType: VMTypeQ35, GPUDevices: []string{"0000:01:00.0"}},
-		{ID: "label-only", Properties: []string{"gpu"}},
+		{ID: "automatic", Properties: []string{"GPU"}},
+		{ID: "explicit", GPUDevices: []string{"0000:01:00.0"}},
+		{ID: "cpu"},
 	} {
 		if err := store.Save("machine", machine.ID, "", machine); err != nil {
 			t.Fatal(err)
 		}
 	}
 	manager := NewManager(&Connector{Store: store})
-	state, err := manager.ResourceState(domain.Project{MachineIDs: []string{"automatic", "explicit", "label-only"}})
+	state, err := manager.ResourceState(domain.Project{MachineIDs: []string{"automatic", "explicit", "cpu"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -37,6 +37,29 @@ func (engine *Engine) recordUsage(
 	messages []domain.Message,
 	promptTokens ...int,
 ) error {
+	return engine.recordInferenceUsage(agentRecord, configuration, result, messages, true, promptTokens...)
+}
+
+// Internal summaries are billable, but their input/output is not the active
+// conversation window. A failed summary must not replace its token estimate.
+func (engine *Engine) recordAuxiliaryUsage(
+	agentRecord domain.Agent,
+	configuration inferenceConfig,
+	result providers.Result,
+	messages []domain.Message,
+	promptTokens ...int,
+) error {
+	return engine.recordInferenceUsage(agentRecord, configuration, result, messages, false, promptTokens...)
+}
+
+func (engine *Engine) recordInferenceUsage(
+	agentRecord domain.Agent,
+	configuration inferenceConfig,
+	result providers.Result,
+	messages []domain.Message,
+	updateContext bool,
+	promptTokens ...int,
+) error {
 	inputTokens, outputTokens := result.InputTokens, result.OutputTokens
 
 	if !result.UsageKnown {
@@ -109,7 +132,7 @@ func (engine *Engine) recordUsage(
 
 	// Provider-reported token counts improve the next 85% threshold check. A byte
 	// estimate remains available for providers that do not report usage.
-	if agentRecord.ID != "" {
+	if updateContext && agentRecord.ID != "" {
 		var current domain.Agent
 		if err := engine.Store.Load("agent", agentRecord.ID, &current); err != nil {
 			return err

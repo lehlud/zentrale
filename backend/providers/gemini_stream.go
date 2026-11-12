@@ -1,7 +1,5 @@
 package providers
 
-import "errors"
-
 type geminiStream struct {
 	request streamRequest
 
@@ -60,8 +58,16 @@ func (stream *geminiStream) consume(event map[string]any) (bool, error) {
 }
 
 func (stream *geminiStream) result() (map[string]any, error) {
-	if stream.finish != "STOP" || stream.content == nil {
-		return nil, errors.New("provider stream ended before completion")
+	if stream.finish == "" {
+		return nil, errStreamInterrupted
+	}
+
+	if stream.finish != "STOP" {
+		return nil, &ResponseError{Reason: stream.finish}
+	}
+
+	if stream.content == nil {
+		return nil, errStreamInterrupted
 	}
 
 	stream.content["parts"] = stream.parts

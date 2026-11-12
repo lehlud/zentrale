@@ -48,7 +48,6 @@ export function fieldForServerError(
     [/SSH key/i, "keyId"],
     [/microvm_command/i, "microVMCommand"],
     [/gpu_devices/i, "gpuDevicesText"],
-    [/vm_type|q35/i, "vmType"],
     [/model/i, "model"],
     [/provider URL/i, "baseUrl"],
     [/workspace|project directory/i, "directory"],

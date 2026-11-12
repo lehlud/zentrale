@@ -23,7 +23,7 @@ func (engine *Engine) prepareJobExecution(
 	request *executionRequest,
 ) (*preparedExecution, error) {
 	if request.GPU && request.OutsideSandbox {
-		return nil, errors.New("GPU jobs require the managed q35 VM; outsideSandbox is incompatible")
+		return nil, errors.New("GPU jobs require the managed MicroVM; outsideSandbox is incompatible")
 	}
 
 	var failures []error

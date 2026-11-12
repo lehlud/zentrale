@@ -156,10 +156,10 @@ func TestFailedMicroVMBootOnCachedSSHBlocksProviderAndPreservesPrompt(t *testing
 			}
 
 			_, _ = fmt.Fprintln(stdout, "microvm")
-		} else if strings.Contains(command, " 'stage' ") {
+		} else if strings.Contains(command, " 'stage'") {
 			_, _ = io.Copy(io.Discard, input)
 			_, _ = fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
-		} else if strings.Contains(command, "MicroVM requires an agent and project identity") {
+		} else if strings.Contains(command, "<zentrale-microvm>") {
 			_, _ = io.Copy(io.Discard, input)
 			_, _ = fmt.Fprintln(stdout, `{"os":"fedora","version":"45","bootId":"guest-boot"}`)
 		}

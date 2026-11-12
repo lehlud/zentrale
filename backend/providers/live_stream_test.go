@@ -202,14 +202,19 @@ func TestTruncatedStreamsNeverReturnExecutableCalls(t *testing.T) {
 			}))
 			defer server.Close()
 
-			result, err := New().Complete(context.Background(), Request{
+			client := New()
+			client.waitRetry = func(context.Context, time.Duration) error { return nil }
+			result, err := client.Complete(context.Background(), Request{
 				Config: domain.Provider{Kind: fixture.kind, BaseURL: server.URL},
 
 				Model:  domain.LanguageModel{ID: "test"},
 				OnText: func(string) {},
+				// This observer discards all display-only text, including retries.
+				// Real visible consumers must reset their draft before replay.
+				OnRetry: func(Retry) {},
 			})
-			if err == nil || len(result.Calls) != 0 || requests.Load() != 1 {
-				t.Fatal("a partial generation was accepted or replayed", result, err, requests.Load())
+			if err == nil || len(result.Calls) != 0 || requests.Load() != providerAttempts {
+				t.Fatal("a partial generation became executable or retries were unbounded", result, err, requests.Load())
 			}
 		})
 	}

@@ -118,7 +118,7 @@ discover useful search terms before fetching machine details.
 hosts for independent jobs. Optional `machineId` pins a job without changing the
 default machine. The harness allows at most one requested GPU job per host and
 honors pool limits. GPU labels alone are insufficient: configure
-[q35 and VFIO](sandbox-and-editor.md#gpu-passthrough).
+[rootless NVIDIA and VFIO](sandbox-and-editor.md#gpu-passthrough).
 
 The agent decides how to split the task and is instructed to use parallelism when
 it helps. Use separate output and checkpoint directories. Failover preserves

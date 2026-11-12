@@ -14,7 +14,7 @@ _Example workspace with demo data._
 
 - **Hand over a task.** Agents can edit files, run tests, use MCP tools, and start background jobs. Persistent goals keep unfinished work in view.
 - **Bring your own models.** Use OpenAI, Anthropic, Gemini, OpenRouter, and other supported providers. Pick separate models for the worker and its reviewer.
-- **Use your own compute.** Connect SSH hosts or shared machine pools. Independent jobs can run across multiple machines; prepared hosts can expose GPUs through q35 VMs.
+- **Use your own compute.** Connect SSH hosts or shared machine pools. Independent jobs can run across multiple machines; prepared hosts can expose GPUs through managed VMs.
 - **Jump into the workspace.** Open VS Code or the terminal beside it in the header, sharing the agent's files, Git identity and environment. The fullscreen terminal uses [wterm](https://github.com/vercel-labs/wterm), starts the VM when needed, and keeps it active while connected. Close the terminal to end that shell session and return to the normal VM idle-stop policy. Escape stays in the shell; use **Alt+Shift+T** or **Close** to leave the terminal.
 - **See what happened.** Follow commands, diffs, logs, and costs. A separate agent reviews environmental actions and checks proposed goal completion.
 

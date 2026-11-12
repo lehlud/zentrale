@@ -114,7 +114,7 @@ func (engine *Engine) tryNativeCompaction(
 		return agent, "", false, err
 	}
 
-	if err := engine.recordUsage(agent, configuration, result, messages, estimatedPromptTokens(system, tools)); err != nil {
+	if err := engine.recordAuxiliaryUsage(agent, configuration, result, messages, estimatedPromptTokens(system, tools)); err != nil {
 		return agent, "", false, err
 	}
 

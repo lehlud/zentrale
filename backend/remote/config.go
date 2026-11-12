@@ -15,8 +15,6 @@ const (
 	SandboxMicroVM    = "microvm"
 	SandboxBubblewrap = "bwrap"
 	SandboxDisabled   = "none"
-	VMTypeMicroVM     = "microvm"
-	VMTypeQ35         = "q35"
 
 	defaultSSHPort       = 22
 	maximumTCPPort       = 65535
@@ -42,14 +40,6 @@ func WithMachineDefaults(machine domain.Machine) domain.Machine {
 
 	if machine.Sandbox == "" {
 		machine.Sandbox = SandboxAutomatic
-	}
-
-	if machine.VMType == "" {
-		machine.VMType = VMTypeMicroVM
-
-		if len(machine.GPUDevices) > 0 {
-			machine.VMType = VMTypeQ35
-		}
 	}
 
 	machine.GPUDevices = append([]string{}, machine.GPUDevices...)
@@ -167,7 +157,7 @@ func validateSandboxConfiguration(machine domain.Machine) error {
 		return fmt.Errorf("microvm_command must be an absolute path when supplied")
 	}
 
-	if err := validateVMConfiguration(machine); err != nil {
+	if err := validateGPUConfiguration(machine); err != nil {
 		return err
 	}
 
@@ -183,11 +173,20 @@ func validateSandboxConfiguration(machine domain.Machine) error {
 
 var pciAddressPattern = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[01][0-9a-f]\.[0-7]$`)
 
-func validateVMConfiguration(machine domain.Machine) error {
-	if machine.VMType != "" && machine.VMType != VMTypeMicroVM && machine.VMType != VMTypeQ35 {
-		return fmt.Errorf("vm_type must be microvm or q35")
+// A GPU property requests discovery; actual readiness is checked on the host.
+func GPUEnabled(machine domain.Machine) bool {
+	if len(machine.GPUDevices) > 0 {
+		return true
 	}
+	for _, property := range machine.Properties {
+		if strings.EqualFold(strings.TrimSpace(property), "GPU") {
+			return true
+		}
+	}
+	return false
+}
 
+func validateGPUConfiguration(machine domain.Machine) error {
 	if len(machine.GPUDevices) > 16 {
 		return fmt.Errorf("gpu_devices accepts at most 16 PCI functions")
 	}
@@ -201,17 +200,13 @@ func validateVMConfiguration(machine domain.Machine) error {
 		seen[device] = true
 	}
 
-	if len(machine.GPUDevices) > 0 && machine.VMType != "" && machine.VMType != VMTypeQ35 {
-		return fmt.Errorf("gpu_devices requires vm_type q35")
-	}
-
-	if machine.VMType == VMTypeQ35 || len(machine.GPUDevices) > 0 {
+	if GPUEnabled(machine) {
 		if machine.Sandbox != SandboxAutomatic && machine.Sandbox != SandboxMicroVM {
-			return fmt.Errorf("q35 and gpu_devices require sandbox auto or microvm")
+			return fmt.Errorf("GPU access requires sandbox auto or microvm")
 		}
 
 		if machine.MicroVMCommand != "" {
-			return fmt.Errorf("q35 and gpu_devices require the built-in VM runner")
+			return fmt.Errorf("GPU access requires the built-in VM runner")
 		}
 	}
 

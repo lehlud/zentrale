@@ -69,7 +69,7 @@ func (client *HTTPClient) gemini(ctx context.Context, request Request) (Result, 
 	}
 
 	applyReasoning(body, request, "gemini")
-	data, err := client.post(ctx, request.Config, endpoint, body, request.OnText)
+	data, err := client.post(ctx, request.Config, endpoint, body, request.stream())
 	if err != nil {
 		return Result{}, err
 	}

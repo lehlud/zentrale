@@ -373,6 +373,28 @@ for (const english of [false, true]) {
 
       await expect(live).toContainText("A partial answer");
 
+      phase = "retrying_model";
+      response({ ...second, revision: 1, text: "" });
+      durable();
+
+      await expect(live).toHaveCount(0);
+      await expect(output.getByRole("status")).toContainText(
+        label(
+          "Modellverbindung unterbrochen, neuer Versuch …",
+          "Model connection interrupted, retrying …",
+        ),
+      );
+
+      phase = "model";
+      response({ ...second, revision: 2, text: "Recovered draft" });
+      durable();
+
+      await expect(live).toContainText("Recovered draft");
+      await expect(live).not.toContainText("A partial answer");
+      await expect(output.getByRole("status")).not.toContainText(
+        label("neuer Versuch", "retrying"),
+      );
+
       const prompt = page.getByRole("textbox", {
         name: label("Aufgabe oder neue Instruktion", "Task or new instruction"),
       });
@@ -396,7 +418,12 @@ for (const english of [false, true]) {
 
       expect(stopAgent).toBe(1);
 
-      response({ ...second, revision: 1, status: "interrupted" });
+      response({
+        ...second,
+        revision: 3,
+        text: "Recovered draft",
+        status: "interrupted",
+      });
 
       await expect(live).toContainText(
         label("Antwort unterbrochen", "Response interrupted"),

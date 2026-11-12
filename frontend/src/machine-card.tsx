@@ -79,11 +79,6 @@ export function MachineCard({
                 status={observedSandbox}
                 showCheckedAt
               />
-              {machine.vmType === "q35" && (
-                <Chip size="sm" variant="soft">
-                  q35
-                </Chip>
-              )}
               {machine.singleUser && (
                 <Chip size="sm" variant="soft">
                   Single-User

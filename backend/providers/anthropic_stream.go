@@ -101,7 +101,7 @@ func (stream *anthropicStream) consume(event map[string]any) (bool, error) {
 
 func (stream *anthropicStream) result() (map[string]any, error) {
 	if !stream.stopped || len(stream.open) != 0 {
-		return nil, errors.New("provider stream ended before completion")
+		return nil, errStreamInterrupted
 	}
 
 	switch asString(stream.message["stop_reason"]) {

@@ -85,11 +85,13 @@ export function LiveAssistantResponse({
                               ? "Sandbox wird vorbereitet …"
                               : phase === "repository"
                                 ? "Repository wird vorbereitet …"
-                                : generating
-                                  ? text
-                                    ? "Schreibt …"
-                                    : "Antwort wird vorbereitet …"
-                                  : "Arbeitet …",
+                                : phase === "retrying_model"
+                                  ? "Modellverbindung unterbrochen, neuer Versuch …"
+                                  : generating
+                                    ? text
+                                      ? "Schreibt …"
+                                      : "Antwort wird vorbereitet …"
+                                    : "Arbeitet …",
           )}
         />
       )}

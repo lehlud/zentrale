@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,10 +66,20 @@ func decodeProviderResponse(response *http.Response, streaming ...streamRequest)
 
 	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
+		if truncatedProviderJSON(data) {
+			return nil, errStreamInterrupted
+		}
+
 		return nil, fmt.Errorf("invalid provider JSON: %w", err)
 	}
 
 	return result, nil
+}
+
+func truncatedProviderJSON(data []byte) bool {
+	var value any
+	err := json.NewDecoder(bytes.NewReader(data)).Decode(&value)
+	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF)
 }
 
 func hasEventStreamPrefix(body *bufio.Reader) bool {

@@ -32,7 +32,6 @@ type Machine struct {
 	Properties []string `json:"properties" yaml:"properties"`
 
 	Sandbox    string   `json:"sandbox" yaml:"sandbox"`
-	VMType     string   `json:"vmType" yaml:"vm_type"`
 	GPUDevices []string `json:"gpuDevices" yaml:"gpu_devices"`
 
 	Storage       []StorageVolume `json:"storage" yaml:"storage"`
@@ -62,7 +61,6 @@ type Pool struct {
 	SingleUser  bool `json:"singleUser" yaml:"single_user"`
 
 	Sandbox string `json:"sandbox" yaml:"sandbox"`
-	VMType  string `json:"vmType" yaml:"vm_type"`
 
 	Storage      []StorageVolume `json:"storage" yaml:"storage"`
 	QuotaCommand []string        `json:"quotaCommand" yaml:"quota_command"`

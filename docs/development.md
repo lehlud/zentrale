@@ -145,7 +145,7 @@ WebSockets, cookie isolation, navigation and service-worker scope in Chromium.
 Live tests need the actual infrastructure. Use disposable database snapshots and
 test directories, and read each test's setup before running it:
 
-- [Managed VM and q35](../backend/remote/microvm_live_test.go):
+- [Managed VM and GPUs](../backend/remote/microvm_live_test.go):
   `ZENTRALE_MICROVM_TEST_SNAPSHOT` and `ZENTRALE_MICROVM_TEST_MACHINE`.
   Optional storage and quota variables exercise extra mounts.
 - [Browser editor over SSH](../backend/webapi/editor_live_test.go): matching
