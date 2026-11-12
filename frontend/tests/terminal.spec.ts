@@ -11,7 +11,7 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
-test("wterm keystroke-to-paint stays responsive with scrollback and live conversation updates", async ({
+test("wterm stays responsive while hidden conversation pushes are suspended and resumes on close", async ({
   page,
 }, testInfo) => {
   test.setTimeout(60000);
@@ -33,7 +33,7 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
             kind,
             at: performance.now(),
             ...stats,
-            active: document.activeElement?.outerHTML.slice(0, 400),
+            active: document.activeElement?.tagName,
           }),
       );
     window.addEventListener(
@@ -114,11 +114,14 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
     return bootstrapData(query, data);
   };
   const push = await installPushFixture(page, resolve);
-  await page.route("**/graphql", (route) =>
-    route.fulfill({
+  let bootstrapReads = 0;
+  await page.route("**/graphql", (route) => {
+    const query = route.request().postDataJSON().query;
+    if (query.includes("conversationBootstrap")) bootstrapReads++;
+    return route.fulfill({
       json: { data: resolve(route.request().postDataJSON().query) },
-    }),
-  );
+    });
+  });
   let echoes = 0;
   await page.routeWebSocket("**/terminal/**", (socket) => {
     socket.onMessage((data) => {
@@ -145,6 +148,28 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
     exact: true,
   });
   await expect(screen).toContainText("SCROLLBACK_READY");
+  const bootstrapSubscription = push.frames
+    .filter(
+      (frame) =>
+        frame.type === "subscribe" &&
+        frame.query.includes("conversationBootstrap"),
+    )
+    .at(-1)!;
+  const initialSubscriptions = push.frames.filter(
+    (frame) =>
+      frame.type === "subscribe" &&
+      frame.requestId === bootstrapSubscription.requestId,
+  ).length;
+  await expect
+    .poll(() =>
+      push.frames.some(
+        (frame) =>
+          frame.type === "unsubscribe" &&
+          frame.requestId === bootstrapSubscription.requestId,
+      ),
+    )
+    .toBe(true);
+  const initialReads = bootstrapReads;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
   let revision = 0;
@@ -171,11 +196,34 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
       Math.max(...latencies),
       "No multi-second terminal stalls at 4x CPU slowdown",
     ).toBeLessThan(1000);
+    clearInterval(updates);
+    messages[messages.length - 1].wire = "";
+    messages[messages.length - 1].content =
+      "LATEST_CONVERSATION_AFTER_TERMINAL";
+    await push.push();
+    await dialog
+      .getByRole("button", { name: "Schließen", exact: true })
+      .click();
+    await expect(dialog).not.toBeVisible();
+    await expect(
+      page.getByText("LATEST_CONVERSATION_AFTER_TERMINAL", { exact: true }),
+    ).toBeVisible();
+    expect(
+      bootstrapReads,
+      "Closing uses the pushed snapshot, not another HTTP read",
+    ).toBe(initialReads);
+    expect(
+      push.frames.filter(
+        (frame) =>
+          frame.type === "subscribe" &&
+          frame.requestId === bootstrapSubscription.requestId,
+      ),
+    ).toHaveLength(initialSubscriptions + 1);
   } catch (error) {
     // Never issue another browser RPC on the failing/closing page: it can
     // consume the remaining test deadline and obscure the original failure.
     throw new Error(
-      `Terminal latency diagnostics: ${JSON.stringify({ echoes, latencies, revision, diagnostics })}\n${String(error)}`,
+      `Terminal latency diagnostics: ${JSON.stringify({ echoes, latencies, revision, diagnostics: diagnostics.slice(-6) })}\n${String(error)}`,
     );
   } finally {
     clearInterval(updates);

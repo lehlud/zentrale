@@ -1,8 +1,9 @@
 import { Button } from "@heroui/react";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
+import { useAPI } from "./api";
 
 // Keep the WASM emulator and its renderer out of the normal conversation path.
 const VMTerminal = lazy(() => import("./vm-terminal"));
@@ -17,7 +18,11 @@ export function TerminalLauncher({
   agentId?: string;
 }) {
   const { t } = useI18n();
+  const api = useAPI();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) return api.suspendConversation(projectId);
+  }, [api, open, projectId]);
   const trigger = useRef<HTMLButtonElement>(null);
   const close = () => {
     setOpen(false);

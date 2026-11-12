@@ -67,6 +67,7 @@ export class API {
   private stopped = true;
   private lastEvent: number | undefined;
   private nextSubscription = 0;
+  private hiddenConversations = new Map<string, number>();
   private subscriptions = new Map<
     string,
     {
@@ -78,6 +79,54 @@ export class API {
       }) => void;
     }
   >();
+
+  private conversationHidden(subscription: {
+    query: string;
+    variables: Record<string, unknown>;
+  }) {
+    return (
+      this.hiddenConversations.has(
+        String(subscription.variables.projectId ?? ""),
+      ) && /\bconversationBootstrap\s*\(/.test(subscription.query)
+    );
+  }
+
+  // A fullscreen terminal completely covers the conversation. Unsubscribe
+  // instead of decoding/reconciling megabyte snapshots nobody can see. Keep
+  // the last UI snapshot and restore one server-pushed snapshot on release.
+  suspendConversation(projectId: string) {
+    const previous = this.hiddenConversations.get(projectId) ?? 0;
+    this.hiddenConversations.set(projectId, previous + 1);
+    if (!previous && this.socket?.readyState === WebSocket.OPEN) {
+      for (const [requestId, subscription] of this.subscriptions) {
+        if (
+          subscription.variables.projectId === projectId &&
+          this.conversationHidden(subscription)
+        ) {
+          this.socket.send(JSON.stringify({ type: "unsubscribe", requestId }));
+        }
+      }
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.hiddenConversations.get(projectId) ?? 1) - 1;
+      if (remaining) {
+        this.hiddenConversations.set(projectId, remaining);
+        return;
+      }
+      this.hiddenConversations.delete(projectId);
+      for (const [requestId, subscription] of this.subscriptions) {
+        if (
+          subscription.variables.projectId === projectId &&
+          /\bconversationBootstrap\s*\(/.test(subscription.query)
+        ) {
+          this.sendSubscription(requestId, subscription);
+        }
+      }
+    };
+  }
 
   watch<T>(
     query: string,
@@ -111,6 +160,7 @@ export class API {
     requestId: string,
     subscription: { query: string; variables: Record<string, unknown> },
   ) {
+    if (this.conversationHidden(subscription)) return;
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(
         JSON.stringify({
@@ -291,7 +341,9 @@ export class API {
       socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "query_result") {
-          this.subscriptions.get(data.requestId)?.receive(data.result);
+          const subscription = this.subscriptions.get(data.requestId);
+          if (subscription && !this.conversationHidden(subscription))
+            subscription.receive(data.result);
           return;
         }
         if (data.type === "response_reset") {
