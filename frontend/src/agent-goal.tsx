@@ -37,11 +37,11 @@ export function AgentGoal({
   return (
     <Card
       variant="secondary"
-      className={
+      className={`p-1 ${
         compact
           ? "mx-auto mt-2 max-h-[35dvh] max-w-[96rem] overflow-y-auto"
           : "my-4"
-      }
+      }`}
       role="region"
       aria-label={t("Zielstatus")}
     >

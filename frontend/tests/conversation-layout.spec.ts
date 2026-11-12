@@ -102,6 +102,9 @@ for (const childView of [false, true]) {
       expect((await composer.boundingBox())!.width).toBeGreaterThan(1200);
       const controls = page.getByRole("group", { name: "Agentensteuerung" });
       await expect(
+        controls.getByRole("region", { name: "Zielstatus" }),
+      ).toHaveCSS("padding", "4px");
+      await expect(
         controls.getByRole("button", { name: /Arbeitsziel/ }),
       ).toContainText(goal.objective);
       await expect(

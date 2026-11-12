@@ -140,6 +140,10 @@ test("completed goals stay between their historical messages after new output an
   await expect(
     timeline.getByRole("region", { name: "Zielstatus" }),
   ).toHaveCount(1);
+  await expect(timeline.getByRole("region", { name: "Zielstatus" })).toHaveCSS(
+    "padding",
+    "4px",
+  );
   const order = () =>
     timeline
       .locator("[data-message-id], [data-goal-id]")
@@ -157,6 +161,14 @@ test("completed goals stay between their historical messages after new output an
   await page.reload();
   await expect.poll(order).toEqual(["before", "old-goal", "after", "later"]);
   await timeline.getByRole("button", { name: /Arbeitsziel/ }).click();
+  await expect(timeline.getByRole("region", { name: "Zielstatus" })).toHaveCSS(
+    "padding",
+    "4px",
+  );
+  expect(
+    (await timeline.getByRole("button", { name: /Arbeitsziel/ }).boundingBox())!
+      .height,
+  ).toBeGreaterThanOrEqual(44);
   await expect(
     page.getByText(
       "Vom Agenten formuliert. Die ursprünglichen Nutzeranweisungen gelten weiterhin.",

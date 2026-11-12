@@ -103,106 +103,120 @@ const ToolEntry = memo(function ToolEntry({
     <li className="my-1 min-w-0 border-l border-border pl-3 sm:pl-4">
       <Accordion hideSeparator className="min-w-0">
         <Accordion.Item id={message.id}>
-          <Accordion.Heading>
-            <Accordion.Trigger className="min-h-11 min-w-0 gap-2 py-1 font-mono text-xs">
-              <span
-                aria-hidden="true"
-                className={
-                  outcome.error
-                    ? "text-danger"
-                    : pending
-                      ? "text-accent"
-                      : "text-success-soft-foreground"
-                }
-              >
-                <Icon
-                  name={outcome.error ? "error" : pending ? "working" : "check"}
-                  className="size-3.5"
-                />
-              </span>
-              <span className="shrink-0 font-medium text-accent">
-                {t(call ? toolLabel(call.name, call.arguments) : "Werkzeug")}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-left font-normal text-muted">
-                {projectPath(toolSummary(call))}
-              </span>
-              <span
-                className={
-                  outcome.error
-                    ? "shrink-0 text-danger"
-                    : pending
-                      ? "shrink-0 text-accent"
-                      : "sr-only"
-                }
-              >
-                {t(
-                  denied
-                    ? "Abgelehnt"
-                    : outcome.error
-                      ? "Fehlgeschlagen"
-                      : pending
-                        ? "Arbeitet"
-                        : call &&
-                            ["create_goal", "get_goal", "update_goal"].includes(
-                              call.name,
-                            )
-                          ? "Ausgeführt"
-                          : "Abgeschlossen",
+          {({ isExpanded }) => (
+            <>
+              <Accordion.Heading>
+                <Accordion.Trigger className="min-h-11 min-w-0 gap-2 py-1 font-mono text-xs">
+                  <span
+                    aria-hidden="true"
+                    className={
+                      outcome.error
+                        ? "text-danger"
+                        : pending
+                          ? "text-accent"
+                          : "text-success-soft-foreground"
+                    }
+                  >
+                    <Icon
+                      name={
+                        outcome.error ? "error" : pending ? "working" : "check"
+                      }
+                      className="size-3.5"
+                    />
+                  </span>
+                  <span className="shrink-0 font-medium text-accent">
+                    {t(
+                      call ? toolLabel(call.name, call.arguments) : "Werkzeug",
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-left font-normal text-muted">
+                    {projectPath(toolSummary(call))}
+                  </span>
+                  <span
+                    className={
+                      outcome.error
+                        ? "shrink-0 text-danger"
+                        : pending
+                          ? "shrink-0 text-accent"
+                          : "sr-only"
+                    }
+                  >
+                    {t(
+                      denied
+                        ? "Abgelehnt"
+                        : outcome.error
+                          ? "Fehlgeschlagen"
+                          : pending
+                            ? "Arbeitet"
+                            : call &&
+                                [
+                                  "create_goal",
+                                  "get_goal",
+                                  "update_goal",
+                                ].includes(call.name)
+                              ? "Ausgeführt"
+                              : "Abgeschlossen",
+                    )}
+                  </span>
+                  <Accordion.Indicator className="shrink-0 text-muted" />
+                </Accordion.Trigger>
+              </Accordion.Heading>
+              <Accordion.Panel>
+                {isExpanded && (
+                  <Accordion.Body className="space-y-3 pb-3 pl-5">
+                    {call &&
+                      !(
+                        call.name === "create_goal" &&
+                        typeof record(
+                          record(outcome.result).goal ?? outcome.result,
+                        ).objective === "string"
+                      ) && (
+                        <ActivityRequest
+                          name={call.name}
+                          arguments={call.arguments}
+                          network={call.network}
+                          justification={call.justification}
+                          hasChanges={changes.length > 0 || hasParentChanges}
+                        />
+                      )}
+                    <ActivityResult
+                      name={call?.name || message.toolName}
+                      value={outcome.result}
+                      failed={Boolean(outcome.error)}
+                    />
+                    {outcome.error && (
+                      <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-danger [overflow-wrap:anywhere]">
+                        {t(errorSummary)}
+                      </pre>
+                    )}
+                    {message.activities?.length > 0 && (
+                      <CodeModeActivities
+                        activities={message.activities}
+                        hasChanges={changes.length > 0}
+                        parentId={message.id}
+                        onInspect={onInspect}
+                      />
+                    )}
+                    {(call?.name === "apply_patch" ||
+                      call?.name === "code_mode") &&
+                      changes.map((change) => (
+                        <FileDiff key={change.id} change={change} />
+                      ))}
+                    {showDiagnostics && call?.wire && (
+                      <Button
+                        className="min-h-11"
+                        size="sm"
+                        variant="ghost"
+                        onPress={() => onInspect(call.wire)}
+                      >
+                        {t("Schrittdetails")}
+                      </Button>
+                    )}
+                  </Accordion.Body>
                 )}
-              </span>
-              <Accordion.Indicator className="shrink-0 text-muted" />
-            </Accordion.Trigger>
-          </Accordion.Heading>
-          <Accordion.Panel>
-            <Accordion.Body className="space-y-3 pb-3 pl-5">
-              {call &&
-                !(
-                  call.name === "create_goal" &&
-                  typeof record(record(outcome.result).goal ?? outcome.result)
-                    .objective === "string"
-                ) && (
-                  <ActivityRequest
-                    name={call.name}
-                    arguments={call.arguments}
-                    network={call.network}
-                    justification={call.justification}
-                    hasChanges={changes.length > 0 || hasParentChanges}
-                  />
-                )}
-              <ActivityResult
-                name={call?.name || message.toolName}
-                value={outcome.result}
-                failed={Boolean(outcome.error)}
-              />
-              {outcome.error && (
-                <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-danger [overflow-wrap:anywhere]">
-                  {t(errorSummary)}
-                </pre>
-              )}
-              {message.activities?.length > 0 && (
-                <CodeModeActivities
-                  activities={message.activities}
-                  hasChanges={changes.length > 0}
-                  parentId={message.id}
-                  onInspect={onInspect}
-                />
-              )}
-              {(call?.name === "apply_patch" || call?.name === "code_mode") &&
-                changes.map((change) => (
-                  <FileDiff key={change.id} change={change} />
-                ))}
-              {showDiagnostics && call?.wire && (
-                <Button
-                  className="min-h-11"
-                  size="sm"
-                  variant="ghost"
-                  onPress={() => onInspect(call.wire)}
-                >
-                  {t("Schrittdetails")}
-                </Button>
-              )}
-            </Accordion.Body>
-          </Accordion.Panel>
+              </Accordion.Panel>
+            </>
+          )}
         </Accordion.Item>
       </Accordion>
       {call?.name !== "apply_patch" &&
@@ -337,42 +351,48 @@ const MessageContent = memo(function MessageContent({
     return (
       <Accordion hideSeparator className="min-w-0">
         <Accordion.Item id="request">
-          <Accordion.Heading>
-            <Accordion.Trigger className="min-h-11 gap-3 text-left text-sm">
-              <span className="min-w-0 flex-1">
-                {t(toolLabel(String(request.action)))}
-              </span>
-              <Accordion.Indicator />
-            </Accordion.Trigger>
-          </Accordion.Heading>
-          <Accordion.Panel>
-            <Accordion.Body className="space-y-4 pb-3">
-              <ActivityRequest
-                name={String(request.action)}
-                arguments={structured(request.arguments)}
-                network={
-                  typeof request.network === "boolean"
-                    ? request.network
-                    : undefined
-                }
-                justification={
-                  typeof request.justification === "string"
-                    ? request.justification
-                    : undefined
-                }
-              />
-              <ActivityFields
-                value={request}
-                omit={[
-                  "action",
-                  "arguments",
-                  "network",
-                  "justification",
-                  "mainAgentId",
-                ]}
-              />
-            </Accordion.Body>
-          </Accordion.Panel>
+          {({ isExpanded }) => (
+            <>
+              <Accordion.Heading>
+                <Accordion.Trigger className="min-h-11 gap-3 text-left text-sm">
+                  <span className="min-w-0 flex-1">
+                    {t(toolLabel(String(request.action)))}
+                  </span>
+                  <Accordion.Indicator />
+                </Accordion.Trigger>
+              </Accordion.Heading>
+              <Accordion.Panel>
+                {isExpanded && (
+                  <Accordion.Body className="space-y-4 pb-3">
+                    <ActivityRequest
+                      name={String(request.action)}
+                      arguments={structured(request.arguments)}
+                      network={
+                        typeof request.network === "boolean"
+                          ? request.network
+                          : undefined
+                      }
+                      justification={
+                        typeof request.justification === "string"
+                          ? request.justification
+                          : undefined
+                      }
+                    />
+                    <ActivityFields
+                      value={request}
+                      omit={[
+                        "action",
+                        "arguments",
+                        "network",
+                        "justification",
+                        "mainAgentId",
+                      ]}
+                    />
+                  </Accordion.Body>
+                )}
+              </Accordion.Panel>
+            </>
+          )}
         </Accordion.Item>
       </Accordion>
     );
