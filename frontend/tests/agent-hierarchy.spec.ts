@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import {
   bootstrapData,
   isTranscriptQuery,
@@ -34,13 +35,12 @@ for (const mobile of [false, true]) {
       { ...child, id: "reviewer", name: "Auto-Approver", role: "approver" },
       main,
     ];
-    await page.routeWebSocket("**/events?*", () => {});
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
       const send = (data: unknown) =>
-        route.fulfill({
-          json: { data: bootstrapData(query, data, { agents: records }) },
-        });
+        bootstrapData(query, data, { agents: records });
       if (query.includes("status{"))
         return send({ status: { authenticated: true, needsSetup: false } });
       if (query.includes("deleteResource")) {
@@ -63,6 +63,13 @@ for (const mobile of [false, true]) {
       if (query.includes("agents(projectId:"))
         return send({ project, agents: records });
       return send(config);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      const data = await resolve(query, variables);
+      if (query.trimStart().startsWith("mutation")) await push.push();
+      await route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${child.id}`);
     const menu = page.getByRole("button", { name: "Menü öffnen", exact: true });

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import {
   bootstrapData,
   isTranscriptQuery,
@@ -34,13 +35,12 @@ for (const mobile of [false, true]) {
     };
     let creations = 0;
     let renames = 0;
-    await page.routeWebSocket("**/events?*", () => {});
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
       const send = (data: unknown) =>
-        route.fulfill({
-          json: { data: bootstrapData(query, data, { agents: sessions }) },
-        });
+        bootstrapData(query, data, { agents: sessions });
       if (query.includes("createAgent(")) {
         creations++;
 
@@ -88,6 +88,13 @@ for (const mobile of [false, true]) {
       }
 
       return send(config);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      const data = await resolve(query, variables);
+      if (query.trimStart().startsWith("mutation")) await push.push();
+      await route.fulfill({ json: { data } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
     const input = page.getByRole("textbox", {
@@ -251,17 +258,14 @@ test("new conversation asks only for a project and preserves the choice after an
     name: "Neue Unterhaltung",
   };
   let attempts = 0;
-  await page.routeWebSocket("**/events?*", () => {});
-  await page.route("**/graphql", async (route) => {
-    const { query, variables = {} } = route.request().postDataJSON();
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
     const send = (data: unknown) =>
-      route.fulfill({
-        json: {
-          data: bootstrapData(query, data, {
-            project: secondProject,
-            agents: [created],
-          }),
-        },
+      bootstrapData(query, data, {
+        project: secondProject,
+        agents: [created],
       });
     if (query.includes("createAgent(")) {
       attempts++;
@@ -269,16 +273,9 @@ test("new conversation asks only for a project and preserves the choice after an
       expect(variables.projectId).toBe(secondProject.id);
 
       if (attempts === 1) {
-        return route.fulfill({
-          json: {
-            errors: [
-              {
-                message:
-                  "Die Unterhaltung konnte nicht gespeichert werden. Erneut versuchen.",
-              },
-            ],
-          },
-        });
+        throw new Error(
+          "Die Unterhaltung konnte nicht gespeichert werden. Erneut versuchen.",
+        );
       }
 
       return send({ createAgent: created });
@@ -304,6 +301,19 @@ test("new conversation asks only for a project and preserves the choice after an
     }
 
     return send({ ...config, projects: [project, secondProject] });
+  };
+  const push = await installPushFixture(page, resolve);
+  await page.route("**/graphql", async (route) => {
+    const { query, variables = {} } = route.request().postDataJSON();
+    try {
+      const data = await resolve(query, variables);
+      if (query.trimStart().startsWith("mutation")) await push.push();
+      await route.fulfill({ json: { data } });
+    } catch (error) {
+      await route.fulfill({
+        json: { errors: [{ message: (error as Error).message }] },
+      });
+    }
   });
   await page.goto("/#/projects");
   await page

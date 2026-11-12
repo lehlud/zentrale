@@ -794,6 +794,42 @@ test("provider forms preserve errors, guided login and inline model catalog", as
 test("routes, themes, languages, keyboard and recovery at desktop and mobile widths", async ({
   page,
 }, testInfo) => {
+  // Keep this a real-backend E2E: forward traffic and only inject the explicit
+  // recovery error into matching server-generated configuration snapshots.
+  let failConfiguration = false;
+  await page.routeWebSocket("**/events?*", (socket) => {
+    const server = socket.connectToServer();
+    const configurationSubscriptions = new Set<string>();
+    socket.onMessage((message) => {
+      const frame = JSON.parse(message.toString());
+      if (
+        frame.type === "subscribe" &&
+        frame.query.includes("machines(limit:500)")
+      ) {
+        configurationSubscriptions.add(frame.requestId);
+      } else if (frame.type === "unsubscribe") {
+        configurationSubscriptions.delete(frame.requestId);
+      }
+      server.send(message);
+    });
+    server.onMessage((message) => {
+      const frame = JSON.parse(message.toString());
+      if (
+        failConfiguration &&
+        frame.type === "query_result" &&
+        configurationSubscriptions.has(frame.requestId)
+      ) {
+        socket.send(
+          JSON.stringify({
+            ...frame,
+            result: { errors: [{ message: "Temporary connection failure" }] },
+          }),
+        );
+      } else {
+        socket.send(message);
+      }
+    });
+  });
   await authenticate(page);
   const consoleErrors: string[] = [];
   page.on("pageerror", (error) => consoleErrors.push(error.message));
@@ -856,6 +892,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
     page.getByRole("heading", { name: "Testmodell", exact: true }),
   ).toBeVisible();
 
+  failConfiguration = true;
   await page.route("**/graphql", async (route) => {
     if (route.request().postDataJSON().query.includes("machines(limit:500)"))
       await route.fulfill({
@@ -879,6 +916,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
     page.getByRole("heading", { name: "Testmodell", exact: true }),
   ).toBeVisible();
 
+  failConfiguration = false;
   await page.unroute("**/graphql");
   await page.getByRole("button", { name: "Try again" }).first().click();
 

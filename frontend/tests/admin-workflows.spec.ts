@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir } from "node:fs/promises";
 
 import {
@@ -44,10 +46,11 @@ for (const variant of [
     let rejectDefaults = true;
     let signInFailed = true;
     const events: string[] = [];
-    await page.routeWebSocket("**/events?*", () => {});
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
+      const send = (data: unknown) => bootstrapData(query, data);
       if (query.includes("status{")) {
         return send({
           status: {
@@ -58,7 +61,7 @@ for (const variant of [
         });
       }
 
-      if (query.includes("recentMessages")) {
+      if (isTranscriptQuery(query)) {
         return send({ ...transcript, questions: [], jobs: [] });
       }
 
@@ -68,18 +71,12 @@ for (const variant of [
 
       if (query.includes("setModelDefaults")) {
         if (rejectDefaults) {
-          return route.fulfill({
-            json: {
-              errors: [
-                {
-                  message: label(
-                    "Speichern fehlgeschlagen. Bitte erneut versuchen.",
-                    "Saving failed. Please try again.",
-                  ),
-                },
-              ],
-            },
-          });
+          throw new Error(
+            label(
+              "Speichern fehlgeschlagen. Bitte erneut versuchen.",
+              "Saving failed. Please try again.",
+            ),
+          );
         }
 
         state.modelDefaults = variables.input;
@@ -146,18 +143,23 @@ for (const variant of [
       }
 
       if (query.includes("trustHostKey")) {
-        return route.fulfill({
-          json: {
-            errors: [
-              {
-                message: label("Ungültiger SSH-Schlüssel.", "Invalid SSH key."),
-              },
-            ],
-          },
-        });
+        throw new Error(label("Ungültiger SSH-Schlüssel.", "Invalid SSH key."));
       }
 
       return send(state);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      try {
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
+      } catch (error) {
+        await route.fulfill({
+          json: { errors: [{ message: (error as Error).message }] },
+        });
+      }
     });
     const shot = async (name: string) => {
       await mkdir("artifacts/ui", { recursive: true });
