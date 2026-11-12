@@ -60,6 +60,11 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 
 	assertSelection := func(expected string) {
 		t.Helper()
+		before := probes.Load()
+		status := engine.SandboxStatus(project.MachineIDs[0])
+		if status == nil || status.Level != expected || probes.Load() != before {
+			t.Fatalf("single observation must match without probing: %+v", status)
+		}
 		statuses, err := engine.SandboxStatuses()
 		if err != nil ||
 			len(statuses) != 1 ||
@@ -133,6 +138,9 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 	statuses, err := engine.SandboxStatuses()
 	if err != nil || len(statuses) != 0 {
 		t.Fatalf("changed configuration retained an old selection: %+v, %v", statuses, err)
+	}
+	if engine.SandboxStatus(machine.ID) != nil || engine.SandboxStatus("missing") != nil || engine.SandboxStatus("") != nil {
+		t.Fatal("single observation retained stale or missing machine status")
 	}
 }
 

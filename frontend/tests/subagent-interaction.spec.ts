@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import {
   bootstrapData,
   isTranscriptQuery,
@@ -17,9 +18,10 @@ test("users can pause/resume subagents but cannot prompt them or answer their qu
 }) => {
   const child = { ...agents[2], status: "stopped" };
   const actions: string[] = [];
-  await page.routeWebSocket("**/events?*", () => {});
-  await page.route("**/graphql", async (route) => {
-    const { query, variables = {} } = route.request().postDataJSON();
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
     let data: unknown = config;
     if (query.includes("status{"))
       data = { status: { authenticated: true, needsSetup: false } };
@@ -64,11 +66,14 @@ test("users can pause/resume subagents but cannot prompt them or answer their qu
       };
     } else if (query.includes("agents(projectId:"))
       data = { project, agents: [agent, agents[1], child] };
-    await route.fulfill({
-      json: {
-        data: bootstrapData(query, data, { agents: [agent, agents[1], child] }),
-      },
-    });
+    return bootstrapData(query, data, { agents: [agent, agents[1], child] });
+  };
+  const push = await installPushFixture(page, resolve);
+  await page.route("**/graphql", async (route) => {
+    const { query, variables = {} } = route.request().postDataJSON();
+    const data = await resolve(query, variables);
+    if (query.trimStart().startsWith("mutation")) await push.push();
+    await route.fulfill({ json: { data } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${child.id}`);
   await expect(

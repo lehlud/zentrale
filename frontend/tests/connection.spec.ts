@@ -191,6 +191,13 @@ test("raw engine frames do not reload HTTP queries; subscription snapshots updat
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
   await expect.poll(() => fixture.state.configReads).toBe(2);
+  await expect
+    .poll(
+      () =>
+        fixture.subscriptionFrames.filter((frame) => frame.type === "subscribe")
+          .length,
+    )
+    .toBe(3);
   const reads = fixture.state.configReads;
   const subscriptions = fixture.subscriptionFrames.filter(
     (frame) => frame.type === "subscribe",
@@ -362,10 +369,11 @@ for (const variant of [
       }),
     ).toContainText("noch nicht gesendete Aufgabe");
     await expect(message).toBeVisible();
-    // Two durable submission attempts and one explicit readiness preparation.
-    await expect.poll(() => fixture.state.mutations).toBe(3);
-    expect(fixture.state.preparations).toBe(1);
-    expect(fixture.receiptIDs).toHaveLength(2);
+    // The durable outbox may retry while offline; readiness is server-owned,
+    // never an extra preflight mutation on each submitted prompt.
+    await expect.poll(() => fixture.state.mutations).toBeGreaterThanOrEqual(2);
+    expect(fixture.state.preparations).toBe(0);
+    expect(fixture.receiptIDs).toHaveLength(fixture.state.mutations);
     expect(new Set(fixture.receiptIDs).size).toBe(1);
     expect(pageErrors).toEqual([]);
 

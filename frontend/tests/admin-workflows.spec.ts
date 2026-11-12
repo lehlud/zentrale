@@ -287,7 +287,10 @@ for (const variant of [
 
     await page.goto("/#/providers");
     const catalog = page.getByRole("region", {
-      name: label("Sprachmodelle", "Language models"),
+      name: label(
+        "Modelle von OpenAI · Forschung",
+        "Models from OpenAI · Forschung",
+      ),
       exact: true,
     });
 

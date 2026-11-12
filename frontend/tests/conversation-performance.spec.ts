@@ -298,6 +298,23 @@ test("long conversations keep typing isolated, observers bounded and updates res
     expect(queries, "server snapshots must not cause HTTP reads").toBe(before);
   };
   // Unchanged server snapshots must retain message identity and cached rendering.
+  // Removing the live draft changes viewport geometry; wait for the virtual
+  // rows affected by that earlier action to settle before measuring snapshots.
+  let previousTimes = -1;
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const times = await page.evaluate(
+          () => (window as any).conversationPerf.times,
+        );
+        stableSamples = times === previousTimes ? stableSamples + 1 : 0;
+        previousTimes = times;
+        return stableSamples;
+      },
+      { intervals: [100], timeout: 5000 },
+    )
+    .toBeGreaterThanOrEqual(3);
   await page.evaluate(() => {
     (window as any).conversationPerf.times = 0;
   });

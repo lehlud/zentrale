@@ -3,7 +3,13 @@ import {
   messageFields,
   type Transcript,
 } from "./agent-transcript";
-import type { Agent, ModelDefaults, Project, UsageSummary } from "./generated";
+import type {
+  Agent,
+  ModelDefaults,
+  Project,
+  UsageSummary,
+  SandboxStatus,
+} from "./generated";
 
 const compactAgentFields = agentFields.replace(/\s+summary\b/, "");
 
@@ -23,6 +29,7 @@ export const conversationBootstrapQuery = `query($projectId:String!, $agentId:St
     jobs { id command status error startedAt machineId agentId timeoutMs }
     modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
     machineName sandboxMode
+    sandboxStatus { machineId mode level checkedAt error }
   }
 }`;
 
@@ -36,6 +43,7 @@ export type ConversationBootstrap = Pick<
   modelDefaults: ModelDefaults;
   machineName: string;
   sandboxMode: string;
+  sandboxStatus?: SandboxStatus | null;
 };
 
 export const emptyUsage: UsageSummary = {

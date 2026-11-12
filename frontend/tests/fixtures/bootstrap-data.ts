@@ -60,6 +60,12 @@ export function bootstrapData(
       modelDefaults: config.modelDefaults,
       machineName: config.machines[0]?.name ?? "",
       sandboxMode: config.machines[0]?.sandbox ?? "",
+      sandboxStatus:
+        ((core.sandboxStatuses ?? []) as Array<Record<string, unknown>>).find(
+          (status) =>
+            status.machineId ===
+            (core.agent as Record<string, unknown> | undefined)?.machineId,
+        ) ?? null,
     },
   };
 }

@@ -126,6 +126,7 @@ async function bootstrapAPI(page: Page, messageCount = 1) {
                 ...transcript.messages[0],
                 id: "older-bootstrap-message",
                 agentId: variables.id,
+                createdAt: "2000-01-01T00:00:00Z",
                 content: "Older bootstrap page retained after refresh",
               },
             ]
@@ -337,6 +338,8 @@ test("bootstrap history paginates with the existing cursor and retains older pag
   });
   await expect(page.locator("[data-transcript-item]")).toHaveCount(101);
   api.refresh();
+  // Virtualized rows outside the viewport are intentionally not in the DOM.
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(
     page.getByText("Older bootstrap page retained after refresh", {
       exact: true,

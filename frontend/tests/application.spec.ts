@@ -440,13 +440,13 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     page.getByText("Die Aufgabe ist abgeschlossen.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
+    page.getByText(/^Nicht durch den Auftrag gedeckt \(approvalId:/),
   ).toBeHidden();
   await page
     .getByRole("button", { name: /Befehl ausführen.*echo test.*Abgelehnt/ })
     .click();
   await expect(
-    page.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
+    page.getByText(/^Nicht durch den Auftrag gedeckt \(approvalId:/),
   ).toBeVisible();
 
   await page.getByRole("button", { name: /^Agentendetails/ }).click();
@@ -681,6 +681,38 @@ async function authenticate(page: import("@playwright/test").Page) {
 test("provider forms preserve errors, guided login and inline model catalog", async ({
   page,
 }) => {
+  const fixtureLogin = (providerId: string) => ({
+    id: "fixture-login",
+    providerId,
+    method: "device",
+    status: "pending",
+    verificationUrl: "https://auth.openai.com/codex/device",
+    userCode: "ABCD-1234",
+    interval: 5,
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    error: "",
+  });
+  let loginProvider = "";
+  // Keep this an actual backend integration. Only the explicitly mocked OAuth
+  // transaction is synthetic, including its read-only push subscription.
+  await page.routeWebSocket("**/events?*", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      const frame = JSON.parse(String(message));
+      if (
+        frame.type === "subscribe" &&
+        frame.query.includes("providerLogin(")
+      ) {
+        socket.send(
+          JSON.stringify({
+            type: "query_result",
+            requestId: frame.requestId,
+            result: { data: { providerLogin: fixtureLogin(loginProvider) } },
+          }),
+        );
+      } else server.send(message);
+    });
+  });
   await authenticate(page);
   await navigateToPage(page, "Provider");
   await page
@@ -713,25 +745,20 @@ test("provider forms preserve errors, guided login and inline model catalog", as
 
   await page.route("**/graphql", async (route) => {
     const request = route.request().postDataJSON();
-    if (request.query.includes("beginProviderLogin"))
+    if (request.query.includes("beginProviderLogin")) {
+      loginProvider = request.variables.providerId;
       await route.fulfill({
         json: {
           data: {
-            beginProviderLogin: {
-              id: "fixture-login",
-              providerId: request.variables.providerId,
-              method: "device",
-              status: "pending",
-              verificationUrl: "https://auth.openai.com/codex/device",
-              userCode: "ABCD-1234",
-              interval: 5,
-              expiresAt: new Date(Date.now() + 60000).toISOString(),
-              error: "",
-            },
+            beginProviderLogin: fixtureLogin(loginProvider),
           },
         },
       });
-    else await route.continue();
+    } else if (request.query.includes("providerLogin(")) {
+      await route.fulfill({
+        json: { data: { providerLogin: fixtureLogin(loginProvider) } },
+      });
+    } else await route.continue();
   });
   await page
     .getByRole("button", { name: "Provider hinzufügen", exact: true })

@@ -1,5 +1,6 @@
 import { Icon } from "./icons";
 import { Button, Dropdown, Label } from "@heroui/react";
+import { useEffect, useRef } from "react";
 
 import type { Agent } from "./generated";
 import { useI18n } from "./preferences";
@@ -22,17 +23,25 @@ export function AgentSwitcher({
   const conversations = agents.filter((agent) => agent.role !== "approver");
   const selected =
     current?.role === "approver" ? current.parentId : current?.id;
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    // The previous menu restores focus as it closes. Wait until that cleanup
+    // has completed before focusing the newly mounted conversation's trigger.
+    const frame = requestAnimationFrame(() => {
+      trigger.current?.focus({ preventScroll: true });
+      onFocus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus, current?.id, onFocus]);
 
   return (
     <Dropdown>
       <Button
+        ref={trigger}
         variant="ghost"
         className="min-h-11 min-w-0 max-w-full shrink justify-start px-2 text-base font-medium"
         aria-label={t("Agent wechseln: {name}", { name })}
-        autoFocus={autoFocus}
-        onFocus={() => {
-          if (autoFocus) onFocus();
-        }}
       >
         <span className="min-w-0 truncate">{name}</span>
         <Icon name="chevron" className="size-4 text-muted" />

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -34,7 +35,6 @@ for (const variant of [
       localStorage.setItem("zentrale-locale", locale);
       localStorage.setItem("zentrale-theme", theme);
     }, variant);
-    await page.routeWebSocket("**/events?*", () => {});
     let selection: string | undefined;
     const observation = () => ({
       machineId: config.machines[0].id,
@@ -46,22 +46,17 @@ for (const variant of [
           ? "Sandbox probe unavailable. Test the connection again."
           : "",
     });
-    await page.route("**/graphql", async (route) => {
-      const { query } = route.request().postDataJSON();
+    const resolve = async (query: string) => {
       if (query.includes("testMachine")) {
         selection = "bwrap";
-        return route.fulfill({
-          json: {
-            data: {
-              testMachine: {
-                connected: true,
-                error: "",
-                hostKey: { host: "", fingerprint: "", publicKey: "" },
-                sandbox: observation(),
-              },
-            },
+        return {
+          testMachine: {
+            connected: true,
+            error: "",
+            hostKey: { host: "", fingerprint: "", publicKey: "" },
+            sandbox: observation(),
           },
-        });
+        };
       }
 
       const data = query.includes("status{")
@@ -73,12 +68,24 @@ for (const variant of [
             },
           }
         : isTranscriptQuery(query)
-          ? { ...transcript, jobs: [], questions: [] }
+          ? {
+              ...transcript,
+              jobs: [],
+              questions: [],
+              sandboxStatuses: selection ? [observation()] : [],
+            }
           : query.includes("agents(projectId:")
             ? { project, agents }
             : { ...config, sandboxStatuses: selection ? [observation()] : [] };
 
-      return route.fulfill({ json: { data: bootstrapData(query, data) } });
+      return bootstrapData(query, data);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query } = route.request().postDataJSON();
+      const data = await resolve(query);
+      if (query.trimStart().startsWith("mutation")) await push.push();
+      await route.fulfill({ json: { data } });
     });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -112,6 +119,7 @@ for (const variant of [
     await mkdir("artifacts/ui", { recursive: true });
     for (const level of ["bwrap", "microvm", "none", "error"]) {
       selection = level;
+      await push.push();
       const label =
         level === "error"
           ? english

@@ -92,6 +92,27 @@ func (engine *Engine) CheckMachineConnection(ctx context.Context, machineID stri
 	return result
 }
 
+// SandboxStatus reads one saved observation against current configuration, with
+// no SSH or probe. The bootstrap need not load every machine's observations.
+func (engine *Engine) SandboxStatus(machineID string) *domain.SandboxStatus {
+	if machineID == "" {
+		return nil
+	}
+	engine.configMu.Lock()
+	defer engine.configMu.Unlock()
+	machine, err := engine.Remote.Connector.Machine(machineID)
+	if err != nil {
+		return nil
+	}
+	var record recordedSandboxStatus
+	if engine.Store.Load("sandboxStatus", machineID, &record) != nil ||
+		record.Configuration != JSON(remote.WithMachineDefaults(machine)) ||
+		record.Implementation != remote.SandboxImplementationID() {
+		return nil
+	}
+	return &record.SandboxStatus
+}
+
 // SandboxStatuses reads configuration in batches and does no SSH work. Changed
 // or removed machines have no current observation until their next real check.
 func (engine *Engine) SandboxStatuses() ([]domain.SandboxStatus, error) {

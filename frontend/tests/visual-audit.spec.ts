@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import {
   bootstrapData,
   isTranscriptQuery,
@@ -93,7 +94,6 @@ for (const variant of variants) {
       localStorage.setItem("zentrale-theme", theme);
     }, variant);
     // UI fixtures never contact providers, SSH machines, or authentication services.
-    await page.context().routeWebSocket("**/events?*", () => {});
     let state: "populated" | "empty" | "error" | "loading" = "populated";
     let auth: "authenticated" | "login" | "setup" = "authenticated";
     let loginError = false;
@@ -109,10 +109,11 @@ for (const variant of variants) {
       publicKey: config.trustedKeys[0].publicKey,
     };
     const noHostKey = { host: "", fingerprint: "", publicKey: "" };
-    await page.context().route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) =>
-        route.fulfill({ json: { data: bootstrapData(query, data) } });
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
+      const send = (data: unknown) => bootstrapData(query, data);
       if (query.includes("status{")) {
         return send({
           status: {
@@ -125,11 +126,11 @@ for (const variant of variants) {
 
       if (
         query.includes("beginProviderLogin") ||
-        query.includes("pollProviderLogin")
+        query.includes("providerLogin(")
       ) {
         const key = query.includes("beginProviderLogin")
           ? "beginProviderLogin"
-          : "pollProviderLogin";
+          : "providerLogin";
         return send({
           [key]: {
             id: "login",
@@ -245,35 +246,23 @@ for (const variant of variants) {
       }
 
       if (query.startsWith("mutation")) {
-        return route.fulfill({
-          json: {
-            errors: [
-              {
-                message: english
-                  ? "Saving failed. Please try again."
-                  : "Speichern fehlgeschlagen. Bitte erneut versuchen.",
-              },
-            ],
-          },
-        });
+        throw new Error(
+          english
+            ? "Saving failed. Please try again."
+            : "Speichern fehlgeschlagen. Bitte erneut versuchen.",
+        );
       }
 
       if (state === "loading") {
-        return;
+        return new Promise<never>(() => {});
       }
       // Released by navigation; deliberately pending read.
       if (state === "error") {
-        return route.fulfill({
-          json: {
-            errors: [
-              {
-                message: english
-                  ? "The connection was interrupted. Please try again."
-                  : "Die Verbindung wurde unterbrochen. Bitte erneut versuchen.",
-              },
-            ],
-          },
-        });
+        throw new Error(
+          english
+            ? "The connection was interrupted. Please try again."
+            : "Die Verbindung wurde unterbrochen. Bitte erneut versuchen.",
+        );
       }
 
       if (query.includes("machines(limit:500)")) {
@@ -346,6 +335,9 @@ for (const variant of variants) {
         });
       }
 
+      if (query.includes("projects(limit:500)"))
+        return send({ projects: state === "empty" ? [] : config.projects });
+
       if (query.includes("sources(projectId:")) {
         return send({
           sources: state === "empty" ? [] : sources,
@@ -378,6 +370,19 @@ for (const variant of variants) {
       }
 
       throw new Error(`Missing visual fixture: ${query}`);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.context().route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      try {
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
+      } catch (error) {
+        await route.fulfill({
+          json: { errors: [{ message: String((error as Error).message) }] },
+        });
+      }
     });
     await page.context().route("**/ide/**", (route) =>
       route.fulfill({

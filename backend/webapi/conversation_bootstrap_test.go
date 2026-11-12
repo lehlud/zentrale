@@ -7,7 +7,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lehlud/zentrale/agent"
+	"github.com/lehlud/zentrale/remote"
 )
+
+func TestConversationBootstrapIncludesSavedSandboxObservation(t *testing.T) {
+	f := bootstrapFixture(t)
+	saveBootstrapResource(t, f, "project", "sandbox-project", "", map[string]any{"name": "Sandbox"})
+	saveBootstrapResource(t, f, "machine", "sandbox-machine", "", map[string]any{"name": "Worker", "host": "unused.invalid", "sandbox": "auto"})
+	saveBootstrapResource(t, f, "agent", "sandbox-agent", "sandbox-project", map[string]any{"projectId": "sandbox-project", "role": "main", "machineId": "sandbox-machine"})
+	machine, err := f.engine.Remote.Connector.Machine("sandbox-machine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saveBootstrapResource(t, f, "sandboxStatus", machine.ID, "", map[string]any{
+		"machineId": machine.ID, "mode": "auto", "level": "bwrap", "checkedAt": "2026-01-01T00:00:00Z",
+		"configuration": agent.JSON(remote.WithMachineDefaults(machine)), "implementation": remote.SandboxImplementationID(),
+	})
+	response := f.query(t, `query{conversationBootstrap(projectId:"sandbox-project"){sandboxMode sandboxStatus{machineId mode level checkedAt error}}}`, nil)
+	data := requireData(t, response)["conversationBootstrap"].(map[string]any)
+	status, ok := data["sandboxStatus"].(map[string]any)
+	if !ok || status["machineId"] != machine.ID || status["level"] != "bwrap" || status["mode"] != "auto" {
+		t.Fatalf("saved observation lost during bootstrap: %v", response)
+	}
+}
 
 func TestConversationBootstrapDoesNotTransferStoredDetailMegabytes(t *testing.T) {
 	f := bootstrapFixture(t)

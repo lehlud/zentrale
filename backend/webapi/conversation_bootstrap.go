@@ -16,11 +16,12 @@ import (
 func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields) *graphql.Field {
 	server := builder.server
 	fields := graphql.Fields{
-		"project":     {Type: graphql.NewNonNull(builder.output(reflect.TypeFor[domain.Project]()))},
-		"agents":      {Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.Agent]()))))},
-		"agent":       {Type: builder.output(reflect.TypeFor[domain.Agent]())},
-		"machineName": {Type: graphql.NewNonNull(graphql.String)},
-		"sandboxMode": {Type: graphql.NewNonNull(graphql.String)},
+		"project":       {Type: graphql.NewNonNull(builder.output(reflect.TypeFor[domain.Project]()))},
+		"agents":        {Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.Agent]()))))},
+		"agent":         {Type: builder.output(reflect.TypeFor[domain.Agent]())},
+		"machineName":   {Type: graphql.NewNonNull(graphql.String)},
+		"sandboxMode":   {Type: graphql.NewNonNull(graphql.String)},
+		"sandboxStatus": {Type: builder.output(reflect.TypeFor[domain.SandboxStatus]())},
 	}
 	for name, original := range map[string]string{
 		"messages": "recentMessages", "goal": "goal", "agentInputs": "agentInputs",
@@ -104,6 +105,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 				}
 			}
 			var selected any
+			var sandboxStatus any
 			var machine map[string]any
 			if id != "" {
 				var agent domain.Agent
@@ -114,6 +116,9 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 					return nil, errors.New("agent does not belong to project")
 				}
 				selected = mapOf(agent)
+				if status := server.Engine.SandboxStatus(agent.MachineID); status != nil {
+					sandboxStatus = mapOf(*status)
+				}
 				if agent.MachineID != "" {
 					// Metadata only: never contact a host or enumerate providers.
 					_ = server.Store.LoadFields("machine", agent.MachineID, &machine, []string{"name", "sandbox"})
@@ -122,7 +127,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			name, _ := machine["name"].(string)
 			mode, _ := machine["sandbox"].(string)
 			return map[string]any{"project": mapOf(project), "agents": rows, "agent": selected,
-				"agentId": id, "machineName": name, "sandboxMode": mode}, nil
+				"agentId": id, "machineName": name, "sandboxMode": mode, "sandboxStatus": sandboxStatus}, nil
 		}),
 	}
 }

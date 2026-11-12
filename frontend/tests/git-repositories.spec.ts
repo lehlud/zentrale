@@ -58,6 +58,10 @@ test("GitHub workflow reauthorization is visible and clears after consent", asyn
       return send({ status: { needsSetup: false, authenticated: true } });
     }
     if (query.includes("machines(limit:500)")) return send(config);
+    // The sidebar now has its own compact initial read. An empty HTTP data
+    // object can win the race with its socket snapshot and crash the shell.
+    if (query.includes("projects(limit:500)"))
+      return send({ projects: config.projects });
     if (query.includes("gitConnections")) {
       return send({ gitConnections: connections });
     }
@@ -270,6 +274,10 @@ for (const english of [false, true]) {
 
       if (query.includes("machines(limit:500)")) {
         return send(data);
+      }
+
+      if (query.includes("projects(limit:500)")) {
+        return send({ projects: data.projects });
       }
 
       if (query.includes("gitConnections")) {

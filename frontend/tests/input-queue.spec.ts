@@ -135,7 +135,6 @@ for (const english of [false, true]) {
       await page.route("**/graphql", async (route) => {
         const { query, variables = {} } = route.request().postDataJSON();
         const data = await resolve(query, variables);
-        if (query.trimStart().startsWith("mutation")) await push.push();
         if (
           query.includes("submitInput(") &&
           variables.text === "LOST_RECEIPT" &&
@@ -144,6 +143,7 @@ for (const english of [false, true]) {
           loseResponse = false;
           return route.abort("failed");
         }
+        if (query.trimStart().startsWith("mutation")) await push.push();
         await route.fulfill({ json: { data } });
       });
       await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);

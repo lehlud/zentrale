@@ -109,6 +109,7 @@ export function Workspace({
             initialTranscript={bootstrapTranscript(bootstrap)}
             managedTranscript
             sandboxMode={bootstrap.sandboxMode}
+            sandboxStatus={bootstrap.sandboxStatus ?? undefined}
             machineName={bootstrap.machineName}
           />
         )

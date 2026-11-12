@@ -6342,6 +6342,14 @@
             }
           },
           {
+            "name": "sandboxStatus",
+            "type": {
+              "kind": "OBJECT",
+              "name": "SandboxStatus",
+              "ofType": null
+            }
+          },
+          {
             "name": "sandboxMode",
             "type": {
               "kind": "NON_NULL",

@@ -44,7 +44,7 @@ test("provider device login subscribes once and receives completion without brow
     }
     return send(reads(query, variables));
   });
-  await page.goto("/#/settings");
+  await page.goto("/#/providers");
   const account = await chooseProviderAccount(page, "ChatGPT · Team");
   await account
     .getByRole("button", { name: /^(Anmelden|Sign in)$/, exact: true })

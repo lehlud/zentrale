@@ -78,6 +78,7 @@ export type ConversationBootstrap = {
   project: Project;
   questions: Array<Question | null> | null;
   sandboxMode: string;
+  sandboxStatus: SandboxStatus | null;
 };
 export type EditorSession = {
   agentId: string;
