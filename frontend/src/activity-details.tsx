@@ -200,6 +200,7 @@ export function ActivityRequest({
         <CodeSnippet
           text={code}
           label={name === "code_mode" ? "JavaScript" : "Python"}
+          formatJavaScript={name === "code_mode"}
         />
       )}
       {patch !== undefined && (!hasChanges || showDiagnostics) && (

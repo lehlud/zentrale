@@ -144,7 +144,7 @@ for (const english of [false, true]) {
         { callId: "verify", toolName: "exec_command" },
       ),
       call("combined", "code_mode", {
-        code: 'const read = await tools.read_file({path:"answer.py"});\nprint(read.content.includes("42"));',
+        code: 'const read=await tools.read_file({path:"answer.py"});print(read.content.includes("42"));',
       }),
       message(
         "tool",
@@ -286,6 +286,15 @@ for (const english of [false, true]) {
       name: label("Ausgeführte Werkzeuge", "Executed tools"),
       exact: true,
     });
+
+    const javascript = output.getByLabel(
+      label("Codeblock: JavaScript", "Code block: JavaScript"),
+      { exact: true },
+    );
+    await expect(javascript).toContainText(
+      'const read = await tools.read_file({ path: "answer.py" });',
+    );
+    await expect(javascript).not.toHaveAttribute("aria-busy", "true");
 
     await expect(activity.getByRole("listitem")).toHaveCount(2);
 

@@ -67,8 +67,10 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	})
 
 	// A successful check is valid for this live SSH connection and exact source
-	// configuration. Model rounds reuse it; explicit checks, editors, reconnects
-	// and changed sources still inspect the working tree before proceeding.
+	// configuration. Model rounds reuse it; explicit checks, reconnects and
+	// changed sources inspect the working tree before proceeding. Editors may
+	// bypass this function only after validating the complete readiness key and
+	// live native VM generation, never from this source fingerprint alone.
 	key, err := engine.sourceReadinessKey(project, sources)
 	if err != nil {
 		return err

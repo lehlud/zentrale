@@ -15,10 +15,34 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
   page,
 }, testInfo) => {
   test.setTimeout(60000);
+  const diagnostics: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().startsWith("TERMINAL_TRACE ")) {
+      diagnostics.push(message.text());
+      if (diagnostics.length > 200) diagnostics.shift();
+    }
+  });
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
   await page.addInitScript(() => {
     const stats = { sent: 0, received: 0, lastReceived: "" };
     Object.assign(window, { terminalTransportStats: stats });
+    const trace = (kind: string) =>
+      console.debug(
+        "TERMINAL_TRACE " +
+          JSON.stringify({
+            kind,
+            at: performance.now(),
+            ...stats,
+            active: document.activeElement?.outerHTML.slice(0, 400),
+          }),
+      );
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "x") trace("keydown");
+      },
+      true,
+    );
     const NativeSocket = window.WebSocket;
     window.WebSocket = class extends NativeSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
@@ -30,10 +54,14 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
               event.data instanceof ArrayBuffer
                 ? new TextDecoder().decode(event.data).slice(-200)
                 : String(event.data).slice(-200);
+            trace("received");
           });
       }
       send(data: Parameters<WebSocket["send"]>[0]) {
-        if (this.url.includes("/terminal/")) stats.sent++;
+        if (this.url.includes("/terminal/")) {
+          stats.sent++;
+          trace("sent");
+        }
         super.send(data);
       }
     };
@@ -144,25 +172,30 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
       "No multi-second terminal stalls at 4x CPU slowdown",
     ).toBeLessThan(1000);
   } catch (error) {
-    const browser = await screen.evaluate((element) => ({
-      active: document.activeElement?.outerHTML.slice(0, 600),
-      tail: element.textContent?.slice(-500),
-      scrollTop: element.scrollTop,
-      scrollHeight: element.scrollHeight,
-      clientHeight: element.clientHeight,
-      transport: (window as any).terminalTransportStats,
-    }));
+    // Never issue another browser RPC on the failing/closing page: it can
+    // consume the remaining test deadline and obscure the original failure.
     throw new Error(
-      `Terminal latency diagnostics: ${JSON.stringify({ echoes, latencies, revision, browser })}\n${String(error)}`,
+      `Terminal latency diagnostics: ${JSON.stringify({ echoes, latencies, revision, diagnostics })}\n${String(error)}`,
     );
   } finally {
     clearInterval(updates);
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-    await cdp.detach();
     await testInfo.attach("terminal-keystroke-to-paint.json", {
-      body: JSON.stringify({ latencies, backgroundUpdates: revision }),
+      body: JSON.stringify({
+        latencies,
+        backgroundUpdates: revision,
+        echoes,
+        diagnostics,
+      }),
       contentType: "application/json",
     });
+    // A closed target must not replace the useful latency assertion.
+    await Promise.race([
+      cdp
+        .send("Emulation.setCPUThrottlingRate", { rate: 1 })
+        .then(() => cdp.detach())
+        .catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 500)),
+    ]);
   }
 });
 

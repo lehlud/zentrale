@@ -73,14 +73,42 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	if prepares.Load() != initialPrepare || stages.Load() != initialStage || probes.Load() != initialProbe+3 || engine.RunState(record.ID).Phase != "ready" {
 		t.Fatal("warm turns repeated setup", prepares.Load(), stages.Load(), probes.Load(), engine.RunState(record.ID))
 	}
+	openWorkspace := func(agentID string) error {
+		_, err := engine.withEditorEnvironment(ctx, project.ID, agentID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, resolved domain.Project, target remote.EditorTarget) (domain.EditorSession, error) {
+			if target.AgentID != record.ID || target.TemporaryDirectory != agentTemporaryDirectory(record.ID) {
+				t.Errorf("editor/terminal did not reuse owner scope: %+v", target)
+			}
+			return domain.EditorSession{}, nil
+		})
+		return err
+	}
+	child := domain.Agent{ID: "warm-editor-child", ProjectID: project.ID, ParentID: record.ID, Role: "child"}
+	if err := engine.Store.Save("agent", child.ID, project.ID, child); err != nil {
+		t.Fatal(err)
+	}
+	beforeProbes := probes.Load()
+	for _, selection := range []string{record.ID, "", child.ID} {
+		if err := openWorkspace(selection); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if prepares.Load() != initialPrepare || stages.Load() != initialStage || probes.Load() != beforeProbes+3 {
+		t.Fatal("warm editor/terminal repeated VM or source preparation", prepares.Load(), stages.Load(), probes.Load())
+	}
 	if result := engine.CheckAgentConnection(ctx, record.ID); !result.Connected || prepares.Load() != initialPrepare+1 {
 		t.Fatal("explicit check skipped setup", result, prepares.Load())
 	}
 	// Reset/recovery creates a new native boot generation even on the same SSH.
 	generation.Store(strings.Repeat("b", 64))
 	before := prepares.Load()
-	if err := engine.requireConnection(ctx, record.ID); err != nil || prepares.Load() != before+1 {
-		t.Fatal("generation change reused readiness", err, prepares.Load())
+	if err := openWorkspace(record.ID); err != nil || prepares.Load() != before+1 {
+		t.Fatal("editor/terminal generation change reused readiness", err, prepares.Load())
+	}
+	// The cold editor path itself must establish readiness for the next open.
+	before = prepares.Load()
+	beforeStages := stages.Load()
+	if err := openWorkspace(record.ID); err != nil || prepares.Load() != before || stages.Load() != beforeStages {
+		t.Fatal("editor did not retain validated readiness", err, prepares.Load(), stages.Load())
 	}
 	operation := engine.vmOperation(record.ID, machine.ID)
 	if err := operation.Lock(ctx); err != nil {

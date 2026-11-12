@@ -1,23 +1,45 @@
 import { Button } from "@heroui/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useI18n } from "./preferences";
 import { SourceCode } from "./syntax";
 
-// Preserve the exact contents for copying. Only the visual line wrapping changes
-// between source files and terminal output.
+// Preserve original contents for copying, even when the optional JavaScript
+// display is formatted. The stored/executed/reviewed tool source never changes.
 export function CodeSnippet({
   text,
   label,
   wrap = false,
+  formatJavaScript = false,
 }: {
   text: string;
   label: string;
   wrap?: boolean;
+  formatJavaScript?: boolean;
 }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [formatted, setFormatted] = useState<{
+    source: string;
+    text: string;
+  }>();
+  useEffect(() => {
+    if (!formatJavaScript) return;
+    let disposed = false;
+    void import("./format-javascript")
+      .then((formatter) => formatter.formatJavaScript(text))
+      .catch(() => text)
+      .then((display) => {
+        if (!disposed) setFormatted({ source: text, text: display });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [formatJavaScript, text]);
+  const formatting = formatJavaScript && formatted?.source !== text;
+  const display =
+    formatJavaScript && formatted?.source === text ? formatted.text : text;
 
   return (
     <figure className="my-3 min-w-0 overflow-hidden rounded-lg border border-border bg-background">
@@ -41,12 +63,13 @@ export function CodeSnippet({
         </Button>
       </figcaption>
       <pre
+        aria-busy={formatting || undefined}
         tabIndex={0}
         aria-label={t("Codeblock: {language}", { language: label })}
         className={`min-w-0 p-3 font-mono text-xs leading-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:p-4 ${wrap ? "whitespace-pre-wrap! break-words [overflow-wrap:anywhere]" : "overflow-x-auto whitespace-pre!"}`}
       >
         <code>
-          <SourceCode text={text} language={label} />
+          <SourceCode text={display} language={label} />
         </code>
       </pre>
       {failed && (

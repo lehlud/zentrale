@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
@@ -30,17 +32,19 @@ func (engine *Engine) editorSelection(projectID, agentID string) (domain.Project
 		return project, selected, err
 	}
 
-	records, err := engine.listAll("agent", &projectID)
-	if err != nil {
-		return project, selected, err
-	}
-
-	for _, record := range records {
-		if stringArg(record, "role") != "approver" && stringArg(record, "parentId") == "" {
-			if err := decode(JSON(record), &selected); err != nil {
+	// Selecting a default owner must not decode every agent's large summary.
+	for offset := 0; ; offset += 500 {
+		records, err := engine.Store.ListFields("agent", &projectID, 500, offset, []string{"id", "role", "parentId"})
+		if err != nil {
+			return project, selected, err
+		}
+		for _, record := range records {
+			if stringArg(record, "role") != "approver" && stringArg(record, "parentId") == "" {
+				err := engine.Store.Load("agent", stringArg(record, "id"), &selected)
 				return project, selected, err
 			}
-
+		}
+		if len(records) < 500 {
 			break
 		}
 	}
@@ -69,6 +73,24 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 // existing project, agent and VM activity guards until use returns. Terminal
 // callers deliberately keep use running until the PTY has been closed.
 func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agentID string, use func(context.Context, *remote.Connection, domain.Machine, domain.Project, remote.EditorTarget) (domain.EditorSession, error)) (domain.EditorSession, error) {
+	started, phaseStarted := time.Now(), time.Now()
+	phaseTimes := map[string]int64{}
+	mark := func(phase string) {
+		phaseTimes[phase] = time.Since(phaseStarted).Milliseconds()
+		phaseStarted = time.Now()
+	}
+	preparationFinished, ready := false, false
+	finishPreparation := func() {
+		if !preparationFinished {
+			preparationFinished = true
+			// Preparation only: an open terminal can keep use() alive for hours.
+			// Phase durations distinguish warm validation/source preparation from
+			// VM setup (which may include a boot), not an assumed kernel boot time.
+			slog.Info("workspace environment preparation", "project", projectID, "agent", agentID,
+				"warm", ready, "duration_ms", time.Since(started).Milliseconds(), "phases_ms", phaseTimes)
+		}
+	}
+	defer finishPreparation()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -130,6 +152,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	if err != nil {
 		return domain.EditorSession{}, err
 	}
+	mark("selection_and_identity")
 
 	var connection *remote.Connection
 	var machine domain.Machine
@@ -155,6 +178,26 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	if err != nil {
 		return domain.EditorSession{}, err
 	}
+	mark("connection")
+	if selected.ID != "" {
+		_, ready = engine.reuseReadyConnection(ctx, selected, connection, machine, project)
+		// A changed fingerprint or boot invalidates the transport's resolved
+		// placement/storage as well as sources. Reconnect before cold preparation.
+		if entry := engine.connectionEntry(selected.ID); entry != nil {
+			entry.mutex.Lock()
+			reconnect := entry.connection == nil
+			entry.mutex.Unlock()
+			if reconnect {
+				ready = false // A readiness proof belongs to the old transport.
+				connection.Close()
+				connection, machine, project, err = engine.connect(ctx, selected)
+				if err != nil {
+					return domain.EditorSession{}, err
+				}
+			}
+		}
+	}
+	mark("readiness_validation")
 	defer connection.Close()
 	// Cached agent connections may expire independently while a terminal is
 	// still open. Retain the selected pool/GPU lease for this whole operation.
@@ -173,42 +216,58 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		return domain.EditorSession{}, errors.New("create a conversation before starting a GPU-backed editor")
 	}
 
-	if err := remote.CheckRuntime(ctx, connection); err != nil {
-		return domain.EditorSession{}, err
-	}
-
 	temporary := agentTemporaryDirectory(scope)
-	if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
-		return domain.EditorSession{}, err
-	}
-
-	status := remote.InspectSandbox(ctx, connection, machine)
-	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
-		if err := engine.rememberMicroVM(domain.Agent{ID: scope, ProjectID: project.ID}, machine, project, status.Level); err != nil {
+	if !ready {
+		if err := remote.CheckRuntime(ctx, connection); err != nil {
 			return domain.EditorSession{}, err
 		}
-		_, err = engine.manageVM(ctx, connection, machine, "prepare", remote.Execution{
-			AgentID:            scope,
-			ProjectID:          project.ID,
-			Workspace:          project.Directory,
-			TemporaryDirectory: temporary,
-		})
-		if err != nil {
-			status.Error = err.Error()
+		mark("runtime_check")
+
+		if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
+			return domain.EditorSession{}, err
 		}
-	}
+		mark("workspace")
 
-	if err := engine.rememberSandboxStatus(machine, status); err != nil {
-		return domain.EditorSession{}, err
-	}
+		status := remote.InspectSandbox(ctx, connection, machine)
+		mark("sandbox_inspection")
+		preparedBootID := ""
+		if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
+			if err := engine.rememberMicroVM(domain.Agent{ID: scope, ProjectID: project.ID}, machine, project, status.Level); err != nil {
+				return domain.EditorSession{}, err
+			}
+			var proof map[string]any
+			proof, err = engine.manageVM(ctx, connection, machine, "prepare", remote.Execution{
+				AgentID:            scope,
+				ProjectID:          project.ID,
+				Workspace:          project.Directory,
+				TemporaryDirectory: temporary,
+			})
+			if err != nil {
+				status.Error = err.Error()
+			} else {
+				preparedBootID = stringArg(proof, "bootId")
+			}
+		}
+		mark("vm_prepare")
 
-	if status.Error != "" {
-		return domain.EditorSession{}, errors.New(status.Error)
-	}
+		if err := engine.rememberSandboxStatus(machine, status); err != nil {
+			return domain.EditorSession{}, err
+		}
 
-	if err := engine.prepareProjectSources(ctx, connection, machine, project, scope); err != nil {
-		return domain.EditorSession{}, err
+		if status.Error != "" {
+			return domain.EditorSession{}, errors.New(status.Error)
+		}
+
+		if err := engine.prepareProjectSources(ctx, connection, machine, project, scope); err != nil {
+			return domain.EditorSession{}, err
+		}
+		mark("sources_and_credentials")
+		if selected.ID != "" {
+			engine.rememberReadyConnection(ctx, selected, connection, machine, project, status, preparedBootID)
+		}
+		mark("readiness_receipt")
 	}
+	finishPreparation()
 
 	return use(
 		ctx,
