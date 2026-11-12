@@ -16,6 +16,28 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
 }, testInfo) => {
   test.setTimeout(60000);
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  await page.addInitScript(() => {
+    const stats = { sent: 0, received: 0, lastReceived: "" };
+    Object.assign(window, { terminalTransportStats: stats });
+    const NativeSocket = window.WebSocket;
+    window.WebSocket = class extends NativeSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        if (String(url).includes("/terminal/"))
+          this.addEventListener("message", (event) => {
+            stats.received++;
+            stats.lastReceived =
+              event.data instanceof ArrayBuffer
+                ? new TextDecoder().decode(event.data).slice(-200)
+                : String(event.data).slice(-200);
+          });
+      }
+      send(data: Parameters<WebSocket["send"]>[0]) {
+        if (this.url.includes("/terminal/")) stats.sent++;
+        super.send(data);
+      }
+    };
+  });
   const messages = Array.from({ length: 1000 }, (_, index) => ({
     ...transcript.messages[0],
     id: `terminal-perf-${index}`,
@@ -121,6 +143,18 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
       Math.max(...latencies),
       "No multi-second terminal stalls at 4x CPU slowdown",
     ).toBeLessThan(1000);
+  } catch (error) {
+    const browser = await screen.evaluate((element) => ({
+      active: document.activeElement?.outerHTML.slice(0, 600),
+      tail: element.textContent?.slice(-500),
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      transport: (window as any).terminalTransportStats,
+    }));
+    throw new Error(
+      `Terminal latency diagnostics: ${JSON.stringify({ echoes, latencies, revision, browser })}\n${String(error)}`,
+    );
   } finally {
     clearInterval(updates);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
