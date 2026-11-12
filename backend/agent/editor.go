@@ -160,7 +160,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	leaseOwner := selected.ID
 
 	if selected.ID != "" {
-		connection, machine, project, err = engine.connect(ctx, selected)
+		connection, machine, project, err = engine.connectWithEditorCandidate(ctx, selected, true)
 	} else {
 		owner := "ide-prepare:" + scope + ":" + rand.Text()
 		leaseOwner = owner
@@ -185,7 +185,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		// placement/storage as well as sources. Reconnect before cold preparation.
 		if entry := engine.connectionEntry(selected.ID); entry != nil {
 			entry.mutex.Lock()
-			reconnect := entry.connection == nil
+			reconnect := entry.connection == nil || entry.connection.Client != connection.Client
 			entry.mutex.Unlock()
 			if reconnect {
 				ready = false // A readiness proof belongs to the old transport.

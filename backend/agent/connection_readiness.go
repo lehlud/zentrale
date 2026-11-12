@@ -175,11 +175,14 @@ func (engine *Engine) reuseReadyConnection(ctx context.Context, record domain.Ag
 	}
 	// Changed generation/credentials also require fresh repository credentials.
 	entry.mutex.Lock()
-	entry.ready, entry.sourcesKey = nil, ""
-	entry.mutex.Unlock()
 	// A changed project/storage/jump/credential scope must also re-resolve host
 	// placement and storage, rather than carrying stale prepared mount objects.
-	engine.releaseConnection(record.ID)
+	// But this probe owns only its snapshot: a concurrent reconnect or explicit
+	// preparation may already have installed a newer receipt/transport.
+	if entry.ready == previous && entry.connection != nil && entry.connection.Client == connection.Client {
+		engine.releaseConnectionLocked(record.ID, entry)
+	}
+	entry.mutex.Unlock()
 	return domain.SandboxStatus{}, false
 }
 

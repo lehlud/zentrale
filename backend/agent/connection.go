@@ -52,6 +52,13 @@ func (engine *Engine) connectionEntry(agentID string) *agentConnection {
 }
 
 func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*remote.Connection, domain.Machine, domain.Project, error) {
+	return engine.connectWithEditorCandidate(ctx, agentRecord, false)
+}
+
+// An editor candidate may reuse the resolved workspace only while a complete
+// readiness receipt exists. withEditorEnvironment must immediately validate its
+// fingerprint and live VM generation, or discard/reconnect it before use.
+func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecord domain.Agent, editorCandidate bool) (*remote.Connection, domain.Machine, domain.Project, error) {
 	if err := engine.Store.Load("agent", agentRecord.ID, &agentRecord); err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
 	}
@@ -79,80 +86,110 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 
 	projectKey := JSON(project)
 
-	if entry.connection != nil {
-		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-		alive := engine.canReuseConnection(probe, entry, projectKey, preferredMachine)
-		cancel()
-
-		if !alive {
-			engine.closeMCPServers(agentRecord.ID)
-			entry.connection.Close()
-			entry.connection = nil
-			entry.sourcesKey = ""
-			entry.ready = nil
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, domain.Machine{}, project, err
 		}
-	}
+		if entry.connection != nil {
+			original := entry.connection
+			retained, retainError := original.Retain()
+			snapshot := &agentConnection{connection: retained, machine: entry.machine, projectKey: entry.projectKey}
+			// State ownership must not cover SSH traffic: another agent's slow
+			// availability/receipt probe must not queue an already warm terminal.
+			entry.mutex.Unlock()
+			probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+			alive := retainError == nil && engine.canReuseConnection(probe, snapshot, projectKey, preferredMachine)
+			cancel()
+			if retained != nil {
+				retained.Close()
+			}
+			entry.mutex.Lock()
+			if entry.connection != original {
+				continue // Invalidation/reconnect won the race; validate the new state.
+			}
 
-	reused := entry.connection != nil
-	if entry.connection == nil {
-		connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, preferredMachine, nil)
-		if err != nil {
-			return nil, machine, project, &ProjectConnectionError{Cause: err}
-		}
-
-		if err := remote.CheckRuntime(ctx, connection); err != nil {
-			connection.Close()
-			engine.Remote.Release(agentRecord.ID)
-
-			return nil, machine, project, &ProjectConnectionError{Cause: err}
-		}
-
-		engine.setRunState(agentRecord.ID, "workspace", nil)
-		resolved, err := engine.Remote.ResolveProject(ctx, connection, machine, project)
-		if err == nil {
-			machine.StorageMounts, err = engine.Remote.PrepareStorage(ctx, connection, machine, resolved)
-		}
-
-		if err != nil {
-			connection.Close()
-			engine.Remote.Release(agentRecord.ID)
-
-			return nil, machine, project, &ProjectConnectionError{Cause: err}
-		}
-
-		entry.connection, entry.machine, entry.projectKey = connection, machine, projectKey
-		entry.project = resolved
-		entry.sourcesKey = ""
-		entry.ready = nil
-
-		if agentRecord.MachineID != machine.ID {
-			previous := agentRecord.MachineID
-			agentRecord.MachineID = machine.ID
-			engine.invalidate(agentRecord.ID)
-
-			if err := engine.saveAgent(agentRecord); err != nil {
-				connection.Close()
+			if !alive {
+				engine.closeMCPServers(agentRecord.ID)
+				entry.connection.Close()
 				entry.connection = nil
+				entry.sourcesKey = ""
+				entry.ready = nil
+			}
+		}
+
+		reused := entry.connection != nil
+		if entry.connection == nil {
+			connection, machine, err := engine.Remote.Connect(ctx, project, agentRecord.ID, preferredMachine, nil)
+			if err != nil {
+				return nil, machine, project, &ProjectConnectionError{Cause: err}
+			}
+
+			if err := remote.CheckRuntime(ctx, connection); err != nil {
+				connection.Close()
 				engine.Remote.Release(agentRecord.ID)
 
-				return nil, machine, project, err
+				return nil, machine, project, &ProjectConnectionError{Cause: err}
 			}
 
-			if previous != "" {
-				engine.Emit("failover", agentRecord.ID, map[string]string{"machineId": machine.ID})
+			engine.setRunState(agentRecord.ID, "workspace", nil)
+			resolved, err := engine.Remote.ResolveProject(ctx, connection, machine, project)
+			if err == nil {
+				machine.StorageMounts, err = engine.Remote.PrepareStorage(ctx, connection, machine, resolved)
+			}
+
+			if err != nil {
+				connection.Close()
+				engine.Remote.Release(agentRecord.ID)
+
+				return nil, machine, project, &ProjectConnectionError{Cause: err}
+			}
+
+			entry.connection, entry.machine, entry.projectKey = connection, machine, projectKey
+			entry.project = resolved
+			entry.sourcesKey = ""
+			entry.ready = nil
+
+			if agentRecord.MachineID != machine.ID {
+				previous := agentRecord.MachineID
+				agentRecord.MachineID = machine.ID
+				engine.invalidate(agentRecord.ID)
+
+				if err := engine.saveAgent(agentRecord); err != nil {
+					connection.Close()
+					entry.connection = nil
+					engine.Remote.Release(agentRecord.ID)
+
+					return nil, machine, project, err
+				}
+
+				if previous != "" {
+					engine.Emit("failover", agentRecord.ID, map[string]string{"machineId": machine.ID})
+				}
 			}
 		}
-	}
 
-	// A fresh connection already resolved the workspace above. Running the
-	// remote receipt script twice adds contention to simultaneous child startup.
-	if reused && project.ManagedWorkspace {
-		resolved, err := engine.Remote.ResolveProject(ctx, entry.connection, entry.machine, project)
-		if err != nil {
-			return nil, entry.machine, project, &ProjectConnectionError{Cause: err}
+		// A fresh connection already resolved the workspace above. Running the
+		// remote receipt script twice adds contention to simultaneous child startup.
+		if reused && project.ManagedWorkspace && !(editorCandidate && entry.ready != nil) {
+			original, machine := entry.connection, entry.machine
+			retained, err := original.Retain()
+			if err != nil {
+				return nil, machine, project, &ProjectConnectionError{Cause: err}
+			}
+			entry.mutex.Unlock()
+			resolved, err := engine.Remote.ResolveProject(ctx, retained, machine, project)
+			retained.Close()
+			entry.mutex.Lock()
+			if entry.connection != original {
+				continue // Never publish a receipt for a replaced transport/scope.
+			}
+			if err != nil {
+				return nil, entry.machine, project, &ProjectConnectionError{Cause: err}
+			}
+
+			entry.project = resolved
 		}
-
-		entry.project = resolved
+		break
 	}
 
 	if entry.expiry != nil {
@@ -360,7 +397,12 @@ func (engine *Engine) releaseConnection(agentID string) {
 
 	entry.mutex.Lock()
 	defer entry.mutex.Unlock()
+	engine.releaseConnectionLocked(agentID, entry)
+}
 
+// Caller owns entry.mutex; keep the state/lease release atomic with the
+// snapshot comparison used by concurrent readiness validation.
+func (engine *Engine) releaseConnectionLocked(agentID string, entry *agentConnection) {
 	if entry.expiry != nil {
 		entry.expiry.Stop()
 	}

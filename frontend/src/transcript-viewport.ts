@@ -118,6 +118,22 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       pointerDown.current = true;
       direction.current = 0;
     };
+    const disclosure = (event: Event) => {
+      const trigger =
+        event.target instanceof Element
+          ? event.target.closest("[data-slot=accordion-trigger]")
+          : null;
+      if (trigger && root.current?.contains(trigger)) {
+        // Inspecting history is reader intent too. In particular, mounting a
+        // newly expanded tool body must not make ResizeObserver follow the
+        // conversation tail and scroll the opened result out of view.
+        followingRef.current = false;
+        setFollowing(false);
+      }
+    };
+    const disclosureKey = (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") disclosure(event);
+    };
     const up = () => {
       pointerDown.current = false;
     };
@@ -127,6 +143,8 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
     window.addEventListener("touchstart", touchStart, { passive: true });
     window.addEventListener("touchmove", touchMove, { passive: true });
     window.addEventListener("pointerdown", down, { passive: true });
+    window.addEventListener("click", disclosure, true);
+    window.addEventListener("keydown", disclosureKey, true);
     window.addEventListener("pointerup", up, { passive: true });
     window.addEventListener("pointercancel", up, { passive: true });
 
@@ -137,6 +155,8 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       window.removeEventListener("touchstart", touchStart);
       window.removeEventListener("touchmove", touchMove);
       window.removeEventListener("pointerdown", down);
+      window.removeEventListener("click", disclosure, true);
+      window.removeEventListener("keydown", disclosureKey, true);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };

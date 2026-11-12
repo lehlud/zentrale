@@ -211,6 +211,13 @@ package installation, source preparation and VS Code installation have
 different costs. Minimal-kernel boot benchmarks are not Fedora readiness
 guarantees.
 
+The subsequent `terminal startup` entry separates `lock_wait_ms` from
+`pty_start_ms` (through the PTY READY acknowledgement), with `ready` and `error`
+booleans. Neither timing entry contains terminal input or credentials. Slow SSH
+availability/workspace receipt checks on an existing agent connection run
+outside its state mutex, so another check cannot serialize a validated warm
+editor/terminal opener behind its network wait.
+
 While the fullscreen terminal covers a conversation, its large conversation
 snapshot subscription is suspended. Other projects, connection status and
 terminal traffic continue normally. Closing the terminal restores the

@@ -389,7 +389,28 @@ for (const variant of [
       }),
     ).toHaveCount(0);
 
-    await expect(listing.getByRole("listitem")).toHaveCount(35);
+    try {
+      await expect(listing.getByRole("listitem")).toHaveCount(35);
+    } catch (error) {
+      const position = await listing.evaluate((element) => {
+        const panel = element.closest("[data-slot=accordion-panel]");
+        const box = (node: Element | null) =>
+          node?.getBoundingClientRect().toJSON();
+        return {
+          scrollY,
+          viewport: innerHeight,
+          documentHeight: document.documentElement.scrollHeight,
+          list: box(element),
+          last: box(element.lastElementChild),
+          sentinel: box(element.nextElementSibling),
+          panel: box(panel),
+          expanded: panel?.getAttribute("data-expanded"),
+        };
+      });
+      throw new Error(
+        `File pagination position: ${JSON.stringify(position)}\n${String(error)}`,
+      );
+    }
     await expect(
       listing.getByText("sample-34.py", { exact: true }),
     ).toBeVisible();
