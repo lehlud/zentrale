@@ -16,6 +16,14 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
+const workflowStages = new Map<string, string>();
+test.afterEach(async ({}, testInfo) => {
+  const stage = workflowStages.get(testInfo.testId);
+  workflowStages.delete(testInfo.testId);
+  if (stage && testInfo.status !== testInfo.expectedStatus)
+    throw new Error(`Administration workflow stopped at: ${stage}`);
+});
+
 for (const variant of [
   {
     name: "desktop-de-light",
@@ -35,17 +43,22 @@ for (const variant of [
   test(`administration task flows: ${variant.name}`, async ({
     page,
     context,
-  }) => {
+  }, testInfo) => {
     // Eleven screenshots plus several complete administration flows share this
     // budget. Keep individual assertions/actions bounded by their own timeout.
     test.setTimeout(120000);
+    page.setDefaultTimeout(10000);
+    const stage = (value: string) => workflowStages.set(testInfo.testId, value);
+    stage("initialize fixtures");
     const label = (de: string, en: string) =>
       variant.locale === "de" ? de : en;
     const readClipboard = () =>
       test.step(
         "Read actual browser clipboard (bounded)",
         async () => {
+          stage("clipboard focus");
           await page.bringToFront();
+          stage("clipboard read");
           return page.evaluate(() =>
             Promise.race([
               navigator.clipboard.readText(),
@@ -189,12 +202,14 @@ for (const variant of [
       test.step(
         `Screenshot ${name}`,
         async () => {
+          stage(`screenshot ${name}`);
           await mkdir("artifacts/ui", { recursive: true });
           await page.screenshot({
             path: `artifacts/ui/admin-${variant.name}-${name}.png`,
             animations: "disabled",
             timeout: 10000,
           });
+          stage(`after screenshot ${name}`);
         },
         { timeout: 15000 },
       );
@@ -265,6 +280,7 @@ for (const variant of [
     await test.step(
       "Grant real clipboard permissions",
       async () => {
+        stage("clipboard permissions");
         await page.bringToFront();
         await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       },
@@ -382,7 +398,9 @@ for (const variant of [
     const expired = logins.get(deviceLoginId)!;
     expired.status = "expired";
     expired.error = label("Die Anmeldung ist abgelaufen.", "Sign-in expired.");
+    stage("push expired device login");
     await push.push();
+    stage("expired login alert");
     await expect(dialog.getByRole("alert")).toContainText(
       label("Die Anmeldung ist abgelaufen.", "Sign-in expired."),
     );
@@ -415,7 +433,9 @@ for (const variant of [
     logins.get(deviceLoginId)!.status = "connected";
     state.providers.find((provider) => provider.id === "chatgpt")!.connected =
       true;
+    stage("push connected device login");
     await push.push();
+    stage("connected login status");
     await expect(dialog.getByRole("status")).toContainText(
       label("Provider verbunden", "Provider connected"),
     );

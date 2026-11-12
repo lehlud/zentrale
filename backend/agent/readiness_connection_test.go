@@ -19,25 +19,27 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	generation.Store(strings.Repeat("a", 64))
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
 		if strings.Contains(command, "guest dispatcher is unresponsive") {
 			probes.Add(1)
 			_, _ = io.Copy(io.Discard, input)
 			fmt.Fprintln(stdout, generation.Load().(string))
 			return 0
 		}
-		if strings.Contains(command, "MicroVM requires an agent and project identity") {
-			command = strings.ReplaceAll(command, `'"'"'`, `'`)
-			if strings.Contains(command, " 'ensure' ") || strings.Contains(command, " 'select' ") {
+		// The native runner is now compressed; match its stable bootstrap and
+		// final action argument instead of plaintext inside the embedded runner.
+		if strings.Contains(command, "<zentrale-microvm>") {
+			if strings.Contains(command, " 'ensure'") || strings.Contains(command, " 'select'") {
 				fmt.Fprintln(stdout, "microvm")
 				return 0
 			}
 			_, _ = io.Copy(io.Discard, input)
-			if strings.Contains(command, " 'prepare' ") {
+			if strings.Contains(command, " 'prepare'") {
 				prepares.Add(1)
 				fmt.Fprintln(stdout, `{"os":"fedora","version":"45","bootId":"11111111-2222-3333-4444-555555555555"}`)
 				return 0
 			}
-			if strings.Contains(command, " 'stage' ") {
+			if strings.Contains(command, " 'stage'") {
 				stages.Add(1)
 				fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
 				return 0

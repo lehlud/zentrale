@@ -75,17 +75,17 @@ func TestAttachmentSandboxNeverRecoversOrResetsVM(t *testing.T) {
 	var stages, stops atomic.Int32
 	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
-		if strings.Contains(command, " 'ensure' ") {
+		if strings.Contains(command, " 'ensure'") {
 			fmt.Fprintln(stdout, "microvm")
 			return 0
 		}
 		_, _ = io.Copy(io.Discard, input)
-		if strings.Contains(command, " 'stage' ") {
+		if strings.Contains(command, " 'stage'") {
 			stages.Add(1)
 			fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"unresponsive"}`)
 			return 75
 		}
-		if strings.Contains(command, " 'stop' ") || strings.Contains(command, " 'reset' ") {
+		if strings.Contains(command, " 'stop'") || strings.Contains(command, " 'reset'") {
 			stops.Add(1)
 		}
 		fmt.Fprint(stdout, `{}`)
