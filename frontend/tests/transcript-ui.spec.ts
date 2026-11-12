@@ -1,4 +1,5 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import {
   agent,
@@ -57,12 +58,10 @@ async function fixture(
 ) {
   let socket: WebSocketRoute | undefined;
   const cursors: string[] = [];
-  let eventId = 0;
-  await page.routeWebSocket("**/events?*", (connection) => {
-    socket = connection;
-  });
-  await page.route("**/graphql", async (route) => {
-    const { query, variables = {} } = route.request().postDataJSON();
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
     let data: unknown = config;
     if (query.includes("status{"))
       data = {
@@ -87,7 +86,6 @@ async function fixture(
             left.id.localeCompare(right.id),
         );
       if (variables.beforeId) {
-        cursors.push(variables.beforeId);
         if (olderDelay)
           await new Promise((resolve) => setTimeout(resolve, olderDelay));
         const before = history.findIndex(
@@ -107,14 +105,23 @@ async function fixture(
           jobs: [],
         };
     } else if (query.includes("agents(projectId:")) data = { project, agents };
-    await route.fulfill({ json: { data: bootstrapData(query, data) } });
+    return bootstrapData(query, data);
+  };
+  const push = await installPushFixture(page, resolve, (connection) => {
+    socket = connection;
+  });
+  await page.route("**/graphql", async (route) => {
+    const { query, variables = {} } = route.request().postDataJSON();
+    if (isTranscriptQuery(query) && variables.beforeId)
+      cursors.push(variables.beforeId);
+    await route.fulfill({ json: { data: await resolve(query, variables) } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   return {
     cursors,
     refresh: async () => {
       await expect.poll(() => Boolean(socket)).toBe(true);
-      socket!.send(JSON.stringify({ id: ++eventId }));
+      await push.push();
     },
   };
 }

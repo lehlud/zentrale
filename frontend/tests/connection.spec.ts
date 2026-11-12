@@ -1,5 +1,6 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -15,6 +16,7 @@ async function connectionFixture(page: Page) {
   const state = {
     offline: false,
     failures: 0,
+    socketFailures: 0,
     mutations: 0,
     queryError: "",
     configDelay: 0,
@@ -26,27 +28,12 @@ async function connectionFixture(page: Page) {
   const streamURLs: string[] = [];
   let socket: WebSocketRoute | undefined;
   let eventId = 0;
-  await page.routeWebSocket("**/events?*", (connection) => {
-    socket = connection;
-    streamURLs.push(connection.url());
-    if (connection.url().endsWith("after=latest"))
-      connection.send(JSON.stringify({ id: 0, type: "sync" }));
-  });
-  await page.route("**/graphql", async (route) => {
-    const { query, variables = {} } = route.request().postDataJSON();
-    if (query.trimStart().startsWith("mutation")) state.mutations++;
-
-    if (query.includes("submitInput(")) receiptIDs.push(variables.id);
-
-    if (state.offline) {
-      state.failures++;
-      return route.abort("internetdisconnected");
-    }
-
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
     if (state.queryError && isTranscriptQuery(query)) {
-      return route.fulfill({
-        json: { errors: [{ message: state.queryError }] },
-      });
+      throw new Error(state.queryError);
     }
 
     if (query.includes("submitInput(")) {
@@ -60,7 +47,7 @@ async function connectionFixture(page: Page) {
       if (!accepted.some((input) => input.id === receipt.id))
         accepted.push(receipt);
 
-      return route.fulfill({ json: { data: { submitInput: receipt } } });
+      return { submitInput: receipt };
     }
 
     const data = query.includes("status{")
@@ -78,7 +65,6 @@ async function connectionFixture(page: Page) {
           : config;
 
     if (data === config) {
-      state.configReads++;
       const snapshot = {
         ...config,
         projects: config.projects.map((item) => ({
@@ -86,20 +72,66 @@ async function connectionFixture(page: Page) {
           name: state.projectName,
         })),
       };
-      await new Promise((resolve) => setTimeout(resolve, state.configDelay));
-      return route.fulfill({ json: { data: snapshot } });
+      return snapshot;
     }
-    return route.fulfill({ json: { data: bootstrapData(query, data) } });
+    return bootstrapData(query, data);
+  };
+  const push = await installPushFixture(page, resolve, (connection) => {
+    socket = connection;
+    streamURLs.push(connection.url());
+    if (state.offline) {
+      state.socketFailures++;
+      connection.close({ code: 1013, reason: "Fixture server offline" });
+      return false;
+    } else if (connection.url().endsWith("after=latest")) {
+      connection.send(JSON.stringify({ id: 0, type: "sync" }));
+    }
+  });
+  await page.route("**/graphql", async (route) => {
+    const { query, variables = {} } = route.request().postDataJSON();
+    if (query.trimStart().startsWith("mutation")) state.mutations++;
+    if (query.includes("submitInput(")) receiptIDs.push(variables.id);
+    if (state.offline) {
+      state.failures++;
+      return route.abort("internetdisconnected");
+    }
+    try {
+      const data = await resolve(query, variables);
+      if (query.trimStart().startsWith("mutation")) await push.push();
+      if (
+        !query.includes("status{") &&
+        !isTranscriptQuery(query) &&
+        !query.includes("agents(projectId:") &&
+        !query.trimStart().startsWith("mutation")
+      ) {
+        state.configReads++;
+        await new Promise((done) => setTimeout(done, state.configDelay));
+      }
+      await route.fulfill({ json: { data } });
+    } catch (error) {
+      await route.fulfill({
+        json: { errors: [{ message: (error as Error).message }] },
+      });
+    }
   });
 
   return {
     state,
     receiptIDs,
     streamURLs,
-    disconnect: () => socket!.close(),
+    subscriptionFrames: push.frames,
+    disconnect: () => push.close(socket!),
+    engineFrame: (type: "sync" | "message") =>
+      socket!.send(JSON.stringify({ id: ++eventId, type })),
     refresh: async () => {
       await expect.poll(() => Boolean(socket)).toBe(true);
-      socket!.send(JSON.stringify({ id: ++eventId }));
+      if (state.offline) {
+        state.socketFailures++;
+        push.close(socket!);
+      } else {
+        socket!.send(JSON.stringify({ id: ++eventId }));
+        await push.push();
+      }
     },
   };
 }
@@ -132,12 +164,46 @@ test("authenticated reload completes slow reads during an event burst without ca
       page.getByText(fixture.state.projectName, { exact: true }).first(),
     ).toBeVisible();
     expect(cancelled).toEqual([]);
-    // One initial read plus at most one trailing read per subscriber, not one
-    // replacement request for each of the 30 invalidations. The page mounts
-    // three config subscribers (sidebar, projects, new-conversation dialog).
-    expect(fixture.state.configReads).toBeLessThanOrEqual(6);
+    // Exactly the three initial HTTP reads (sidebar, projects, dialog), with
+    // state changes delivered by subscriptions even while HTTP is pending.
+    expect(fixture.state.configReads).toBe(3);
+    expect(
+      fixture.subscriptionFrames.filter((frame) => frame.type === "subscribe")
+        .length,
+    ).toBeGreaterThanOrEqual(3);
     fixture.state.configReads = 0;
   }
+});
+
+test("raw engine frames do not reload HTTP queries; subscription snapshots update state", async ({
+  page,
+}) => {
+  const fixture = await connectionFixture(page);
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Projekte", exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => fixture.state.configReads).toBe(3);
+  const reads = fixture.state.configReads;
+  const subscriptions = fixture.subscriptionFrames.filter(
+    (frame) => frame.type === "subscribe",
+  ).length;
+  fixture.state.projectName = "Only the pushed snapshot updates this name";
+  fixture.engineFrame("sync");
+  fixture.engineFrame("message");
+  await page.waitForTimeout(250);
+  expect(fixture.state.configReads).toBe(reads);
+  expect(
+    fixture.subscriptionFrames.filter((frame) => frame.type === "subscribe"),
+  ).toHaveLength(subscriptions);
+  await expect(
+    page.getByText(fixture.state.projectName, { exact: true }),
+  ).toHaveCount(0);
+  await fixture.refresh();
+  await expect(
+    page.getByText(fixture.state.projectName, { exact: true }).first(),
+  ).toBeVisible();
+  expect(fixture.state.configReads).toBe(reads);
 });
 
 test("fresh loads request a watermark and reconnects resume at the last event", async ({
@@ -212,7 +278,10 @@ for (const variant of [
     await expect(notification).toContainText(
       english ? "Connection interrupted" : "Verbindung unterbrochen",
     );
-    await expect.poll(() => fixture.state.failures).toBeGreaterThanOrEqual(3);
+    // Reconnection is a WebSocket operation, not repeated HTTP query reads.
+    await expect
+      .poll(() => fixture.state.socketFailures)
+      .toBeGreaterThanOrEqual(3);
     await expect(
       page.locator('[role="alert"]:not([data-slot="toast-content"])'),
     ).toHaveCount(0);

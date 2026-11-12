@@ -173,6 +173,12 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			OperationName:  request.OperationName,
 			Context:        ctx,
 		})
+		if (valid || session.authenticated) && isMutationOperation(request.Query, request.OperationName) {
+			// Cover key/configuration resolvers that do not otherwise emit engine
+			// events. Never include query/variables: they can contain credentials.
+			// Partial mutation errors may still follow committed earlier fields.
+			server.Engine.Emit("resource_changed", "", nil)
+		}
 
 		return requestContext.JSON(200, result)
 	})

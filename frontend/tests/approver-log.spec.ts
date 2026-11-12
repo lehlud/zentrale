@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
@@ -106,12 +107,7 @@ for (const english of [false, true]) {
       },
     ];
     let socket: WebSocketRoute | undefined;
-    let event = 0;
-    await page.routeWebSocket("**/events?*", (connection) => {
-      socket = connection;
-    });
-    await page.route("**/graphql", (route) => {
-      const { query } = route.request().postDataJSON();
+    const resolve = (query: string) => {
       const data = query.includes("status{")
         ? { status: { needsSetup: false, authenticated: true } }
         : isTranscriptQuery(query)
@@ -129,11 +125,14 @@ for (const english of [false, true]) {
               ? { project, agents: [agents[0], approver] }
               : config;
 
-      return route.fulfill({
-        json: {
-          data: bootstrapData(query, data, { agents: [agents[0], approver] }),
-        },
-      });
+      return bootstrapData(query, data, { agents: [agents[0], approver] });
+    };
+    const push = await installPushFixture(page, resolve, (connection) => {
+      socket = connection;
+    });
+    await page.route("**/graphql", async (route) => {
+      const { query } = route.request().postDataJSON();
+      await route.fulfill({ json: { data: resolve(query) } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${approver.id}`);
     await page
@@ -191,7 +190,7 @@ for (const english of [false, true]) {
 
     await expect.poll(() => Boolean(socket)).toBe(true);
 
-    socket!.send(JSON.stringify({ id: ++event }));
+    await push.push();
 
     await expect(rows.nth(2)).toContainText(
       label("Keine Freigabe erfasst", "No approval recorded"),
@@ -206,7 +205,7 @@ for (const english of [false, true]) {
       blanket: false,
       createdAt: "2026-11-06T12:05:01Z",
     });
-    socket!.send(JSON.stringify({ id: ++event }));
+    await push.push();
 
     await expect(rows.nth(2)).toContainText(label("Genehmigt", "Approved"));
 

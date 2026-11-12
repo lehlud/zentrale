@@ -150,7 +150,9 @@ for (const mobile of [false, true]) {
       uploads.map((entry) => entry.id),
     );
     expect(submissions[0].text).toBe("");
-    await expect(form.getByLabel("Anhänge")).toHaveCount(0);
+    await expect(
+      form.getByRole("list", { name: "Anhänge", exact: true }),
+    ).toHaveCount(0);
   });
 }
 
@@ -167,7 +169,9 @@ test("large paste becomes removable text attachment; oversized files never uploa
   await form
     .getByRole("button", { name: "Anhang entfernen: eingefuegter-text.txt" })
     .click();
-  await expect(form.getByLabel("Anhänge")).toHaveCount(0);
+  await expect(
+    form.getByRole("list", { name: "Anhänge", exact: true }),
+  ).toHaveCount(0);
   await form.locator('input[type="file"]').setInputFiles({
     name: "too-big.bin",
     mimeType: "application/octet-stream",

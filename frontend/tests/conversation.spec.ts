@@ -1,4 +1,10 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import type { Message } from "../src/generated";
@@ -208,13 +214,11 @@ for (const variant of [
     let socket: WebSocketRoute | undefined;
     let prompts: string[] = [];
     let failPrompt = false;
-    let eventId = 0;
-    await page.routeWebSocket("**/events?*", (connection) => {
-      socket = connection;
-    });
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
+      const send = (data: unknown) => bootstrapData(query, data);
       if (query.includes("prepareAgent")) {
         return send({
           prepareAgent: {
@@ -227,20 +231,14 @@ for (const variant of [
 
       if (query.includes("submitInput(agentId:")) {
         prompts.push(variables.text);
-        return failPrompt
-          ? route.fulfill({
-              json: {
-                errors: [
-                  {
-                    message: label(
-                      "Auftrag konnte nicht gespeichert werden. Erneut versuchen.",
-                      "Could not save the task. Please try again.",
-                    ),
-                  },
-                ],
-              },
-            })
-          : send({ submitInput: { ...variables, status: "active" } });
+        if (failPrompt)
+          throw new Error(
+            label(
+              "Auftrag konnte nicht gespeichert werden. Erneut versuchen.",
+              "Could not save the task. Please try again.",
+            ),
+          );
+        return send({ submitInput: { ...variables, status: "active" } });
       }
 
       if (query.includes("status{")) {
@@ -253,11 +251,13 @@ for (const variant of [
         });
       }
 
-      if (query.includes("recentMessages")) {
+      if (isTranscriptQuery(query)) {
         return send({
           ...transcript,
           agent:
-            agents.find((candidate) => candidate.id === variables.id) ?? agent,
+            agents.find(
+              (candidate) => candidate.id === selectedAgentId(variables),
+            ) ?? agent,
           messages,
           questions: [],
           jobs: [],
@@ -270,6 +270,21 @@ for (const variant of [
       }
 
       return send(config);
+    };
+    const push = await installPushFixture(page, resolve, (connection) => {
+      socket = connection;
+    });
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      try {
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
+      } catch (error) {
+        await route.fulfill({
+          json: { errors: [{ message: (error as Error).message }] },
+        });
+      }
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
     const output = page.getByRole("region", {
@@ -538,7 +553,7 @@ for (const variant of [
         ),
       );
 
-    socket!.send(JSON.stringify({ id: ++eventId }));
+    await push.push();
 
     await expect(output.getByText(/^Step 25:/)).toBeInViewport();
     await expect.poll(async () => (await header.boundingBox())?.y).toBe(0);
@@ -553,7 +568,7 @@ for (const variant of [
     await expect(latest).toBeVisible();
 
     messages.push(message("assistant", "Live update at the end."));
-    socket!.send(JSON.stringify({ id: ++eventId }));
+    await push.push();
 
     // Offscreen entries are virtualized, not kept attached to the DOM.
     await expect(output.getByText("Live update at the end.")).toHaveCount(0);
@@ -605,7 +620,7 @@ for (const variant of [
         { toolName: "exec" },
       ),
     );
-    socket!.send(JSON.stringify({ id: ++eventId }));
+    await push.push();
 
     await expect(
       output.getByText("Process exited with status 1", { exact: true }),

@@ -1,4 +1,6 @@
-import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -30,8 +32,6 @@ for (const english of [false, true]) {
         },
         { english },
       );
-      let socket: WebSocketRoute | undefined;
-      let event = 0;
       let phase = "model";
       let preflights = 0;
       let release: (() => void) | undefined;
@@ -56,16 +56,14 @@ for (const english of [false, true]) {
           status: "completed",
         },
       ];
-      await page.routeWebSocket("**/events?*", (connection) => {
-        socket = connection;
-      });
-      const update = () =>
-        socket!.send(
-          JSON.stringify({ id: ++event, type: "agent", data: "{}" }),
-        );
-      await page.route("**/graphql", async (route) => {
-        const { query, variables = {} } = route.request().postDataJSON();
-        const send = (data: unknown) => route.fulfill({ json: { data } });
+      const resolve = async (
+        query: string,
+        variables: Record<string, any> = {},
+      ) => {
+        const send = (data: unknown) =>
+          bootstrapData(query, data, {
+            agents: agents.map((item) => (item.id === agent.id ? run : item)),
+          });
         if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
         }
@@ -92,11 +90,6 @@ for (const english of [false, true]) {
 
           if (variables.text === "FIRST_SUBMISSION") await delayed;
 
-          if (variables.text === "LOST_RECEIPT" && loseResponse) {
-            loseResponse = false;
-            return route.abort("failed");
-          }
-
           return send({ submitInput: inputs.get(variables.id) });
         }
 
@@ -105,7 +98,7 @@ for (const english of [false, true]) {
           return send({ cancelInput: true });
         }
 
-        if (query.includes("recentMessages")) {
+        if (isTranscriptQuery(query)) {
           return send({
             ...transcript,
             agent: run,
@@ -131,6 +124,22 @@ for (const english of [false, true]) {
         }
 
         return send(config);
+      };
+      const push = await installPushFixture(page, resolve);
+      const update = () => push.push();
+      await page.route("**/graphql", async (route) => {
+        const { query, variables = {} } = route.request().postDataJSON();
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        if (
+          query.includes("submitInput(") &&
+          variables.text === "LOST_RECEIPT" &&
+          loseResponse
+        ) {
+          loseResponse = false;
+          return route.abort("failed");
+        }
+        await route.fulfill({ json: { data } });
       });
       await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
       const input = page.getByRole("textbox", {
@@ -186,7 +195,7 @@ for (const english of [false, true]) {
       ).toBeVisible();
 
       phase = "sandbox";
-      update();
+      await update();
 
       await expect(
         page.getByText(
@@ -196,7 +205,7 @@ for (const english of [false, true]) {
       ).toBeVisible();
 
       phase = "repository";
-      update();
+      await update();
 
       await expect(
         page.getByText(

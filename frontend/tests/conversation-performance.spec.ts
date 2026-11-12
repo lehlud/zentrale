@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import {
   agent,
@@ -81,14 +82,12 @@ test("long conversations keep typing isolated, observers bounded and updates res
     createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
   }));
   let socket: WebSocketRoute | undefined;
-  let eventId = 0;
   let queries = 0;
   const submitted: { text: string; mode: string }[] = [];
-  await page.routeWebSocket("**/events?*", (connection) => {
-    socket = connection;
-  });
-  await page.route("**/graphql", async (route) => {
-    const { query, variables = {} } = route.request().postDataJSON();
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
     let data: unknown = config;
     if (query.includes("status{"))
       data = { status: { authenticated: true, needsSetup: false } };
@@ -104,7 +103,6 @@ test("long conversations keep typing isolated, observers bounded and updates res
         },
       };
     } else if (isTranscriptQuery(query)) {
-      queries++;
       // Simulate an already-loaded scrollback; pagination itself has separate tests.
       data = variables.beforeId
         ? { messages: [] }
@@ -120,7 +118,17 @@ test("long conversations keep typing isolated, observers bounded and updates res
             jobs: [],
           };
     } else if (query.includes("agents(projectId:")) data = { project, agents };
-    await route.fulfill({ json: { data: bootstrapData(query, data) } });
+    return bootstrapData(query, data);
+  };
+  const push = await installPushFixture(page, resolve, (connection) => {
+    socket = connection;
+  });
+  await page.route("**/graphql", async (route) => {
+    const { query, variables = {} } = route.request().postDataJSON();
+    if (isTranscriptQuery(query)) queries++;
+    const data = await resolve(query, variables);
+    if (query.trimStart().startsWith("mutation")) await push.push();
+    await route.fulfill({ json: { data } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   const input = page.getByRole("textbox", {
@@ -285,9 +293,9 @@ test("long conversations keep typing isolated, observers bounded and updates res
 
   const refresh = async () => {
     const before = queries;
-    socket!.send(JSON.stringify({ id: ++eventId }));
-    await expect.poll(() => queries).toBeGreaterThan(before);
+    await push.push();
     await page.waitForTimeout(200);
+    expect(queries, "server snapshots must not cause HTTP reads").toBe(before);
   };
   // Unchanged server snapshots must retain message identity and cached rendering.
   await page.evaluate(() => {

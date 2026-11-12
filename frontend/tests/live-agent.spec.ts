@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
@@ -32,7 +33,6 @@ for (const english of [false, true]) {
         { english },
       );
       let socket: WebSocketRoute | undefined;
-      let eventID = 0;
       let running = true;
       let phase = "model";
       let queryCount = 0;
@@ -64,13 +64,6 @@ for (const english of [false, true]) {
         ...agent,
         status: running ? "running" : "idle",
       });
-      await page.routeWebSocket("**/events?*", (connection) => {
-        socket = connection;
-      });
-      const durable = () =>
-        socket!.send(
-          JSON.stringify({ id: ++eventID, type: "agent", data: "{}" }),
-        );
       const response = (value: LiveResponse) =>
         socket!.send(
           JSON.stringify({
@@ -80,17 +73,12 @@ for (const english of [false, true]) {
             data: JSON.stringify(value),
           }),
         );
-      await page.route("**/graphql", async (route) => {
-        const { query } = route.request().postDataJSON();
+      const resolve = async (query: string) => {
         const send = (data: unknown) =>
-          route.fulfill({
-            json: {
-              data: bootstrapData(query, data, {
-                agents: agents.map((value) =>
-                  value.id === agent.id ? current() : value,
-                ),
-              }),
-            },
+          bootstrapData(query, data, {
+            agents: agents.map((value) =>
+              value.id === agent.id ? current() : value,
+            ),
           });
         if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
@@ -110,18 +98,12 @@ for (const english of [false, true]) {
         if (query.includes("stopJob")) {
           stopJob++;
           if (stopJob === 1) {
-            return route.fulfill({
-              json: {
-                errors: [
-                  {
-                    message: label(
-                      "Job konnte nicht beendet werden. Erneut versuchen.",
-                      "Could not stop the job. Try again.",
-                    ),
-                  },
-                ],
-              },
-            });
+            throw new Error(
+              label(
+                "Job konnte nicht beendet werden. Erneut versuchen.",
+                "Could not stop the job. Try again.",
+              ),
+            );
           }
 
           job.status = "stopped";
@@ -130,7 +112,6 @@ for (const english of [false, true]) {
         }
 
         if (isTranscriptQuery(query)) {
-          queryCount++;
           return send({
             ...transcript,
             agent: current(),
@@ -152,6 +133,23 @@ for (const english of [false, true]) {
         }
 
         return send(config);
+      };
+      const push = await installPushFixture(page, resolve, (connection) => {
+        socket = connection;
+      });
+      const durable = () => push.push();
+      await page.route("**/graphql", async (route) => {
+        const { query } = route.request().postDataJSON();
+        if (isTranscriptQuery(query)) queryCount++;
+        try {
+          const data = await resolve(query);
+          if (query.trimStart().startsWith("mutation")) await push.push();
+          await route.fulfill({ json: { data } });
+        } catch (error) {
+          await route.fulfill({
+            json: { errors: [{ message: (error as Error).message }] },
+          });
+        }
       });
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
 
@@ -171,12 +169,12 @@ for (const english of [false, true]) {
       await expect(output.locator(".working-indicator")).toBeVisible();
 
       phase = "recovering_sandbox";
-      durable();
+      await durable();
       await expect(output.getByRole("status")).toContainText(
         label("Umgebung wird wiederhergestellt …", "Restoring environment …"),
       );
       phase = "model";
-      durable();
+      await durable();
       await expect(output.getByRole("status")).not.toContainText(
         label("Umgebung wird wiederhergestellt …", "Restoring environment …"),
       );
@@ -352,7 +350,7 @@ for (const english of [false, true]) {
         status: "completed",
         text: answer.trim(),
       });
-      durable();
+      await durable();
 
       await expect(live).toHaveCount(0);
       await expect(
@@ -361,7 +359,7 @@ for (const english of [false, true]) {
       await expect(output.locator(".working-indicator")).toHaveCount(0);
 
       running = true;
-      durable();
+      await durable();
       const second: LiveResponse = {
         ...draft,
         id: "draft-2",

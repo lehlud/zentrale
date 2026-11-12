@@ -1,4 +1,5 @@
-import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import {
   bootstrapData,
   isTranscriptQuery,
@@ -35,8 +36,6 @@ for (const english of [false, true])
         },
         { english },
       );
-      let socket: WebSocketRoute | undefined;
-      let event = 0;
       let phase = "goal_review";
       const main = { ...agent, status: "running", error: "" };
       let goal: Goal = {
@@ -136,22 +135,13 @@ for (const english of [false, true])
           },
         );
       };
-      await page.routeWebSocket("**/events?*", (connection) => {
-        socket = connection;
-      });
-      const update = () =>
-        socket!.send(JSON.stringify({ id: ++event, type: "goal", data: "{}" }));
-      await page.route("**/graphql", async (route) => {
-        const { query, variables = {} } = route.request().postDataJSON();
+      const resolve = async (
+        query: string,
+        variables: Record<string, any> = {},
+      ) => {
         const send = (data: unknown) =>
-          route.fulfill({
-            json: {
-              data: bootstrapData(query, data, {
-                agents: agents.map((item) =>
-                  item.id === agent.id ? main : item,
-                ),
-              }),
-            },
+          bootstrapData(query, data, {
+            agents: agents.map((item) => (item.id === agent.id ? main : item)),
           });
         if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
@@ -242,6 +232,14 @@ for (const english of [false, true])
         }
 
         return send(config);
+      };
+      const push = await installPushFixture(page, resolve);
+      const update = () => push.push();
+      await page.route("**/graphql", async (route) => {
+        const { query, variables = {} } = route.request().postDataJSON();
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
       });
       const captures: { name: string; file: string }[] = [];
 
@@ -304,7 +302,7 @@ for (const english of [false, true])
           notice: "PRIVATE_INTERNAL_NOTICE",
         }),
       });
-      update();
+      await update();
 
       await expect(
         page.getByText(
@@ -360,7 +358,7 @@ for (const english of [false, true])
       main.status = "blocked";
       main.error = blocked;
       phase = "blocked";
-      update();
+      await update();
 
       await expect(panel).toContainText(label("Blockiert", "Blocked"));
       await expect(
@@ -394,7 +392,7 @@ for (const english of [false, true])
       goal.evidence = evidence;
       main.status = "idle";
       phase = "idle";
-      update();
+      await update();
 
       await expect(panel).toContainText(
         label("Ziel erreicht", "Goal achieved"),
@@ -451,7 +449,7 @@ for (const english of [false, true])
       };
       main.status = "running";
       phase = "model";
-      update();
+      await update();
 
       await expect(panel).toContainText(goal.objective);
 
