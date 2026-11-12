@@ -22,7 +22,24 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
     role: "assistant",
     content:
       `Historical message ${index} ` + "Background conversation. ".repeat(20),
-    wire: "",
+    wire:
+      index >= 900
+        ? JSON.stringify({
+            tool_calls: [
+              {
+                id: `call-${index}`,
+                type: "function",
+                function: {
+                  name: "exec",
+                  arguments: JSON.stringify({
+                    cmd: "printf '" + "x".repeat(20000) + "'",
+                    timeout_ms: 30000,
+                  }),
+                },
+              },
+            ],
+          })
+        : "",
     callId: "",
     toolName: "",
     change: null,
@@ -89,14 +106,17 @@ test("wterm keystroke-to-paint stays responsive with scrollback and live convers
   const latencies: number[] = [];
   try {
     await screen.locator("textarea").focus();
-    for (let n = 1; n <= 24; n++) {
+    // Sustain traffic beyond the reported five-second period. A short eager
+    // burst can finish before periodic lifecycle/live-update work begins.
+    for (let n = 1; n <= 80; n++) {
       const started = Date.now();
       await page.keyboard.type("x");
       await expect(screen).toContainText(`ECHO_${n}`, { timeout: 1000 });
       latencies.push(Date.now() - started);
+      await page.waitForTimeout(125); // Deliberate typing cadence, not a retry.
     }
     expect(revision).toBeGreaterThan(0);
-    expect(echoes).toBe(24);
+    expect(echoes).toBe(80);
     expect(
       Math.max(...latencies),
       "No multi-second terminal stalls at 4x CPU slowdown",
