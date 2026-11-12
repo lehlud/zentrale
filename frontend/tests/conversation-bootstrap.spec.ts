@@ -327,6 +327,9 @@ test("bootstrap history paginates with the existing cursor and retains older pag
   const api = await bootstrapAPI(page, 100);
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   await expect(page.locator("[data-transcript-item]")).toHaveCount(100);
+  // Latch actual reader intent before virtualization/resize callbacks run.
+  await page.mouse.move(900, 400);
+  await page.mouse.wheel(0, -100000);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect
     .poll(() => api.calls.filter((call) => call.variables.beforeId).length)

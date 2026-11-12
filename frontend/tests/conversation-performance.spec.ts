@@ -83,7 +83,12 @@ test("long conversations keep typing isolated, observers bounded and updates res
   }));
   let socket: WebSocketRoute | undefined;
   let queries = 0;
-  const submitted: { text: string; mode: string }[] = [];
+  const submitted: {
+    agentId: string;
+    id: string;
+    text: string;
+    mode: string;
+  }[] = [];
   const resolve = async (
     query: string,
     variables: Record<string, any> = {},
@@ -92,7 +97,12 @@ test("long conversations keep typing isolated, observers bounded and updates res
     if (query.includes("status{"))
       data = { status: { authenticated: true, needsSetup: false } };
     else if (query.includes("submitInput(")) {
-      submitted.push({ text: variables.text, mode: variables.mode });
+      submitted.push({
+        agentId: variables.agentId,
+        id: variables.id,
+        text: variables.text,
+        mode: variables.mode,
+      });
       data = {
         submitInput: {
           ...variables,
