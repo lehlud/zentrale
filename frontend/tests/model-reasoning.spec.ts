@@ -5,13 +5,19 @@ import { installPushFixture } from "./fixtures/push-fixture";
 test("account-discovered auto-review can be selected and replaced by a generic approver", async ({
   page,
 }) => {
-  const state = structuredClone(config);
-  state.modelDefaults = {
-    main: { providerId: "openai", modelId: "gpt-5.4", reasoningLevel: "xhigh" },
-    approver: {
-      providerId: "openai",
-      modelId: "gpt-5.4",
-      reasoningLevel: "medium",
+  const state = {
+    ...structuredClone(config),
+    modelDefaults: {
+      main: {
+        providerId: "openai",
+        modelId: "gpt-5.4",
+        reasoningLevel: "xhigh",
+      },
+      approver: {
+        providerId: "openai",
+        modelId: "gpt-5.4",
+        reasoningLevel: "medium",
+      },
     },
   };
   const models = ["gpt-5.4", "codex-auto-review"].map((id) => ({
