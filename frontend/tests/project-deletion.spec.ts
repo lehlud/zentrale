@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { config, project } from "./fixtures/visual-data";
 
 for (const locale of ["de", "en"]) {
@@ -12,12 +13,17 @@ for (const locale of ["de", "en"]) {
       (language) => localStorage.setItem("zentrale-locale", language),
       locale,
     );
-    await page.routeWebSocket("**/events?*", () => {});
+    const push = await installPushFixture(page, (query) =>
+      query.includes("status{")
+        ? { status: { needsSetup: false, authenticated: true } }
+        : { ...config, projects: removed ? [] : [project] },
+    );
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       if (query.includes("deleteResource")) {
         expect(variables).toEqual({ kind: "project", id: project.id });
         removed++;
+        await push.push();
         return route.fulfill({ json: { data: { deleteResource: true } } });
       }
       if (query.includes("status{"))

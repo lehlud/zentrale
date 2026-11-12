@@ -36,6 +36,13 @@ export class API {
 
   readonly connection = new ConnectionMonitor(
     async () => {
+      if (this.stopped) {
+        // Explicit reconnect before the very first session read succeeded.
+        // No authenticated socket exists yet. Retry that bootstrap once,
+        // never on a timer or as an HTTP fallback for live subscriptions.
+        await this.bootstrapSession();
+        return;
+      }
       this.reconnectNow();
       // Recovery is established by the authenticated WebSocket handshake,
       // never by repeated HTTP health/data requests.
@@ -128,6 +135,17 @@ export class API {
   };
 
   snapshot = () => this.version;
+
+  private async bootstrapSession() {
+    const session = await this.query(
+      "query{status{needsSetup authenticated githubConnected}}",
+    );
+    for (const subscription of this.subscriptions.values()) {
+      if (/^\s*query\s*\{\s*status\s*\{/.test(subscription.query)) {
+        subscription.receive({ data: session });
+      }
+    }
+  }
 
   refresh = () => {
     // Explicit user-requested retry: restart the live subscription once. This

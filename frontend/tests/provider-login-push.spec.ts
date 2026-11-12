@@ -17,8 +17,11 @@ test("provider device login subscribes once and receives completion without brow
     expiresAt: "2099-01-01T00:00:00Z",
     error: "",
   };
-  const reads = (query: string) => {
-    if (query.includes("providerLogin(")) return { providerLogin: login };
+  const reads = (query: string, variables: Record<string, any> = {}) => {
+    if (/\bstatus\s*\{/.test(query))
+      return { status: { needsSetup: false, authenticated: true } };
+    if (query.includes("providerLogin("))
+      return { providerLogin: variables.id === login.id ? login : null };
     if (query.includes("gitConnections")) return { gitConnections };
     if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
     return config;
@@ -27,7 +30,7 @@ test("provider device login subscribes once and receives completion without brow
   let polls = 0;
   let cancels = 0;
   await page.route("**/graphql", async (route) => {
-    const { query } = route.request().postDataJSON();
+    const { query, variables = {} } = route.request().postDataJSON();
     const send = (data: unknown) => route.fulfill({ json: { data } });
     if (query.includes("beginProviderLogin"))
       return send({ beginProviderLogin: login });
@@ -39,9 +42,7 @@ test("provider device login subscribes once and receives completion without brow
       polls++;
       return send({ pollProviderLogin: login });
     }
-    if (query.includes("status"))
-      return send({ status: { needsSetup: false, authenticated: true } });
-    return send(reads(query));
+    return send(reads(query, variables));
   });
   await page.goto("/#/settings");
   const account = await chooseProviderAccount(page, "ChatGPT · Team");

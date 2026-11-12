@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import { config } from "./fixtures/visual-data";
@@ -46,10 +47,11 @@ for (const english of [false, true]) {
         { kind: "pool", id: "training", name: "Training", projectId: "" },
       ],
     };
-    await page.routeWebSocket("**/events?*", () => {});
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
+      const send = (data: unknown) => data;
       if (query.includes("status{")) {
         return send({ status: { needsSetup: false, authenticated: true } });
       }
@@ -61,16 +63,9 @@ for (const english of [false, true]) {
 
         attempts++;
         if (attempts === 1) {
-          return route.fulfill({
-            json: {
-              errors: [
-                {
-                  message:
-                    "decode pool configuration: yaml: line 3: invalid test configuration",
-                },
-              ],
-            },
-          });
+          throw new Error(
+            "decode pool configuration: yaml: line 3: invalid test configuration",
+          );
         }
 
         imported = true;
@@ -94,6 +89,19 @@ for (const english of [false, true]) {
             }
           : config,
       );
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      try {
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
+      } catch (error) {
+        await route.fulfill({
+          json: { errors: [{ message: (error as Error).message }] },
+        });
+      }
     });
     await page.goto("/#/machines");
 

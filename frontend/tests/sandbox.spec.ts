@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -71,13 +72,13 @@ for (const variant of [
               githubConnected: false,
             },
           }
-        : query.includes("recentMessages")
+        : isTranscriptQuery(query)
           ? { ...transcript, jobs: [], questions: [] }
           : query.includes("agents(projectId:")
             ? { project, agents }
             : { ...config, sandboxStatuses: selection ? [observation()] : [] };
 
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: { data: bootstrapData(query, data) } });
     });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

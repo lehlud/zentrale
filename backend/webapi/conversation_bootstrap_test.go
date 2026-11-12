@@ -46,7 +46,7 @@ func TestConversationBootstrapDoesNotTransferStoredDetailMegabytes(t *testing.T)
 
 const bootstrapTestQuery = `query($projectId:String!, $agentId:String) {
  conversationBootstrap(projectId:$projectId,agentId:$agentId) {
-  project{id name} agents{id role summary} agent{id role projectId parentId}
+  project{id name} agents{id role summary} agent{id role projectId parentId summary}
   messages{id role content attachments{id name path} activities{name} changes{id path}}
   questions{id status title} agentInputs{id status}
  }
@@ -130,6 +130,9 @@ func TestConversationBootstrapDefaultExplicitChildAndApprover(t *testing.T) {
 			}
 			if want == "approver" && selected["role"] != "approver" {
 				t.Fatal("bootstrap changed readonly approver role")
+			}
+			if selected["summary"] != "" {
+				t.Fatal("bootstrap decoded selected agent's detail-only summary")
 			}
 			for _, row := range data["agents"].([]any) {
 				if row.(map[string]any)["summary"] != "" {

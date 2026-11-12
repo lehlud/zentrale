@@ -41,12 +41,20 @@ func (i *Instance) Save(kind, id, parent string, value any) error {
 }
 
 func (i *Instance) Load(kind, id string, value any) error {
+	return i.LoadFields(kind, id, value, nil)
+}
+
+// LoadFields projects in SQL, before decoding or transferring large JSON blobs.
+// A nil selection retains Load semantics; an empty selection returns {}.
+func (i *Instance) LoadFields(kind, id string, value any, fields []string) error {
 	if i == nil || i.Closed() {
 		return errClosed
 	}
 
+	projection, args := resourceProjection(fields)
+	args = append(args, kind, id)
 	var data string
-	if err := i.db.QueryRow(`SELECT data::VARCHAR FROM resources WHERE kind=? AND id=?`, kind, id).Scan(&data); err != nil {
+	if err := i.db.QueryRow(`SELECT `+projection+`::VARCHAR FROM resources WHERE kind=? AND id=?`, args...).Scan(&data); err != nil {
 		return err
 	}
 

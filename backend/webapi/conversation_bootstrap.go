@@ -86,10 +86,11 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			if err := server.Store.Load("project", projectID, &project); err != nil {
 				return nil, err
 			}
-			rows, err := server.Store.ListFields("agent", &projectID, 500, 0, []string{
+			agentFields := []string{
 				"id", "name", "role", "status", "parentId", "approverId", "projectId",
 				"providerId", "modelId", "machineId", "error", "contextStart",
-			})
+			}
+			rows, err := server.Store.ListFields("agent", &projectID, 500, 0, agentFields)
 			if err != nil {
 				return nil, err
 			}
@@ -106,7 +107,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			var machine map[string]any
 			if id != "" {
 				var agent domain.Agent
-				if err := server.Store.Load("agent", id, &agent); err != nil {
+				if err := server.Store.LoadFields("agent", id, &agent, agentFields); err != nil {
 					return nil, err
 				}
 				if agent.ProjectID != projectID {
@@ -115,7 +116,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 				selected = mapOf(agent)
 				if agent.MachineID != "" {
 					// Metadata only: never contact a host or enumerate providers.
-					_ = server.Store.Load("machine", agent.MachineID, &machine)
+					_ = server.Store.LoadFields("machine", agent.MachineID, &machine, []string{"name", "sandbox"})
 				}
 			}
 			name, _ := machine["name"].(string)

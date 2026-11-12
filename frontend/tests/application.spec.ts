@@ -233,7 +233,10 @@ test.beforeAll(async () => {
           name: "harness",
           arguments: JSON.stringify({
             action: "exec",
-            arguments: JSON.stringify({ command: "echo test" }),
+            arguments: JSON.stringify({
+              command: "echo test",
+              timeout_ms: 5000,
+            }),
           }),
         },
       ];
@@ -797,9 +800,22 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
   // Keep this a real-backend E2E: forward traffic and only inject the explicit
   // recovery error into matching server-generated configuration snapshots.
   let failConfiguration = false;
+  const configurationFaults = new Set<() => void>();
   await page.routeWebSocket("**/events?*", (socket) => {
     const server = socket.connectToServer();
     const configurationSubscriptions = new Set<string>();
+    const injectFault = () => {
+      for (const requestId of configurationSubscriptions)
+        socket.send(
+          JSON.stringify({
+            type: "query_result",
+            requestId,
+            result: { errors: [{ message: "Temporary connection failure" }] },
+          }),
+        );
+    };
+    configurationFaults.add(injectFault);
+    socket.onClose(() => configurationFaults.delete(injectFault));
     socket.onMessage((message) => {
       const frame = JSON.parse(message.toString());
       if (
@@ -905,6 +921,11 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
     await chooseProviderAccount(page, "Testmodell"),
     "Refresh models",
   );
+
+  // Unchanged model catalogs are correctly deduplicated by the server. Inject
+  // a transport-level subscription failure explicitly, rather than requiring
+  // a redundant snapshot or HTTP refetch just to exercise error recovery.
+  for (const injectFault of configurationFaults) injectFault();
 
   await expect(
     page

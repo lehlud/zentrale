@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import { config, gitConnections } from "./fixtures/visual-data";
@@ -24,12 +25,14 @@ for (const english of [false, true]) {
     let keysGenerated = 0;
     let setupAttempts = 0;
     const projectIDs: string[] = [];
-    await page.routeWebSocket("**/events?*", () => {});
-    await page.route("**/graphql", async (route) => {
-      const { query, variables = {} } = route.request().postDataJSON();
-      const send = (value: unknown) => route.fulfill({ json: { data: value } });
-      const fail = (message: string) =>
-        route.fulfill({ json: { errors: [{ message }] } });
+    const resolve = async (
+      query: string,
+      variables: Record<string, any> = {},
+    ) => {
+      const send = (value: unknown) => value;
+      const fail = (message: string): never => {
+        throw new Error(message);
+      };
       if (query.includes("status{")) {
         return send({ status: { needsSetup: setup, authenticated: !setup } });
       }
@@ -108,6 +111,19 @@ for (const english of [false, true]) {
       }
 
       return send(data);
+    };
+    const push = await installPushFixture(page, resolve);
+    await page.route("**/graphql", async (route) => {
+      const { query, variables = {} } = route.request().postDataJSON();
+      try {
+        const data = await resolve(query, variables);
+        if (query.trimStart().startsWith("mutation")) await push.push();
+        await route.fulfill({ json: { data } });
+      } catch (error) {
+        await route.fulfill({
+          json: { errors: [{ message: (error as Error).message }] },
+        });
+      }
     });
     const dialog = page.getByRole("dialog");
     const next = () =>

@@ -21,6 +21,7 @@ async function connectionFixture(page: Page) {
     queryError: "",
     configDelay: 0,
     configReads: 0,
+    preparations: 0,
     projectName: project.name,
   };
   const receiptIDs: string[] = [];
@@ -95,6 +96,7 @@ async function connectionFixture(page: Page) {
   await page.route("**/graphql", async (route) => {
     const { query, variables = {} } = route.request().postDataJSON();
     if (query.trimStart().startsWith("mutation")) state.mutations++;
+    if (query.includes("prepareAgent")) state.preparations++;
     if (query.includes("submitInput(")) receiptIDs.push(variables.id);
     if (state.offline) {
       state.failures++;
@@ -169,9 +171,9 @@ test("authenticated reload completes slow reads during an event burst without ca
       page.getByText(fixture.state.projectName, { exact: true }).first(),
     ).toBeVisible();
     expect(cancelled).toEqual([]);
-    // Exactly the three initial HTTP reads (sidebar, projects, dialog), with
+    // Exactly two initial HTTP reads (sidebar and projects), with
     // state changes delivered by subscriptions even while HTTP is pending.
-    expect(fixture.state.configReads).toBe(3);
+    expect(fixture.state.configReads).toBe(2);
     expect(
       fixture.subscriptionFrames.filter((frame) => frame.type === "subscribe")
         .length,
@@ -188,7 +190,7 @@ test("raw engine frames do not reload HTTP queries; subscription snapshots updat
   await expect(
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
-  await expect.poll(() => fixture.state.configReads).toBe(3);
+  await expect.poll(() => fixture.state.configReads).toBe(2);
   const reads = fixture.state.configReads;
   const subscriptions = fixture.subscriptionFrames.filter(
     (frame) => frame.type === "subscribe",
@@ -360,7 +362,10 @@ for (const variant of [
       }),
     ).toContainText("noch nicht gesendete Aufgabe");
     await expect(message).toBeVisible();
-    await expect.poll(() => fixture.state.mutations).toBe(2);
+    // Two durable submission attempts and one explicit readiness preparation.
+    await expect.poll(() => fixture.state.mutations).toBe(3);
+    expect(fixture.state.preparations).toBe(1);
+    expect(fixture.receiptIDs).toHaveLength(2);
     expect(new Set(fixture.receiptIDs).size).toBe(1);
     expect(pageErrors).toEqual([]);
 

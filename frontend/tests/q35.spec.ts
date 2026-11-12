@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
 
 import {
   agent,
@@ -20,7 +22,11 @@ for (const english of [false, true]) {
     }, english);
     const state = structuredClone(config);
     let saved: Record<string, unknown> | undefined;
-    await page.routeWebSocket("**/events?*", () => {});
+    const push = await installPushFixture(page, (query) =>
+      query.includes("status{")
+        ? { status: { authenticated: true, needsSetup: false } }
+        : state,
+    );
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       if (query.includes("status{")) {
@@ -40,6 +46,7 @@ for (const english of [false, true]) {
 
         saved = variables.input;
         Object.assign(state.machines[0], variables.input);
+        await push.push();
 
         return route.fulfill({
           json: { data: { saveMachine: { id: state.machines[0].id } } },
@@ -115,12 +122,13 @@ for (const english of [false, true]) {
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", async (route) => {
       const { query } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+      const send = (data: unknown) =>
+        route.fulfill({ json: { data: bootstrapData(query, data) } });
       if (query.includes("status{")) {
         return send({ status: { authenticated: true, needsSetup: false } });
       }
 
-      if (query.includes("recentMessages")) {
+      if (isTranscriptQuery(query)) {
         return send({
           ...transcript,
           agent: { ...agent, status },

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir } from "node:fs/promises";
+import type { ProviderLogin } from "../src/generated";
 
 import {
   chooseProviderAccount,
@@ -44,14 +45,16 @@ for (const variant of [
     }, variant);
     const state = structuredClone(config);
     let rejectDefaults = true;
-    let signInFailed = true;
+    const logins = new Map<string, ProviderLogin>();
+    let loginSequence = 0;
+    let deviceLoginId = "";
     const events: string[] = [];
     const resolve = async (
       query: string,
       variables: Record<string, any> = {},
     ) => {
       const send = (data: unknown) => bootstrapData(query, data);
-      if (query.includes("status{")) {
+      if (/\bstatus\s*\{/.test(query)) {
         return send({
           status: {
             needsSetup: false,
@@ -86,42 +89,41 @@ for (const variant of [
 
       if (query.includes("beginProviderLogin")) {
         events.push("begin");
-        return send({
-          beginProviderLogin: {
-            id: "admin-login",
-            providerId: variables.providerId,
-            method:
-              variables.providerId === "openrouter" ? "browser" : "device",
-            status: signInFailed ? "error" : "pending",
-            verificationUrl: "https://example.org/verify",
-            userCode: variables.providerId === "openrouter" ? "" : "LOGIN-42",
-            interval: 60,
-            expiresAt: "2026-11-05T23:00:00Z",
-            error: signInFailed
-              ? label("Die Anmeldung ist abgelaufen.", "Sign-in expired.")
-              : "",
-          },
-        });
+        const login: ProviderLogin = {
+          id: `admin-login-${++loginSequence}`,
+          providerId: variables.providerId,
+          method: variables.providerId === "openrouter" ? "browser" : "device",
+          status: "pending",
+          verificationUrl: "https://example.org/verify",
+          userCode: variables.providerId === "openrouter" ? "" : "LOGIN-42",
+          interval: 60,
+          expiresAt: "2099-01-01T00:00:00Z",
+          error: "",
+        };
+        logins.set(login.id, login);
+        if (login.method === "device") deviceLoginId = login.id;
+        return send({ beginProviderLogin: login });
+      }
+
+      if (query.includes("providerLogin(")) {
+        return send({ providerLogin: logins.get(variables.id) ?? null });
       }
 
       if (query.includes("cancelProviderLogin")) {
         events.push("cancel");
+        logins.delete(variables.id);
         return send({ cancelProviderLogin: true });
       }
 
       if (query.includes("pollProviderLogin")) {
-        return send({
-          pollProviderLogin: {
-            id: variables.id,
-            providerId: "openrouter",
-            method: "browser",
-            status: "pending",
-            verificationUrl: "https://example.org/verify",
-            userCode: "",
-            interval: 60,
-            error: label("Dieser Code ist ungültig.", "This code is invalid."),
-          },
-        });
+        const login = logins.get(variables.id)!;
+        expect(login.method).toBe("browser");
+        expect(variables.code).toBe("keep-invalid-code");
+        login.error = label(
+          "Dieser Code ist ungültig.",
+          "This code is invalid.",
+        );
+        return send({ pollProviderLogin: login });
       }
 
       if (query.includes("models(providerId:")) {
@@ -340,11 +342,15 @@ for (const variant of [
       .click();
     dialog = page.getByRole("dialog");
 
+    await expect(dialog.getByText("LOGIN-42", { exact: true })).toBeVisible();
+    const expired = logins.get(deviceLoginId)!;
+    expired.status = "expired";
+    expired.error = label("Die Anmeldung ist abgelaufen.", "Sign-in expired.");
+    await push.push();
     await expect(dialog.getByRole("alert")).toContainText(
       label("Die Anmeldung ist abgelaufen.", "Sign-in expired."),
     );
 
-    signInFailed = false;
     await dialog
       .getByRole("button", {
         name: label("Anmeldung erneut starten", "Restart sign-in"),
@@ -372,6 +378,13 @@ for (const variant of [
     ).toHaveAttribute("target", "_blank");
 
     await shot("device-login");
+    logins.get(deviceLoginId)!.status = "connected";
+    state.providers.find((provider) => provider.id === "chatgpt")!.connected =
+      true;
+    await push.push();
+    await expect(dialog.getByRole("status")).toContainText(
+      label("Provider verbunden", "Provider connected"),
+    );
     await page.keyboard.press("Escape");
 
     await expect.poll(() => events.includes("cancel")).toBe(true);

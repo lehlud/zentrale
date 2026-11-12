@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -106,7 +111,8 @@ for (const variant of variants) {
     const noHostKey = { host: "", fingerprint: "", publicKey: "" };
     await page.context().route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+      const send = (data: unknown) =>
+        route.fulfill({ json: { data: bootstrapData(query, data) } });
       if (query.includes("status{")) {
         return send({
           status: {
@@ -286,10 +292,11 @@ for (const variant of variants) {
         return send(data);
       }
 
-      if (query.includes("recentMessages")) {
+      if (isTranscriptQuery(query)) {
         const data = structuredClone(transcript);
         data.agent = structuredClone(
-          agents.find((item) => item.id === variables.id) ?? agent,
+          agents.find((item) => item.id === selectedAgentId(variables)) ??
+            agent,
         );
         if (data.agent.role === "approver") {
           data.messages = [

@@ -6,7 +6,12 @@ export default defineConfig({
   timeout: 60000,
   forbidOnly: Boolean(process.env.CI),
   reporter: process.env.CI
-    ? [["line"], ["github"], ["html", { open: "never" }]]
+    ? [
+        ["line"],
+        ["github"],
+        ["html", { open: "never" }],
+        ["json", { outputFile: "artifacts/playwright-results.json" }],
+      ]
     : "list",
   use: {
     baseURL: process.env.ZENTRALE_E2E_URL ?? "http://127.0.0.1:18080",

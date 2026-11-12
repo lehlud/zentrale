@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { Buffer } from "node:buffer";
 
 import {
@@ -29,7 +30,7 @@ test("real rejected WebSocket handshake shows actionable origin diagnostics", as
     const { query } = route.request().postDataJSON();
     const data = query.includes("status{")
       ? { status: { needsSetup: false, authenticated: true } }
-      : query.includes("recentMessages")
+      : isTranscriptQuery(query)
         ? {
             ...transcript,
             agent,
@@ -41,7 +42,7 @@ test("real rejected WebSocket handshake shows actionable origin diagnostics", as
         : query.includes("agents(projectId:")
           ? { project, agents }
           : config;
-    return route.fulfill({ json: { data } });
+    return route.fulfill({ json: { data: bootstrapData(query, data) } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   await page
@@ -112,7 +113,7 @@ for (const variant of [
       const { query } = route.request().postDataJSON();
       const data = query.includes("status{")
         ? { status: { needsSetup: false, authenticated: true } }
-        : query.includes("recentMessages")
+        : isTranscriptQuery(query)
           ? {
               ...transcript,
               agent,
@@ -124,7 +125,7 @@ for (const variant of [
           : query.includes("agents(projectId:")
             ? { project, agents }
             : config;
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: { data: bootstrapData(query, data) } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
     const launch = page.getByRole("button", {

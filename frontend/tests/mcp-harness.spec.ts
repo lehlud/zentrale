@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import type { Message } from "../src/generated";
@@ -125,7 +126,7 @@ for (const english of [false, true]) {
         const { query } = route.request().postDataJSON();
         const data = query.includes("status{")
           ? { status: { needsSetup: false, authenticated: true } }
-          : query.includes("recentMessages")
+          : isTranscriptQuery(query)
             ? {
                 ...transcript,
                 messages,
@@ -137,7 +138,7 @@ for (const english of [false, true]) {
               ? { project, agents }
               : config;
 
-        return route.fulfill({ json: { data } });
+        return route.fulfill({ json: { data: bootstrapData(query, data) } });
       });
       await page.goto("/#/projects/" + project.id + "?agent=" + agent.id);
       const log = page.getByRole("region", {

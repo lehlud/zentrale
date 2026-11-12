@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 import { agents, config, project, transcript } from "./fixtures/visual-data";
 
@@ -32,12 +33,12 @@ for (const english of [false, true]) {
                 url: "/ide/forecast/preview-session/",
               },
             }
-          : query.includes("recentMessages")
+          : isTranscriptQuery(query)
             ? transcript
             : query.includes("agents(projectId:")
               ? { project, agents }
               : config;
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: { data: bootstrapData(query, data) } });
     });
     await context.route("**/preview/**", (route) =>
       route.fulfill({

@@ -29,8 +29,17 @@ test("GitHub workflow reauthorization is visible and clears after consent", asyn
     error: "",
   };
   let browserPolls = 0;
-  const push = await installPushFixture(page, (query) => {
-    if (query.includes("gitLogin(")) return { gitLogin: login };
+  const push = await installPushFixture(page, (query, variables) => {
+    if (/\bstatus\s*\{/.test(query))
+      return { status: { needsSetup: false, authenticated: true } };
+    if (query.includes("gitLogin("))
+      return {
+        gitLogin:
+          variables.connectionId === login.connectionId &&
+          variables.loginId === login.id
+            ? login
+            : null,
+      };
     if (query.includes("gitConnections"))
       return { gitConnections: connections };
     if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
@@ -44,7 +53,8 @@ test("GitHub workflow reauthorization is visible and clears after consent", asyn
       browserPolls++;
       return send({ pollGitLogin: login });
     }
-    if (query.includes("status")) {
+    if (query.includes("cancelGitLogin")) return send({ cancelGitLogin: true });
+    if (/\bstatus\s*\{/.test(query)) {
       return send({ status: { needsSetup: false, authenticated: true } });
     }
     if (query.includes("machines(limit:500)")) return send(config);
@@ -114,6 +124,7 @@ for (const english of [false, true]) {
     }));
     let createAttempts = 0;
     let saveAttempts = 0;
+    let browserPolls = 0;
     const submittedIds: string[] = [];
     const login = {
       id: "device-login",
@@ -126,7 +137,22 @@ for (const english of [false, true]) {
       error: "",
     };
     const push = await installPushFixture(page, (query, variables) => {
-      if (query.includes("gitLogin(")) return { gitLogin: login };
+      if (/\bstatus\s*\{/.test(query))
+        return {
+          status: {
+            needsSetup: false,
+            authenticated: true,
+            githubConnected: true,
+          },
+        };
+      if (query.includes("gitLogin("))
+        return {
+          gitLogin:
+            variables.connectionId === login.connectionId &&
+            variables.loginId === login.id
+              ? login
+              : null,
+        };
       if (query.includes("gitConnections"))
         return { gitConnections: connections };
       if (query.includes("gitNamespaces"))
@@ -154,7 +180,10 @@ for (const english of [false, true]) {
     });
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      const send = (value: unknown) => route.fulfill({ json: { data: value } });
+      const send = async (value: unknown) => {
+        await route.fulfill({ json: { data: value } });
+        if (/^\s*mutation\b/.test(query)) await push.push();
+      };
       if (query.includes("configureGitConnection")) {
         connections[0] = {
           ...connections[0],
@@ -169,12 +198,8 @@ for (const english of [false, true]) {
       }
 
       if (query.includes("pollGitLogin")) {
-        connections[0] = {
-          ...connections[0],
-          connected: true,
-          userName: "gunter",
-        };
-        return send({ pollGitLogin: { ...login, status: "connected" } });
+        browserPolls++;
+        return send({ pollGitLogin: login });
       }
 
       if (query.includes("createGitRepository")) {
@@ -231,7 +256,9 @@ for (const english of [false, true]) {
         return send({ saveProject: { id: variables.input.id } });
       }
 
-      if (query.includes("status")) {
+      if (query.includes("cancelGitLogin"))
+        return send({ cancelGitLogin: true });
+      if (/\bstatus\s*\{/.test(query)) {
         return send({
           status: {
             needsSetup: false,
@@ -570,6 +597,7 @@ for (const english of [false, true]) {
       fullPage: true,
     });
     await capture("key-usages");
+    expect(browserPolls).toBe(0);
     await writeFile(
       `artifacts/ui/git-${english ? "mobile-en-dark" : "desktop-de-light"}.json`,
       JSON.stringify({ captures, errors: [] }, null, 2),
