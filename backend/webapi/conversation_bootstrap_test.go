@@ -9,8 +9,120 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/agent"
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/remote"
 )
+
+// Include many unrelated agents, model wire blobs and old job output: a tiny
+// response alone is not evidence that server-side loading is bounded.
+func seedBootstrapHistory(t testing.TB, f *apiFixture, agents, messages, jobs int) {
+	t.Helper()
+	saveBootstrapResource(t, f, "project", "history-project", "", map[string]any{"name": "History"})
+	wire := strings.Repeat("private-provider-wire", 2048)
+	writes := []datastore.ResourceWrite{}
+	flush := func() {
+		if err := f.engine.Store.SaveResources(writes); err != nil {
+			t.Fatal(err)
+		}
+		writes = nil
+	}
+	add := func(kind, id, parent string, value map[string]any) {
+		value["id"] = id
+		writes = append(writes, datastore.ResourceWrite{Kind: kind, ID: id, Parent: parent, Value: value})
+		if len(writes) == 100 {
+			flush()
+		}
+	}
+	for n := range agents {
+		id, role := fmt.Sprintf("history-agent-%04d", n), "child"
+		if n == 0 {
+			role = "main"
+		}
+		add("agent", id, "history-project", map[string]any{"projectId": "history-project", "role": role, "summary": wire})
+	}
+	for n := range messages {
+		parent := "history-agent-0000"
+		if n%2 != 0 {
+			parent = fmt.Sprintf("history-agent-%04d", 1+n%(agents-1))
+		}
+		id := fmt.Sprintf("history-message-%05d", n)
+		add("message", id, parent, map[string]any{
+			"agentId": parent, "role": "assistant", "content": "visible transcript", "wire": wire,
+			"attachments": []map[string]any{{"id": "attachment-" + id, "name": "trace.txt", "mimeType": "text/plain", "size": 42, "path": "uploads/trace.txt", "machineId": "worker"}}})
+		add("tool_activity", id, parent, map[string]any{"agentId": parent, "activities": []map[string]any{
+			{"name": "exec", "arguments": `{"cmd":"build"}`, "content": "build output", "network": false, "justification": "test build"}}})
+		add("file_change", id, parent, map[string]any{
+			"agentId": parent, "messageId": id, "path": "example.go", "kind": "modified", "patch": "-old\n+new\n", "added": 1, "removed": 1})
+	}
+	for n := range jobs {
+		status := "completed"
+		if n < 3 {
+			status = "running"
+		}
+		add("job", fmt.Sprintf("history-job-%05d", n), "history-agent-0000", map[string]any{
+			"agentId": "history-agent-0000", "command": "build", "status": status, "output": wire})
+	}
+	flush()
+}
+
+// Mirror the complete production selection in frontend/src/conversation-bootstrap.ts
+// (including agent-transcript.ts messageFields). In particular wire and full
+// tool/diff data remain required by the UI; a wire-free query is not a faithful
+// benchmark of the reported initial-conversation request.
+const historyBootstrapQuery = `query{conversationBootstrap(projectId:"history-project",agentId:""){
+ project { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName }
+ agents { id name role status parentId approverId projectId providerId modelId machineId error contextStart }
+ agent { id name role status parentId approverId projectId providerId modelId machineId error contextStart }
+ messages { id agentId role content wire callId toolName createdAt
+   attachments { id name mimeType size path machineId }
+   activities { name arguments content network justification }
+   change { id path kind patch added removed truncated notice }
+   changes { id path kind patch added removed truncated notice } }
+ goal { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
+ agentInputs { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
+ agentRunState { agentId phase error hostKey { host fingerprint publicKey } }
+ questions { id title options status answer agentId }
+ jobs { id command status error startedAt machineId agentId timeoutMs }
+ modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
+ machineName sandboxMode
+ sandboxStatus { machineId mode level checkedAt error }
+ }}`
+
+func TestConversationBootstrapLargeHistoryDefaultAgent(t *testing.T) {
+	f := bootstrapFixture(t)
+	seedBootstrapHistory(t, f, 64, 256, 256)
+	data := requireData(t, f.query(t, historyBootstrapQuery, nil))["conversationBootstrap"].(map[string]any)
+	if data["agent"].(map[string]any)["id"] != "history-agent-0000" || len(data["agents"].([]any)) != 64 ||
+		len(data["messages"].([]any)) != 100 || len(data["jobs"].([]any)) != 3 {
+		t.Fatal("history was not scoped/bounded to the default main agent")
+	}
+	for _, entry := range data["messages"].([]any) {
+		message := entry.(map[string]any)
+		activity := message["activities"].([]any)[0].(map[string]any)
+		changes := message["changes"].([]any)
+		if message["wire"] != strings.Repeat("private-provider-wire", 2048) ||
+			activity["arguments"] != `{"cmd":"build"}` || activity["content"] != "build output" ||
+			message["change"].(map[string]any)["patch"] != "-old\n+new\n" || len(changes) != 1 ||
+			changes[0].(map[string]any)["patch"] != "-old\n+new\n" || len(message["attachments"].([]any)) != 1 {
+			t.Fatal("production wire/activity/patch/attachment selection lost data")
+		}
+	}
+}
+
+func BenchmarkConversationBootstrapLargeHistory(b *testing.B) {
+	f := bootstrapFixture(b)
+	seedBootstrapHistory(b, f, 300, 3000, 1000)
+	// Excludes DB creation, authentication and seeding; includes HTTP, session
+	// validation, resolver/SQL work, JSON encoding and client decoding.
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		data := requireData(b, f.query(b, historyBootstrapQuery, nil))["conversationBootstrap"].(map[string]any)
+		if len(data["messages"].([]any)) != 100 || len(data["jobs"].([]any)) != 3 {
+			b.Fatal("unexpected bounded history")
+		}
+	}
+}
 
 func TestConversationBootstrapIncludesSavedSandboxObservation(t *testing.T) {
 	f := bootstrapFixture(t)
@@ -76,14 +188,14 @@ const bootstrapTestQuery = `query($projectId:String!, $agentId:String) {
  }
 }`
 
-func bootstrapFixture(t *testing.T) *apiFixture {
+func bootstrapFixture(t testing.TB) *apiFixture {
 	t.Helper()
 	f := newAPIFixture(t)
 	requireData(t, f.query(t, `mutation{setup(password:"correct test password",commitIdentity:{name:"Test",email:"test@example.test"})}`, nil))
 	return f
 }
 
-func saveBootstrapResource(t *testing.T, f *apiFixture, kind, id, parent string, value map[string]any) {
+func saveBootstrapResource(t testing.TB, f *apiFixture, kind, id, parent string, value map[string]any) {
 	t.Helper()
 	value["id"] = id
 	if err := f.engine.Store.Save(kind, id, parent, value); err != nil {

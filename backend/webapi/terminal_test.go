@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,6 +170,22 @@ func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 	if output := readOutput("first-done\r\n"); !strings.Contains(output, "33 91") {
 		t.Fatal(output)
 	}
+	// Cover sustained interactive traffic, not just startup and one command.
+	// Each echo crosses WebSocket, SSH, the real Python relay and a real PTY;
+	// the proxied variant also exercises the TLS-terminating reverse proxy.
+	var slowest time.Duration
+	for n := range 24 {
+		started := time.Now()
+		_ = connection.SetReadDeadline(started.Add(2 * time.Second))
+		command := fmt.Sprintf("printf 'latency-%02d\\n'\n", n)
+		if err := connection.WriteMessage(websocket.BinaryMessage, []byte(command)); err != nil {
+			t.Fatal(err)
+		}
+		readOutput(fmt.Sprintf("latency-%02d\r\n", n))
+		slowest = max(slowest, time.Since(started))
+	}
+	t.Logf("24 WebSocket/SSH/PTY roundtrips, slowest %s", slowest)
+	_ = connection.SetReadDeadline(time.Now().Add(15 * time.Second))
 	if err := connection.WriteJSON(map[string]any{"type": "resize", "cols": 72, "rows": 27}); err != nil {
 		t.Fatal(err)
 	}

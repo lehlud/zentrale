@@ -1,6 +1,7 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { Buffer } from "node:buffer";
+import { installPushFixture } from "./fixtures/push-fixture";
 
 import {
   agent,
@@ -9,6 +10,107 @@ import {
   project,
   transcript,
 } from "./fixtures/visual-data";
+
+test("wterm keystroke-to-paint stays responsive with scrollback and live conversation updates", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60000);
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  const messages = Array.from({ length: 1000 }, (_, index) => ({
+    ...transcript.messages[0],
+    id: `terminal-perf-${index}`,
+    role: "assistant",
+    content:
+      `Historical message ${index} ` + "Background conversation. ".repeat(20),
+    wire: "",
+    callId: "",
+    toolName: "",
+    change: null,
+    changes: [],
+    activities: [],
+  }));
+  const resolve = (query: string) => {
+    const data = query.includes("status{")
+      ? { status: { needsSetup: false, authenticated: true } }
+      : isTranscriptQuery(query)
+        ? {
+            ...transcript,
+            agent,
+            messages,
+            recentMessages: [],
+            questions: [],
+            jobs: [],
+          }
+        : query.includes("agents(projectId:")
+          ? { project, agents }
+          : config;
+    return bootstrapData(query, data);
+  };
+  const push = await installPushFixture(page, resolve);
+  await page.route("**/graphql", (route) =>
+    route.fulfill({
+      json: { data: resolve(route.request().postDataJSON().query) },
+    }),
+  );
+  let echoes = 0;
+  await page.routeWebSocket("**/terminal/**", (socket) => {
+    socket.onMessage((data) => {
+      if (typeof data !== "string" && data.toString() === "x") {
+        socket.send(Buffer.from(`\r\nECHO_${++echoes}\r\n`));
+      }
+    });
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+    socket.send(
+      Buffer.from(
+        Array.from({ length: 2100 }, (_, n) => `Scrollback line ${n}\r\n`).join(
+          "",
+        ) + "SCROLLBACK_READY\r\n",
+      ),
+    );
+  });
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await page
+    .getByRole("button", { name: "Terminal in der VM öffnen", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "VM-Terminal", exact: true });
+  const screen = dialog.getByRole("group", {
+    name: "Terminal-Ein- und Ausgabe",
+    exact: true,
+  });
+  await expect(screen).toContainText("SCROLLBACK_READY");
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+  let revision = 0;
+  const updates = setInterval(() => {
+    messages[messages.length - 1].content =
+      `Live background revision ${++revision}`;
+    void push.push();
+  }, 200);
+  const latencies: number[] = [];
+  try {
+    await screen.locator("textarea").focus();
+    for (let n = 1; n <= 24; n++) {
+      const started = Date.now();
+      await page.keyboard.type("x");
+      await expect(screen).toContainText(`ECHO_${n}`, { timeout: 1000 });
+      latencies.push(Date.now() - started);
+    }
+    expect(revision).toBeGreaterThan(0);
+    expect(echoes).toBe(24);
+    expect(
+      Math.max(...latencies),
+      "No multi-second terminal stalls at 4x CPU slowdown",
+    ).toBeLessThan(1000);
+  } finally {
+    clearInterval(updates);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await cdp.detach();
+    await testInfo.attach("terminal-keystroke-to-paint.json", {
+      body: JSON.stringify({ latencies, backgroundUpdates: revision }),
+      contentType: "application/json",
+    });
+  }
+});
 
 test("real rejected WebSocket handshake shows actionable origin diagnostics", async ({
   page,

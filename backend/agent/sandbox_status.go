@@ -98,8 +98,6 @@ func (engine *Engine) SandboxStatus(machineID string) *domain.SandboxStatus {
 	if machineID == "" {
 		return nil
 	}
-	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
 	machine, err := engine.Remote.Connector.Machine(machineID)
 	if err != nil {
 		return nil
@@ -108,6 +106,15 @@ func (engine *Engine) SandboxStatus(machineID string) *domain.SandboxStatus {
 	if engine.Store.Load("sandboxStatus", machineID, &record) != nil ||
 		record.Configuration != JSON(remote.WithMachineDefaults(machine)) ||
 		record.Implementation != remote.SandboxImplementationID() {
+		return nil
+	}
+	// This is a read-only persisted observation, not a lifecycle operation.
+	// configMu can be held while closing SSH connections; taking it here makes
+	// opening a conversation wait for unrelated remote work. Re-read the
+	// configuration instead so an edit during the observation read invalidates
+	// the result without waiting on that lifecycle lock (also covers pools).
+	current, err := engine.Remote.Connector.Machine(machineID)
+	if err != nil || JSON(current) != JSON(machine) {
 		return nil
 	}
 	return &record.SandboxStatus

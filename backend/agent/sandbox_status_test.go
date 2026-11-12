@@ -9,10 +9,50 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providers"
 	"github.com/lehlud/zentrale/remote"
 )
+
+func TestSandboxStatusDoesNotWaitForLifecycleLock(t *testing.T) {
+	store, err := datastore.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	engine := &Engine{Store: store, Remote: &remote.Manager{Connector: &remote.Connector{Store: store}}}
+	machine := remote.WithMachineDefaults(domain.Machine{ID: "worker", Host: "unused.invalid", Sandbox: "auto"})
+	if err := store.Save("machine", machine.ID, "", machine); err != nil {
+		t.Fatal(err)
+	}
+	observation := recordedSandboxStatus{SandboxStatus: domain.SandboxStatus{MachineID: machine.ID, Level: "bwrap"},
+		Configuration: JSON(machine), Implementation: remote.SandboxImplementationID()}
+	if err := store.Save("sandboxStatus", machine.ID, "", observation); err != nil {
+		t.Fatal(err)
+	}
+	engine.configMu.Lock()
+	result := make(chan *domain.SandboxStatus, 1)
+	go func() { result <- engine.SandboxStatus(machine.ID) }()
+	select {
+	case status := <-result:
+		engine.configMu.Unlock()
+		if status == nil || status.Level != "bwrap" {
+			t.Fatalf("saved observation missing: %+v", status)
+		}
+	case <-time.After(2 * time.Second):
+		engine.configMu.Unlock()
+		<-result
+		t.Fatal("conversation observation waited for unrelated lifecycle work")
+	}
+	machine.Host = "changed.invalid"
+	if err := store.Save("machine", machine.ID, "", machine); err != nil {
+		t.Fatal(err)
+	}
+	if status := engine.SandboxStatus(machine.ID); status != nil {
+		t.Fatalf("stale configuration observation returned: %+v", status)
+	}
+}
 
 func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 	var selection atomic.Value

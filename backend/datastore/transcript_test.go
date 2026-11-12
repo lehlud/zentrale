@@ -2,11 +2,45 @@ package datastore
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
 )
+
+func TestTranscriptFieldsProjectsBeforeDecodeAndPreservesPagination(t *testing.T) {
+	store, err := Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	wire := strings.Repeat("private-wire", 8192)
+	for index := range 105 {
+		id := fmt.Sprintf("m-%03d", index)
+		if err := store.Save("message", id, "agent", map[string]any{"id": id, "role": "assistant", "content": id, "wire": wire}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fields := []string{"id", "role", "content"}
+	page, err := store.TranscriptBeforeFields("agent", 100, "", fields)
+	if err != nil || len(page) != 100 {
+		t.Fatalf("page size: %d, %v", len(page), err)
+	}
+	for _, row := range page {
+		if _, loaded := row["wire"]; loaded || len(row) != len(fields) {
+			t.Fatal("unrequested wire reached Go decoding")
+		}
+	}
+	older, err := store.TranscriptBeforeFields("agent", 100, page[99]["id"].(string), fields)
+	if err != nil || len(older) != 5 {
+		t.Fatalf("older page size: %d, %v", len(older), err)
+	}
+	full, err := store.TranscriptBefore("agent", 1, "")
+	if err != nil || len(full) != 1 || full[0]["wire"] != wire {
+		t.Fatal("full-detail compatibility lost", err)
+	}
+}
 
 func TestTranscriptPaginatesCompletedGoalsWithMessages(t *testing.T) {
 	store, err := Open("")

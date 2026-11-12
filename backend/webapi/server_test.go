@@ -47,7 +47,7 @@ type apiFixture struct {
 	ssh    *testssh.Server
 }
 
-func newAPIFixture(t *testing.T) *apiFixture {
+func newAPIFixture(t testing.TB) *apiFixture {
 	t.Helper()
 	store, err := datastore.Open("")
 	if err != nil {
@@ -101,7 +101,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	return fixture
 }
 
-func (fixture *apiFixture) query(t *testing.T, query string, variables map[string]any) map[string]any {
+func (fixture *apiFixture) query(t testing.TB, query string, variables map[string]any) map[string]any {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"query": query, "variables": variables})
 	if err != nil {
@@ -122,7 +122,7 @@ func (fixture *apiFixture) query(t *testing.T, query string, variables map[strin
 	return result
 }
 
-func requireData(t *testing.T, result map[string]any) map[string]any {
+func requireData(t testing.TB, result map[string]any) map[string]any {
 	t.Helper()
 
 	if result["errors"] != nil {
