@@ -1,5 +1,5 @@
 import { Button, Link, buttonVariants } from "@heroui/react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 
 import { AgentControls } from "./agent-controls";
 import { AgentView } from "./agent-view";
@@ -18,11 +18,15 @@ export function Workspace({
   agents,
   onProjectDialog,
   bootstrap,
+  focusAgentId,
+  onFocusAgent,
 }: {
   project: Project;
   agents: Agent[];
   onProjectDialog: (view: string) => void;
   bootstrap: ConversationBootstrap;
+  focusAgentId: string;
+  onFocusAgent: (id: string) => void;
 }) {
   const { t } = useI18n();
 
@@ -33,9 +37,8 @@ export function Workspace({
   const selected = params.get("agent") ?? "";
   // Each agent remounts its history and draft. Restore keyboard focus when the
   // newly selected session has loaded and its compact switcher is available.
-  const [focusAgentId, setFocusAgentId] = useState("");
   const setSelected = (id: string) => {
-    setFocusAgentId(id);
+    onFocusAgent(id);
     setRouteParameter("agent", id);
   };
   const mainAgents = agents.filter((agent) => agent.role === "main");
@@ -105,7 +108,7 @@ export function Workspace({
             onCreateAgent={() => sidebar?.newConversation(project.id)}
             canCreateAgent={defaultsReady}
             focusAgentSwitcher={focusAgentId === activeId}
-            onAgentSwitcherFocus={() => setFocusAgentId("")}
+            onAgentSwitcherFocus={() => onFocusAgent("")}
             initialTranscript={bootstrapTranscript(bootstrap)}
             managedTranscript
             sandboxMode={bootstrap.sandboxMode}

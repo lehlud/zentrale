@@ -229,6 +229,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const api = useAPI();
   const { params } = useRoute();
+  // This survives Workspace's temporary unmount while the next bootstrap loads.
+  const [focusAgentId, setFocusAgentId] = useState("");
   const {
     data: result,
     error,
@@ -277,6 +279,8 @@ export function ProjectView({ projectId }: { projectId: string }) {
         agents={data.agents}
         bootstrap={data}
         onProjectDialog={setProjectDialog}
+        focusAgentId={focusAgentId}
+        onFocusAgent={setFocusAgentId}
       />
       {projectDialog === "settings" && (
         <ProjectSettings

@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { chooseProviderAccount } from "./fixtures/context-actions";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { config, gitConnections } from "./fixtures/visual-data";
 
@@ -44,8 +43,12 @@ test("provider device login subscribes once and receives completion without brow
     }
     return send(reads(query, variables));
   });
-  await page.goto("/#/providers");
-  const account = await chooseProviderAccount(page, "ChatGPT · Team");
+  // Selecting a disconnected account through the picker already opens login.
+  // Use a deep link here to exercise the explicit sign-in button instead.
+  await page.goto("/#/providers?provider=chatgpt");
+  const account = page.locator("[data-provider-account]:visible").filter({
+    has: page.getByRole("heading", { name: "ChatGPT · Team", exact: true }),
+  });
   await account
     .getByRole("button", { name: /^(Anmelden|Sign in)$/, exact: true })
     .click();

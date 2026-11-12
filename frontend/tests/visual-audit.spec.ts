@@ -995,7 +995,9 @@ for (const variant of variants) {
     editorMode = "error";
     editorPage = await openEditor();
 
-    await expect(editorPage.getByRole("alert")).toBeVisible();
+    await expect(
+      editorPage.locator('[role="alert"][data-slot="alert-root"]'),
+    ).toBeVisible();
 
     await capture("editor-error", editorPage);
     await editorPage.close();

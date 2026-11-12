@@ -125,7 +125,9 @@ test("long conversations keep typing isolated, observers bounded and updates res
   });
   await page.route("**/graphql", async (route) => {
     const { query, variables = {} } = route.request().postDataJSON();
-    if (isTranscriptQuery(query)) queries++;
+    // Explicit scrollback reads are expected when the user scrolls to the top;
+    // they are not live snapshot refetches.
+    if (isTranscriptQuery(query) && !variables.beforeId) queries++;
     const data = await resolve(query, variables);
     if (query.trimStart().startsWith("mutation")) await push.push();
     await route.fulfill({ json: { data } });
