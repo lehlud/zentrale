@@ -2,6 +2,22 @@ package domain
 
 import "testing"
 
+func TestDiscoveredAliasReasoningCapabilities(t *testing.T) {
+	model := LanguageModel{ID: "codex-auto-review", ReasoningLevels: []string{"low", "medium", "high"}}
+	for _, requested := range []string{"", "default", "regular", "medium"} {
+		if got := ResolveModelReasoningLevel("openai", model, requested, "approver"); got != "medium" {
+			t.Fatalf("approver %q changed to %q", requested, got)
+		}
+	}
+	model.ReasoningLevels = []string{"high", "low"}
+	if got := ResolveModelReasoningLevel("openai", model, "medium", "approver"); got != "low" {
+		t.Fatal(got)
+	}
+	if got := ResolveModelReasoningLevel("openai", model, "xhigh", "main"); got != "high" {
+		t.Fatal(got)
+	}
+}
+
 func TestReasoningDefaultsAndFallbacks(t *testing.T) {
 	for _, tc := range []struct{ kind, model, requested, role, want string }{
 		{"openai", "gpt-5.4", "", "main", "xhigh"},

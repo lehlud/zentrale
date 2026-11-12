@@ -32,7 +32,10 @@ func decodeModel(provider domain.Provider, record map[string]any) (domain.Langua
 		id = text(record["slug"])
 		name = text(record["display_name"])
 
-		if record["visibility"] == "hidden" {
+		// Codex's approval reviewer can be hidden from the normal chat picker.
+		// Keep it only when this account actually returned the exact slug; do
+		// not manufacture availability or expose unrelated hidden models.
+		if record["visibility"] == "hidden" && id != "codex-auto-review" {
 			return domain.LanguageModel{}, false
 		}
 	}
@@ -76,6 +79,7 @@ func decodeModel(provider domain.Provider, record map[string]any) (domain.Langua
 	}
 
 	model := domain.LanguageModel{ID: id, ProviderID: provider.ID, Name: name}
+	model.ReasoningLevels = catalogReasoningLevels(record["supported_reasoning_levels"])
 
 	for _, field := range []string{
 		"context_length",
@@ -111,6 +115,26 @@ func decodeModel(provider domain.Provider, record map[string]any) (domain.Langua
 	}
 
 	return model, true
+}
+
+// Native catalog entries carry effort objects, not a reasoning default. Keep
+// only values supported by our existing ModelChoice vocabulary, preserving
+// provider order and eliminating duplicates. A suggested default never changes
+// the user's configured reasoning level or the regular approver default.
+func catalogReasoningLevels(value any) []string {
+	var levels []string
+	seen := map[string]bool{}
+	for _, entry := range array(value) {
+		effort := text(object(entry)["effort"])
+		switch effort {
+		case "minimal", "low", "medium", "high", "xhigh":
+			if !seen[effort] {
+				seen[effort] = true
+				levels = append(levels, effort)
+			}
+		}
+	}
+	return levels
 }
 
 func isTextModel(id string) bool {

@@ -63,6 +63,11 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 	}
 
 	applyReasoning(body, request, "responses")
+	if request.OutputSchema != nil {
+		body["text"] = map[string]any{"format": map[string]any{
+			"type": "json_schema", "name": "zentrale_approval", "strict": true, "schema": request.OutputSchema,
+		}}
+	}
 	data, err := client.post(ctx, request.Config, "/responses", body, request.OnText)
 	if err != nil {
 		return Result{}, err

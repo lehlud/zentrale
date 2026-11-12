@@ -64,7 +64,9 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			if err == nil {
 				var provider domain.Provider
 				if err = server.Store.Load("provider", params.Args["providerId"].(string), &provider); err == nil {
-					model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, params.Args["modelId"].(string))
+					if levels, ok := model["reasoningLevels"].([]any); !ok || len(levels) == 0 {
+						model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, params.Args["modelId"].(string))
+					}
 				}
 			}
 
@@ -101,7 +103,9 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 				return nil, err
 			}
 			for _, model := range models {
-				model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, model["id"].(string))
+				if levels, ok := model["reasoningLevels"].([]any); !ok || len(levels) == 0 {
+					model["reasoningLevels"] = domain.ReasoningLevels(provider.Kind, model["id"].(string))
+				}
 			}
 			return models, nil
 		}),

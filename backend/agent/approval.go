@@ -96,6 +96,16 @@ func (engine *Engine) approve(
 			return false, err
 		}
 
+		var outputSchema map[string]any
+		if configuration.Provider.Kind == "openai" && configuration.Model.ID == "codex-auto-review" {
+			// Codex supplies a final-output schema on an ordinary reviewer turn.
+			// Use Zentrale's existing decision contract, never translate a risk score
+			// or another agent's recommendation into permission.
+			outputSchema = map[string]any{"type": "object", "additionalProperties": false,
+				"properties": map[string]any{"allowed": map[string]any{"type": "boolean"},
+					"reason": map[string]any{"type": "string"}, "blanket": map[string]any{"type": "boolean"}},
+				"required": []string{"allowed", "reason", "blanket"}}
+		}
 		result, err := engine.Provider.Complete(ctx, providers.Request{
 			Config:         configuration.Provider,
 			ReasoningLevel: configuration.ReasoningLevel,
@@ -104,6 +114,7 @@ func (engine *Engine) approve(
 			Messages:       messages,
 			Tools:          tools,
 			CacheKey:       approver.ID,
+			OutputSchema:   outputSchema,
 		})
 		if err != nil {
 			return false, err

@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // ReasoningLevels stays conservative for unknown OpenAI-compatible models.
 func ReasoningLevels(kind, model string) []string {
@@ -31,7 +34,25 @@ func ReasoningLevels(kind, model string) []string {
 
 // ResolveReasoningLevel maps semantic defaults to supported equivalents.
 func ResolveReasoningLevel(kind, model, requested, role string) string {
-	levels := ReasoningLevels(kind, model)
+	return resolveReasoningLevel(ReasoningLevels(kind, model), requested, role)
+}
+
+// ResolveModelReasoningLevel prefers account-discovered capabilities over slug
+// heuristics, including aliases whose names do not identify a model family.
+func ResolveModelReasoningLevel(kind string, model LanguageModel, requested, role string) string {
+	levels := model.ReasoningLevels
+	if len(levels) == 0 {
+		levels = ReasoningLevels(kind, model.ID)
+	} else {
+		// Discovery order is a display preference, not an effort ranking.
+		levels = append([]string(nil), levels...)
+		rank := map[string]int{"minimal": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
+		sort.SliceStable(levels, func(i, j int) bool { return rank[levels[i]] < rank[levels[j]] })
+	}
+	return resolveReasoningLevel(levels, requested, role)
+}
+
+func resolveReasoningLevel(levels []string, requested, role string) string {
 	if len(levels) == 0 {
 		// Unknown capabilities are not evidence that reasoning is unsupported.
 		// Keep an explicit user override; automatic defaults remain conservative.

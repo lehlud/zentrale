@@ -55,6 +55,9 @@ type Request struct {
 	Messages []domain.Message
 	Tools    []Tool
 	CacheKey string
+	// OutputSchema optionally guides the final answer on Responses backends.
+	// It never grants execution authority or changes the caller's decision parser.
+	OutputSchema map[string]any
 
 	// OnText publishes visible assistant text in provider order.
 	// Reasoning and partial tool arguments stay within the provider adapter.

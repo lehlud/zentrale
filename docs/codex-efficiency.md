@@ -27,6 +27,43 @@ Freigabeprozess als vermeintliche Tokenoptimierung einführen. Anbieter,
 Modellkatalog und explizite Nutzerauswahl bleiben maßgeblich. Die gewünschte
 Standardauswahl `medium` für den Approver bleibt unabhängig von Codex' `low`.
 
+### Explizite Auswahl als Zentrale-Auto-Approver
+
+Wenn der angemeldete ChatGPT/Codex-Zugang `codex-auto-review` in seinem
+Modellkatalog liefert, ist es nun auch dann auswählbar, wenn der Eintrag für
+den gewöhnlichen Chat-Picker als `hidden` markiert ist. Andere versteckte
+Modelle werden dadurch nicht freigeschaltet; ein vom Zugang nicht geliefertes
+Modell wird nicht erfunden. Nach einer Katalogaktualisierung kann es unter
+„Standardmodelle ändern“ als Approver gewählt werden. Alle bisherigen
+Approver-Modelle bleiben auswählbar, die bestehende Auswahl wird nicht ersetzt.
+
+Der geprüfte Codex-Stand verwendet dafür einen normalen Reviewer-Turn mit
+Modell-ID, Denkintensität und finalem Ausgabeschema:
+[`core/src/guardian/review_session.rs`, 579–605](https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/core/src/guardian/review_session.rs#L579-L605).
+Das Schema wird im Responses-Format `text.format` mit `type: json_schema`
+übertragen, siehe
+[`codex-api/src/common.rs`, 199–225 und 405–423](https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/codex-api/src/common.rs#L199-L225).
+Es gibt in diesen geprüften Pfaden keinen separaten Auto-Review-HTTP-Endpunkt.
+Zentrale verwendet entsprechend den vorhandenen Account-Responses-Transport,
+OAuth-/Account-Header, Streaming und den persistenten Familien-Cache-Key.
+
+Codex' eigener Guardian-Ausgabevertrag (`outcome`, Risiko, Autorisierung,
+Begründung) ist unter
+[`assessment.rs`, 72–113](https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/ext/guardian-reviewer/src/assessment.rs#L72-L113)
+definiert. Zentrale fordert stattdessen sein unverändertes unabhängiges
+Freigabeschema `allowed/reason/blanket` als strukturiertes finales Ergebnis an.
+Ein fremdes `outcome: allow` oder ein niedriger Risikowert wird **nicht** in eine
+Ausführungsfreigabe umgedeutet. Inspektionen bleiben schreibgeschützt; fehlende,
+ungültige oder fehlgeschlagene Antworten autorisieren weiterhin keine Aktion.
+
+Account-gelieferte Denkintensitäten werden angezeigt und bei der Auflösung
+berücksichtigt, statt sie allein aus dem Modellnamen zu erraten. Die
+Approver-Standardintensität bleibt `medium` (bzw. ein konservatives unterstütztes
+Äquivalent), nicht stillschweigend Codex' bevorzugtes `low`.
+Loopback-Transporttests prüfen Request, Account-Header, Schema, Denkintensität
+und Inspektions-Tool-Roundtrip. Das ist keine Behauptung über die Verfügbarkeit
+oder einen erfolgreichen Live-Aufruf mit beliebigen OpenAI-Zugangsdaten.
+
 ## Konkrete Verbesserungen in diesem Änderungsstand
 
 1. Ein unabhängiger Approver pro Hauptagentenfamilie statt neuer Kontexte je

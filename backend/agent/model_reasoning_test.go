@@ -7,6 +7,53 @@ import (
 	"testing"
 )
 
+func TestSelectableCodexReviewAndOtherApproverModelsKeepIndependentDecisionContract(t *testing.T) {
+	for _, modelID := range []string{"codex-auto-review", "test"} {
+		t.Run(modelID, func(t *testing.T) {
+			calls := 0
+			engine, existing := testEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+				calls++
+				if request.Model.ID != modelID {
+					t.Fatalf("wrong reviewer: %s", request.Model.ID)
+				}
+				if modelID == "codex-auto-review" {
+					if request.OutputSchema == nil || request.ReasoningLevel != "medium" {
+						t.Fatal("review schema or user-default reasoning missing")
+					}
+				} else if request.OutputSchema != nil {
+					t.Fatal("generic reviewer was forced into Codex mode")
+				}
+				return providers.Result{Text: `{"allowed":false,"reason":"Outside original instructions","blanket":false}`}, nil
+			}))
+			if modelID == "codex-auto-review" {
+				model := domain.LanguageModel{ID: modelID, ProviderID: "approver-provider", Name: "Codex auto review", ContextWindow: 128000, ReasoningLevels: []string{"low", "medium", "high"}}
+				if err := engine.Store.Save("model", modelResourceID(model.ProviderID, model.ID), model.ProviderID, model); err != nil {
+					t.Fatal(err)
+				}
+			}
+			defaults := domain.ModelDefaults{Main: domain.ModelChoice{ProviderID: "main-provider", ModelID: "test"}, Approver: domain.ModelChoice{ProviderID: "approver-provider", ModelID: modelID}}
+			if err := engine.SaveModelDefaults(defaults); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := engine.ModelDefaults()
+			if err != nil || stored.Approver.ModelID != modelID {
+				t.Fatalf("reviewer choice not persisted: %+v %v", stored, err)
+			}
+			record, err := engine.CreateWithModels(existing.ProjectID, "Selected reviewer", domain.ModelChoice{}, domain.ModelChoice{}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			allowed, err := engine.approve(context.Background(), record, interaction{Action: "write_file", Arguments: map[string]any{"path": "review-only.txt", "content": "not executed"}})
+			if allowed || err == nil || calls != 1 {
+				t.Fatalf("denial contract lost: allowed=%v err=%v calls=%d", allowed, err, calls)
+			}
+			if parseApprovalDecision(`{"outcome":"allow","risk_level":"low"}`).Allowed {
+				t.Fatal("foreign risk assessment granted permission")
+			}
+		})
+	}
+}
+
 func TestModelReasoningPersistsAndPropagates(t *testing.T) {
 	engine, existing := testEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) { return providers.Result{}, nil }))
 	for _, id := range []string{"main-provider", "approver-provider"} {

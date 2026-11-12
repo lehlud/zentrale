@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -140,7 +141,11 @@ func (engine *Engine) normalizeReasoning(choice domain.ModelChoice, role string)
 	default:
 		return choice, errors.New("unsupported reasoning level")
 	}
-	choice.ReasoningLevel = domain.ResolveReasoningLevel(provider.Kind, choice.ModelID, choice.ReasoningLevel, role)
+	model := domain.LanguageModel{ID: choice.ModelID}
+	if err := engine.Store.Load("model", modelResourceID(choice.ProviderID, choice.ModelID), &model); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return choice, err
+	}
+	choice.ReasoningLevel = domain.ResolveModelReasoningLevel(provider.Kind, model, choice.ReasoningLevel, role)
 	return choice, nil
 }
 

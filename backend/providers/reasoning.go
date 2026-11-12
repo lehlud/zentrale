@@ -11,7 +11,7 @@ func applyReasoning(body map[string]any, request Request, protocol string) {
 	if request.ReasoningLevel == "" || request.ReasoningLevel == "default" {
 		return
 	}
-	level := domain.ResolveReasoningLevel(request.Config.Kind, request.Model.ID, request.ReasoningLevel, "main")
+	level := domain.ResolveModelReasoningLevel(request.Config.Kind, request.Model, request.ReasoningLevel, "main")
 	if level == "default" {
 		return
 	}
