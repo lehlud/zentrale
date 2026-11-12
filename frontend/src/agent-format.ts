@@ -6,5 +6,6 @@ export const statusLabels: Record<string, string> = {
   interrupted: "Unterbrochen",
   completed: "Abgeschlossen",
   failed: "Fehlgeschlagen",
+  timed_out: "Zeitlimit erreicht",
   blocked: "Blockiert",
 };

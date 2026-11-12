@@ -99,6 +99,11 @@ func decodeInteraction(call providers.Call) (interaction, error) {
 	if err := decode(stringArg(call.Arguments, "arguments"), &arguments); err != nil || arguments == nil {
 		return interaction{}, errors.New("arguments must encode a JSON object")
 	}
+	if stringArg(call.Arguments, "action") == "exec" {
+		if _, err := commandTimeout(arguments); err != nil {
+			return interaction{}, err
+		}
+	}
 
 	return interaction{
 		Action:        stringArg(call.Arguments, "action"),
@@ -123,6 +128,9 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 	switch call.Name {
 	case "exec_command":
 		action, requiredArgument = "exec", "command"
+		if _, err := commandTimeout(arguments); err != nil {
+			return interaction{}, err
+		}
 		arguments["command"] = stringArg(arguments, "cmd")
 		delete(arguments, "cmd")
 
@@ -178,6 +186,8 @@ func (engine *Engine) internalTool(ctx context.Context, agentRecord domain.Agent
 		result = searchToolCatalog(stringArg(request.Arguments, "query"))
 	case "instructions_read":
 		result, err = engine.ownInstructions(agentRecord)
+	case "approval_clarify":
+		result, err = engine.clarifyApprovalContext(ctx, agentRecord, request.Arguments)
 	case "update_plan":
 		result, err = engine.updatePlan(agentRecord, request.Arguments)
 	case "create_goal", "get_goal", "update_goal":
@@ -212,6 +222,10 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 
 		return engine.file(ctx, agentRecord, request.Action, arguments, false, false)
 	case "exec":
+		timeout, err := commandTimeout(arguments)
+		if err != nil {
+			return nil, err
+		}
 		yield, err := outputInteger(
 			arguments,
 			"yield_time_ms",
@@ -229,6 +243,7 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 		}
 
 		return engine.executeRemote(ctx, agentRecord, executionRequest{
+			Timeout:        timeout,
 			MachineID:      stringArg(arguments, "machineId"),
 			GPU:            boolArg(arguments, "gpu"),
 			Background:     boolArg(arguments, "background"),

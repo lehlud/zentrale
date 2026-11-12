@@ -109,6 +109,25 @@ func (writer *responseWriter) flush() {
 	writer.engine.publishResponse(writer.state, update, false)
 }
 
+// Replace the transient draft atomically before a retried provider attempt.
+// Never append a new generation to text from the timed-out generation.
+func (writer *responseWriter) reset() {
+	writer.mutex.Lock()
+	defer writer.mutex.Unlock()
+	if writer.closed {
+		return
+	}
+	if writer.timer != nil {
+		writer.timer.Stop()
+		writer.timer = nil
+	}
+	writer.text.Reset()
+	writer.pending.Reset()
+	writer.state.Revision++
+	writer.state.Text, writer.state.Delta, writer.state.Snapshot = "", "", true
+	writer.engine.publishResponse(writer.state, writer.state, false)
+}
+
 func (writer *responseWriter) finish(status, finalText string) {
 	writer.mutex.Lock()
 	defer writer.mutex.Unlock()
@@ -139,6 +158,7 @@ func (engine *Engine) completeVisible(
 ) (result providers.Result, message domain.Message, err error) {
 	writer := engine.beginResponse(agentID)
 	request.OnText = writer.append
+	request.OnRetry = writer.reset
 	defer func() {
 		status := "completed"
 
@@ -153,6 +173,10 @@ func (engine *Engine) completeVisible(
 		writer.finish(status, result.Text)
 	}()
 
+	if err = engine.ensureMessageAttachments(ctx, agentID, request.Messages); err != nil {
+		return result, message, err
+	}
+	request.Messages = engine.attachmentRequestMessages(request.Messages)
 	result, err = engine.Provider.Complete(ctx, request)
 	if err == nil {
 		message = domain.Message{

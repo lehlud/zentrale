@@ -25,6 +25,7 @@ function previousMessages(): Message[] {
   return transcript.messages.slice(0, 3).map((message) => ({
     ...message,
     activities: [],
+    attachments: [],
     callId: "",
     change: null,
     changes: [],

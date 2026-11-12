@@ -1,6 +1,29 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Bestehende Umgebung wird kurz geprüft …":
+    "Checking the existing environment …",
+  "Vorbereitete Umgebung ist bereit …": "Prepared environment is ready …",
+  Zeitlimit: "Time limit",
+  "Zeitlimit erreicht": "Time limit reached",
+  "Freigabemissverständnis klären": "Clarify approval misunderstanding",
+  Anhänge: "Attachments",
+  "Dateien hier ablegen": "Drop files here",
+  "Dateien auswählen": "Choose files",
+  "Dateien anhängen": "Attach files",
+  "Anhang entfernen: {name}": "Remove attachment: {name}",
+  "Bild öffnen: {name}": "Open image: {name}",
+  "Anhänge werden hochgeladen …": "Uploading attachments …",
+  "Upload abbrechen": "Cancel upload",
+  "Höchstens 10 Anhänge pro Nachricht.": "At most 10 attachments per message.",
+  "Eine Datei darf höchstens 25 MiB groß sein.":
+    "A file must not exceed 25 MiB.",
+  "Anhänge dürfen zusammen höchstens 100 MiB groß sein.":
+    "Attachments must not exceed 100 MiB in total.",
+  "Upload abgebrochen. Entwurf und Anhänge bleiben erhalten.":
+    "Upload canceled. Your draft and attachments are preserved.",
+  "Ordner bitte als Archiv anhängen.": "Please attach folders as archives.",
+  "Ungültige Upload-Bestätigung.": "Invalid upload confirmation.",
   Denkintensität: "Reasoning effort",
   "Standard (regulär)": "Default (regular)",
   "Provider-Standard": "Provider default",

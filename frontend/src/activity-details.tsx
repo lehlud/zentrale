@@ -18,6 +18,7 @@ import { GitHubResult } from "./github-activity";
 
 const toolLabels: Record<string, string> = {
   exec: "Befehl ausführen",
+  approval_clarify: "Freigabemissverständnis klären",
   write_stdin: "Prozess fortsetzen",
   python: "Python ausführen",
   read_file: "Datei lesen",
@@ -359,9 +360,15 @@ function JobResult({
       <div className="flex flex-wrap items-center gap-3">
         {typeof value.status === "string" &&
           (showDiagnostics ||
-            ["running", "waiting", "failed", "interrupted"].includes(
-              value.status,
-            )) && <ActivityStatus status={value.status} />}
+            [
+              "running",
+              "waiting",
+              "failed",
+              "interrupted",
+              "timed_out",
+            ].includes(value.status)) && (
+            <ActivityStatus status={value.status} />
+          )}
         {typeof value.exitCode === "number" &&
           (showDiagnostics || value.exitCode !== 0) && (
             <span className="font-mono text-xs text-muted">

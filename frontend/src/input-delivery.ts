@@ -1,5 +1,6 @@
 import { ConnectionError } from "./connection";
 import type { AgentInput } from "./generated";
+import type { Attachment } from "./attachments";
 
 export type OutgoingInput = {
   id: string;
@@ -7,6 +8,7 @@ export type OutgoingInput = {
 
   text: string;
   mode: "steer" | "queue";
+  attachments?: Attachment[];
 
   status: "sending" | "unconfirmed" | "failed" | "accepted";
   error: string;
@@ -15,7 +17,7 @@ export type OutgoingInput = {
 const storageKey = "zentrale:outgoing-inputs";
 
 const mutation =
-  "mutation($agentId:String!,$id:String!,$text:String!,$mode:String!){submitInput(agentId:$agentId,id:$id,text:$text,mode:$mode){id agentId text mode status createdAt deliveredAt projectId}}";
+  "mutation($agentId:String!,$id:String!,$text:String!,$mode:String!,$attachmentIds:[String!]){submitInput(agentId:$agentId,id:$id,text:$text,mode:$mode,attachmentIds:$attachmentIds){id agentId text mode status createdAt deliveredAt projectId attachments{id name mimeType size path machineId}}}";
 
 // This delivery service outlives the composer and navigation. Only this
 // idempotent mutation is replayed after a lost response, with the original ID.
@@ -61,12 +63,18 @@ export class InputDelivery {
   forAgent = (id: string) =>
     this.inputs.filter((input) => input.agentId === id);
 
-  submit(agentId: string, text: string, mode: "steer" | "queue") {
+  submit(
+    agentId: string,
+    text: string,
+    mode: "steer" | "queue",
+    attachments: Attachment[] = [],
+  ) {
     const input: OutgoingInput = {
       id: crypto.randomUUID(),
       agentId,
       text,
       mode,
+      attachments,
       status: "sending",
       error: "",
     };
@@ -107,6 +115,9 @@ export class InputDelivery {
         id,
         text: input.text,
         mode: input.mode,
+        attachmentIds: Array.isArray(input.attachments)
+          ? input.attachments.map((attachment) => attachment.id)
+          : [],
       });
       if (result.submitInput?.id !== input.id) {
         throw new Error("Server did not confirm the message receipt");

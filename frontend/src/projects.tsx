@@ -28,6 +28,10 @@ import {
   useAction,
 } from "./ui";
 import { Workspace } from "./workspace";
+import {
+  conversationBootstrapQuery,
+  type ConversationBootstrap,
+} from "./conversation-bootstrap";
 import { SidebarToggle } from "./shell";
 import { RemoteEditor } from "./remote-editor";
 import { Icon } from "./icons";
@@ -224,15 +228,16 @@ export function Projects() {
 export function ProjectView({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const api = useAPI();
-
-  const { data, error, loading } = useQuery<{
-    project: Project;
-    agents: Agent[];
-  }>(
-    `query($id:String!){project(id:$id){id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName} agents(projectId:$id,limit:500){id name role status parentId approverId projectId providerId machineId error contextStart summary}}`,
-    { id: projectId },
-  );
   const { params } = useRoute();
+  const {
+    data: result,
+    error,
+    loading,
+  } = useQuery<{ conversationBootstrap: ConversationBootstrap }>(
+    conversationBootstrapQuery,
+    { projectId, agentId: params.get("agent") ?? "" },
+  );
+  const data = result?.conversationBootstrap;
   const projectDialog = params.get("view") ?? "";
   const setProjectDialog = (value: string) => setRouteParameter("view", value);
   if (loading) {
@@ -270,6 +275,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
       <Workspace
         project={data.project}
         agents={data.agents}
+        bootstrap={data}
         onProjectDialog={setProjectDialog}
       />
       {projectDialog === "settings" && (

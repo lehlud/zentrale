@@ -177,7 +177,9 @@ func (server *Server) Handler() (*echo.Echo, error) {
 		return requestContext.JSON(200, result)
 	})
 
-	e.GET("/events", server.events)
+	e.GET("/events", func(requestContext echo.Context) error { return server.events(requestContext, schema) })
+	e.POST("/attachments/:agent/:id", server.attachment)
+	e.GET("/attachments/:agent/:id", server.attachment)
 	e.GET("/terminal/:project", server.terminal)
 	e.POST("/terminal/:project", server.terminal)
 	e.POST("/mcp", server.mcp)
@@ -206,7 +208,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		requestContext.Response().Header().Set(
 			"Content-Security-Policy",
-			"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+			"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
 		)
 
 		return requestContext.File(filepath.Join(root, "index.html"))
@@ -215,7 +217,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	return e, nil
 }
 
-func (server *Server) events(requestContext echo.Context) error {
+func (server *Server) events(requestContext echo.Context, schema graphql.Schema) error {
 	token := server.token(requestContext.Request())
 	if !server.Auth.Valid(token) {
 		return echo.ErrUnauthorized
@@ -237,18 +239,42 @@ func (server *Server) events(requestContext echo.Context) error {
 	}
 	defer conn.Close()
 
-	conn.SetReadLimit(1024)
+	ctx, cancel := context.WithCancel(requestContext.Request().Context())
+	defer cancel()
+	client := clientAddress(requestContext.Request())
+	conn.SetReadLimit(socketQueryReadLimit)
 	_ = conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	})
-	done := make(chan struct{})
+	commands := make(chan socketQueryRequest, socketQueryLimit)
+	pongs := make(chan string, 4)
+	conn.SetPingHandler(func(data string) error {
+		select {
+		case pongs <- data:
+			return nil
+		default:
+			return errors.New("event control queue full")
+		}
+	})
+	conn.SetCloseHandler(func(code int, text string) error { return &websocket.CloseError{Code: code, Text: text} })
 	go func() {
-		defer close(done)
-
+		defer cancel()
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			kind, data, err := conn.ReadMessage()
+			if err != nil || kind != websocket.TextMessage {
 				return
+			}
+			var command socketQueryRequest
+			if err := json.Unmarshal(data, &command); err != nil {
+				return
+			}
+			select {
+			case commands <- command:
+			case <-ctx.Done():
+				return
+			default:
+				return // Bounded input queue: a flooding client is closed.
 			}
 		}
 	}()
@@ -264,12 +290,18 @@ func (server *Server) events(requestContext echo.Context) error {
 		if err != nil {
 			return err
 		}
+		if ctx.Err() != nil || !server.Auth.Valid(token) {
+			return nil
+		}
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := conn.WriteJSON(domain.Event{ID: after, Type: "sync"}); err != nil {
 			return nil
 		}
 	}
 	send := func(event domain.Event) error {
+		if ctx.Err() != nil || !server.Auth.Valid(token) {
+			return errors.New("event session expired")
+		}
 		if event.ID != 0 && event.ID <= after {
 			return nil
 		}
@@ -306,11 +338,66 @@ func (server *Server) events(requestContext echo.Context) error {
 
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
+	queries := newSocketQueries()
+	results := make(chan socketQueryResult, 1)
+	var execution *socketQueryExecution
+	defer func() {
+		execution.stop()
+	}()
+	writeSnapshot := func(response socketQueryResponse) error {
+		if ctx.Err() != nil || !server.Auth.Valid(token) {
+			return errors.New("event session expired")
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteJSON(response)
+	}
 
 	for {
+		if work := queries.schedule(); work != nil {
+			if !server.Auth.Valid(token) {
+				return nil
+			}
+			execution = startSocketQueryExecution(ctx)
+			task := socketQueryTask{ctx: execution.ctx, work: *work, results: results,
+				execute: func(ctx context.Context, request socketQueryRequest) any {
+					return server.executeSocketQuery(ctx, schema, token, client, request)
+				}}
+			if !eventSocketQueryPool().submit(task) {
+				_ = writeSnapshot(socketQueryError(work.request.RequestID, "snapshot executor saturated"))
+				return nil
+			}
+		}
 		select {
-		case <-done:
+		case <-ctx.Done():
 			return nil
+		case <-execution.done():
+			// Stop waiting/close the socket. The fixed pool retains any
+			// uncooperative resolver's slot until actual execution completes.
+			return nil
+		case command := <-commands:
+			if !server.Auth.Valid(token) || len(command.RequestID) == 0 || len(command.RequestID) > 128 {
+				return nil
+			}
+			if failure := queries.command(command); failure != nil {
+				if err := writeSnapshot(*failure); err != nil {
+					return nil
+				}
+			}
+		case result := <-results:
+			if execution == nil || execution.ctx.Err() != nil {
+				return nil
+			}
+			execution.stop()
+			execution = nil
+			if response := queries.receive(result); response != nil {
+				if err := writeSnapshot(*response); err != nil {
+					return nil
+				}
+			}
+		case data := <-pongs:
+			if err := conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second)); err != nil {
+				return nil
+			}
 		case event, ok := <-events:
 			if !ok {
 				return nil
@@ -318,6 +405,9 @@ func (server *Server) events(requestContext echo.Context) error {
 
 			if err := send(event); err != nil {
 				return nil
+			}
+			if event.ID != 0 {
+				queries.invalidate()
 			}
 		case <-ticker.C:
 			if !server.Auth.Valid(token) {

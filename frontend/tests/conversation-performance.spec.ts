@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import {
   agent,
   agents,
@@ -102,7 +103,7 @@ test("long conversations keep typing isolated, observers bounded and updates res
           projectId: project.id,
         },
       };
-    } else if (query.includes("recentMessages")) {
+    } else if (isTranscriptQuery(query)) {
       queries++;
       // Simulate an already-loaded scrollback; pagination itself has separate tests.
       data = variables.beforeId
@@ -119,7 +120,7 @@ test("long conversations keep typing isolated, observers bounded and updates res
             jobs: [],
           };
     } else if (query.includes("agents(projectId:")) data = { project, agents };
-    await route.fulfill({ json: { data } });
+    await route.fulfill({ json: { data: bootstrapData(query, data) } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   const input = page.getByRole("textbox", {

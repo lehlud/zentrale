@@ -38,12 +38,8 @@ func (client *HTTPClient) gemini(ctx context.Context, request Request) (Result, 
 			}
 
 			contents = append(contents, map[string]any{
-				"role": role,
-				"parts": []any{
-					map[string]any{
-						"text": message.Content,
-					},
-				},
+				"role":  role,
+				"parts": imageContent(message, "gemini"),
 			})
 		}
 	}

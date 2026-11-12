@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS private_ssh_keys (
 CREATE TABLE IF NOT EXISTS known_ssh_keys (x509_data BLOB PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS settings (name VARCHAR PRIMARY KEY, value VARCHAR NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE IF NOT EXISTS attachment_blobs (
+    agent_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, id VARCHAR NOT NULL,
+    metadata JSON NOT NULL, bytes BLOB NOT NULL,
+    PRIMARY KEY(agent_id,id)
+);
 CREATE TABLE IF NOT EXISTS resources (
     kind VARCHAR NOT NULL,
     id VARCHAR NOT NULL,
@@ -57,6 +62,7 @@ func initializeSchema(db *sql.DB) error {
 		"SELECT token_hash,expires_at FROM sessions LIMIT 0",
 		"SELECT kind,id,parent_id,data,created_at FROM resources LIMIT 0",
 		"SELECT id,type,agent_id,data,created_at FROM events LIMIT 0",
+		"SELECT agent_id,project_id,id,metadata,bytes FROM attachment_blobs LIMIT 0",
 	} {
 		if _, err := tx.Exec(query); err != nil {
 			return fmt.Errorf("incompatible development database schema; no data was changed: %w", err)

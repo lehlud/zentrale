@@ -1,4 +1,5 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -42,7 +43,7 @@ async function connectionFixture(page: Page) {
       return route.abort("internetdisconnected");
     }
 
-    if (state.queryError && query.includes("recentMessages")) {
+    if (state.queryError && isTranscriptQuery(query)) {
       return route.fulfill({
         json: { errors: [{ message: state.queryError }] },
       });
@@ -70,7 +71,7 @@ async function connectionFixture(page: Page) {
             githubConnected: false,
           },
         }
-      : query.includes("recentMessages")
+      : isTranscriptQuery(query)
         ? { ...transcript, questions: [], jobs: [], agentInputs: accepted }
         : query.includes("agents(projectId:")
           ? { project, agents }
@@ -88,7 +89,7 @@ async function connectionFixture(page: Page) {
       await new Promise((resolve) => setTimeout(resolve, state.configDelay));
       return route.fulfill({ json: { data: snapshot } });
     }
-    return route.fulfill({ json: { data } });
+    return route.fulfill({ json: { data: bootstrapData(query, data) } });
   });
 
   return {

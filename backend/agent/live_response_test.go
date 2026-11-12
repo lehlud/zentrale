@@ -37,6 +37,32 @@ func nextLiveResponse(t *testing.T, events <-chan domain.Event) domain.LiveRespo
 	}
 }
 
+func TestRetriedResponseReplacesDraftInsteadOfDuplicatingText(t *testing.T) {
+	engine, record := testEngine(t, nil)
+	events, unsubscribe := engine.Subscribe()
+	defer unsubscribe()
+	writer := engine.beginResponse(record.ID)
+	start := nextLiveResponse(t, events)
+	writer.append("old timed-out generation")
+	writer.reset()
+	reset := nextLiveResponse(t, events)
+	if !reset.Snapshot {
+		reset = nextLiveResponse(t, events)
+	}
+	if reset.ID != start.ID || !reset.Snapshot || reset.Text != "" || reset.Revision <= start.Revision {
+		t.Fatal(reset)
+	}
+	writer.append("replacement generation")
+	writer.finish("completed", "replacement generation")
+	finished := nextLiveResponse(t, events)
+	if !finished.Snapshot {
+		finished = nextLiveResponse(t, events)
+	}
+	if finished.Status != "completed" || !finished.Snapshot || finished.Text != "replacement generation" {
+		t.Fatal(finished)
+	}
+}
+
 func TestLiveResponsesAreTransientOrderedAndRecoverable(t *testing.T) {
 	engine, agent := testEngine(t, nil)
 	events, unsubscribe := engine.Subscribe()

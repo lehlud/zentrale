@@ -171,16 +171,23 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 
 	mutations["submitInput"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.AgentInput]()),
-		Args: strArg("agentId", "id", "text", "mode"),
+		Args: inputAttachmentArgs(),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			if err := userInputTarget(params.Args["agentId"].(string)); err != nil {
 				return nil, err
 			}
-			input, err := server.Engine.SubmitInput(
+			attachmentIDs := []string{}
+			if values, ok := params.Args["attachmentIds"].([]any); ok {
+				for _, value := range values {
+					attachmentIDs = append(attachmentIDs, value.(string))
+				}
+			}
+			input, err := server.Engine.SubmitInputWithAttachments(
 				params.Args["agentId"].(string),
 				params.Args["id"].(string),
 				params.Args["text"].(string),
 				params.Args["mode"].(string),
+				attachmentIDs,
 			)
 
 			return mapOf(input), err

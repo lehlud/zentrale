@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
 import type { Message } from "../src/generated";
@@ -57,6 +58,7 @@ for (const variant of [
         change: null,
         changes: [],
         activities: [],
+        attachments: [],
         createdAt: new Date(
           Date.parse("2026-11-05T11:00:00Z") + index * 1000,
         ).toISOString(),
@@ -236,7 +238,7 @@ for (const variant of [
               githubConnected: false,
             },
           }
-        : query.includes("recentMessages")
+        : isTranscriptQuery(query)
           ? {
               ...transcript,
               agent,
@@ -263,7 +265,7 @@ for (const variant of [
             ? { project, agents }
             : config;
 
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: { data: bootstrapData(query, data) } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
     const output = page.getByRole("region", {

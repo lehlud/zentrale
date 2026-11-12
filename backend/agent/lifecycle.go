@@ -38,14 +38,15 @@ func (engine *Engine) CreateWithModels(
 		return domain.Agent{}, err
 	}
 
-	approverChoice, err = engine.resolveChoice(approverChoice, "approver")
-	if err != nil {
-		return domain.Agent{}, err
-	}
-
 	role, err := engine.childRole(parentID, projectID)
 	if err != nil {
 		return domain.Agent{}, err
+	}
+	if role == "main" {
+		approverChoice, err = engine.resolveChoice(approverChoice, "approver")
+		if err != nil {
+			return domain.Agent{}, err
+		}
 	}
 
 	mainAgent := domain.Agent{
@@ -61,6 +62,27 @@ func (engine *Engine) CreateWithModels(
 
 		ApproverID: NewID(),
 		Status:     "idle",
+	}
+
+	if role == "subagent" {
+		var parent domain.Agent
+		if err := engine.Store.Load("agent", parentID, &parent); err != nil {
+			return domain.Agent{}, err
+		}
+		shared, err := engine.familyApprover(parent)
+		if err != nil {
+			return domain.Agent{}, err
+		}
+		if (approverChoice.ProviderID != "" && approverChoice.ProviderID != shared.ProviderID) ||
+			(approverChoice.ModelID != "" && approverChoice.ModelID != shared.ModelID) ||
+			(approverChoice.ReasoningLevel != "" && approverChoice.ReasoningLevel != shared.ReasoningLevel) {
+			return domain.Agent{}, errors.New("subagents must use their main agent's shared auto-approver")
+		}
+		mainAgent.ApproverID = shared.ID
+		if err := engine.saveAgent(mainAgent); err != nil {
+			return domain.Agent{}, err
+		}
+		return mainAgent, nil
 	}
 
 	approver := domain.Agent{

@@ -85,6 +85,11 @@ func (engine *Engine) sandbox(
 	machine domain.Machine,
 	execution remote.Execution,
 ) (string, string, error) {
+	return engine.sandboxWithRecovery(ctx, connection, machine, execution, true)
+}
+
+// Uploads may prepare/start a VM, but can never authorize destructive recovery.
+func (engine *Engine) sandboxWithRecovery(ctx context.Context, connection *remote.Connection, machine domain.Machine, execution remote.Execution, allowRecovery bool) (string, string, error) {
 	execution, err := engine.vmExecution(execution)
 	if err != nil {
 		return "", "", err
@@ -96,7 +101,7 @@ func (engine *Engine) sandbox(
 	defer operation.Unlock()
 	command, level, err := remote.Sandbox(ctx, connection, machine, execution)
 	var recovery *remote.VMRecoveryRequired
-	if errors.As(err, &recovery) {
+	if allowRecovery && errors.As(err, &recovery) {
 		if err := engine.RecoverVM(ctx, connection, machine, execution, recovery.Reason); err != nil {
 			return "", level, err
 		}

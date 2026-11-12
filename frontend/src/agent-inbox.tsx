@@ -7,6 +7,7 @@ import type { OutgoingInput } from "./input-delivery";
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 import { Icon } from "./icons";
+import { attachedFiles, type Attachment } from "./attachments";
 
 export function AgentInbox({
   agentId,
@@ -15,7 +16,7 @@ export function AgentInbox({
 }: {
   agentId: string;
   inputs: AgentInput[];
-  onEdit: (text: string) => void;
+  onEdit: (text: string, attachments?: Attachment[]) => void;
 }) {
   const api = useAPI();
   const { t } = useI18n();
@@ -51,6 +52,13 @@ export function AgentInbox({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm" title={input.text}>
                 {input.text}
+                {attachedFiles(input).length > 0 && (
+                  <span className="ml-2 text-xs text-muted">
+                    {attachedFiles(input)
+                      .map((file) => file.name)
+                      .join(", ")}
+                  </span>
+                )}
               </p>
               <p role="status" className="text-xs text-muted">
                 {t(
@@ -90,7 +98,7 @@ export function AgentInbox({
                         { agentId, id: input.id },
                         { announce: false },
                       );
-                      onEdit(input.text);
+                      onEdit(input.text, attachedFiles(input));
                     })
                   }
                 >

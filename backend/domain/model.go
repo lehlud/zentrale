@@ -231,9 +231,11 @@ type Message struct {
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"createdAt"`
 
-	Wire     string `json:"wire,omitempty"`
-	CallID   string `json:"callId,omitempty"`
-	ToolName string `json:"toolName,omitempty"`
+	Wire        string            `json:"wire,omitempty"`
+	CallID      string            `json:"callId,omitempty"`
+	ToolName    string            `json:"toolName,omitempty"`
+	Attachments []Attachment      `json:"attachments"`
+	Images      []AttachmentImage `json:"-"`
 }
 
 type Note struct {
@@ -299,7 +301,8 @@ type Job struct {
 	AgentID   string `json:"agentId"`
 	MachineID string `json:"machineId"`
 
-	Command string `json:"command"`
+	Command   string `json:"command"`
+	TimeoutMS int64  `json:"timeoutMs"`
 
 	Status    string    `json:"status"`
 	Output    string    `json:"output"`

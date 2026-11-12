@@ -16,6 +16,23 @@ import (
 
 const foregroundCommandLimit = 90 * time.Second
 
+const (
+	defaultCommandTimeout = 30 * time.Minute
+	maximumCommandTimeout = 7 * 24 * time.Hour
+)
+
+// Old persisted calls and internal callers receive a finite compatibility
+// default. New tool calls are required to choose timeout_ms explicitly.
+func jobTimeout(timeout time.Duration) (time.Duration, error) {
+	if timeout == 0 {
+		return defaultCommandTimeout, nil
+	}
+	if timeout < time.Millisecond || timeout > maximumCommandTimeout {
+		return 0, errors.New("command timeout must be between 1 and 604800000 milliseconds")
+	}
+	return timeout, nil
+}
+
 type executionRequest struct {
 	MachineID        string
 	GPU              bool
@@ -33,6 +50,7 @@ type executionRequest struct {
 	GuestRoot         bool
 
 	YieldTime   time.Duration
+	Timeout     time.Duration
 	Interactive bool
 	TTY         bool
 	OutputBytes int
@@ -58,6 +76,11 @@ func (engine *Engine) executeRemote(
 	defer releaseEnvironment()
 	command := request.Command
 	request.Interactive = request.Interactive || request.TTY
+	var err error
+	request.Timeout, err = jobTimeout(request.Timeout)
+	if err != nil {
+		return nil, err
+	}
 
 	if strings.TrimSpace(command) == "" || len(command) > 200000 || !noSecrets(command) {
 		return nil, errors.New("invalid command")
@@ -158,7 +181,12 @@ func (engine *Engine) startJob(
 	request executionRequest,
 	sandbox string,
 ) (*runningJob, error) {
-	jobContext, cancel := context.WithCancel(engine.ctx)
+	timeout, err := jobTimeout(request.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	request.Timeout = timeout
+	jobContext, cancel := context.WithTimeout(engine.ctx, timeout)
 	running := &runningJob{
 		yielded:    request.Background,
 		cancel:     cancel,
@@ -177,6 +205,7 @@ func (engine *Engine) startJob(
 
 			Status:    "running",
 			StartedAt: time.Now().UTC(),
+			TimeoutMS: timeout.Milliseconds(),
 		},
 	}
 
@@ -323,7 +352,10 @@ func (engine *Engine) runJob(
 			running.terminationReason = "remote command connection was lost"
 		}
 
-		if running.terminationReason != "" {
+		if errors.Is(runError, context.DeadlineExceeded) {
+			running.job.Status = "timed_out"
+			running.job.Error = fmt.Sprintf("command timed out after %s: %v", running.execution.Timeout, runError)
+		} else if running.terminationReason != "" {
 			running.job.Status = "interrupted"
 			running.job.Error = running.terminationReason
 		} else if errors.Is(runError, context.Canceled) {

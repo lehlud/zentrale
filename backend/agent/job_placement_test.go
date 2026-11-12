@@ -130,6 +130,7 @@ func TestBackgroundGPUJobsOverlapOnDifferentHostsWithoutChangingDefault(t *testi
 				Name: "exec_command",
 				Arguments: map[string]any{
 					"cmd":        "training shard",
+					"timeout_ms": float64(600000),
 					"gpu":        true,
 					"background": true,
 				},

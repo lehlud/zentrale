@@ -97,9 +97,12 @@ type Engine struct {
 	subscribers   map[chan domain.Event]bool
 	liveResponses map[string]domain.LiveResponse
 
-	configMu   sync.Mutex
-	questionMu sync.Mutex
-	sandboxMu  sync.Mutex
+	configMu        sync.Mutex
+	attachmentGate  chan struct{}
+	questionMu      sync.Mutex
+	reviewGates     sync.Map // Shared approver ID -> cancellable review semaphore.
+	clarificationMu sync.Mutex
+	sandboxMu       sync.Mutex
 
 	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
 	vmOperations       sync.Map // Main agent and machine -> environment lifecycle.
@@ -123,6 +126,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		GitForge:             gitforge.New(store),
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
+		attachmentGate:       make(chan struct{}, 1),
 		cancel:               cancel,
 		running:              make(map[string]context.CancelFunc),
 		wake:                 make(map[string]chan struct{}),
@@ -134,6 +138,10 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		grants:               make(map[string]map[string]grant),
 		subscribers:          make(map[chan domain.Event]bool),
 		liveResponses:        make(map[string]domain.LiveResponse),
+	}
+	if err := engine.migrateSharedApprovers(); err != nil {
+		cancel()
+		return nil, err
 	}
 	if err := engine.recoverInterruptedWork(); err != nil {
 		cancel()

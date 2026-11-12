@@ -23,7 +23,7 @@ func (client *HTTPClient) chat(ctx context.Context, request Request) (Result, er
 		} else {
 			messages = append(messages, map[string]any{
 				"role":    conversationRole(message.Role),
-				"content": message.Content,
+				"content": imageContent(message, "chat"),
 			})
 		}
 	}

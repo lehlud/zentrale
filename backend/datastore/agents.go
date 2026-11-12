@@ -21,6 +21,9 @@ func (instance *Instance) RemoveAgents(ids []string) error {
 
 func removeAgents(transaction *sql.Tx, ids []string) error {
 	for _, id := range ids {
+		if _, err := transaction.Exec(`DELETE FROM attachment_blobs WHERE agent_id=?`, id); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec(`DELETE FROM resources WHERE
             (kind='agent' AND id=?) OR parent_id=? OR json_extract_string(data,'$.agentId')=?`, id, id, id); err != nil {
 			return err

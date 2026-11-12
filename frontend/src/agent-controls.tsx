@@ -1,5 +1,5 @@
 import { Button, Dropdown, Label, Link, buttonVariants } from "@heroui/react";
-import type { RefObject } from "react";
+import type { RefObject, ReactNode } from "react";
 
 import { useAPI } from "./api";
 import { statusLabels } from "./agent-format";
@@ -26,6 +26,7 @@ export function AgentControls({
   canCreateAgent,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
+  children: headerContent,
 }: {
   current?: Agent;
   project: Project;
@@ -40,6 +41,7 @@ export function AgentControls({
   canCreateAgent: boolean;
   focusAgentSwitcher: boolean;
   onAgentSwitcherFocus: () => void;
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -240,6 +242,7 @@ export function AgentControls({
           {t(statusLabels[current.status] ?? current.status)}
         </span>
       )}
+      {headerContent}
     </div>
   );
 }

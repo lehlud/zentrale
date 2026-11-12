@@ -60,7 +60,7 @@ func (engine *Engine) recordApproval(
 	engine.Emit("approval", agentRecord.ID, approval)
 
 	if !decision.Allowed {
-		return false, fmt.Errorf("auto-approval denied: %s", decision.Reason)
+		return false, fmt.Errorf("auto-approval denied: %s (approvalId: %s; use approval_clarify only for a concrete misunderstanding, never to override permission)", decision.Reason, approval.ID)
 	}
 
 	return approval.Blanket, nil

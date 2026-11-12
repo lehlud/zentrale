@@ -37,7 +37,7 @@ func TestCodeModeUsesReviewedRemoteToolsAcrossProviders(t *testing.T) {
 const patch = "*** Begin Patch\n*** Add File: answer.py\n+print(42)\n*** End Patch";
 const edit = await tools.apply_patch({input:patch});
 if (edit.error) throw new Error(edit.error);
-const check = await tools.exec_command({cmd:"python3 answer.py",yield_time_ms:1000});
+const check = await tools.exec_command({cmd:"python3 answer.py",timeout_ms:30000,yield_time_ms:1000});
 if (check.error) throw new Error(check.error);
 print(check.job.output.trim());
 `
@@ -89,7 +89,7 @@ func TestCodeModeCannotBypassDenialsOrResetLiveContext(t *testing.T) {
 		context.Background(),
 		agent,
 		map[string]any{
-			"code": `print(await tools.exec_command({cmd:"touch denied"}));`,
+			"code": `print(await tools.exec_command({cmd:"touch denied",timeout_ms:30000}));`,
 		},
 	)
 	if err != nil || !strings.Contains(JSON(result), "Not authorized") {

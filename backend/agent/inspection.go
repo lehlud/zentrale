@@ -16,7 +16,7 @@ func (engine *Engine) Inspect(
 ) (any, error) {
 	switch action {
 	case "instructions":
-		return engine.listAll("instruction", &agentRecord.ProjectID)
+		return engine.approvalInstructions(agentRecord)
 	case "goal":
 		return engine.CurrentGoal(agentRecord.ID)
 	case "storage_quota":

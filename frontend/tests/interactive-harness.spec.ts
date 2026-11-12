@@ -40,6 +40,7 @@ for (const english of [false, true]) {
           change: null,
           changes: [],
           activities: [],
+          attachments: [],
           createdAt: new Date(
             Date.UTC(2026, 10, 7, 14, 0, messages.length),
           ).toISOString(),

@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
 
 import { agent, config, project, transcript } from "./fixtures/visual-data";
 
@@ -32,7 +37,10 @@ for (const mobile of [false, true]) {
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+      const send = (data: unknown) =>
+        route.fulfill({
+          json: { data: bootstrapData(query, data, { agents: records }) },
+        });
       if (query.includes("status{"))
         return send({ status: { authenticated: true, needsSetup: false } });
       if (query.includes("deleteResource")) {
@@ -41,10 +49,13 @@ for (const mobile of [false, true]) {
         );
         return send({ deleteResource: true });
       }
-      if (query.includes("recentMessages"))
+      if (isTranscriptQuery(query))
         return send({
           ...transcript,
-          agent: records.find((record) => record.id === variables.id) ?? child,
+          agent:
+            records.find(
+              (record) => record.id === selectedAgentId(variables),
+            ) ?? child,
           messages: [],
           jobs: [],
           questions: [],

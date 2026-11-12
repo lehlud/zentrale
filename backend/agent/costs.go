@@ -12,6 +12,9 @@ func estimatedMessageTokens(messages []domain.Message) int {
 
 	for _, message := range messages {
 		payload := message.Content
+		if len(message.Attachments) != 0 {
+			payload += JSON(message.Attachments)
+		}
 
 		if message.Wire != "" {
 			payload = message.Wire

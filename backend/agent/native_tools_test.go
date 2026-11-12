@@ -155,6 +155,7 @@ func TestNativePatchPlanAndPartialReadThroughSSH(t *testing.T) {
 				Name: "exec_command",
 				Arguments: map[string]any{
 					"cmd":           "python3 proof.py",
+					"timeout_ms":    float64(30000),
 					"yield_time_ms": float64(1000),
 				},
 			}), nil

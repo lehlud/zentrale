@@ -41,6 +41,9 @@ func (instance *Instance) RemoveProject(id string) error {
 	if err := removeAgents(transaction, agents); err != nil {
 		return err
 	}
+	if _, err := transaction.Exec(`DELETE FROM attachment_blobs WHERE project_id=?`, id); err != nil {
+		return err
+	}
 	if _, err := transaction.Exec(`DELETE FROM resources WHERE
 		(kind='project' AND id=?) OR parent_id=? OR json_extract_string(data,'$.projectId')=?`, id, id, id); err != nil {
 		return err

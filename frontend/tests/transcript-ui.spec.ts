@@ -1,4 +1,5 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import {
   agent,
   agents,
@@ -25,6 +26,7 @@ function message(
     change: null,
     changes: [],
     activities: [],
+    attachments: [],
     createdAt: new Date(Date.UTC(2026, 0, 1, 0, minute)).toISOString(),
   };
 }
@@ -70,7 +72,7 @@ async function fixture(
           githubConnected: false,
         },
       };
-    else if (query.includes("recentMessages")) {
+    else if (isTranscriptQuery(query)) {
       const history = [
         ...messages,
         ...goals.map((goal) => ({
@@ -105,7 +107,7 @@ async function fixture(
           jobs: [],
         };
     } else if (query.includes("agents(projectId:")) data = { project, agents };
-    await route.fulfill({ json: { data } });
+    await route.fulfill({ json: { data: bootstrapData(query, data) } });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
   return {

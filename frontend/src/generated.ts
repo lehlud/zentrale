@@ -18,6 +18,8 @@ export type Agent = {
 };
 export type AgentInput = {
   agentId: string;
+  attachmentIds: Array<string>;
+  attachments: Array<Attachment>;
   createdAt: string;
   deliveredAt: string;
   id: string;
@@ -45,6 +47,16 @@ export type Approval = {
   toolName: string;
   wire: string;
 };
+export type Attachment = {
+  agentId: string;
+  id: string;
+  machineId: string;
+  mimeType: string;
+  name: string;
+  path: string;
+  projectId: string;
+  size: number;
+};
 export type CommitIdentity = {
   email: string;
   name: string;
@@ -52,6 +64,20 @@ export type CommitIdentity = {
 export type CommitIdentityInput = {
   email?: string | null;
   name?: string | null;
+};
+export type ConversationBootstrap = {
+  agent: Agent | null;
+  agentInputs: Array<AgentInput | null> | null;
+  agentRunState: AgentRunState | null;
+  agents: Array<Agent>;
+  goal: Goal | null;
+  jobs: Array<Job | null> | null;
+  machineName: string;
+  messages: Array<Message | null> | null;
+  modelDefaults: ModelDefaults | null;
+  project: Project;
+  questions: Array<Question | null> | null;
+  sandboxMode: string;
 };
 export type EditorSession = {
   agentId: string;
@@ -174,6 +200,7 @@ export type Job = {
   output: string;
   startedAt: string;
   status: string;
+  timeoutMs: number;
 };
 export type LanguageModel = {
   cachedPrice: number;
@@ -234,6 +261,7 @@ export type MachineInput = {
 export type Message = {
   activities: Array<ToolActivity>;
   agentId: string;
+  attachments: Array<Attachment>;
   callId: string;
   change: FileChange | null;
   changes: Array<FileChange>;
@@ -423,6 +451,7 @@ export type Query = {
   agents: Array<Agent | null> | null;
   approvals: Array<Approval | null> | null;
   commitIdentity: CommitIdentity | null;
+  conversationBootstrap: ConversationBootstrap | null;
   editorSession: EditorSession | null;
   gitConnections: Array<GitConnection | null> | null;
   gitNamespaces: Array<GitNamespace | null> | null;

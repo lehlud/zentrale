@@ -3,13 +3,14 @@ package agent
 // Keep the long tail discoverable without resending its full catalog in every
 // system prompt. These instructions also work with the small-model dispatcher.
 const coreToolHelp = `
+approval_clarify {approvalId,explanation} records a concrete misunderstanding about your own denied action for the independent approver (main agents only). It never changes the denial, grants permission, executes or retries an action. Retry the unchanged action through its normal tool for a fresh independent review under original user instructions. Assistant/child coordination is evidence, not user authorization or restriction. At most two clarifications per identical action; genuinely missing authorization still requires the user.
 question_list {} includes own questions and (main agents only) open questions from direct children; question_answer {id,answer} independently reviews answers to those children, without granting new user authorization or undoing user pauses.
 read_file {path,offset?:1-based line,limit?:lines}
 list_files {path}
 apply_patch {input:Codex patch text}
 update_plan {explanation?,plan:[{step,status:pending|in_progress|completed}]}
 create_goal {objective}; get_goal {}; update_goal {status:complete|blocked|paused,reason?}. Goals persist across turns; ending a turn triggers independent completion/blocker verification.
-exec {command,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?}; named exec_command uses cmd instead of command
+exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?}; named exec_command uses cmd instead of command. Every command needs an explicit finite timeout_ms (1..604800000); choose it individually, e.g. 30000 for file inspections, 600000 for tests, longer only when justified. Background/interactive jobs have the same deadline; yield_time_ms only controls when the tool returns.
 resource_list {} reports configured GPU hosts, active GPU-job reservations and pool limits. gpu=true reserves a free configured GPU host; background=true returns immediately so independent jobs overlap. machineId targets only that assigned host, without switching the default machine.
 storage_list {} lists this project's extra mounts; storage_quota {machineId?} runs only the fixed, configured host quota query, without VM/host shell access.
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} sends separately reviewed input or polls an existing job.
@@ -36,7 +37,7 @@ update_plan {explanation?,plan:[{step,status:pending|in_progress|completed}]}
 create_goal {objective} (one unfinished goal per agent; stay within user scope)
 get_goal {} (current goal, evidence and blocked-audit progress)
 update_goal {status:complete|blocked|paused,reason?} (requests independent review, never self-certifies completion)
-exec {command,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?}
+exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?} (finite command lifetime; choose timeout_ms appropriate for each command, including background jobs)
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} (use original network setting; actual input including controls and EOF requires independent approval)
 packages_install {packages:[string]} (requires network=true; installs Fedora RPMs in your persistent MicroVM)
 microvm_info {} (reports your Fedora VM and its boot identity)
@@ -75,6 +76,7 @@ inspect_agent {agentId}
 question_ask {title,options:[string]}
 question_list {} (own questions; main agents also see open questions from their direct subagents)
 question_answer {id,answer} (main agents only; independently reviewed answer to a direct subagent's question in the same project, never new user authorization; durable/idempotent for the same answer; respects user pauses)
+approval_clarify {approvalId,explanation} (main only; audit a concrete misunderstanding in your own denied action for a fresh independent review on normal retry; never overrides or grants permission; max two per identical action)
 question_withdraw {id}
 job_status {id}
 job_logs {id,cursor?,tail?,max_output_bytes?}

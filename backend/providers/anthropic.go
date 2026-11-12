@@ -27,7 +27,7 @@ func (client *HTTPClient) anthropic(ctx context.Context, request Request) (Resul
 		} else {
 			messages = append(messages, map[string]any{
 				"role":    conversationRole(message.Role),
-				"content": message.Content,
+				"content": imageContent(message, "anthropic"),
 			})
 		}
 	}

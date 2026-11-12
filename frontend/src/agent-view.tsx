@@ -6,7 +6,11 @@ import { CostSummary } from "./usage-summary";
 import { AgentQuestion } from "./agent-question";
 import { ModelResponse } from "./model-response";
 import { ActivityOutput } from "./activity-details";
-import { transcriptQuery, type Transcript } from "./agent-transcript";
+import {
+  transcriptQuery,
+  transcriptDetailsQuery,
+  type Transcript,
+} from "./agent-transcript";
 import type { Agent, Project, SandboxStatus } from "./generated";
 import { useMemo } from "react";
 import { useTranscriptHistory } from "./transcript-history";
@@ -25,6 +29,7 @@ import { LiveAssistantResponse } from "./live-assistant-response";
 import { AgentComposer } from "./agent-composer";
 import { useStableValue } from "./stable-data";
 import { AgentGoal } from "./agent-goal";
+import { emptyUsage } from "./conversation-bootstrap";
 
 export function AgentView({
   agentId,
@@ -39,6 +44,8 @@ export function AgentView({
   canCreateAgent,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
+  initialTranscript,
+  managedTranscript = false,
 }: {
   agentId: string;
   project: Project;
@@ -52,6 +59,8 @@ export function AgentView({
   canCreateAgent: boolean;
   focusAgentSwitcher: boolean;
   onAgentSwitcherFocus: () => void;
+  initialTranscript?: Transcript;
+  managedTranscript?: boolean;
 }) {
   const { t } = useI18n();
 
@@ -59,9 +68,36 @@ export function AgentView({
   const { params } = useRoute();
   const [renaming, setRenaming] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { data, error, loading } = useQuery<Transcript>(transcriptQuery, {
-    id: agentId,
-  });
+  const {
+    data: core,
+    error,
+    loading,
+  } = useQuery<Transcript>(
+    transcriptQuery,
+    {
+      id: agentId,
+    },
+    { enabled: !managedTranscript, initialData: initialTranscript },
+  );
+  const details = useQuery<
+    Pick<Transcript, "jobs" | "approvals" | "notes" | "usageSummary"> & {
+      agent: Pick<Agent, "id" | "summary"> | null;
+    }
+  >(transcriptDetailsQuery, { id: agentId }, { enabled: detailsOpen });
+  const data = useMemo(
+    () =>
+      core
+        ? {
+            ...core,
+            approvals: core.approvals ?? [],
+            notes: core.notes ?? [],
+            usageSummary: core.usageSummary ?? emptyUsage,
+            ...details.data,
+            agent: { ...core.agent, ...details.data?.agent },
+          }
+        : undefined,
+    [core, details.data],
+  );
 
   const [inspection, setInspection] = useState<{
     title: string;
@@ -146,11 +182,23 @@ export function AgentView({
         action={action}
         onDetails={() => setDetailsOpen(true)}
         onRename={() => setRenaming(true)}
-      />
+      >
+        {data?.goal &&
+          !["complete", "cancelled", "superseded"].includes(data.goal.status) &&
+          current?.role !== "approver" && (
+            <AgentGoal
+              compact
+              goal={data.goal}
+              working={current?.status === "running"}
+              reviewing={data.agentRunState?.phase === "goal_review"}
+              allowDiscard={current?.role === "main"}
+            />
+          )}
+      </AgentControls>
       <div
         role="region"
         aria-label={t("Agentenverlauf")}
-        className="mx-auto min-w-0 max-w-3xl py-6 sm:py-8"
+        className="mx-auto min-w-0 max-w-[96rem] py-6 sm:py-8"
       >
         <div ref={history.sentinel} aria-hidden="true" className="h-px" />
         {history.loading && <Loading />}
@@ -212,16 +260,6 @@ export function AgentView({
             />
           </div>
         )}
-        {data?.goal &&
-          !["complete", "cancelled", "superseded"].includes(data.goal.status) &&
-          current?.role !== "approver" && (
-            <AgentGoal
-              goal={data.goal}
-              working={current?.status === "running"}
-              reviewing={data.agentRunState?.phase === "goal_review"}
-              allowDiscard={current?.role === "main"}
-            />
-          )}
         <Failure
           message={
             error ||
@@ -271,7 +309,10 @@ export function AgentView({
         />
       )}
       {current?.role !== "main" && (
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3 text-xs text-muted">
+        <footer
+          ref={viewport.readonlyBar}
+          className="fixed inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-muted sm:px-6 lg:left-[var(--sidebar-width,260px)] lg:px-8"
+        >
           <p>{t("Dieser Verlauf ist schreibgeschützt.")}</p>
           {current?.role === "subagent" && (
             <Button
@@ -297,7 +338,7 @@ export function AgentView({
               )}
             </Button>
           )}
-          {data && <CostSummary totals={data.usageSummary} />}
+          {data && details.data && <CostSummary totals={data.usageSummary} />}
         </footer>
       )}
       {renaming && current && (
@@ -312,6 +353,8 @@ export function AgentView({
           onClose={() => setDetailsOpen(false)}
         >
           <div className="space-y-8">
+            {details.loading && <Loading />}
+            <Failure message={details.error} onRetry={() => api.refresh()} />
             <section className="space-y-3">
               <h2 className="text-base font-medium">
                 {t("Ausführungsumgebung")}
@@ -332,7 +375,9 @@ export function AgentView({
                     : undefined
                 }
               />
-              {data && <CostSummary totals={data.usageSummary} />}
+              {data && details.data && (
+                <CostSummary totals={data.usageSummary} />
+              )}
             </section>
             <section>
               <h2 className="mb-4 text-base font-medium">

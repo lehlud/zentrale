@@ -27,7 +27,7 @@ func responsesInput(messages []domain.Message) []any {
 		} else {
 			input = append(input, map[string]any{
 				"role":    conversationRole(message.Role),
-				"content": message.Content,
+				"content": imageContent(message, "responses"),
 			})
 		}
 	}

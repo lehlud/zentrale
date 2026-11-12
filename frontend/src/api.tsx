@@ -35,11 +35,16 @@ export class API {
   );
 
   readonly connection = new ConnectionMonitor(
-    (signal) => fetchGraphQL("query{status{authenticated}}", {}, signal),
+    async () => {
+      this.reconnectNow();
+      // Recovery is established by the authenticated WebSocket handshake,
+      // never by repeated HTTP health/data requests.
+      throw new ConnectionError("WebSocket reconnecting");
+    },
     () => {
-      this.refresh();
       this.inputs.flush();
     },
+    false,
   );
 
   confirm:
@@ -54,6 +59,68 @@ export class API {
   private reconnect: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
   private lastEvent: number | undefined;
+  private nextSubscription = 0;
+  private subscriptions = new Map<
+    string,
+    {
+      query: string;
+      variables: Record<string, unknown>;
+      receive: (result: {
+        data?: unknown;
+        errors?: { message: string }[];
+      }) => void;
+    }
+  >();
+
+  watch<T>(
+    query: string,
+    variables: Record<string, unknown>,
+    receive: (value: T) => void,
+    fail: (error: Error) => void,
+  ) {
+    const requestId = String(++this.nextSubscription);
+    const subscription = {
+      query,
+      variables,
+      receive: (result: { data?: unknown; errors?: { message: string }[] }) => {
+        if (result.errors?.length)
+          fail(
+            new Error(result.errors.map((error) => error.message).join("; ")),
+          );
+        else receive(result.data as T);
+      },
+    };
+    this.subscriptions.set(requestId, subscription);
+    this.sendSubscription(requestId, subscription);
+    return () => {
+      this.subscriptions.delete(requestId);
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: "unsubscribe", requestId }));
+      }
+    };
+  }
+
+  private sendSubscription(
+    requestId: string,
+    subscription: { query: string; variables: Record<string, unknown> },
+  ) {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(
+        JSON.stringify({
+          type: "subscribe",
+          requestId,
+          query: subscription.query,
+          variables: subscription.variables,
+        }),
+      );
+    }
+  }
+
+  private reconnectNow() {
+    if (this.stopped) return;
+    this.disconnect();
+    this.connect();
+  }
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -138,6 +205,19 @@ export class API {
       }
 
       const result = await this.query<T>(query, variables);
+      if (/\b(login|logout|setup)\b/.test(query)) {
+        // A successful sign-in/out changes the cookie used by the WebSocket
+        // handshake. This is a one-off session bootstrap following an explicit
+        // user action, not a live-update fallback or a periodic health probe.
+        const session = await this.query(
+          "query{status{needsSetup authenticated githubConnected}}",
+        );
+        for (const subscription of this.subscriptions.values()) {
+          if (/^\s*query\s*\{\s*status\s*\{/.test(subscription.query)) {
+            subscription.receive({ data: session });
+          }
+        }
+      }
       if (options.refresh !== false) this.refresh();
 
       if (options.announce !== false)
@@ -169,8 +249,19 @@ export class API {
         `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/events?after=${this.lastEvent ?? "latest"}`,
       );
       this.socket = socket;
+      socket.onopen = () => {
+        if (this.stopped || generation !== this.connectionGeneration) return;
+        this.connection.reportRestored();
+        for (const [requestId, subscription] of this.subscriptions) {
+          this.sendSubscription(requestId, subscription);
+        }
+      };
       socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        if (data.type === "query_result") {
+          this.subscriptions.get(data.requestId)?.receive(data.result);
+          return;
+        }
         if (data.type === "response_reset") {
           this.responses.reset();
           return;
@@ -183,12 +274,11 @@ export class API {
 
         if (data.type === "sync" || data.id > (this.lastEvent ?? 0)) {
           this.lastEvent = data.id;
-          this.refresh();
         }
       };
       socket.onclose = () => {
         if (!this.stopped && generation === this.connectionGeneration) {
-          if (!this.connection.snapshot()) this.refresh();
+          this.connection.reportFailure();
           this.reconnect = setTimeout(open, 2000);
         }
       };
@@ -223,74 +313,108 @@ export function useAPI() {
 export function useQuery<T>(
   query: string,
   variables: Record<string, unknown> = {},
+  options: { enabled?: boolean; initialData?: T } = {},
 ) {
   const api = useAPI();
+  const enabled = options.enabled ?? true;
   const key = JSON.stringify(variables);
   const stableVars = useMemo(
     () => JSON.parse(key) as Record<string, unknown>,
     [key],
   );
   const requestKey = query + key;
-  const [result, setResult] = useState<{ key: string; value: T }>();
-  const data = result?.key === requestKey ? result.value : undefined;
-  const [failure, setFailure] = useState<{ key: string; message: string }>();
-  const error = failure?.key === requestKey ? failure.message : "";
+  const [result, setResult] = useState<{ api: API; key: string; value: T }>();
+  const data = !enabled
+    ? options.initialData
+    : result?.api === api && result.key === requestKey
+      ? result.value
+      : undefined;
+  const [failure, setFailure] = useState<{
+    api: API;
+    key: string;
+    message: string;
+  }>();
+  const error =
+    enabled && failure?.api === api && failure.key === requestKey
+      ? failure.message
+      : "";
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
-    let running = false;
-    let dirty = false;
+    let pushed = false;
     const load = () => {
       if (controller.signal.aborted) return;
-      if (running) {
-        dirty = true;
-        return;
-      }
-      running = true;
-      dirty = false;
       void api
         .query<T>(query, stableVars, controller.signal)
         .then((value) => {
-          if (controller.signal.aborted) {
+          if (controller.signal.aborted || pushed) {
             return;
           }
 
           setResult((previous) =>
-            previous?.key === requestKey && sameJSONValue(previous.value, value)
+            previous?.api === api &&
+            previous.key === requestKey &&
+            sameJSONValue(previous.value, value)
               ? previous
-              : { key: requestKey, value },
+              : { api, key: requestKey, value },
           );
           setFailure(undefined);
         })
         .catch((err) => {
-          if (!controller.signal.aborted && err.name !== "AbortError")
-            setFailure({ key: requestKey, message: String(err.message) });
+          if (
+            !controller.signal.aborted &&
+            !pushed &&
+            err.name !== "AbortError"
+          )
+            setFailure({ api, key: requestKey, message: String(err.message) });
         })
         .finally(() => {
-          running = false;
           if (!controller.signal.aborted) {
             setLoading(false);
-            // Complete the current read, then fetch the newest state once.
-            // Busy event streams must not starve initial loading by repeatedly
-            // aborting requests before they have a chance to finish.
-            if (dirty) load();
           }
         });
     };
-    const unsubscribe = api.subscribe(load);
+    // One initial HTTP read. Subsequent state is pushed by the server for this
+    // subscription; neither timers nor invalidations trigger repeat reads.
+    const unsubscribe = api.watch<T>(
+      query,
+      stableVars,
+      (value) => {
+        if (controller.signal.aborted) return;
+        // Do not let an older initial HTTP response overwrite a pushed snapshot.
+        pushed = true;
+        setResult((previous) =>
+          previous?.api === api &&
+          previous.key === requestKey &&
+          sameJSONValue(previous.value, value)
+            ? previous
+            : { api, key: requestKey, value },
+        );
+        setFailure(undefined);
+        setLoading(false);
+      },
+      (err) => {
+        if (!controller.signal.aborted)
+          setFailure({ api, key: requestKey, message: err.message });
+      },
+    );
     load();
 
     return () => {
       unsubscribe();
       controller.abort();
     };
-  }, [api, query, stableVars]);
+  }, [api, query, stableVars, enabled]);
 
   return {
     data,
     error,
-    loading: !data && (loading || !error || error === connectionErrorMessage),
+    loading:
+      enabled &&
+      !data &&
+      (loading || !error || error === connectionErrorMessage),
   };
 }
 

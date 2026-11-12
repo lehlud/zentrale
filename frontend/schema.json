@@ -1176,6 +1176,14 @@
               "name": "UsageSummary",
               "ofType": null
             }
+          },
+          {
+            "name": "conversationBootstrap",
+            "type": {
+              "kind": "OBJECT",
+              "name": "ConversationBootstrap",
+              "ofType": null
+            }
           }
         ],
         "inputFields": null,
@@ -2020,6 +2028,44 @@
                 "ofType": null
               }
             }
+          },
+          {
+            "name": "attachmentIds",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "SCALAR",
+                    "name": "String"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "attachments",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "OBJECT",
+                    "name": "Attachment"
+                  }
+                }
+              }
+            }
           }
         ],
         "inputFields": null,
@@ -2552,6 +2598,18 @@
               "ofType": {
                 "kind": "SCALAR",
                 "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "timeoutMs",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
                 "ofType": null
               }
             }
@@ -5413,6 +5471,25 @@
                 "ofType": null
               }
             }
+          },
+          {
+            "name": "attachments",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "OBJECT",
+                    "name": "Attachment"
+                  }
+                }
+              }
+            }
           }
         ],
         "inputFields": null,
@@ -6022,6 +6099,252 @@
         "inputFields": null,
         "kind": "OBJECT",
         "name": "PoolMachineConnectionCheck"
+      },
+      {
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "id",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "machineId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "mimeType",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "size",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "Attachment"
+      },
+      {
+        "fields": [
+          {
+            "name": "agent",
+            "type": {
+              "kind": "OBJECT",
+              "name": "Agent",
+              "ofType": null
+            }
+          },
+          {
+            "name": "messages",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Message",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "goal",
+            "type": {
+              "kind": "OBJECT",
+              "name": "Goal",
+              "ofType": null
+            }
+          },
+          {
+            "name": "agentInputs",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "AgentInput",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "agentRunState",
+            "type": {
+              "kind": "OBJECT",
+              "name": "AgentRunState",
+              "ofType": null
+            }
+          },
+          {
+            "name": "questions",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Question",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "modelDefaults",
+            "type": {
+              "kind": "OBJECT",
+              "name": "ModelDefaults",
+              "ofType": null
+            }
+          },
+          {
+            "name": "project",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Project",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "agents",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "OBJECT",
+                    "name": "Agent",
+                    "ofType": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "machineName",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "sandboxMode",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "jobs",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "Job",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "ConversationBootstrap"
       }
     ]
   }

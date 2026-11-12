@@ -22,6 +22,8 @@ import {
   CircleDot,
   Square,
   Terminal,
+  Paperclip,
+  File,
   type LucideProps,
 } from "lucide-react";
 
@@ -49,6 +51,8 @@ const icons = {
   working: CircleDot,
   stop: Square,
   terminal: Terminal,
+  attachment: Paperclip,
+  file: File,
 };
 
 export function Icon({

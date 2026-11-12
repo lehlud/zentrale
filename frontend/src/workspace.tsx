@@ -1,31 +1,34 @@
 import { Button, Link, buttonVariants } from "@heroui/react";
 import { useRef, useState } from "react";
 
-import { CONFIG, useQuery } from "./api";
 import { AgentControls } from "./agent-controls";
 import { AgentView } from "./agent-view";
-import type { Config } from "./config";
+import {
+  bootstrapTranscript,
+  type ConversationBootstrap,
+} from "./conversation-bootstrap";
 import type { Agent, Project } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
-import { Empty, Loading, useAction } from "./ui";
+import { Empty, useAction } from "./ui";
 import { useSidebar } from "./shell";
 
 export function Workspace({
   project,
   agents,
   onProjectDialog,
+  bootstrap,
 }: {
   project: Project;
   agents: Agent[];
   onProjectDialog: (view: string) => void;
+  bootstrap: ConversationBootstrap;
 }) {
   const { t } = useI18n();
 
   const sidebar = useSidebar();
   const header = useRef<HTMLDivElement>(null);
   const action = useAction();
-  const { data: config } = useQuery<Config>(CONFIG);
   const { params } = useRoute();
   const selected = params.get("agent") ?? "";
   // Each agent remounts its history and draft. Restore keyboard focus when the
@@ -36,24 +39,10 @@ export function Workspace({
     setRouteParameter("agent", id);
   };
   const mainAgents = agents.filter((agent) => agent.role === "main");
-  const activeId = selected || mainAgents[0]?.id || "";
-  const machineId = agents.find((agent) => agent.id === activeId)?.machineId;
-  const sandboxStatus = config?.sandboxStatuses?.find(
-    (status) => status.machineId === machineId,
-  );
-  const machine =
-    config?.machines.find((machine) => machine.id === machineId) ??
-    config?.pools
-      .flatMap((pool) =>
-        pool.machines.map((machine) => ({
-          ...machine,
-          id: `${pool.id}/${machine.id}`,
-        })),
-      )
-      .find((machine) => machine.id === machineId);
+  const activeId = bootstrap.agent?.id ?? selected;
   const defaultsReady = Boolean(
-    config?.modelDefaults.main.modelId &&
-    config?.modelDefaults.approver.modelId,
+    bootstrap.modelDefaults?.main.modelId &&
+    bootstrap.modelDefaults?.approver.modelId,
   );
 
   return (
@@ -74,38 +63,34 @@ export function Workspace({
             onAgentSwitcherFocus={() => {}}
           />
           <div className="mx-auto max-w-xl py-16">
-            {!config ? (
-              <Loading />
-            ) : (
-              <Empty
-                action={
-                  defaultsReady ? (
-                    <Button
-                      className="min-h-11"
-                      onPress={() => sidebar?.newConversation(project.id)}
-                    >
-                      {t("Neue Unterhaltung")}
-                    </Button>
-                  ) : (
-                    <Link
-                      href="#/settings"
-                      className={buttonVariants({
-                        variant: "secondary",
-                        className: "min-h-11",
-                      })}
-                    >
-                      {t("Standardmodelle auswählen")}
-                    </Link>
-                  )
-                }
-              >
-                {defaultsReady
-                  ? t("Noch keine Agenten")
-                  : t(
-                      "Wähle zuerst die Standardmodelle für Aufgaben und Freigaben.",
-                    )}
-              </Empty>
-            )}
+            <Empty
+              action={
+                defaultsReady ? (
+                  <Button
+                    className="min-h-11"
+                    onPress={() => sidebar?.newConversation(project.id)}
+                  >
+                    {t("Neue Unterhaltung")}
+                  </Button>
+                ) : (
+                  <Link
+                    href="#/settings"
+                    className={buttonVariants({
+                      variant: "secondary",
+                      className: "min-h-11",
+                    })}
+                  >
+                    {t("Standardmodelle auswählen")}
+                  </Link>
+                )
+              }
+            >
+              {defaultsReady
+                ? t("Noch keine Agenten")
+                : t(
+                    "Wähle zuerst die Standardmodelle für Aufgaben und Freigaben.",
+                  )}
+            </Empty>
           </div>
         </div>
       ) : (
@@ -121,9 +106,10 @@ export function Workspace({
             canCreateAgent={defaultsReady}
             focusAgentSwitcher={focusAgentId === activeId}
             onAgentSwitcherFocus={() => setFocusAgentId("")}
-            sandboxStatus={sandboxStatus}
-            sandboxMode={machine?.sandbox}
-            machineName={machine?.name}
+            initialTranscript={bootstrapTranscript(bootstrap)}
+            managedTranscript
+            sandboxMode={bootstrap.sandboxMode}
+            machineName={bootstrap.machineName}
           />
         )
       )}

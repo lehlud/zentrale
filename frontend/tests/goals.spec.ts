@@ -1,4 +1,9 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
@@ -58,6 +63,7 @@ for (const english of [false, true])
       const messages: Message[] = [
         {
           activities: [],
+          attachments: [],
           callId: "",
           change: null,
           changes: [],
@@ -67,6 +73,7 @@ for (const english of [false, true])
         },
         {
           activities: [],
+          attachments: [],
           callId: "",
           change: null,
           changes: [],
@@ -136,7 +143,16 @@ for (const english of [false, true])
         socket!.send(JSON.stringify({ id: ++event, type: "goal", data: "{}" }));
       await page.route("**/graphql", async (route) => {
         const { query, variables = {} } = route.request().postDataJSON();
-        const send = (data: unknown) => route.fulfill({ json: { data } });
+        const send = (data: unknown) =>
+          route.fulfill({
+            json: {
+              data: bootstrapData(query, data, {
+                agents: agents.map((item) =>
+                  item.id === agent.id ? main : item,
+                ),
+              }),
+            },
+          });
         if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
         }
@@ -170,8 +186,8 @@ for (const english of [false, true])
           return send({ cancelGoal: true });
         }
 
-        if (query.includes("recentMessages")) {
-          const approver = variables.id === agent.approverId;
+        if (isTranscriptQuery(query)) {
+          const approver = selectedAgentId(variables) === agent.approverId;
           return send({
             ...transcript,
             agent: approver ? { ...agents[1], status: "idle" } : main,
@@ -193,6 +209,7 @@ for (const english of [false, true])
                           toolName: "",
                           createdAt: goal.updatedAt,
                           activities: [],
+                          attachments: [],
                           change: null,
                           changes: [],
                         },
@@ -205,7 +222,7 @@ for (const english of [false, true])
             goal: approver ? null : goal,
             agentInputs: [],
             agentRunState: {
-              agentId: variables.id,
+              agentId: selectedAgentId(variables),
               phase,
               error: "",
               hostKey: { publicKey: "", host: "", fingerprint: "" },

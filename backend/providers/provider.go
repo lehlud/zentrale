@@ -59,6 +59,9 @@ type Request struct {
 	// OnText publishes visible assistant text in provider order.
 	// Reasoning and partial tool arguments stay within the provider adapter.
 	OnText func(string)
+	// OnRetry discards the previous attempt's transient text. Tools and durable
+	// assistant messages are only produced from a complete successful result.
+	OnRetry func()
 }
 
 type Client interface {
@@ -245,6 +248,9 @@ func sanitizeResponseFailure(failure error, configuration domain.Provider) error
 
 func (client *HTTPClient) Complete(ctx context.Context, request Request) (result Result, err error) {
 	defer func() { err = sanitizeResponseFailure(err, request.Config) }()
+	if request.OnRetry != nil {
+		ctx = context.WithValue(ctx, providerRetryResetKey{}, request.OnRetry)
+	}
 
 	if request.Model.ID == "" || strings.ContainsAny(request.Model.ID, "?#\r\n") {
 		return Result{}, errors.New("select an available language model")

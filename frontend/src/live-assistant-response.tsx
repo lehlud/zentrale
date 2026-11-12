@@ -69,23 +69,27 @@ export function LiveAssistantResponse({
               ? "Nachricht übernommen …"
               : phase === "goal_review"
                 ? "Auto-Approver prüft den Zielabschluss …"
-                : phase === "connecting"
-                  ? "Verbindung zur Maschine wird hergestellt …"
-                  : phase === "checking_sandbox"
-                    ? "Sandbox wird geprüft …"
-                    : phase === "recovering_sandbox"
-                      ? "Umgebung wird wiederhergestellt …"
-                      : phase === "workspace"
-                        ? "Projektverzeichnis wird vorbereitet …"
-                        : phase === "sandbox"
-                          ? "Sandbox wird vorbereitet …"
-                          : phase === "repository"
-                            ? "Repository wird vorbereitet …"
-                            : generating
-                              ? text
-                                ? "Schreibt …"
-                                : "Antwort wird vorbereitet …"
-                              : "Arbeitet …",
+                : phase === "checking_ready"
+                  ? "Bestehende Umgebung wird kurz geprüft …"
+                  : phase === "ready"
+                    ? "Vorbereitete Umgebung ist bereit …"
+                    : phase === "connecting"
+                      ? "Verbindung zur Maschine wird hergestellt …"
+                      : phase === "checking_sandbox"
+                        ? "Sandbox wird geprüft …"
+                        : phase === "recovering_sandbox"
+                          ? "Umgebung wird wiederhergestellt …"
+                          : phase === "workspace"
+                            ? "Projektverzeichnis wird vorbereitet …"
+                            : phase === "sandbox"
+                              ? "Sandbox wird vorbereitet …"
+                              : phase === "repository"
+                                ? "Repository wird vorbereitet …"
+                                : generating
+                                  ? text
+                                    ? "Schreibt …"
+                                    : "Antwort wird vorbereitet …"
+                                  : "Arbeitet …",
           )}
         />
       )}

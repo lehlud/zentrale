@@ -3,10 +3,9 @@ import { useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
 import { agentTree, branchContains, type AgentBranch } from "./agent-tree";
-import { CONFIG, useAPI, useQuery } from "./api";
+import { useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
-import type { Config } from "./config";
-import type { Agent } from "./generated";
+import type { Agent, Project } from "./generated";
 import { Icon } from "./icons";
 import { conversationHref, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
@@ -17,7 +16,11 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useI18n();
   const { projectId, page } = useRoute();
   const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
+  // Sidebar navigation needs no machine/provider/SSH configuration. Keep this
+  // parallel read small; conversation rendering never waits for its response.
+  const { data, error, loading } = useQuery<{ projects: Project[] }>(
+    `query { projects(limit:500) { id name } }`,
+  );
   const [search, setSearch] = useState("");
   const projects = useBatch(
     (data?.projects ?? []).filter((project) =>

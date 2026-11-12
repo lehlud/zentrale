@@ -29,6 +29,8 @@ import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { Icon } from "./icons";
 import { QuestionExchange } from "./question-exchange";
+import { AttachmentList } from "./attachment-list";
+import { attachedFiles } from "./attachments";
 
 const MessageTime = memo(function MessageTime({
   message,
@@ -286,9 +288,15 @@ const MessageContent = memo(function MessageContent({
 
   if (message.role === "user") {
     return (
-      <p className="whitespace-pre-wrap break-words leading-7 [overflow-wrap:anywhere]">
-        {message.content}
-      </p>
+      <>
+        <p className="whitespace-pre-wrap break-words leading-7 [overflow-wrap:anywhere]">
+          {message.content}
+        </p>
+        <AttachmentList
+          attachments={attachedFiles(message)}
+          agentId={message.agentId}
+        />
+      </>
     );
   }
 

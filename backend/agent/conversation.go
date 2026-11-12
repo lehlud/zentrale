@@ -42,6 +42,10 @@ func (engine *Engine) RenameAgent(agentID, name string) error {
 // A new conversation gets a useful title from its first instruction without a
 // separate naming form or an extra model request. Explicit names stay intact.
 func (engine *Engine) nameFirstConversation(record *domain.Agent, text string) error {
+	// Attachment-only messages do not invent a task/title or erase the default.
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
 	if record.Name != "Neue Unterhaltung" && record.Name != "New conversation" {
 		return nil
 	}

@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
 import {
@@ -81,9 +82,22 @@ for (const english of [false, true]) {
         );
       await page.route("**/graphql", async (route) => {
         const { query } = route.request().postDataJSON();
-        const send = (data: unknown) => route.fulfill({ json: { data } });
+        const send = (data: unknown) =>
+          route.fulfill({
+            json: {
+              data: bootstrapData(query, data, {
+                agents: agents.map((value) =>
+                  value.id === agent.id ? current() : value,
+                ),
+              }),
+            },
+          });
         if (query.includes("status{")) {
           return send({ status: { authenticated: true, needsSetup: false } });
+        }
+
+        if (query.includes("job(id:")) {
+          return send({ job });
         }
 
         if (query.includes("stopAgent")) {
@@ -115,7 +129,7 @@ for (const english of [false, true]) {
           return send({ stopJob: true });
         }
 
-        if (query.includes("recentMessages")) {
+        if (isTranscriptQuery(query)) {
           queryCount++;
           return send({
             ...transcript,

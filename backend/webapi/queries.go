@@ -314,6 +314,8 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 		queries[name] = field
 	}
 
+	queries["conversationBootstrap"] = builder.conversationBootstrapField(queries)
+
 	return queries
 }
 

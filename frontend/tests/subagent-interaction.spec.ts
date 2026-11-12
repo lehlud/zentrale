@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
+import {
   agent,
   agents,
   config,
@@ -26,8 +31,8 @@ test("users can pause/resume subagents but cannot prompt them or answer their qu
       actions.push("pause");
       child.status = "stopped";
       data = { stopAgent: true };
-    } else if (query.includes("recentMessages")) {
-      const isChild = variables.id === child.id;
+    } else if (isTranscriptQuery(query)) {
+      const isChild = selectedAgentId(variables) === child.id;
       data = {
         ...transcript,
         agent: isChild ? child : agent,
@@ -59,7 +64,11 @@ test("users can pause/resume subagents but cannot prompt them or answer their qu
       };
     } else if (query.includes("agents(projectId:"))
       data = { project, agents: [agent, agents[1], child] };
-    await route.fulfill({ json: { data } });
+    await route.fulfill({
+      json: {
+        data: bootstrapData(query, data, { agents: [agent, agents[1], child] }),
+      },
+    });
   });
   await page.goto(`/#/projects/${project.id}?agent=${child.id}`);
   await expect(

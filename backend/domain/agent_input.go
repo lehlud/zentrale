@@ -9,9 +9,11 @@ type AgentInput struct {
 	AgentID   string `json:"agentId"`
 	ProjectID string `json:"projectId"`
 
-	Text   string `json:"text"`
-	Mode   string `json:"mode"`
-	Status string `json:"status"`
+	Text          string       `json:"text"`
+	Mode          string       `json:"mode"`
+	Status        string       `json:"status"`
+	AttachmentIDs []string     `json:"attachmentIds"`
+	Attachments   []Attachment `json:"attachments"`
 
 	CreatedAt   time.Time `json:"createdAt"`
 	DeliveredAt time.Time `json:"deliveredAt"`

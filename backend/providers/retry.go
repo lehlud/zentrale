@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,11 +15,13 @@ import (
 const providerAttempts = 4
 const maximumRetryWait = 30 * time.Second
 
-// Retry explicit temporary HTTP rejections only. Transport failures and partial
-// successful streams can already have generated a billed response; replaying
-// those requests would be ambiguous. Environmental tools are never replayed.
+type providerRetryResetKey struct{}
+
+// Retry temporary rejections and attempt-local transport/read timeouts. Caller
+// cancellation and streams whose text has already been published are not
+// replayed. Environmental tools are never executed by this retry loop.
 func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...streamRequest) (map[string]any, error) {
-	started := time.Now()
+	var waited time.Duration
 
 	for attempt := 0; ; attempt++ {
 		if err := original.Context().Err(); err != nil {
@@ -33,28 +36,56 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 
 		request.Body = body
 		response, err := client.HTTP.Do(request)
-		if err != nil {
-			return nil, fmt.Errorf("provider request failed: %w", err)
-		}
-
 		received := time.Now()
-		result, failure := decodeProviderResponse(response, streaming...)
-		_ = response.Body.Close()
+		var result map[string]any
+		var failure error
+		published := false
+		attemptStreams := append([]streamRequest(nil), streaming...)
+		for index := range attemptStreams {
+			onText := attemptStreams[index].onText
+			attemptStreams[index].onText = func(text string) {
+				if text != "" {
+					published = true
+				}
+				if onText != nil {
+					onText(text)
+				}
+			}
+		}
+		if err != nil {
+			failure = fmt.Errorf("provider request failed: %w", err)
+		} else {
+			result, failure = decodeProviderResponse(response, attemptStreams...)
+			_ = response.Body.Close()
+		}
+		if err := original.Context().Err(); err != nil {
+			return nil, err
+		}
 		var httpFailure *HTTPError
+		retryable := errors.As(failure, &httpFailure) && temporaryProviderError(httpFailure)
+		var timeout net.Error
+		reset, _ := original.Context().Value(providerRetryResetKey{}).(func())
+		retryable = retryable || ((!published || reset != nil) && errors.As(failure, &timeout) && timeout.Timeout())
+		if published && reset == nil {
+			retryable = false
+		}
 		if attempt+1 == providerAttempts ||
-			!errors.As(failure, &httpFailure) ||
-			!temporaryProviderError(httpFailure) {
+			!retryable {
 			return result, failure
 		}
 
 		delay := time.Duration(float64(time.Second*(1<<attempt)) * (0.9 + rand.Float64()*0.2))
 
-		if advice, valid := providerRetryAfter(response.Header.Get("Retry-After"), received); valid {
-			delay = max(0, advice-time.Since(received))
+		if response != nil {
+			if advice, valid := providerRetryAfter(response.Header.Get("Retry-After"), received); valid {
+				delay = max(0, advice-time.Since(received))
+			}
 		}
 
 		// Do not shorten a long Retry-After and hit the server before its deadline.
-		if time.Since(started)+delay > maximumRetryWait {
+		// Budget the backoff, not inference time. A Client.Timeout can exceed
+		// thirty seconds on its first attempt and must still be retryable.
+		if waited+delay > maximumRetryWait {
 			return nil, failure
 		}
 
@@ -66,6 +97,10 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		if err := wait(original.Context(), delay); err != nil {
 			return nil, err
 		}
+		if published && reset != nil {
+			reset()
+		}
+		waited += delay
 	}
 }
 

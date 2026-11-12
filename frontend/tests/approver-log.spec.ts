@@ -1,4 +1,5 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
 import { agents, config, project, transcript } from "./fixtures/visual-data";
@@ -113,7 +114,7 @@ for (const english of [false, true]) {
       const { query } = route.request().postDataJSON();
       const data = query.includes("status{")
         ? { status: { needsSetup: false, authenticated: true } }
-        : query.includes("recentMessages")
+        : isTranscriptQuery(query)
           ? {
               ...transcript,
               agent: approver,
@@ -128,7 +129,11 @@ for (const english of [false, true]) {
               ? { project, agents: [agents[0], approver] }
               : config;
 
-      return route.fulfill({ json: { data } });
+      return route.fulfill({
+        json: {
+          data: bootstrapData(query, data, { agents: [agents[0], approver] }),
+        },
+      });
     });
     await page.goto(`/#/projects/${project.id}?agent=${approver.id}`);
     await page

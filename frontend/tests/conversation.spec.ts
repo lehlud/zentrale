@@ -54,6 +54,7 @@ for (const variant of [
       change: null,
       changes: [],
       activities: [],
+      attachments: [],
       createdAt: new Date(
         Date.parse("2026-11-04T11:00:00Z") + sequence++ * 1000,
       ).toISOString(),

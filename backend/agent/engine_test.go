@@ -277,7 +277,7 @@ func TestDeniedInteractionNeverReachesRemoteExecution(t *testing.T) {
 					{
 						ID:        "call-one",
 						Name:      "harness",
-						Arguments: map[string]any{"action": "exec", "arguments": `{"command":"rm -rf /"}`},
+						Arguments: map[string]any{"action": "exec", "arguments": `{"command":"rm -rf /","timeout_ms":30000}`},
 					},
 				},
 				UsageKnown: true,

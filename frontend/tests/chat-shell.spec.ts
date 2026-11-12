@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
 import { mkdir } from "node:fs/promises";
 
 import {
@@ -32,7 +37,10 @@ for (const mobile of [false, true]) {
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      const send = (data: unknown) => route.fulfill({ json: { data } });
+      const send = (data: unknown) =>
+        route.fulfill({
+          json: { data: bootstrapData(query, data, { agents: sessions }) },
+        });
       if (query.includes("createAgent(")) {
         creations++;
 
@@ -62,9 +70,10 @@ for (const mobile of [false, true]) {
         });
       }
 
-      if (query.includes("recentMessages")) {
+      if (isTranscriptQuery(query)) {
         const current =
-          sessions.find((item) => item.id === variables.id) ?? agent;
+          sessions.find((item) => item.id === selectedAgentId(variables)) ??
+          agent;
         return send({
           ...transcript,
           agent: current,
@@ -245,7 +254,15 @@ test("new conversation asks only for a project and preserves the choice after an
   await page.routeWebSocket("**/events?*", () => {});
   await page.route("**/graphql", async (route) => {
     const { query, variables = {} } = route.request().postDataJSON();
-    const send = (data: unknown) => route.fulfill({ json: { data } });
+    const send = (data: unknown) =>
+      route.fulfill({
+        json: {
+          data: bootstrapData(query, data, {
+            project: secondProject,
+            agents: [created],
+          }),
+        },
+      });
     if (query.includes("createAgent(")) {
       attempts++;
 
@@ -271,7 +288,7 @@ test("new conversation asks only for a project and preserves the choice after an
       return send({ status: { needsSetup: false, authenticated: true } });
     }
 
-    if (query.includes("recentMessages")) {
+    if (isTranscriptQuery(query)) {
       return send({
         ...transcript,
         agent: created,

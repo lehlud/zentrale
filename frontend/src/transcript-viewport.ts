@@ -27,6 +27,7 @@ function nestedScrollConsumes(target: EventTarget | null, delta: number) {
 export function useTranscriptViewport(suspended: boolean, ready: boolean) {
   const root = useRef<HTMLElement>(null);
   const composer = useRef<HTMLFormElement>(null);
+  const readonlyBar = useRef<HTMLElement>(null);
   const header = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
   const direction = useRef(0);
@@ -154,7 +155,11 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
         const height =
           entry.borderBoxSize[0]?.blockSize ??
           entry.target.getBoundingClientRect().height;
-        if (entry.target === composer.current) composerHeight = height;
+        if (
+          entry.target === composer.current ||
+          entry.target === readonlyBar.current
+        )
+          composerHeight = height;
         if (entry.target === header.current) headerHeight = height;
       }
       if (frame) return;
@@ -204,6 +209,7 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
       });
     });
     if (composer.current) observer.observe(composer.current);
+    if (readonlyBar.current) observer.observe(readonlyBar.current);
 
     if (header.current) observer.observe(header.current);
 
@@ -215,5 +221,5 @@ export function useTranscriptViewport(suspended: boolean, ready: boolean) {
     };
   }, [suspended, ready]);
 
-  return { root, composer, header, following, latest };
+  return { root, composer, readonlyBar, header, following, latest };
 }

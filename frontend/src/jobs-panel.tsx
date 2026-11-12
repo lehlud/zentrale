@@ -1,24 +1,33 @@
 import { Accordion, Button } from "@heroui/react";
+import { useState } from "react";
 
-import { useAPI } from "./api";
+import { useAPI, useQuery } from "./api";
 import { ActivityOutput } from "./activity-details";
 import { statusLabels } from "./agent-format";
 import type { Job } from "./generated";
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
-import { Empty, Failure, useAction } from "./ui";
+import { Empty, Failure, Loading, useAction } from "./ui";
 
 function JobRow({ job }: { job: Job }) {
   const { t } = useI18n();
   const api = useAPI();
   const action = useAction();
   const running = job.status === "running";
+  const [expanded, setExpanded] = useState(false);
+  // Bootstrap returns active job metadata, not potentially huge output. Only
+  // opening this row subscribes to output updates; closed rows perform no read.
+  const details = useQuery<{ job: Pick<Job, "output"> | null }>(
+    `query($id:String!) { job(id:$id) { id output } }`,
+    { id: job.id },
+    { enabled: expanded && typeof job.output !== "string" },
+  );
 
   return (
     <li className="min-w-0 border-b border-border last:border-0">
       <div className="flex min-w-0 items-start gap-1">
         <Accordion hideSeparator className="min-w-0 flex-1">
-          <Accordion.Item id={job.id}>
+          <Accordion.Item id={job.id} onExpandedChange={setExpanded}>
             <Accordion.Heading>
               <Accordion.Trigger
                 aria-label={t("Ausgabe öffnen: {command}", {
@@ -54,13 +63,27 @@ function JobRow({ job }: { job: Job }) {
                 <p className="mb-2 break-all font-mono text-xs text-muted">
                   {job.command}
                 </p>
+                {job.timeoutMs > 0 && (
+                  <p className="mb-2 text-xs text-muted">
+                    {t("Zeitlimit")}: {job.timeoutMs / 1000} s
+                  </p>
+                )}
                 {job.error && (
                   <p className="mb-2 break-words text-xs text-danger">
                     {job.error}
                   </p>
                 )}
+                {details.loading && <Loading />}
+                <Failure
+                  message={details.error}
+                  onRetry={() => api.refresh()}
+                />
                 <ActivityOutput
-                  content={job.output || t("Noch keine Ausgabe")}
+                  content={
+                    details.data?.job?.output ||
+                    job.output ||
+                    t("Noch keine Ausgabe")
+                  }
                 />
               </Accordion.Body>
             </Accordion.Panel>

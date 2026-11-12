@@ -124,6 +124,7 @@ const values: Record<string, string> = {
   waiting: "Wartet",
   completed: "Abgeschlossen",
   failed: "Fehlgeschlagen",
+  timed_out: "Zeitlimit erreicht",
   error: "Fehler",
   interrupted: "Unterbrochen",
   stopped: "Gestoppt",
@@ -156,7 +157,7 @@ export function fieldLabel(key: string) {
 
 export function ActivityStatus({ status }: { status: string }) {
   const { t } = useI18n();
-  const color = ["failed", "error", "interrupted"].includes(status)
+  const color = ["failed", "error", "interrupted", "timed_out"].includes(status)
     ? "danger"
     : status === "completed"
       ? "success"

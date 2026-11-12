@@ -121,6 +121,7 @@ func executionTool() providers.Tool {
 	return providers.Tool{
 		Name: "exec_command",
 		Description: "Run a POSIX shell command in the remote project and sandbox. " +
+			"Choose an explicit finite timeout_ms appropriate for this command, including background and interactive jobs. " +
 			"Network and exceptional execution are reviewed independently for each call. " +
 			"Long commands return a jobId. Set interactive=true to keep stdin open, or tty=true for a real terminal. " +
 			"Use write_stdin for input or polling. job_wait/job_logs return only unread output with nextCursor.",
@@ -136,6 +137,7 @@ func executionTool() providers.Tool {
 				"description": "Return immediately with a jobId so independent jobs can overlap, including on different GPU hosts.",
 			},
 			"yield_time_ms":    integerProperty(1000, 30000),
+			"timeout_ms":       integerProperty(1, 604800000),
 			"interactive":      map[string]any{"type": "boolean"},
 			"tty":              map[string]any{"type": "boolean"},
 			"max_output_bytes": integerProperty(256, 64000),
@@ -143,7 +145,7 @@ func executionTool() providers.Tool {
 			"outsideSandbox":   map[string]any{"type": "boolean"},
 			"guestRoot":        map[string]any{"type": "boolean"},
 			"justification":    textProperty("Why exceptional access or network is needed, when applicable."),
-		}, "cmd"),
+		}, "cmd", "timeout_ms"),
 	}
 }
 

@@ -272,6 +272,7 @@ export const transcript = {
       agentId: agent.id,
       machineId: machine.id,
       command: "python train.py --resume checkpoints/epoch-42.pt",
+      timeoutMs: 0,
       status: "running",
       output:
         "Epoch 43/100\nloss=0.182 · checkpoint saved\nValidation pending…",
@@ -283,6 +284,7 @@ export const transcript = {
       agentId: agent.id,
       machineId: machine.id,
       command: "python evaluate.py --checkpoint checkpoints/epoch-41.pt",
+      timeoutMs: 0,
       status: "failed",
       output: "Loading validation data…",
       error:

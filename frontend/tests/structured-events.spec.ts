@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
+  bootstrapData,
+  isTranscriptQuery,
+  selectedAgentId,
+} from "./fixtures/bootstrap-data";
+import {
   agent,
   agents,
   config,
@@ -114,10 +119,10 @@ for (const mobile of [false, true]) {
     await page.routeWebSocket("**/events?*", () => {});
     await page.route("**/graphql", (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
-      const isChild = variables.id === child.id;
+      const isChild = selectedAgentId(variables) === child.id;
       const data = query.includes("status{")
         ? { status: { needsSetup: false, authenticated: true } }
-        : query.includes("recentMessages")
+        : isTranscriptQuery(query)
           ? {
               ...transcript,
               agent: isChild ? child : agent,
@@ -131,7 +136,7 @@ for (const mobile of [false, true]) {
           : query.includes("agents(projectId:")
             ? { project, agents }
             : config;
-      return route.fulfill({ json: { data } });
+      return route.fulfill({ json: { data: bootstrapData(query, data) } });
     });
     await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
     const questionTrigger = page.getByRole("button", {

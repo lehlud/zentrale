@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 
 import {
   agent,
@@ -15,20 +16,22 @@ test("usage shows reported cache counts separately from missing measurements", a
   await page.routeWebSocket("**/events?*", () => {});
   await page.route("**/graphql", (route) => {
     const { query } = route.request().postDataJSON();
-    if (query.includes("recentMessages")) {
-      expect(query).toContain("cacheInputTokens");
-      expect(query).toContain("unknownTokenCounts");
+    if (isTranscriptQuery(query)) {
+      if (!query.includes("conversationBootstrap(")) {
+        expect(query).toContain("cacheInputTokens");
+        expect(query).toContain("unknownTokenCounts");
+      }
 
       return route.fulfill({
         json: {
-          data: {
+          data: bootstrapData(query, {
             ...transcript,
             usageSummary: {
               ...transcript.usageSummary,
               unknownTokenCounts: 2,
               unknownCacheWrites: 3,
             },
-          },
+          }),
         },
       });
     }

@@ -21,6 +21,7 @@ export class ConnectionMonitor {
   constructor(
     private check: (signal: AbortSignal) => Promise<unknown>,
     private onRestored: () => void,
+    private automaticChecks = true,
   ) {}
 
   subscribe = (listener: () => void) => {
@@ -29,6 +30,16 @@ export class ConnectionMonitor {
   };
 
   snapshot = () => this.interrupted;
+
+  reportRestored() {
+    if (!this.interrupted) return;
+    this.interrupted = false;
+    this.delay = 2000;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.listeners.forEach((listener) => listener());
+    this.onRestored();
+  }
 
   reportFailure() {
     if (!this.interrupted) {
@@ -91,7 +102,13 @@ export class ConnectionMonitor {
   };
 
   private schedule() {
-    if (!this.active || !this.interrupted || this.timer || this.pending) {
+    if (
+      !this.automaticChecks ||
+      !this.active ||
+      !this.interrupted ||
+      this.timer ||
+      this.pending
+    ) {
       return;
     }
     this.timer = setTimeout(() => {

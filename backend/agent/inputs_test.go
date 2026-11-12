@@ -199,14 +199,16 @@ func TestSteeringDoesNotAbortStartedToolBatches(t *testing.T) {
 							ID:   "one",
 							Name: "exec_command",
 							Arguments: map[string]any{
-								"cmd": "printf first > first.txt",
+								"cmd":        "printf first > first.txt",
+								"timeout_ms": float64(30000),
 							},
 						},
 						{
 							ID:   "two",
 							Name: "exec_command",
 							Arguments: map[string]any{
-								"cmd": "printf second > second.txt",
+								"cmd":        "printf second > second.txt",
+								"timeout_ms": float64(30000),
 							},
 						},
 					}
@@ -217,7 +219,7 @@ func TestSteeringDoesNotAbortStartedToolBatches(t *testing.T) {
 								ID:   "batch",
 								Name: "code_mode",
 								Arguments: map[string]any{
-									"code": `await tools.exec_command({cmd:"printf first > first.txt"}); await tools.exec_command({cmd:"printf second > second.txt"});`,
+									"code": `await tools.exec_command({cmd:"printf first > first.txt",timeout_ms:30000}); await tools.exec_command({cmd:"printf second > second.txt",timeout_ms:30000});`,
 								},
 							},
 						}

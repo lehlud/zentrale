@@ -69,7 +69,10 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	// A successful check is valid for this live SSH connection and exact source
 	// configuration. Model rounds reuse it; explicit checks, editors, reconnects
 	// and changed sources still inspect the working tree before proceeding.
-	key := JSON([]any{project.ID, project.Directory, sources})
+	key, err := engine.sourceReadinessKey(project, sources)
+	if err != nil {
+		return err
+	}
 	entry := engine.connectionEntry(scope)
 	if entry != nil {
 		entry.mutex.Lock()
@@ -82,6 +85,10 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		if reuse && prepared {
 			return nil
 		}
+	}
+	var preparing domain.Agent
+	if engine.Store.Load("agent", scope, &preparing) == nil {
+		engine.setRunState(scope, "repository", nil)
 	}
 
 	checkouts := make([]map[string]any, 0, len(sources))
