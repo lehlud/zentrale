@@ -290,11 +290,13 @@ for (const english of [false, true]) {
       const latest = page.getByRole("button", {
         name: label("Zu neuesten Einträgen ↓", "Latest entries ↓"),
       });
-      if (await latest.isVisible()) await latest.click();
-
-      await page.evaluate(() =>
-        window.scrollTo(0, document.documentElement.scrollHeight),
-      );
+      // Do not race the one-time visibility check against the dialog's exit
+      // layout. Establish upward reader intent, then use the actual control.
+      await page.mouse.move(200, 300);
+      await page.mouse.wheel(0, -10000);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(latest).toBeVisible();
+      await latest.click();
 
       await expect(latest).toHaveCount(0);
 

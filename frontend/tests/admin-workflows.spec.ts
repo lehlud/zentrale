@@ -41,6 +41,21 @@ for (const variant of [
     test.setTimeout(120000);
     const label = (de: string, en: string) =>
       variant.locale === "de" ? de : en;
+    const readClipboard = () =>
+      test.step("Read actual browser clipboard (bounded)", async () => {
+        await page.bringToFront();
+        return page.evaluate(() =>
+          Promise.race([
+            navigator.clipboard.readText(),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("Browser clipboard read timed out")),
+                5000,
+              ),
+            ),
+          ]),
+        );
+      });
     await page.setViewportSize(variant);
     await page.addInitScript(({ locale, theme }) => {
       localStorage.setItem("zentrale-locale", locale);
@@ -238,6 +253,7 @@ for (const variant of [
       ),
     ).toBeVisible();
 
+    await page.bringToFront();
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page
       .getByRole("button", {
@@ -247,9 +263,7 @@ for (const variant of [
       .first()
       .click();
 
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      state.sshKeys[0].publicKey,
-    );
+    expect(await readClipboard()).toBe(state.sshKeys[0].publicKey);
 
     await shot("keys");
     await page
@@ -374,9 +388,7 @@ for (const variant of [
       })
       .click();
 
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      "LOGIN-42",
-    );
+    expect(await readClipboard()).toBe("LOGIN-42");
     await expect(
       dialog.getByRole("link", {
         name: label("Anmeldeseite öffnen ↗", "Open sign-in page ↗"),

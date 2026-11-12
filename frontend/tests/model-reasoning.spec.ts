@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { config, gitConnections } from "./fixtures/visual-data";
+import {
+  config,
+  gitConnections,
+  models as catalogModels,
+} from "./fixtures/visual-data";
 import { installPushFixture } from "./fixtures/push-fixture";
 
 test("account-discovered auto-review can be selected and replaced by a generic approver", async ({
@@ -21,6 +25,7 @@ test("account-discovered auto-review can be selected and replaced by a generic a
     },
   };
   const models = ["gpt-5.4", "codex-auto-review"].map((id) => ({
+    ...catalogModels[0],
     id,
     name: id,
     providerId: "openai",
@@ -61,9 +66,8 @@ test("account-discovered auto-review can be selected and replaced by a generic a
     const dialog = page.getByRole("dialog", {
       name: "Auto-Approver auswählen",
     });
-    await dialog
-      .getByRole("option", { name: `${modelId} ${modelId}`, exact: true })
-      .click();
+    await expect(dialog.getByRole("option")).toHaveCount(2);
+    await dialog.getByRole("option").filter({ hasText: modelId }).click();
     await expect(
       dialog.getByRole("button", { name: /Denkintensität/ }),
     ).toContainText("medium");
