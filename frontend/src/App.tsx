@@ -35,7 +35,7 @@ export default function App() {
     return (
       <main className="max-w-lg mx-auto p-8">
         <Failure message={error} />
-        <Button className="mt-4 min-h-11" onPress={() => api.refresh()}>
+        <Button className="mt-4 min-h-11" onPress={() => location.reload()}>
           {t("Erneut verbinden")}
         </Button>
       </main>

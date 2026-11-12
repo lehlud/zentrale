@@ -7,7 +7,7 @@ import {
   TextField,
   buttonVariants,
 } from "@heroui/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { useAPI, useQuery } from "./api";
 import type { EditorSession, Project } from "./generated";
@@ -37,13 +37,6 @@ export function RemoteEditor({
     portNumber >= 1 &&
     portNumber <= 65535 &&
     portNumber !== 9842;
-
-  useEffect(() => {
-    const refresh = () => api.refresh();
-    window.addEventListener("focus", refresh);
-
-    return () => window.removeEventListener("focus", refresh);
-  }, [api]);
 
   return (
     <Card variant="secondary">

@@ -31,7 +31,7 @@ export class API {
         clearTimeout(timeout);
       }
     },
-    () => this.refresh(),
+    () => this.notifyListeners(),
   );
 
   readonly connection = new ConnectionMonitor(
@@ -130,9 +130,23 @@ export class API {
   snapshot = () => this.version;
 
   refresh = () => {
+    // Explicit user-requested retry: restart the live subscription once. This
+    // is never invoked from an event frame, reconnect timer or mutation result.
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      for (const [requestId, subscription] of this.subscriptions) {
+        this.socket.send(JSON.stringify({ type: "unsubscribe", requestId }));
+        this.sendSubscription(requestId, subscription);
+      }
+    } else {
+      this.reconnectNow();
+    }
+    this.notifyListeners();
+  };
+
+  private notifyListeners() {
     this.version++;
     this.listeners.forEach((fn) => fn());
-  };
+  }
 
   async query<T>(
     query: string,
@@ -218,7 +232,7 @@ export class API {
           }
         }
       }
-      if (options.refresh !== false) this.refresh();
+      if (options.refresh !== false) this.notifyListeners();
 
       if (options.announce !== false)
         window.dispatchEvent(

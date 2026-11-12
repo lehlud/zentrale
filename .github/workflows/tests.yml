@@ -39,6 +39,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify container checkout ownership
+        working-directory: ${{ github.workspace }}
+        run: |
+          # The runner owns the bind-mounted checkout, not the container user.
+          # Trust this exact CI checkout, never all paths with safe.directory=*.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git status --short
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
@@ -102,6 +109,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Install backend fixture dependencies
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git status --short
           sh ../.github/scripts/install-test-deps.sh g++ fish python3 openssh-client
       - name: Install locked frontend dependencies
         run: npm ci

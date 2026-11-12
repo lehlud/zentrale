@@ -3,12 +3,88 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providers"
 )
+
+func TestConcurrentFamilyReviewsKeepRequesterAndDecisionOwnership(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var calls, active atomic.Int32
+	engine, main := testEngine(t, providerFunction(func(ctx context.Context, request providers.Request) (providers.Result, error) {
+		if active.Add(1) != 1 {
+			return providers.Result{}, errors.New("shared provider review ran concurrently")
+		}
+		defer active.Add(-1)
+		number := calls.Add(1)
+		var latest map[string]any
+		for _, message := range request.Messages {
+			var event map[string]any
+			if message.Role == "event" && decode(message.Content, &event) == nil && event["action"] == "write_file" {
+				latest = event
+			}
+		}
+		if latest == nil {
+			return providers.Result{}, errors.New("missing current reviewed request")
+		}
+		args, _ := latest["arguments"].(map[string]any)
+		if stringArg(args, "path") != stringArg(latest, "reviewedAgentId")+".txt" {
+			return providers.Result{}, fmt.Errorf("mixed requester snapshot: %v", latest)
+		}
+		if number == 1 {
+			entered <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return providers.Result{}, ctx.Err()
+			}
+		}
+		return providers.Result{Text: `{"allowed":true,"blanket":false}`, UsageKnown: true}, nil
+	}))
+	child, err := engine.Create(main.ProjectID, "Child", main.ProviderID, "approver-provider", main.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results := make(chan error, 2)
+	review := func(record domain.Agent) {
+		_, err := engine.approve(ctx, record, interaction{Action: "write_file", Arguments: map[string]any{"path": record.ID + ".txt", "content": "review only"}})
+		results <- err
+	}
+	go review(main)
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	go review(child)
+	close(release)
+	for range 2 {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatal("missing independent review", calls.Load())
+	}
+	for _, record := range []domain.Agent{main, child} {
+		rows, err := engine.listAll("approval", &record.ID)
+		if err != nil || len(rows) != 1 || rows[0]["allowed"] != true {
+			t.Fatal("decision crossed requester ownership", record.ID, rows, err)
+		}
+	}
+}
 
 func TestFamilySharesOneApproverAndArchivesLegacyHistory(t *testing.T) {
 	engine, main := testEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
