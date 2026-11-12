@@ -36,6 +36,9 @@ for (const variant of [
     page,
     context,
   }) => {
+    // Eleven screenshots plus several complete administration flows share this
+    // budget. Keep individual assertions/actions bounded by their own timeout.
+    test.setTimeout(120000);
     const label = (de: string, en: string) =>
       variant.locale === "de" ? de : en;
     await page.setViewportSize(variant);
@@ -168,6 +171,7 @@ for (const variant of [
       await page.screenshot({
         path: `artifacts/ui/admin-${variant.name}-${name}.png`,
         animations: "disabled",
+        timeout: 10000,
       });
     };
     await page.goto("/#/projects");

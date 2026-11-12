@@ -1,5 +1,81 @@
 import { expect, test } from "@playwright/test";
 import { config, gitConnections } from "./fixtures/visual-data";
+import { installPushFixture } from "./fixtures/push-fixture";
+
+test("account-discovered auto-review can be selected and replaced by a generic approver", async ({
+  page,
+}) => {
+  const state = structuredClone(config);
+  state.modelDefaults = {
+    main: { providerId: "openai", modelId: "gpt-5.4", reasoningLevel: "xhigh" },
+    approver: {
+      providerId: "openai",
+      modelId: "gpt-5.4",
+      reasoningLevel: "medium",
+    },
+  };
+  const models = ["gpt-5.4", "codex-auto-review"].map((id) => ({
+    id,
+    name: id,
+    providerId: "openai",
+    reasoningLevels: ["low", "medium", "high"],
+  }));
+  const saved: unknown[] = [];
+  const resolve = async (
+    query: string,
+    variables: Record<string, any> = {},
+  ) => {
+    if (query.includes("status{"))
+      return { status: { authenticated: true, needsSetup: false } };
+    if (query.includes("setModelDefaults")) {
+      state.modelDefaults = variables.input;
+      saved.push(structuredClone(variables.input));
+      return { setModelDefaults: true };
+    }
+    if (query.includes("models(providerId:")) return { models };
+    if (query.includes("model(providerId:"))
+      return { model: models.find((model) => model.id === variables.modelId) };
+    if (query.includes("gitConnections")) return { gitConnections };
+    return state;
+  };
+  const push = await installPushFixture(page, resolve);
+  await page.route("**/graphql", async (route) => {
+    const { query, variables } = route.request().postDataJSON();
+    const data = await resolve(query, variables);
+    await route.fulfill({ json: { data } });
+    if (query.trimStart().startsWith("mutation")) await push.push();
+  });
+  await page.goto("/#/settings");
+  const approver = page.getByRole("group", {
+    name: "Auto-Approver",
+    exact: true,
+  });
+  for (const modelId of ["codex-auto-review", "gpt-5.4"]) {
+    await approver.getByRole("button", { name: "Ändern", exact: true }).click();
+    const dialog = page.getByRole("dialog", {
+      name: "Auto-Approver auswählen",
+    });
+    await dialog
+      .getByRole("option", { name: `${modelId} ${modelId}`, exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", { name: /Denkintensität/ }),
+    ).toContainText("medium");
+    await dialog
+      .getByRole("button", { name: "Auswahl übernehmen", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Modell-Defaults speichern" })
+      .click();
+    await expect.poll(() => state.modelDefaults.approver.modelId).toBe(modelId);
+    await page.reload();
+    await expect(approver.getByText(modelId, { exact: true })).toBeVisible();
+    await expect(
+      approver.getByRole("button", { name: /Denkintensität/ }),
+    ).toContainText("medium");
+  }
+  expect(saved).toHaveLength(2);
+});
 
 for (const { known, explicit } of [true, false].flatMap((known) =>
   [true, false].map((explicit) => ({ known, explicit })),
