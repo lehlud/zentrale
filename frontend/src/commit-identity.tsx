@@ -2,6 +2,10 @@ import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
 import { CONFIG, useAPI, useQuery } from "./api";
+import {
+  finishIdentitySave,
+  reconcileIdentityDraft,
+} from "./commit-identity-draft";
 import type { Config } from "./config";
 import type { CommitIdentity } from "./generated";
 import { useI18n } from "./preferences";
@@ -85,8 +89,7 @@ export function CommitIdentitySettings() {
   );
 
   useEffect(() => {
-    if (draft && saved?.name === draft.name && saved.email === draft.email)
-      setDraft(undefined);
+    setDraft((current) => reconcileIdentityDraft(current, saved));
   }, [draft, saved]);
 
   return (
@@ -118,7 +121,9 @@ export function CommitIdentitySettings() {
                 "mutation($input:CommitIdentityInput!){setCommitIdentity(input:$input)}",
                 { input: submitted },
               );
-              setDraft(submitted);
+              setDraft((current) =>
+                finishIdentitySave(current, value, submitted),
+              );
             });
           }}
         >

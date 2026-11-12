@@ -1,6 +1,26 @@
 import { expect, test } from "@playwright/test";
 
 import { chooseContextAction } from "./fixtures/context-actions";
+import {
+  finishIdentitySave,
+  reconcileIdentityDraft,
+} from "../src/commit-identity-draft";
+
+test("late identity reconciliation and save completion preserve newer drafts", () => {
+  const submitted = { name: "  Team  ", email: "team@example.test" };
+  const saved = { ...submitted, name: "Team" };
+  const newer = { ...saved, name: "Nur ein Entwurf" };
+  const newerEmail = { ...saved, email: "draft@example.test" };
+  // A queued acknowledgement of the saved draft runs AFTER the next edit.
+  expect(reconcileIdentityDraft(newer, saved)).toBe(newer);
+  expect(reconcileIdentityDraft(newerEmail, saved)).toBe(newerEmail);
+  expect(reconcileIdentityDraft(saved, saved)).toBeUndefined();
+  expect(reconcileIdentityDraft(undefined, saved)).toBeUndefined();
+  // A late mutation response must neither overwrite an edit nor undo discard.
+  expect(finishIdentitySave(newer, submitted, saved)).toBe(newer);
+  expect(finishIdentitySave(undefined, submitted, saved)).toBeUndefined();
+  expect(finishIdentitySave(submitted, submitted, saved)).toBe(saved);
+});
 
 test("commit identity settings preserve errors and project overrides can return to inheritance", async ({
   page,
@@ -64,6 +84,7 @@ test("commit identity settings preserve errors and project overrides can return 
   ).toEqual({ name: "Globales Projektteam", email: "global@example.test" });
 
   await name.fill("Nur ein Entwurf");
+  await expect(name).toHaveValue("Nur ein Entwurf");
 
   await expect(settings.getByRole("status")).toHaveText(
     "Nicht gespeicherte Änderungen",
