@@ -7,6 +7,7 @@ import selectors
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 import unittest
 
 
@@ -40,7 +41,10 @@ class TerminalTest(unittest.TestCase):
         self.send(process, {"type": "input", "data": base64.b64encode(data).decode()})
 
     def until(self, process, expected):
-        output = bytearray()
+        # A read may contain READY plus the next response. Consume only through
+        # this marker; chunk boundaries must not decide whether later waits pass.
+        output = getattr(process, "_test_terminal_output", bytearray())
+        process._test_terminal_output = output
         deadline = time.monotonic() + 5
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ)
@@ -52,7 +56,10 @@ class TerminalTest(unittest.TestCase):
                     break
                 output.extend(data)
         self.assertIn(expected, output, bytes(output))
-        return output
+        end = output.index(expected) + len(expected)
+        consumed = bytes(output[:end])
+        del output[:end]
+        return consumed
 
     def test_geometry_input_resize_ctrl_c_and_exit(self):
         process = self.start(cols=93, rows=37)
@@ -93,6 +100,17 @@ class TerminalTest(unittest.TestCase):
             input=b"", capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, b"32 120\r\n")
+
+    def test_until_preserves_coalesced_output_for_the_next_marker(self):
+        reader, writer = os.pipe()
+        with os.fdopen(reader, "rb", buffering=0) as stream:
+            try:
+                os.write(writer, b"first-marker\nsecond-marker\n")
+            finally:
+                os.close(writer)
+            process = SimpleNamespace(stdout=stream)
+            self.until(process, b"first-marker\n")
+            self.assertEqual(self.until(process, b"second-marker\n"), b"second-marker\n")
 
 
 if __name__ == "__main__":
