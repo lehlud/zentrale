@@ -36,6 +36,7 @@ export function ProviderSignIn({
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const codeInput = useRef<HTMLInputElement>(null);
+  const finishButton = useRef<HTMLButtonElement>(null);
   const action = useAction();
   const cancel = useCallback(
     (id: string) =>
@@ -73,6 +74,12 @@ export function ProviderSignIn({
   }, [api, provider.id, attempt, cancel]);
 
   const loginId = login?.id;
+  useEffect(() => {
+    // Completion removes the code/copy controls. Keep focus inside the modal
+    // so Escape and keyboard navigation still work after a server-pushed login.
+    if (login?.status === "connected")
+      finishButton.current?.focus({ preventScroll: true });
+  }, [login?.status]);
   useEffect(() => {
     if (!loginId) return;
     // Device OAuth polling belongs to the server. One read-only subscription
@@ -240,7 +247,12 @@ export function ProviderSignIn({
             {t("Anmeldung erneut starten")}
           </Button>
         )}
-        <Button className="min-h-11" variant="secondary" onPress={onClose}>
+        <Button
+          ref={finishButton}
+          className="min-h-11"
+          variant="secondary"
+          onPress={onClose}
+        >
           {t(login?.status === "connected" ? "Modelle ansehen" : "Schließen")}
         </Button>
       </div>

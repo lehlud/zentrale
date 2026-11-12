@@ -19,6 +19,7 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	generation.Store(strings.Repeat("a", 64))
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		originalCommand := command
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
 		if strings.Contains(command, "guest dispatcher is unresponsive") {
 			probes.Add(1)
@@ -46,7 +47,7 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 			}
 			return 0
 		}
-		return shell(command, input, stdout, stderr)
+		return shell(originalCommand, input, stdout, stderr)
 	})
 	machine, err := engine.Remote.Connector.Machine(project.MachineIDs[0])
 	if err != nil {

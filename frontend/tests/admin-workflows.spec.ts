@@ -439,7 +439,14 @@ for (const variant of [
     await expect(dialog.getByRole("status")).toContainText(
       label("Provider verbunden", "Provider connected"),
     );
+    await expect(
+      dialog.getByRole("button", {
+        name: label("Modelle ansehen", "View models"),
+        exact: true,
+      }),
+    ).toBeFocused();
     await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
 
     await expect.poll(() => events.includes("cancel")).toBe(true);
 
