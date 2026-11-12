@@ -76,10 +76,10 @@ jobs:
       - name: Python tool and runtime tests
         if: ${{ !cancelled() }}
         run: |
-          python3 -m unittest discover -s ../.github/scripts -p 'test_*.py'
-          python3 -m unittest discover -s agent/scripts -p 'test_*.py'
-          python3 -m unittest discover -s remote/scripts -p 'test_*.py'
-          python3 -m unittest discover -s remote/microvm -p 'test_*.py'
+          python3 ../.github/scripts/run_python_tests.py discover -s ../.github/scripts -p 'test_*.py'
+          python3 ../.github/scripts/run_python_tests.py discover -s agent/scripts -p 'test_*.py'
+          python3 ../.github/scripts/run_python_tests.py discover -s remote/scripts -p 'test_*.py'
+          python3 ../.github/scripts/run_python_tests.py discover -s remote/microvm -p 'test_*.py'
       - name: Build backend
         run: go build ./...
 
