@@ -250,6 +250,9 @@ func (models *scriptedModels) Complete(_ context.Context, request providers.Requ
 		return result, nil
 	}
 
+	if name == "exec_command" {
+		args["timeout_ms"] = float64(30000)
+	}
 	result.Calls = []providers.Call{{ID: "step", Name: name, Arguments: args}}
 
 	switch request.Config.Kind {

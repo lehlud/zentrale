@@ -99,7 +99,7 @@ func decodeInteraction(call providers.Call) (interaction, error) {
 	if err := decode(stringArg(call.Arguments, "arguments"), &arguments); err != nil || arguments == nil {
 		return interaction{}, errors.New("arguments must encode a JSON object")
 	}
-	if stringArg(call.Arguments, "action") == "exec" {
+	if requiresCommandTimeout(stringArg(call.Arguments, "action")) {
 		if _, err := commandTimeout(arguments); err != nil {
 			return interaction{}, err
 		}
@@ -212,6 +212,11 @@ func (engine *Engine) internalTool(ctx context.Context, agentRecord domain.Agent
 }
 
 func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent, request interaction) (any, error) {
+	var timeoutErr error
+	ctx, timeoutErr = withCommandLifetime(ctx, request)
+	if timeoutErr != nil {
+		return nil, timeoutErr
+	}
 	arguments := request.Arguments
 
 	switch request.Action {

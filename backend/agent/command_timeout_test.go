@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -34,5 +35,21 @@ func TestBothExecutionToolFormsRequireTimeoutBeforeReview(t *testing.T) {
 		if _, err := decodeInteraction(call); err == nil {
 			t.Fatalf("%s accepted missing timeout", call.Name)
 		}
+	}
+}
+
+func TestAllCommandProducingToolsChooseAndPropagateFiniteLifetime(t *testing.T) {
+	for _, action := range []string{"exec", "python", "venv_create", "container", "packages_install", "source_git", "clone_source"} {
+		t.Run(action, func(t *testing.T) {
+			call := providers.Call{Name: "harness", Arguments: map[string]any{"action": action, "arguments": `{}`}}
+			if _, err := decodeInteraction(call); err == nil {
+				t.Fatal("missing lifetime accepted")
+			}
+			request := interaction{Action: action, Arguments: map[string]any{"timeout_ms": float64(12000)}}
+			ctx, err := withCommandLifetime(context.Background(), request)
+			if err != nil || ctx.Value(commandLifetimeKey{}) != 12*time.Second {
+				t.Fatal(err, ctx.Value(commandLifetimeKey{}))
+			}
+		})
 	}
 }

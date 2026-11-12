@@ -415,8 +415,8 @@ func TestSubagentsCannotSpawnAndQuestionsHaveOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if child.ApproverID == mainAgent.ApproverID {
-		t.Fatal("subagent reused its parent's approver")
+	if child.ApproverID != mainAgent.ApproverID {
+		t.Fatal("subagent did not reuse its family's independent approver")
 	}
 
 	if _, err := engine.Create(mainAgent.ProjectID, "Grandchild", mainAgent.ProviderID, "approver-provider", child.ID); err == nil {

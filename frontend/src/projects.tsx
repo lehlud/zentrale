@@ -14,7 +14,7 @@ import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
 import type { Config } from "./config";
-import type { Agent, Project, Source } from "./generated";
+import type { Project, Source } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import type { EditorStep, Field } from "./ui";

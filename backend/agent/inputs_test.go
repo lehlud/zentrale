@@ -63,7 +63,7 @@ func TestInputReceiptPrecedesPreparationAndSurvivesRequestCancellation(t *testin
 		t.Fatal(inputs, calls.Load(), err)
 	}
 
-	if state := engine.RunState(record.ID); state.Phase != "connecting" {
+	if state := engine.RunState(record.ID); state.Phase != "checking_ready" {
 		t.Fatal(state)
 	}
 

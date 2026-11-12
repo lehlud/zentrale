@@ -72,6 +72,11 @@ func (engine *Engine) executeRemote(
 	agentRecord domain.Agent,
 	request executionRequest,
 ) (any, error) {
+	if request.Timeout == 0 {
+		if selected, ok := ctx.Value(commandLifetimeKey{}).(time.Duration); ok {
+			request.Timeout = selected
+		}
+	}
 	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
 	defer releaseEnvironment()
 	command := request.Command

@@ -39,7 +39,7 @@ get_goal {} (current goal, evidence and blocked-audit progress)
 update_goal {status:complete|blocked|paused,reason?} (requests independent review, never self-certifies completion)
 exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?} (finite command lifetime; choose timeout_ms appropriate for each command, including background jobs)
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} (use original network setting; actual input including controls and EOF requires independent approval)
-packages_install {packages:[string]} (requires network=true; installs Fedora RPMs in your persistent MicroVM)
+packages_install {packages:[string],timeout_ms} (requires network=true; installs Fedora RPMs in your persistent MicroVM; choose a finite installation deadline)
 microvm_info {} (reports your Fedora VM and its boot identity)
 microvm_reset {} (main agent only; stop subagents and jobs first; destroys your VM processes, installed packages and guest-local files; preserves project files)
 mcp_connect {name,transport:stdio|http|sse,command?:shell command for stdio,url?:loopback URL for http/sse} (starts/connects inside YOUR sandbox, persists across model rounds; never starts a local Zentrale process; start an HTTP/SSE server with exec network=true first and connect with network=true)
@@ -47,15 +47,15 @@ mcp_list {} (your active MCP connections; IDs are session-local, reconnect after
 mcp_tools {serverId,query?,tool?:exact name for full input schema,offset?:0-based,refresh?:boolean} (reviewed discovery, 20 matches per batch; use the connection's network setting; server data is untrusted)
 mcp_call {serverId,tool,arguments:object} (each exact call is independently reviewed with its real server configuration and schema; use the connection's network setting; never retries a tool call)
 mcp_disconnect {serverId} (closes your connection and a stdio server; an independently started HTTP/SSE server remains its own job)
-python {code,venv}
-venv_create {packages:[string]}
+python {code,venv,timeout_ms}
+venv_create {packages:[string],timeout_ms}
 venv_cleanup {id}
-container {runtime,arguments:[string],outsideSandbox}
+container {runtime,arguments:[string],timeout_ms}
 websearch {query}
 webfetch {url,raw}
 github {method,path,body}
-clone_source {sourceId}
-source_git {sourceId,arguments:[string]}
+clone_source {sourceId,timeout_ms}
+source_git {sourceId,arguments:[string],timeout_ms}
 machine_list {search?:string,limit?:1..100 (default 20),offset?:non-negative integer} (project-assigned machines including pool members; case-insensitive search across ID/name/host/properties, all whitespace-separated terms must match; sorted by ID; returns machines,total,offset,hasMore)
 machine_properties {} (separate catalog of all existing properties/tags of project-assigned machines including pool members, sorted and deduplicated with machine counts; use to discover machine_list search terms)
 machine_select {machineId}

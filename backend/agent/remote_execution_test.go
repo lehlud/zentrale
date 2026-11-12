@@ -153,11 +153,11 @@ func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, directError := session.CombinedOutput(probe)
+	directOutput, directError := session.CombinedOutput(probe)
 	_ = session.Close()
 	var exitStatus *ssh.ExitError
 	if !errors.As(directError, &exitStatus) || exitStatus.ExitStatus() != 127 {
-		t.Fatalf("expected the original fish failure, got %v", directError)
+		t.Fatalf("expected the original fish failure using %s, got %v, output=%q", fish, directError, directOutput)
 	}
 
 	if output, err := remote.Run(context.Background(), connection.Client, probe); err != nil ||
@@ -266,7 +266,7 @@ func TestAgentCreatesAndTestsPythonProjectOverSSH(t *testing.T) {
 								"content": "# Quicksort demo\n\nRun python3 quicksort.py and python3 -m unittest -v.\n",
 							},
 						},
-						{"exec", map[string]any{"command": "python3 -m unittest -v && python3 quicksort.py"}},
+						{"exec", map[string]any{"command": "python3 -m unittest -v && python3 quicksort.py", "timeout_ms": float64(30000)}},
 					}
 
 					calls := make([]providers.Call, 0, len(actions))
