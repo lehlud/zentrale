@@ -14,6 +14,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -182,14 +183,28 @@ func microVMAction(
 			"tty":              execution.TTY,
 			"terminalProtocol": execution.TerminalProtocol,
 
-			"storage": machine.StorageMounts,
+			"storage":         machine.StorageMounts,
+			"startupProgress": startupProgress(ctx) != nil,
 		},
 	})
 	if err != nil {
 		return "", err
 	}
 
-	output, err := RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+	var output string
+	if startupProgress(ctx) == nil {
+		output, err = RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+	} else {
+		var boot sync.Once
+		output, err = RunStreamingPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)), func(snapshot string) {
+			if strings.HasPrefix(snapshot, startupBootMarker+"\n") || strings.Contains(snapshot, "\n"+startupBootMarker+"\n") {
+				boot.Do(func() { ReportStartupPhase(ctx, "vm_starting") })
+			}
+		})
+		// This marker belongs only to the trusted stage/prepare protocol. Keep
+		// arbitrary output and all error diagnostics; never globally filter logs.
+		output = stripStartupBootMarker(output)
+	}
 	if failure := parseVMStartupFailure(output, err); failure != nil {
 		return "", failure
 	}
@@ -208,6 +223,19 @@ func microVMAction(
 		}
 	}
 	return output, err
+}
+
+const startupBootMarker = "ZENTRALE_STARTUP_PHASE vm_starting"
+
+func stripStartupBootMarker(output string) string {
+	lines := strings.Split(output, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if line != startupBootMarker {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func parseVMStartupFailure(output string, err error) *VMStartupFailure {

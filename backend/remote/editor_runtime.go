@@ -27,6 +27,9 @@ type EditorTarget struct {
 	TemporaryDirectory string
 	RuntimeLock        RuntimeLock
 	Recovery           VMRecovery
+	// Harness-only selection from cold preparation or a fully validated
+	// readiness receipt. It is never accepted from a browser/model argument.
+	PreparedSandbox string
 }
 
 // RuntimeLock serializes guest startup with automatic stop and removal.

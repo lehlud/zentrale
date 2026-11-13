@@ -116,12 +116,14 @@ func BenchmarkConversationBootstrapLargeHistory(b *testing.B) {
 	// validation, resolver/SQL work, JSON encoding and client decoding.
 	b.ReportAllocs()
 	b.ResetTimer()
+	before := f.engine.Store.ReadQueryCount()
 	for n := 0; n < b.N; n++ {
 		data := requireData(b, f.query(b, historyBootstrapQuery, nil))["conversationBootstrap"].(map[string]any)
 		if len(data["messages"].([]any)) != 100 || len(data["jobs"].([]any)) != 3 {
 			b.Fatal("unexpected bounded history")
 		}
 	}
+	b.ReportMetric(float64(f.engine.Store.ReadQueryCount()-before)/float64(b.N), "readSQL/op")
 }
 
 func BenchmarkConversationSmallListsLargeHistory(b *testing.B) {
@@ -134,12 +136,14 @@ func BenchmarkConversationSmallListsLargeHistory(b *testing.B) {
 		b.Run(item.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
+			before := f.engine.Store.ReadQueryCount()
 			for range b.N {
 				data := requireData(b, f.query(b, item.query, nil))
 				if len(data[item.name].([]any)) == 0 {
 					b.Fatal("empty collection")
 				}
 			}
+			b.ReportMetric(float64(f.engine.Store.ReadQueryCount()-before)/float64(b.N), "readSQL/op")
 		})
 	}
 }

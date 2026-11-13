@@ -140,7 +140,7 @@ func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 	}
 	defer connection.Close()
 	connection.SetReadDeadline(time.Now().Add(15 * time.Second))
-	for _, status := range []string{"starting", "ready"} {
+	for _, status := range []string{"starting", "selecting_environment", "connecting", "checking_environment", "preparing_environment", "preparing_sources", "waiting_runtime", "preparing_terminal", "starting_terminal", "ready"} {
 		var event map[string]any
 		if err := connection.ReadJSON(&event); err != nil {
 			t.Fatal(err)
@@ -315,15 +315,18 @@ func TestTerminalAuthenticationOriginAndGeometryBeforeProvisioning(t *testing.T)
 	}
 	defer connection.Close()
 	connection.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var starting, failure map[string]any
+	var starting, selecting, failure map[string]any
 	if err := connection.ReadJSON(&starting); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.ReadJSON(&selecting); err != nil {
 		t.Fatal(err)
 	}
 	if err := connection.ReadJSON(&failure); err != nil {
 		t.Fatal(err)
 	}
-	if starting["status"] != "starting" || failure["type"] != "error" || failure["message"] == "" {
-		t.Fatal(starting, failure)
+	if starting["status"] != "starting" || selecting["status"] != "selecting_environment" || failure["type"] != "error" || failure["message"] == "" {
+		t.Fatal(starting, selecting, failure)
 	}
 }
 

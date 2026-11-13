@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from contextlib import redirect_stderr
 
 
 DIRECTORY = Path(__file__).parent
@@ -324,6 +325,46 @@ class MicroVMRunnerTests(unittest.TestCase):
         (job / "cancel").unlink()
         (job / "status").write_text("0")
         self.assertFalse(runner.active_invocations(control))
+
+    def test_warm_session_never_claims_a_vm_boot(self):
+        scope, control, configuration = self.cached_session()
+        output = io.StringIO()
+        with (
+            patch.object(runner, "guest_responding", return_value=True),
+            patch.object(runner.os, "fork") as fork,
+            redirect_stderr(output),
+        ):
+            self.assertEqual(runner.ensure_session(
+                scope, configuration, None, None, None, {"startupProgress": True}), control)
+        fork.assert_not_called()
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(runner.session_identity(configuration, {}),
+                         runner.session_identity(configuration, {"startupProgress": True}))
+
+    def test_boot_phase_is_emitted_only_after_new_supervisor_is_forked(self):
+        for observe in (False, True):
+            with self.subTest(observe=observe):
+                scope = self.root / ("boot-observed" if observe else "boot-quiet")
+                scope.mkdir()
+                (scope / "root.qcow2").write_bytes(b"existing test disk")
+                output = io.StringIO()
+                execution = {"agentId": "agent", "projectId": "project", "startupProgress": observe}
+
+                def prepare(control, configuration, runtime, request):
+                    self.assertNotIn("startupProgress", request)
+                    control.mkdir()
+                    (control / "ready.json").write_text(json.dumps({
+                        "bootId": "11111111-2222-3333-4444-555555555555", "os": "fedora"}))
+
+                with (
+                    patch.object(runner, "prepare_control", side_effect=prepare),
+                    patch.object(runner.os, "fork", return_value=1234) as fork,
+                    redirect_stderr(output),
+                ):
+                    runner.ensure_session(scope, {"runnerHash": "test"}, None, None, None, execution)
+                fork.assert_called_once()
+                self.assertEqual(output.getvalue(),
+                                 "ZENTRALE_STARTUP_PHASE vm_starting\n" if observe else "")
 
     def test_health_reply_proves_progress_despite_clock_skew(self):
         import threading

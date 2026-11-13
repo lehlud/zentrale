@@ -342,8 +342,10 @@ for (const variant of [
         );
       } else {
         socket.send(JSON.stringify({ type: "status", status: "starting" }));
-        socket.send(JSON.stringify({ type: "status", status: "ready" }));
-        socket.send(Buffer.from(`READY_${sockets.length}\r\n$ `));
+        if (sockets.length !== 1) {
+          socket.send(JSON.stringify({ type: "status", status: "ready" }));
+          socket.send(Buffer.from(`READY_${sockets.length}\r\n$ `));
+        }
       }
     });
     await page.route("**/graphql", (route) => {
@@ -392,6 +394,36 @@ for (const variant of [
       name: label("Terminal-Ein- und Ausgabe", "Terminal input and output"),
       exact: true,
     });
+    await expect.poll(() => sockets.length).toBe(1);
+    await expect(dialog.getByRole("status")).toHaveText(
+      label(
+        "Terminal-Verbindung wird vorbereitet …",
+        "Preparing terminal connection …",
+      ),
+    );
+    for (const [phase, de, en] of [
+      [
+        "checking_environment",
+        "Arbeitsumgebung wird geprüft …",
+        "Checking workspace environment …",
+      ],
+      ["vm_starting", "VM wird gestartet …", "Starting VM …"],
+      [
+        "preparing_terminal",
+        "Terminal-Aufruf wird vorbereitet …",
+        "Preparing terminal invocation …",
+      ],
+      [
+        "starting_terminal",
+        "Terminal-Verbindung wird aufgebaut …",
+        "Opening terminal connection …",
+      ],
+    ]) {
+      sockets[0].send(JSON.stringify({ type: "status", status: phase }));
+      await expect(dialog.getByRole("status")).toHaveText(label(de, en));
+    }
+    sockets[0].send(JSON.stringify({ type: "status", status: "ready" }));
+    sockets[0].send(Buffer.from("READY_1\r\n$ "));
     await expect(screen).toContainText("READY_1");
     await expect
       .poll(async () => Math.round((await dialog.boundingBox())?.width ?? 0))

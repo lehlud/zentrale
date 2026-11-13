@@ -102,6 +102,12 @@ func (server *Server) terminal(requestContext echo.Context) error {
 		return write(websocket.TextMessage, data)
 	}
 	fail := func(err error) { _ = event(map[string]string{"type": "error", "message": err.Error()}) }
+	ctx = remote.WithStartupProgress(ctx, func(phase string) {
+		if err := event(map[string]string{"type": "status", "status": phase}); err != nil {
+			cancel()
+			connection.Close()
+		}
+	})
 	connection.SetReadLimit(65536)
 	_ = connection.SetReadDeadline(time.Now().Add(75 * time.Second))
 	connection.SetPongHandler(func(string) error {

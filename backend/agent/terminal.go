@@ -19,6 +19,7 @@ func (engine *Engine) Terminal(ctx context.Context, projectID, agentID string, c
 			slog.Info("terminal startup", "project", project.ID, "agent", target.AgentID, "machine", machine.ID,
 				"lock_wait_ms", lockWait.Milliseconds(), "pty_start_ms", ptyStart.Milliseconds(), "ready", ready, "error", !ready)
 		}
+		remote.ReportStartupPhase(ctx, "waiting_runtime")
 		lockStarted := time.Now()
 		if err := target.RuntimeLock.Lock(ctx); err != nil {
 			logStartup(time.Since(lockStarted), 0, false)

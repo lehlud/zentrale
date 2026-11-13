@@ -1117,6 +1117,9 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         gpuDevices=addresses,
         gpu=bool(configuration.get("gpu")),
     )
+    # UI observers are invocation-local, never part of a persistent VM request
+    # or of the readiness generation/configuration identity.
+    request.pop("startupProgress", None)
     if configuration.get("gpuBackend") == "nvidia":
         request.update(
             {
@@ -1174,6 +1177,11 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             os._exit(0)
     for descriptor in gpu_leases:
         os.close(descriptor)
+
+    if execution.get("startupProgress"):
+        # Only the parent, after a new VM supervisor was actually forked. A
+        # healthy reused session returned above and must not claim a VM boot.
+        print("ZENTRALE_STARTUP_PHASE vm_starting", file=sys.stderr, flush=True)
 
     # Accept the new session only after the guest returns its boot proof.
     deadline = time.monotonic() + STARTUP_TIMEOUT + 15

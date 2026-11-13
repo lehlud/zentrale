@@ -67,6 +67,24 @@ func TestReadsDoNotQueueBehindWriterAndShareDatabase(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("application reads still queued behind writer")
 			}
+			tx, err := writer.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if _, err := tx.ExecContext(ctx, `UPDATE resources SET data=json_object('id','one','name','Committed') WHERE kind='project' AND id='one'`); err != nil {
+				t.Fatal(err)
+			}
+			var snapshot map[string]any
+			if err := store.Load("project", "one", &snapshot); err != nil || snapshot["name"] != "Project" {
+				t.Fatalf("reader observed uncommitted data: %v %v", snapshot, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Load("project", "one", &snapshot); err != nil || snapshot["name"] != "Committed" {
+				t.Fatalf("reader missed committed data: %v %v", snapshot, err)
+			}
 			// Exhaust the read pool independently; the writer must still make
 			// progress (there must not be one shared four-connection pool).
 			for range 4 {

@@ -40,10 +40,27 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		Network: true, ProtocolIO: true, TTY: true, TerminalProtocol: true,
 		Command: WithCommitIdentity(`exec "${SHELL:-/bin/sh}" -i`, target.CommitIdentity),
 	}
-	command, _, err := Sandbox(ctx, connection, machine, execution)
+	ReportStartupPhase(ctx, "preparing_terminal")
+	var command string
+	var err error
+	if target.PreparedSandbox == SandboxMicroVM && machine.MicroVMCommand == "" {
+		// Auto machines may already have a harness-validated native selection.
+		// Preserve Sandbox's workspace/config validation, then avoid repeating
+		// auto detection only. Stage still performs every native prerequisite,
+		// GPU/storage/session check and fails closed; no blind VM-running cache.
+		if _, err = Workspace(execution.Workspace, ""); err == nil {
+			err = validateSandboxConfiguration(WithMachineDefaults(machine))
+		}
+		if err == nil {
+			command, err = managedMicroVMCommand(ctx, connection, machine, execution)
+		}
+	} else {
+		command, _, err = Sandbox(ctx, connection, machine, execution)
+	}
 	if err != nil {
 		return nil, err
 	}
+	ReportStartupPhase(ctx, "starting_terminal")
 	process, err := StartProcess(ctx, connection.Client, command)
 	if err != nil {
 		return nil, err

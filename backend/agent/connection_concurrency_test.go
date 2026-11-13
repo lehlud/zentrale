@@ -79,8 +79,18 @@ func TestWarmEditorDoesNotWaitForAgentWorkspaceReceipt(t *testing.T) {
 		t.Fatal("agent receipt did not reach the SSH barrier")
 	}
 	opened := make(chan error, 1)
+	var phaseMutex sync.Mutex
+	var warmPhases []string
+	openerContext := remote.WithStartupProgress(ctx, func(phase string) {
+		phaseMutex.Lock()
+		warmPhases = append(warmPhases, phase)
+		phaseMutex.Unlock()
+	})
 	go func() {
-		_, err := engine.withEditorEnvironment(ctx, project.ID, record.ID, func(context.Context, *remote.Connection, domain.Machine, domain.Project, remote.EditorTarget) (domain.EditorSession, error) {
+		_, err := engine.withEditorEnvironment(openerContext, project.ID, record.ID, func(_ context.Context, _ *remote.Connection, _ domain.Machine, _ domain.Project, target remote.EditorTarget) (domain.EditorSession, error) {
+			if target.PreparedSandbox != remote.SandboxMicroVM {
+				return domain.EditorSession{}, fmt.Errorf("validated native selection was not passed to terminal preparation")
+			}
 			return domain.EditorSession{}, nil
 		})
 		opened <- err
@@ -93,6 +103,13 @@ func TestWarmEditorDoesNotWaitForAgentWorkspaceReceipt(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("warm workspace opener waited for another agent's remote receipt")
 	}
+	phaseMutex.Lock()
+	for _, phase := range warmPhases {
+		if phase == "vm_starting" || phase == "preparing_environment" || phase == "preparing_sources" {
+			t.Errorf("warm validated environment reported a cold-start phase: %v", warmPhases)
+		}
+	}
+	phaseMutex.Unlock()
 	receiptOnce.Do(func() { close(releaseReceipt) })
 	if err := <-agentDone; err != nil {
 		t.Fatal(err)

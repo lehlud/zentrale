@@ -73,6 +73,7 @@ func (engine *Engine) StartEditor(ctx context.Context, projectID, agentID string
 // existing project, agent and VM activity guards until use returns. Terminal
 // callers deliberately keep use running until the PTY has been closed.
 func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agentID string, use func(context.Context, *remote.Connection, domain.Machine, domain.Project, remote.EditorTarget) (domain.EditorSession, error)) (domain.EditorSession, error) {
+	remote.ReportStartupPhase(ctx, "selecting_environment")
 	started, phaseStarted := time.Now(), time.Now()
 	phaseTimes := map[string]int64{}
 	mark := func(phase string) {
@@ -158,6 +159,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	var machine domain.Machine
 	scope := remote.EditorScopeID(project.ID, selected.ID)
 	leaseOwner := selected.ID
+	remote.ReportStartupPhase(ctx, "connecting")
 
 	if selected.ID != "" {
 		connection, machine, project, err = engine.connectWithEditorCandidate(ctx, selected, true)
@@ -179,8 +181,10 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		return domain.EditorSession{}, err
 	}
 	mark("connection")
+	remote.ReportStartupPhase(ctx, "checking_environment")
+	var status domain.SandboxStatus
 	if selected.ID != "" {
-		_, ready = engine.reuseReadyConnection(ctx, selected, connection, machine, project)
+		status, ready = engine.reuseReadyConnection(ctx, selected, connection, machine, project)
 		// A changed fingerprint or boot invalidates the transport's resolved
 		// placement/storage as well as sources. Reconnect before cold preparation.
 		if entry := engine.connectionEntry(selected.ID); entry != nil {
@@ -218,6 +222,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 
 	temporary := agentTemporaryDirectory(scope)
 	if !ready {
+		remote.ReportStartupPhase(ctx, "preparing_environment")
 		if err := remote.CheckRuntime(ctx, connection); err != nil {
 			return domain.EditorSession{}, err
 		}
@@ -228,7 +233,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		}
 		mark("workspace")
 
-		status := remote.InspectSandbox(ctx, connection, machine)
+		status = remote.InspectSandbox(ctx, connection, machine)
 		mark("sandbox_inspection")
 		preparedBootID := ""
 		if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
@@ -258,6 +263,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 			return domain.EditorSession{}, errors.New(status.Error)
 		}
 
+		remote.ReportStartupPhase(ctx, "preparing_sources")
 		if err := engine.prepareProjectSources(ctx, connection, machine, project, scope); err != nil {
 			return domain.EditorSession{}, err
 		}
@@ -281,6 +287,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 			RuntimeLock:        engine.vmOperation(scope, machine.ID),
 			Recovery:           engine,
 			TemporaryDirectory: temporary,
+			PreparedSandbox:    status.Level,
 		},
 	)
 }

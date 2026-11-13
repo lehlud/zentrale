@@ -6,6 +6,11 @@ import "@wterm/dom/css";
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
 import { terminalConnectionError } from "./terminal-connection";
+import {
+  isTerminalStartupPhase,
+  terminalStartupLabels,
+  type TerminalStartupPhase,
+} from "./terminal-startup";
 
 type State = "starting" | "ready" | "closed" | "error";
 
@@ -48,6 +53,8 @@ export default function VMTerminal({
   inputLabel.current = t("Terminal-Eingabe");
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<State>("starting");
+  const [startupPhase, setStartupPhase] =
+    useState<TerminalStartupPhase>("starting");
   const [error, setError] = useState("");
   const [exitCode, setExitCode] = useState<number>();
 
@@ -110,6 +117,7 @@ export default function VMTerminal({
     });
     element.classList.toggle("theme-light", themeRef.current === "light");
     setState("starting");
+    setStartupPhase("starting");
     setError("");
     setExitCode(undefined);
     void terminal
@@ -142,6 +150,12 @@ export default function VMTerminal({
               terminal.fit();
               sendResize();
               terminal.focus();
+            } else if (
+              message.type === "status" &&
+              !ready &&
+              isTerminalStartupPhase(message.status)
+            ) {
+              setStartupPhase(message.status);
             } else if (message.type === "error") {
               fail(
                 typeof message.message === "string"
@@ -194,7 +208,7 @@ export default function VMTerminal({
 
   const status =
     state === "starting"
-      ? "VM und Terminal werden gestartet …"
+      ? terminalStartupLabels[startupPhase]
       : state === "ready"
         ? "Verbunden"
         : state === "error"
@@ -268,7 +282,7 @@ export default function VMTerminal({
                     className="absolute inset-0 flex items-center justify-center bg-surface/80 p-4 text-sm"
                     aria-hidden="true"
                   >
-                    {t("VM und Terminal werden gestartet …")}
+                    {t(terminalStartupLabels[startupPhase])}
                   </div>
                 )}
               </div>
