@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/duckdb/duckdb-go/v2"
 )
 
 type Instance struct {
-	path  string
-	db    *sql.DB
-	reads *sql.DB
+	path        string
+	db          *sql.DB
+	reads       *sql.DB
+	readQueries atomic.Uint64
 }
 
 // Sharing the connector, rather than opening another DSN, also shares in-memory
@@ -22,11 +24,16 @@ type Instance struct {
 type borrowedConnector struct{ driver.Connector }
 
 func (i *Instance) readDB() *sql.DB {
+	i.readQueries.Add(1)
 	if i.reads != nil {
 		return i.reads
 	}
 	return i.db // Test fixtures with their own schema retain their existing pool.
 }
+
+// ReadQueryCount is a process-local diagnostic counter of attempted read
+// statements (not a per-request metric when requests run concurrently).
+func (i *Instance) ReadQueryCount() uint64 { return i.readQueries.Load() }
 
 func Open(path string) (*Instance, error) {
 	if path != "" && path != ":memory:" {

@@ -41,6 +41,32 @@ func TestReadsDoNotQueueBehindWriterAndShareDatabase(t *testing.T) {
 			if err := store.readDB().QueryRowContext(ctx, `SELECT data->>'name' FROM resources WHERE kind='project' AND id='one'`).Scan(&name); err != nil || name != "Project" {
 				t.Fatalf("read queued behind writer, or opened another database: %q %v", name, err)
 			}
+			read := make(chan error, 1)
+			go func() {
+				var row map[string]any
+				if err := store.LoadFields("project", "one", &row, []string{"id", "name"}); err != nil {
+					read <- err
+					return
+				}
+				if _, err := store.ListFields("project", nil, 500, 0, []string{"id", "name"}); err != nil {
+					read <- err
+					return
+				}
+				if _, err := store.SessionValid("missing"); err != nil {
+					read <- err
+					return
+				}
+				_, err := store.TranscriptBeforeFields("agent", 100, "", []string{"id"})
+				read <- err
+			}()
+			select {
+			case err := <-read:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-ctx.Done():
+				t.Fatal("application reads still queued behind writer")
+			}
 			// Exhaust the read pool independently; the writer must still make
 			// progress (there must not be one shared four-connection pool).
 			for range 4 {

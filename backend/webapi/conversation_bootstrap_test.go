@@ -144,6 +144,36 @@ func BenchmarkConversationSmallListsLargeHistory(b *testing.B) {
 	}
 }
 
+func TestConversationQueriesDoNotGrowSQLCountWithHistory(t *testing.T) {
+	f := bootstrapFixture(t)
+	queries := []string{
+		`query { projects(limit:500) { id name } }`,
+		`query { agents(projectId:"history-project",limit:500) { id projectId parentId approverId name role status } }`,
+		historyBootstrapQuery,
+	}
+	counts := make([]uint64, len(queries))
+	for phase, size := range []int{10, 300} {
+		seedBootstrapHistory(t, f, size, size*10, size*3)
+		for n, query := range queries {
+			before := f.engine.Store.ReadQueryCount()
+			requireData(t, f.query(t, query, nil))
+			count := f.engine.Store.ReadQueryCount() - before
+			t.Logf("agents=%d query=%d read statements=%d", size, n, count)
+			if n < 2 && count != 2 {
+				t.Fatalf("simple collection must use authentication + one batch query, got %d", count)
+			}
+			if phase == 0 {
+				counts[n] = count
+			} else if count != counts[n] {
+				t.Fatalf("query %d SQL count grew with history: %d -> %d", n, counts[n], count)
+			}
+			if count > 30 {
+				t.Fatalf("unbounded bootstrap reads: %d", count)
+			}
+		}
+	}
+}
+
 func TestConversationBootstrapIncludesSavedSandboxObservation(t *testing.T) {
 	f := bootstrapFixture(t)
 	saveBootstrapResource(t, f, "project", "sandbox-project", "", map[string]any{"name": "Sandbox"})
