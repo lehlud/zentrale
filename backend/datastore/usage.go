@@ -15,7 +15,7 @@ func (instance *Instance) UsageSummary(agentID string) (domain.UsageSummary, err
 		return result, errClosed
 	}
 
-	err := instance.db.QueryRow(`SELECT
+	err := instance.readDB().QueryRow(`SELECT
         coalesce(sum((data->>'inputTokens')::BIGINT),0),
         coalesce(sum((data->>'outputTokens')::BIGINT),0),
         coalesce(sum((data->>'cachedTokens')::BIGINT),0),
@@ -72,7 +72,7 @@ func (instance *Instance) MessagesBefore(agentID string, limit int, beforeID str
 		ORDER BY r.created_at DESC,r.id DESC LIMIT ?`
 		args = []any{agentID, beforeID, agentID, limit}
 	}
-	rows, err := instance.db.Query(query, args...)
+	rows, err := instance.readDB().Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

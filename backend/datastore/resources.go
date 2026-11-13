@@ -54,7 +54,7 @@ func (i *Instance) LoadFields(kind, id string, value any, fields []string) error
 	projection, args := resourceProjection(fields)
 	args = append(args, kind, id)
 	var data string
-	if err := i.db.QueryRow(`SELECT `+projection+`::VARCHAR FROM resources WHERE kind=? AND id=?`, args...).Scan(&data); err != nil {
+	if err := i.readDB().QueryRow(`SELECT `+projection+`::VARCHAR FROM resources WHERE kind=? AND id=?`, args...).Scan(&data); err != nil {
 		return err
 	}
 
@@ -94,7 +94,7 @@ func (i *Instance) ListFields(
 
 	q += ` ORDER BY created_at,id LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
-	rows, err := i.db.Query(q, args...)
+	rows, err := i.readDB().Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (i *Instance) Setting(name string) (string, error) {
 	}
 
 	var v string
-	err := i.db.QueryRow(`SELECT value FROM settings WHERE name=?`, name).Scan(&v)
+	err := i.readDB().QueryRow(`SELECT value FROM settings WHERE name=?`, name).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -223,7 +223,7 @@ func (i *Instance) SessionValid(hash string) (bool, error) {
 	}
 
 	var ok bool
-	err := i.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>now())`, hash).Scan(&ok)
+	err := i.readDB().QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>now())`, hash).Scan(&ok)
 
 	return ok, err
 }
@@ -267,7 +267,7 @@ func (i *Instance) LatestEventID() (int64, error) {
 	}
 
 	var id int64
-	err := i.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id)
+	err := i.readDB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id)
 	return id, err
 }
 
@@ -280,7 +280,7 @@ func (i *Instance) Events(after int64, limit int) ([]domain.Event, error) {
 		limit = 200
 	}
 
-	rows, err := i.db.Query(`SELECT id,type,agent_id,data,created_at FROM events WHERE id>? ORDER BY id LIMIT ?`, after, limit)
+	rows, err := i.readDB().Query(`SELECT id,type,agent_id,data,created_at FROM events WHERE id>? ORDER BY id LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (i *Instance) PrivateKey(id int) ([]byte, error) {
 	}
 
 	var data []byte
-	err := i.db.QueryRow(`SELECT x509_data FROM private_ssh_keys WHERE id=?`, id).Scan(&data)
+	err := i.readDB().QueryRow(`SELECT x509_data FROM private_ssh_keys WHERE id=?`, id).Scan(&data)
 
 	return data, err
 }
@@ -316,7 +316,7 @@ func (i *Instance) TrustedKeys() ([][]byte, error) {
 		return nil, errClosed
 	}
 
-	rows, err := i.db.Query(`SELECT x509_data FROM known_ssh_keys`)
+	rows, err := i.readDB().Query(`SELECT x509_data FROM known_ssh_keys`)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +420,7 @@ func (i *Instance) SearchModels(providerID, search string, limit, offset int) ([
 	}
 
 	pattern := "%" + strings.ToLower(search) + "%"
-	rows, err := i.db.Query(`SELECT data::VARCHAR FROM resources
+	rows, err := i.readDB().Query(`SELECT data::VARCHAR FROM resources
   WHERE kind='model' AND parent_id=?
   AND (lower(json_extract_string(data,'$.name')) LIKE ? OR lower(json_extract_string(data,'$.id')) LIKE ?)
   ORDER BY json_extract_string(data,'$.name'),id LIMIT ? OFFSET ?`, providerID, pattern, pattern, limit, offset)
@@ -458,13 +458,29 @@ func resourceProjection(fields []string) (string, []any) {
 		return "json_object()", nil
 	}
 
-	expressions := make([]string, 0, len(fields))
+	keys := make([]string, 0, len(fields))
+	paths := make([]string, 0, len(fields))
 	arguments := make([]any, 0, len(fields)*2)
+	seen := map[string]bool{}
 
 	for _, field := range fields {
-		expressions = append(expressions, "?, json_extract(data, ?)")
-		arguments = append(arguments, field, "$."+field)
+		if seen[field] {
+			continue
+		}
+		seen[field] = true
+		keys = append(keys, "?")
+		paths = append(paths, "?")
+		arguments = append(arguments, field)
+	}
+	for _, field := range fields {
+		if seen[field] {
+			arguments = append(arguments, "$."+field)
+			delete(seen, field)
+		}
 	}
 
-	return "json_object(" + strings.Join(expressions, ",") + ")", arguments
+	// A list of paths parses the JSON document once. Separate json_extract
+	// calls per selected field repeatedly parse even unselected summary/wire
+	// blobs; a tiny GraphQL response can therefore still be expensive to build.
+	return "to_json(map(list_value(" + strings.Join(keys, ",") + "),json_extract(data,list_value(" + strings.Join(paths, ",") + "))))", arguments
 }

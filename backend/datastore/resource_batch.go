@@ -55,7 +55,7 @@ func (instance *Instance) resourceBatch(
 		}
 	}
 
-	rows, err := instance.db.Query("SELECT "+projection+"::VARCHAR FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
+	rows, err := instance.readDB().Query("SELECT "+projection+"::VARCHAR FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
 	if err != nil {
 		return nil, err
 	}

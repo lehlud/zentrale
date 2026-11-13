@@ -11,7 +11,7 @@ func (instance *Instance) Attachment(agentID, id string) (domain.Attachment, []b
 	var metadata string
 	var data []byte
 	var attachment domain.Attachment
-	err := instance.db.QueryRow(`SELECT metadata::VARCHAR,bytes FROM attachment_blobs WHERE agent_id=? AND id=?`, agentID, id).Scan(&metadata, &data)
+	err := instance.readDB().QueryRow(`SELECT metadata::VARCHAR,bytes FROM attachment_blobs WHERE agent_id=? AND id=?`, agentID, id).Scan(&metadata, &data)
 	if err != nil {
 		return attachment, nil, err
 	}

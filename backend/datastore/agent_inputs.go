@@ -52,7 +52,7 @@ func (instance *Instance) AgentInputs(agentID string) ([]domain.AgentInput, erro
 		return nil, errClosed
 	}
 
-	rows, err := instance.db.Query(
+	rows, err := instance.readDB().Query(
 		`SELECT data::VARCHAR FROM resources WHERE kind='agent_input' AND parent_id=? AND json_extract_string(data,'$.status') NOT IN ('completed','cancelled') ORDER BY created_at,id`,
 		agentID,
 	)

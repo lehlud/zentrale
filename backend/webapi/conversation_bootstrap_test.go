@@ -124,6 +124,26 @@ func BenchmarkConversationBootstrapLargeHistory(b *testing.B) {
 	}
 }
 
+func BenchmarkConversationSmallListsLargeHistory(b *testing.B) {
+	f := bootstrapFixture(b)
+	seedBootstrapHistory(b, f, 300, 3000, 1000)
+	for _, item := range []struct{ name, query string }{
+		{"projects", `query { projects(limit:500) { id name } }`},
+		{"agents", `query { agents(projectId:"history-project",limit:500) { id projectId parentId approverId name role status } }`},
+	} {
+		b.Run(item.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				data := requireData(b, f.query(b, item.query, nil))
+				if len(data[item.name].([]any)) == 0 {
+					b.Fatal("empty collection")
+				}
+			}
+		})
+	}
+}
+
 func TestConversationBootstrapIncludesSavedSandboxObservation(t *testing.T) {
 	f := bootstrapFixture(t)
 	saveBootstrapResource(t, f, "project", "sandbox-project", "", map[string]any{"name": "Sandbox"})

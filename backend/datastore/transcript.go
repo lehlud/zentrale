@@ -44,7 +44,7 @@ func (instance *Instance) TranscriptBeforeFields(agentID string, limit int, befo
 		FROM page p JOIN resources r ON r.kind=p.kind AND r.id=p.resource_id
 		ORDER BY p.position DESC,p.id DESC`
 	args = append(args, projectionArgs...)
-	rows, err := instance.db.Query(query, args...)
+	rows, err := instance.readDB().Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

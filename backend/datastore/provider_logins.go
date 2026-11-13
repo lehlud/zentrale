@@ -12,7 +12,7 @@ func (i *Instance) ListPendingProviderLogins(limit int) ([]string, error) {
 	if limit < 1 || limit > 32 {
 		return nil, errors.New("login recovery limit must be between 1 and 32")
 	}
-	rows, err := i.db.Query(`SELECT id FROM (
+	rows, err := i.readDB().Query(`SELECT id FROM (
 		SELECT id,data,created_at,row_number() OVER (PARTITION BY parent_id ORDER BY created_at DESC,id DESC) AS login_rank
 		FROM resources WHERE kind='provider_login'
 	) WHERE login_rank=1 AND json_extract_string(data,'$.session.status')='pending'

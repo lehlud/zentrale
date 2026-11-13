@@ -21,7 +21,7 @@ func (i *Instance) ListStatusFields(kind, parentID, status string, limit, offset
 	projection, args := resourceProjection(fields)
 	query := `SELECT ` + projection + `::VARCHAR FROM resources WHERE kind=? AND parent_id=? AND json_extract_string(data,'$.status')=? ORDER BY created_at,id LIMIT ? OFFSET ?`
 	args = append(args, kind, parentID, status, limit, offset)
-	rows, err := i.db.Query(query, args...)
+	rows, err := i.readDB().Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

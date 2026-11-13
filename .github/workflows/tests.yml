@@ -86,12 +86,22 @@ jobs:
         shell: bash
         timeout-minutes: 5
         run: |
-          go test -run '^$' -bench '^BenchmarkConversationBootstrapLargeHistory$' -benchtime=3x -count=1 -timeout=4m ./webapi | tee "$RUNNER_TEMP/bootstrap-benchmark.txt"
+          go test -run '^$' -bench '^BenchmarkConversation(BootstrapLargeHistory|SmallListsLargeHistory)$' -benchtime=3x -count=1 -timeout=4m ./webapi | tee "$RUNNER_TEMP/bootstrap-benchmark.txt"
           while IFS= read -r line; do
             case "$line" in
-              BenchmarkConversationBootstrapLargeHistory-*) printf '::notice title=Conversation bootstrap benchmark::%s\n' "$line" ;;
+              BenchmarkConversation*) printf '::notice title=Conversation query benchmark::%s\n' "$line" ;;
             esac
           done < "$RUNNER_TEMP/bootstrap-benchmark.txt"
+      - name: Measure resource JSON projection and lookup query plans
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          go test -run '^$' -bench '^BenchmarkResource(Projection|LookupIndexes)$' -benchtime=5x -count=1 -timeout=4m ./datastore | tee "$RUNNER_TEMP/resource-benchmark.txt"
+          while IFS= read -r line; do
+            case "$line" in
+              BenchmarkResource*) printf '::notice title=Resource query benchmark::%s\n' "$line" ;;
+            esac
+          done < "$RUNNER_TEMP/resource-benchmark.txt"
 
   frontend:
     name: Browser shard ${{ matrix.shard }}/4
