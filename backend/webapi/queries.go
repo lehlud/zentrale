@@ -224,7 +224,7 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 		}
 	}
 
-	for _, kind := range []string{"project", "agent"} {
+	for _, kind := range []string{"project", "agent", "job"} {
 		queries[kind] = &graphql.Field{
 			Type: builder.output(resourceTypes[kind]),
 			Args: graphql.FieldConfigArgument{

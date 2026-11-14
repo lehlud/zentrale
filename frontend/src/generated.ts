@@ -459,6 +459,7 @@ export type Query = {
   goal: Goal | null;
   goalHistory: Array<Goal | null> | null;
   goalReviews: Array<GoalReview | null> | null;
+  job: Job | null;
   jobs: Array<Job | null> | null;
   machines: Array<Machine | null> | null;
   messages: Array<Message | null> | null;

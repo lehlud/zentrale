@@ -958,6 +958,14 @@
             }
           },
           {
+            "name": "job",
+            "type": {
+              "kind": "OBJECT",
+              "name": "Job",
+              "ofType": null
+            }
+          },
+          {
             "name": "jobs",
             "type": {
               "kind": "LIST",
