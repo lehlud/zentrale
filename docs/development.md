@@ -46,6 +46,29 @@ The unreleased application uses one transactional
 incompatible development schemas fail without being rewritten or deleted.
 Historical migration and downgrade chains are intentionally absent.
 
+## Shared application flows
+
+- **Tools:** `backend/agent/tools.go` owns the supported-action policy catalog
+  and the decode → authorize → route pipeline. Action-wide network requirements,
+  command lifetimes and code-mode visibility come from that catalog, not parallel lists.
+  New policies require approval by default. File snapshots, interactive input
+  and MCP retain their explicit, context-specific review paths. Implementations
+  stay in their owning domains; native/harness differences stay in wire decoding.
+- **Resource mutations:** `resourceMutation` in `backend/webapi/schema.go` derives
+  input/output types from the saved Go value and shares authentication, decoding,
+  request-context propagation and serialization. Engine methods own validation;
+  non-resource operations such as YAML pool import remain explicit.
+- **Resource pages:** `frontend/src/resource-page.tsx` shares query/action state
+  and initial/loading/error/empty/list rendering across management pages. An
+  initial failure is not an empty list; a refresh failure must not hide existing
+  data. Page actions use the shared error channel, while editor saves use the raw
+  API so a rejected save keeps its dialog open. Pagination state stays with the
+  page that owns its lifetime, including tab and responsive-layout changes.
+
+Prefer these existing boundaries over a new helper per action or a universal
+registry of page options. Domain-specific editors and authorization rules should
+remain visible where their decisions are made.
+
 ## Context and usage
 
 System instructions and core tools are stable. Runtime state is appended as

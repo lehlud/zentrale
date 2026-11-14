@@ -1,12 +1,13 @@
 import { Alert, Button, Card, Chip, Link, buttonVariants } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
-import { useAPI, useQuery } from "./api";
+import { useAPI } from "./api";
+import { ResourceContent, useResourcePage } from "./resource-page";
 import { ActionsMenu } from "./actions-menu";
 import { CodeSnippet } from "./code-snippet";
 import type { GitConnection, GitLogin } from "./generated";
 import { useI18n } from "./preferences";
-import { Editor, Failure, Inspect, Loading, useAction } from "./ui";
+import { Editor, Failure, Inspect, Loading } from "./ui";
 
 export const gitConnectionFields =
   "id kind baseUrl clientId configured connected userName reauthorizationRequired";
@@ -22,15 +23,14 @@ export function gitName(kind: string) {
 
 export function GitConnections() {
   const { t } = useI18n();
-  const api = useAPI();
-  const { data, error, loading } = useQuery<{
+  const resource = useResourcePage<{
     gitConnections: GitConnection[];
   }>(gitConnectionsQuery);
+  const { data } = resource;
   const [selected, setSelected] = useState<{
     connection: GitConnection;
     configure?: boolean;
   }>();
-  const action = useAction();
 
   return (
     <section
@@ -47,105 +47,104 @@ export function GitConnections() {
           )}
         </p>
       </div>
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
-      {loading && <Loading />}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {data?.gitConnections?.map((connection) => (
-          <Card key={connection.id} variant="secondary">
-            <Card.Content className="gap-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-medium">{gitName(connection.kind)}</h3>
-                <Chip
-                  size="sm"
-                  color={
-                    connection.reauthorizationRequired
-                      ? "warning"
-                      : connection.connected
-                        ? "success"
-                        : "default"
-                  }
-                  variant="soft"
-                >
-                  {t(
-                    connection.reauthorizationRequired
-                      ? "Erneut anmelden"
-                      : connection.connected
-                        ? "Verbunden"
-                        : "Nicht verbunden",
-                  )}
-                </Chip>
-              </div>
-              <p className="break-all text-sm text-muted">
-                {connection.connected
-                  ? connection.userName
-                  : connection.baseUrl}
-              </p>
-              {connection.reauthorizationRequired && (
-                <Alert status="warning">
-                  <Alert.Content>
-                    <Alert.Description>
-                      {t(
-                        "Für Änderungen an GitHub-Actions-Workflows bitte die GitHub-Verbindung erneut autorisieren.",
-                      )}
-                    </Alert.Description>
-                  </Alert.Content>
-                </Alert>
-              )}
-              <div className="flex items-center justify-end gap-2">
-                {(!connection.connected ||
-                  connection.reauthorizationRequired) && (
-                  <Button
-                    variant="secondary"
-                    className="mr-auto min-h-11"
-                    onPress={() => setSelected({ connection })}
+      <Failure message={resource.error} onRetry={resource.retry} />
+      <ResourceContent resource={resource} items={data?.gitConnections}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {data?.gitConnections.map((connection) => (
+            <Card key={connection.id} variant="secondary">
+              <Card.Content className="gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-medium">{gitName(connection.kind)}</h3>
+                  <Chip
+                    size="sm"
+                    color={
+                      connection.reauthorizationRequired
+                        ? "warning"
+                        : connection.connected
+                          ? "success"
+                          : "default"
+                    }
+                    variant="soft"
                   >
                     {t(
                       connection.reauthorizationRequired
                         ? "Erneut anmelden"
-                        : "Verbinden",
+                        : connection.connected
+                          ? "Verbunden"
+                          : "Nicht verbunden",
                     )}
-                  </Button>
+                  </Chip>
+                </div>
+                <p className="break-all text-sm text-muted">
+                  {connection.connected
+                    ? connection.userName
+                    : connection.baseUrl}
+                </p>
+                {connection.reauthorizationRequired && (
+                  <Alert status="warning">
+                    <Alert.Content>
+                      <Alert.Description>
+                        {t(
+                          "Für Änderungen an GitHub-Actions-Workflows bitte die GitHub-Verbindung erneut autorisieren.",
+                        )}
+                      </Alert.Description>
+                    </Alert.Content>
+                  </Alert>
                 )}
-                <ActionsMenu
-                  label={t("Aktionen für {name}", {
-                    name: gitName(connection.kind),
-                  })}
-                  isDisabled={action.busy}
-                  actions={[
-                    {
-                      id: "configure",
-                      label: t("OAuth-App konfigurieren"),
-                      onAction: () =>
-                        setSelected({ connection, configure: true }),
-                    },
-                    ...(connection.connected
-                      ? [
-                          {
-                            id: "sign-in",
-                            label: t("Erneut anmelden"),
-                            onAction: () => setSelected({ connection }),
-                          },
-                          {
-                            id: "disconnect",
-                            label: t("Trennen"),
-                            destructive: true,
-                            onAction: () =>
-                              action.run(() =>
-                                api.mutate(
+                <div className="flex items-center justify-end gap-2">
+                  {(!connection.connected ||
+                    connection.reauthorizationRequired) && (
+                    <Button
+                      variant="secondary"
+                      className="mr-auto min-h-11"
+                      onPress={() => setSelected({ connection })}
+                    >
+                      {t(
+                        connection.reauthorizationRequired
+                          ? "Erneut anmelden"
+                          : "Verbinden",
+                      )}
+                    </Button>
+                  )}
+                  <ActionsMenu
+                    label={t("Aktionen für {name}", {
+                      name: gitName(connection.kind),
+                    })}
+                    isDisabled={resource.busy}
+                    actions={[
+                      {
+                        id: "configure",
+                        label: t("OAuth-App konfigurieren"),
+                        onAction: () =>
+                          setSelected({ connection, configure: true }),
+                      },
+                      ...(connection.connected
+                        ? [
+                            {
+                              id: "sign-in",
+                              label: t("Erneut anmelden"),
+                              onAction: () => setSelected({ connection }),
+                            },
+                            {
+                              id: "disconnect",
+                              label: t("Trennen"),
+                              destructive: true,
+                              onAction: () =>
+                                resource.mutate(
                                   "mutation($connectionId:String!){disconnectGitConnection(connectionId:$connectionId)}",
                                   { connectionId: connection.id },
                                 ),
-                              ),
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-              </div>
-            </Card.Content>
-          </Card>
-        ))}
-      </div>
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                </div>
+              </Card.Content>
+            </Card>
+          ))}
+        </div>
+      </ResourceContent>
       {selected && (
         <GitConnect
           connection={selected.connection}

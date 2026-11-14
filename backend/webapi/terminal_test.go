@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -24,6 +25,23 @@ import (
 	"github.com/lehlud/zentrale/internal/testssh"
 	"github.com/lehlud/zentrale/remote"
 )
+
+func TestTerminalDisconnectDiagnosticsUseFixedCategories(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{&websocket.CloseError{Code: websocket.CloseNormalClosure, Text: "untrusted peer text"}, "browser_closed"},
+		{&websocket.CloseError{Code: websocket.CloseGoingAway}, "browser_closed"},
+		{&websocket.CloseError{Code: websocket.CloseAbnormalClosure}, "websocket_read_error"},
+		{&net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}, "websocket_heartbeat_timeout"},
+		{io.EOF, "websocket_read_error"},
+	} {
+		if got := terminalWebSocketReadReason(test.err); got != test.want {
+			t.Errorf("category = %q, want %q", got, test.want)
+		}
+	}
+}
 
 func TestTerminalOriginIsStrict(t *testing.T) {
 	for _, origin := range []string{"", "null", "http://example.test", "https://evil.test", "https://example.test/", "https://example.test?x=1", "https://example.test#x", "https://user@example.test"} {
@@ -148,6 +166,25 @@ func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 		if event["type"] != "status" || event["status"] != status {
 			t.Fatal(event)
 		}
+	}
+	// Application liveness must be answered without entering the PTY/input
+	// queue. Native WS pong frames are not observable in browser JavaScript.
+	if err := connection.WriteJSON(map[string]string{"type": "ping"}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind == websocket.BinaryMessage {
+			continue // The initial interactive prompt may precede the pong.
+		}
+		var event map[string]any
+		if err := json.Unmarshal(data, &event); err != nil || event["type"] != "pong" {
+			t.Fatal(string(data), err)
+		}
+		break
 	}
 	readOutput := func(marker string) string {
 		t.Helper()

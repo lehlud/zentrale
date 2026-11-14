@@ -4,12 +4,11 @@ import { useState } from "react";
 import { MachineCard } from "./machine-card";
 import { MachineAccess } from "./machine-access";
 import { PoolCard } from "./pool-card";
-import { CONFIG, useAPI, useQuery } from "./api";
-import { MoreButton, useBatch } from "./batches";
-import type { Config } from "./config";
+import { ResourceList, useResourcePage } from "./resource-page";
+import { useBatch } from "./batches";
 import { useI18n } from "./preferences";
 import type { Field } from "./ui";
-import { Editor, Empty, Failure, Loading, Title, useAction } from "./ui";
+import { Editor, Failure, Title } from "./ui";
 import { Icon } from "./icons";
 
 const sandbox = [
@@ -22,13 +21,12 @@ const sandbox = [
 export function Machines() {
   const { t } = useI18n();
 
-  const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
-  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
-  const [poolEditor, setPoolEditor] = useState(false);
-  const action = useAction();
+  const resource = useResourcePage();
+  const { api, data, remove } = resource;
   const machines = useBatch(data?.machines ?? []);
   const pools = useBatch(data?.pools ?? []);
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+  const [poolEditor, setPoolEditor] = useState(false);
   const fields: Field[] = [
     { key: "name", label: "Name", required: true },
     { key: "host", label: "Host", required: true },
@@ -97,14 +95,6 @@ export function Machines() {
       type: "check",
     },
   ];
-  const remove = (kind: string, id: string) =>
-    action.run(() =>
-      api.mutate(
-        "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-        { kind, id },
-      ),
-    );
-
   return (
     <>
       <Title
@@ -132,7 +122,7 @@ export function Machines() {
       >
         {t("Maschinen")}
       </Title>
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
+      <Failure message={resource.error} onRetry={resource.retry} />
       <Tabs variant="secondary" align="start" className="gap-5">
         <Tabs.ListContainer>
           <Tabs.List aria-label={t("Maschinentyp")}>
@@ -153,36 +143,34 @@ export function Machines() {
           </Tabs.List>
         </Tabs.ListContainer>
         <Tabs.Panel className="p-0" id={"single"}>
-          <div className="space-y-3">
-            {loading && !data ? (
-              <Loading />
-            ) : !data && error ? null : !data?.machines.length ? (
-              <Empty>{t("Keine Fernmaschinen")}</Empty>
-            ) : (
-              machines.items.map((machine) => (
-                <MachineCard
-                  key={JSON.stringify(machine)}
-                  machine={machine}
-                  sandboxStatus={data?.sandboxStatuses?.find(
-                    (status) => status.machineId === machine.id,
-                  )}
-                  onEdit={() =>
-                    setEditing({
-                      ...machine,
-                      keyId: String(machine.keyId),
-                      workspaceRoot:
-                        machine.workspaceRoot ||
-                        "~/.local/share/zentrale/projects",
-                      propertiesText: machine.properties.join(", "),
-                      gpuDevicesText: (machine.gpuDevices || []).join(", "),
-                    })
-                  }
-                  onRemove={() => void remove("machine", machine.id)}
-                />
-              ))
+          <ResourceList
+            resource={resource}
+            batch={machines}
+            empty={t("Keine Fernmaschinen")}
+            className="space-y-3"
+          >
+            {(machine) => (
+              <MachineCard
+                key={JSON.stringify(machine)}
+                machine={machine}
+                sandboxStatus={data?.sandboxStatuses?.find(
+                  (status) => status.machineId === machine.id,
+                )}
+                onEdit={() =>
+                  setEditing({
+                    ...machine,
+                    keyId: String(machine.keyId),
+                    workspaceRoot:
+                      machine.workspaceRoot ||
+                      "~/.local/share/zentrale/projects",
+                    propertiesText: machine.properties.join(", "),
+                    gpuDevicesText: (machine.gpuDevices || []).join(", "),
+                  })
+                }
+                onRemove={() => void remove("machine", machine.id)}
+              />
             )}
-          </div>
-          <MoreButton batch={machines} />
+          </ResourceList>
         </Tabs.Panel>
         <Tabs.Panel className="p-0" id={"pools"}>
           <div className="space-y-3">
@@ -193,21 +181,23 @@ export function Machines() {
             >
               {t("YAML importieren / aktualisieren")}
             </Button>
-            {!data && error ? null : !data?.pools.length ? (
-              <Empty>{t("Keine Pools")}</Empty>
-            ) : (
-              pools.items.map((pool) => (
+            <ResourceList
+              resource={resource}
+              batch={pools}
+              empty={t("Keine Pools")}
+              className="space-y-3"
+            >
+              {(pool) => (
                 <PoolCard
                   key={JSON.stringify(pool)}
                   pool={pool}
                   keys={data?.sshKeys ?? []}
-                  busy={action.busy}
+                  busy={resource.busy}
                   onRemove={() => void remove("pool", pool.id)}
                 />
-              ))
-            )}
+              )}
+            </ResourceList>
           </div>
-          <MoreButton batch={pools} />
         </Tabs.Panel>
       </Tabs>
       {editing && (

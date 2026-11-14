@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 
 	"github.com/graphql-go/graphql"
 )
@@ -56,6 +57,27 @@ func convert[T any](input any) (T, error) {
 	err = json.Unmarshal(b, &v)
 
 	return v, err
+}
+
+// Resource saves share a typed boundary: authenticate, decode the declared input,
+// preserve request cancellation, then serialize the saved domain value. Domain
+// validation stays in the engine; non-resource mutations keep their own shape.
+func resourceMutation[T any](builder *schemaBuilder, save func(context.Context, T) (T, error)) *graphql.Field {
+	t := reflect.TypeFor[T]()
+	return &graphql.Field{
+		Type: builder.output(t),
+		Args: graphql.FieldConfigArgument{
+			"input": {Type: graphql.NewNonNull(builder.input(t))},
+		},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			value, err := convert[T](params.Args["input"])
+			if err != nil {
+				return nil, err
+			}
+			saved, err := save(params.Context, value)
+			return mapOf(saved), err
+		}),
+	}
 }
 
 func (server *Server) Schema() (graphql.Schema, error) {

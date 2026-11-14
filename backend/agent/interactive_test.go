@@ -136,25 +136,45 @@ func TestInteractivePTYHasControllingTerminalAndReviewedControlCharacters(t *tes
 	}
 
 	id := result.(map[string]any)["jobId"].(string)
+	// A yield returns a stream page, not a receipt that the program has already
+	// answered. Poll without replaying input (or creating another approval).
+	awaitOutput := func(output, marker string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for !strings.Contains(output, marker) {
+			page, err := engine.dispatch(ctx, record, inputCall(id, "", false))
+			if err != nil {
+				t.Fatalf("waiting for %q: %v; output: %s", marker, err, output)
+			}
+			chunk := page.(jobOutputResult)
+			output += chunk.Output
+			if chunk.Status != "running" && !strings.Contains(output, marker) {
+				t.Fatalf("process ended before %q: %s", marker, output)
+			}
+		}
+		return output
+	}
 	first, err := engine.dispatch(context.Background(), record, inputCall(id, "hello\n", false))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	log := first.(jobOutputResult).Output + result.(map[string]any)["output"].(string)
+	log := awaitOutput(result.(map[string]any)["output"].(string)+first.(jobOutputResult).Output, "reply:hello")
 	if !strings.Contains(log, "tty=True") || !strings.Contains(log, "reply:hello") {
 		t.Fatal("PTY unavailable", log)
 	}
 
 	interrupted, err := engine.dispatch(context.Background(), record, inputCall(id, "\x03", false))
-	if err != nil || !strings.Contains(interrupted.(jobOutputResult).Output, "interrupted") {
+	if err != nil {
 		t.Fatal(interrupted, err)
 	}
+	awaitOutput(interrupted.(jobOutputResult).Output, "interrupted")
 
 	final, err := engine.dispatch(context.Background(), record, inputCall(id, "quit\n", false))
-	if err != nil || !strings.Contains(final.(jobOutputResult).Output, "bye") {
+	if err != nil {
 		t.Fatal("exit waited for stdin EOF", final, err)
 	}
+	awaitOutput(final.(jobOutputResult).Output, "bye")
 
 	completed, err := engine.jobTool(context.Background(), record, "job_wait", id)
 	if err != nil || completed.(jobOutputResult).Status != "completed" {

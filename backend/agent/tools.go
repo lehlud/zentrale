@@ -10,27 +10,42 @@ import (
 )
 
 type toolPolicy struct {
+	Review          toolReview
 	RequiresNetwork bool
+	CommandLifetime bool
+	HideInCodeMode  bool
 }
 
-var reviewedTools = map[string]toolPolicy{
+type toolReview uint8
+
+const (
+	// The zero value requires approval: adding a tool must not silently opt out.
+	reviewRequired toolReview = iota
+	reviewNone
+	reviewReadSnapshot
+	reviewInHandler // Input/MCP need session- or connection-specific approval.
+)
+
+// One policy catalog drives dispatch, command-lifetime validation and code-mode
+// discovery. Native/harness argument decoding remains a transport concern.
+var toolPolicies = map[string]toolPolicy{
 	"apply_patch":        {},
-	"read_file":          {},
+	"read_file":          {Review: reviewReadSnapshot},
 	"list_files":         {},
 	"write_file":         {},
 	"delete_file":        {},
-	"exec":               {},
-	"python":             {},
-	"venv_create":        {},
-	"packages_install":   {RequiresNetwork: true},
+	"exec":               {CommandLifetime: true},
+	"python":             {CommandLifetime: true},
+	"venv_create":        {CommandLifetime: true},
+	"packages_install":   {RequiresNetwork: true, CommandLifetime: true},
 	"microvm_reset":      {},
 	"microvm_info":       {},
-	"container":          {},
+	"container":          {CommandLifetime: true},
 	"websearch":          {RequiresNetwork: true},
 	"webfetch":           {RequiresNetwork: true},
 	"github":             {RequiresNetwork: true},
-	"clone_source":       {RequiresNetwork: true},
-	"source_git":         {},
+	"clone_source":       {RequiresNetwork: true, CommandLifetime: true},
+	"source_git":         {CommandLifetime: true},
 	"machine_list":       {},
 	"machine_properties": {},
 	"machine_select":     {},
@@ -41,9 +56,41 @@ var reviewedTools = map[string]toolPolicy{
 	"steer_agent":        {},
 	"inspect_agent":      {},
 	"question_answer":    {},
-	"mcp_connect":        {},
-	"mcp_tools":          {},
-	"mcp_call":           {},
+	"write_stdin":        {Review: reviewInHandler},
+	"mcp_connect":        {Review: reviewInHandler},
+	"mcp_list":           {Review: reviewInHandler},
+	"mcp_tools":          {Review: reviewInHandler},
+	"mcp_call":           {Review: reviewInHandler},
+	"mcp_disconnect":     {Review: reviewInHandler},
+
+	"code_mode":         {Review: reviewNone, HideInCodeMode: true},
+	"tool_search":       {Review: reviewNone, HideInCodeMode: true},
+	"approval_clarify":  {Review: reviewNone, HideInCodeMode: true},
+	"context_clear":     {Review: reviewNone, HideInCodeMode: true},
+	"context_rotate":    {Review: reviewNone, HideInCodeMode: true},
+	"context_compact":   {Review: reviewNone, HideInCodeMode: true},
+	"instructions_read": {Review: reviewNone},
+	"update_plan":       {Review: reviewNone},
+	"create_goal":       {Review: reviewNone},
+	"get_goal":          {Review: reviewNone},
+	"update_goal":       {Review: reviewNone},
+	"tool_output":       {Review: reviewNone},
+	"note_save":         {Review: reviewNone},
+	"note_list":         {Review: reviewNone},
+	"note_read":         {Review: reviewNone},
+	"note_delete":       {Review: reviewNone},
+	"question_ask":      {Review: reviewNone},
+	"question_list":     {Review: reviewNone},
+	"question_withdraw": {Review: reviewNone},
+	"job_status":        {Review: reviewNone},
+	"job_logs":          {Review: reviewNone},
+	"job_wait":          {Review: reviewNone},
+	"job_stop":          {Review: reviewNone},
+	"venv_cleanup":      {Review: reviewNone},
+}
+
+func requiresCommandTimeout(action string) bool {
+	return toolPolicies[action].CommandLifetime
 }
 
 func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, call providers.Call) (any, error) {
@@ -55,39 +102,33 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 		return nil, errors.New("only the main agent can reset the shared environment")
 	}
 
-	switch request.Action {
-	case "write_stdin":
-		return engine.writeStdin(ctx, agentRecord, request)
-	case "mcp_connect", "mcp_list", "mcp_tools", "mcp_call", "mcp_disconnect":
-		return engine.mcpTool(ctx, agentRecord, request)
-	}
-
-	if result, handled, err := engine.internalTool(ctx, agentRecord, request); handled {
-		return result, err
-	}
-
-	policy, exists := reviewedTools[request.Action]
+	policy, exists := toolPolicies[request.Action]
 	if !exists {
 		return nil, errors.New("unknown action")
 	}
 
-	if policy.RequiresNetwork && !request.Network {
-		return nil, errors.New("request network=true for this individual interaction")
+	switch policy.Review {
+	case reviewRequired, reviewReadSnapshot:
+		if policy.RequiresNetwork && !request.Network {
+			return nil, errors.New("request network=true for this individual interaction")
+		}
+		if boolArg(request.Arguments, "outsideSandbox") && request.Justification == "" {
+			return nil, errors.New("outsideSandbox requires justification and script inspection")
+		}
+		if policy.Review == reviewReadSnapshot {
+			return engine.approvedRead(ctx, agentRecord, request.Arguments, request.Justification, request.Network)
+		}
+		if _, err := engine.approve(ctx, agentRecord, request); err != nil {
+			return nil, err
+		}
+	case reviewNone, reviewInHandler:
+		// Local state needs no environmental approval. Interactive input and MCP
+		// perform their own context-specific review inside their handlers.
+	default:
+		return nil, errors.New("invalid tool review policy")
 	}
 
-	if boolArg(request.Arguments, "outsideSandbox") && request.Justification == "" {
-		return nil, errors.New("outsideSandbox requires justification and script inspection")
-	}
-
-	if request.Action == "read_file" {
-		return engine.approvedRead(ctx, agentRecord, request.Arguments, request.Justification, request.Network)
-	}
-
-	if _, err := engine.approve(ctx, agentRecord, request); err != nil {
-		return nil, err
-	}
-
-	return engine.reviewedTool(ctx, agentRecord, request)
+	return engine.runTool(ctx, agentRecord, request)
 }
 
 func decodeInteraction(call providers.Call) (interaction, error) {
@@ -178,48 +219,43 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 	}, nil
 }
 
-func (engine *Engine) internalTool(ctx context.Context, agentRecord domain.Agent, request interaction) (result any, handled bool, err error) {
-	switch request.Action {
-	case "code_mode":
-		result, err = engine.runCodeMode(ctx, agentRecord, request.Arguments)
-	case "tool_search":
-		result = searchToolCatalog(stringArg(request.Arguments, "query"))
-	case "instructions_read":
-		result, err = engine.ownInstructions(agentRecord)
-	case "approval_clarify":
-		result, err = engine.clarifyApprovalContext(ctx, agentRecord, request.Arguments)
-	case "update_plan":
-		result, err = engine.updatePlan(agentRecord, request.Arguments)
-	case "create_goal", "get_goal", "update_goal":
-		result, err = engine.goalTool(agentRecord, request.Action, request.Arguments)
-	case "tool_output":
-		result, err = engine.toolOutput(agentRecord, request.Arguments)
-	case "note_save", "note_list", "note_read", "note_delete":
-		result, err = engine.note(agentRecord, request.Action, request.Arguments)
-	case "context_clear", "context_rotate", "context_compact":
-		result, err = engine.manageContext(ctx, agentRecord, request.Action, request.Arguments)
-	case "question_ask", "question_list", "question_withdraw":
-		result, err = engine.question(agentRecord, request.Action, request.Arguments)
-	case "job_status", "job_logs", "job_wait", "job_stop":
-		result, err = engine.jobToolArguments(ctx, agentRecord, request.Action, request.Arguments)
-	case "venv_cleanup":
-		result, err = engine.cleanupVenv(agentRecord, stringArg(request.Arguments, "id"))
-	default:
-		return nil, false, nil
-	}
-
-	return result, true, err
-}
-
-func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent, request interaction) (any, error) {
-	var timeoutErr error
-	ctx, timeoutErr = withCommandLifetime(ctx, request)
-	if timeoutErr != nil {
-		return nil, timeoutErr
+// runTool only routes implementations; dispatch owns the authorization pipeline.
+func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, request interaction) (any, error) {
+	ctx, err := withCommandLifetime(ctx, request)
+	if err != nil {
+		return nil, err
 	}
 	arguments := request.Arguments
 
 	switch request.Action {
+	case "write_stdin":
+		return engine.writeStdin(ctx, agentRecord, request)
+	case "mcp_connect", "mcp_list", "mcp_tools", "mcp_call", "mcp_disconnect":
+		return engine.mcpTool(ctx, agentRecord, request)
+	case "code_mode":
+		return engine.runCodeMode(ctx, agentRecord, arguments)
+	case "tool_search":
+		return searchToolCatalog(stringArg(arguments, "query")), nil
+	case "instructions_read":
+		return engine.ownInstructions(agentRecord)
+	case "approval_clarify":
+		return engine.clarifyApprovalContext(ctx, agentRecord, arguments)
+	case "update_plan":
+		return engine.updatePlan(agentRecord, arguments)
+	case "create_goal", "get_goal", "update_goal":
+		return engine.goalTool(agentRecord, request.Action, arguments)
+	case "tool_output":
+		return engine.toolOutput(agentRecord, arguments)
+	case "note_save", "note_list", "note_read", "note_delete":
+		return engine.note(agentRecord, request.Action, arguments)
+	case "context_clear", "context_rotate", "context_compact":
+		return engine.manageContext(ctx, agentRecord, request.Action, arguments)
+	case "question_ask", "question_list", "question_withdraw":
+		return engine.question(agentRecord, request.Action, arguments)
+	case "job_status", "job_logs", "job_wait", "job_stop":
+		return engine.jobToolArguments(ctx, agentRecord, request.Action, arguments)
+	case "venv_cleanup":
+		return engine.cleanupVenv(agentRecord, stringArg(arguments, "id"))
 	case "list_files", "write_file", "delete_file", "apply_patch":
 		if request.Action != "list_files" {
 			engine.invalidate(agentRecord.ID)
@@ -307,6 +343,6 @@ func (engine *Engine) reviewedTool(ctx context.Context, agentRecord domain.Agent
 	case "question_answer":
 		return engine.answerChildQuestion(agentRecord, arguments)
 	default:
-		return nil, errors.New("unknown reviewed tool")
+		return nil, errors.New("unknown action")
 	}
 }

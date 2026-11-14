@@ -12,7 +12,8 @@ import { useEffect, useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
-import { MoreButton, useBatch } from "./batches";
+import { ResourceList, useResourcePage } from "./resource-page";
+import { useBatch } from "./batches";
 import type { Config } from "./config";
 import type { Project, Source } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
@@ -63,10 +64,9 @@ function ProjectRepository({
 export function Projects() {
   const { t } = useI18n();
 
-  const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
+  const resource = useResourcePage();
+  const { api, data } = resource;
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
-  const action = useAction();
   const { params } = useRoute();
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export function Projects() {
       >
         {t("Projekte")}
       </Title>
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
+      <Failure message={resource.error} onRetry={resource.retry} />
       <TextField
         className="mb-5 max-w-sm gap-2"
         value={search}
@@ -112,80 +112,74 @@ export function Projects() {
           className="min-h-11"
         />
       </TextField>
-      <div className={projects.items.length ? "divide-y divide-separator" : ""}>
-        {loading && !data ? (
-          <Loading />
-        ) : !data && error ? null : !data?.projects.length ? (
-          <Empty>{t("Noch keine Projekte")}</Empty>
-        ) : !projects.items.length ? (
-          <Empty>{t("Keine passenden Projekte")}</Empty>
-        ) : (
-          projects.items.map((project) => (
-            <section
-              key={project.id}
-              className="flex min-w-0 items-center gap-1 py-1"
+      <ResourceList
+        resource={resource}
+        batch={projects}
+        empty={
+          data?.projects.length
+            ? t("Keine passenden Projekte")
+            : t("Noch keine Projekte")
+        }
+        className="divide-y divide-separator"
+      >
+        {(project) => (
+          <section
+            key={project.id}
+            className="flex min-w-0 items-center gap-1 py-1"
+          >
+            <Link
+              href={`#/projects/${encodeURIComponent(project.id)}`}
+              aria-label={project.name}
+              className="group min-h-20 min-w-0 flex-1 gap-3 rounded-xl px-3 py-4 text-foreground no-underline hover:bg-surface-secondary sm:gap-4"
             >
-              <Link
-                href={`#/projects/${encodeURIComponent(project.id)}`}
-                aria-label={project.name}
-                className="group min-h-20 min-w-0 flex-1 gap-3 rounded-xl px-3 py-4 text-foreground no-underline hover:bg-surface-secondary sm:gap-4"
-              >
-                <span className="hidden size-10 shrink-0 items-center justify-center text-muted sm:flex">
-                  <Icon name="projects" className="size-5" />
-                </span>
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <h2 className="break-words font-medium group-hover:underline">
-                    {project.name}
-                  </h2>
-                  <p className="text-xs font-mono text-muted break-all leading-5">
-                    {project.directory ||
-                      t("Arbeitsbereich wird automatisch angelegt")}
-                  </p>
-                  <div className="flex flex-wrap gap-2 [&_[data-slot=chip]]:max-w-full [&_[data-slot=chip-label]]:whitespace-normal">
-                    {project.machineIds.map((id) => (
-                      <Chip key={id} size="sm" variant="soft">
-                        {data.machines.find((machine) => machine.id === id)
-                          ?.name ?? id}
-                      </Chip>
-                    ))}
-                    {project.poolIds.map((id) => (
-                      <Chip key={id} size="sm" variant="soft">
-                        {data.pools.find((pool) => pool.id === id)?.name ?? id}
-                      </Chip>
-                    ))}
-                  </div>
+              <span className="hidden size-10 shrink-0 items-center justify-center text-muted sm:flex">
+                <Icon name="projects" className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <h2 className="break-words font-medium group-hover:underline">
+                  {project.name}
+                </h2>
+                <p className="text-xs font-mono text-muted break-all leading-5">
+                  {project.directory ||
+                    t("Arbeitsbereich wird automatisch angelegt")}
+                </p>
+                <div className="flex flex-wrap gap-2 [&_[data-slot=chip]]:max-w-full [&_[data-slot=chip-label]]:whitespace-normal">
+                  {project.machineIds.map((id) => (
+                    <Chip key={id} size="sm" variant="soft">
+                      {data?.machines.find((machine) => machine.id === id)
+                        ?.name ?? id}
+                    </Chip>
+                  ))}
+                  {project.poolIds.map((id) => (
+                    <Chip key={id} size="sm" variant="soft">
+                      {data?.pools.find((pool) => pool.id === id)?.name ?? id}
+                    </Chip>
+                  ))}
                 </div>
-              </Link>
-              <div className="flex shrink-0 items-center gap-1">
-                <ActionsMenu
-                  label={t("Aktionen für {name}", { name: project.name })}
-                  isDisabled={action.busy}
-                  actions={[
-                    {
-                      id: "edit",
-                      label: t("Bearbeiten"),
-                      onAction: () => setEditing({ ...project }),
-                    },
-                    {
-                      id: "remove",
-                      label: t("Entfernen"),
-                      destructive: true,
-                      onAction: () =>
-                        action.run(() =>
-                          api.mutate(
-                            "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-                            { kind: "project", id: project.id },
-                          ),
-                        ),
-                    },
-                  ]}
-                />
               </div>
-            </section>
-          ))
+            </Link>
+            <div className="flex shrink-0 items-center gap-1">
+              <ActionsMenu
+                label={t("Aktionen für {name}", { name: project.name })}
+                isDisabled={resource.busy}
+                actions={[
+                  {
+                    id: "edit",
+                    label: t("Bearbeiten"),
+                    onAction: () => setEditing({ ...project }),
+                  },
+                  {
+                    id: "remove",
+                    label: t("Entfernen"),
+                    destructive: true,
+                    onAction: () => resource.remove("project", project.id),
+                  },
+                ]}
+              />
+            </div>
+          </section>
         )}
-      </div>
-      <MoreButton batch={projects} />
+      </ResourceList>
       {editing && (
         <Editor
           placement="top"

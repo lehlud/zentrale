@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"context"
 	"errors"
 	"reflect"
 
@@ -72,20 +73,16 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		}
 	}
 
-	mutations["saveMachine"] = &graphql.Field{
-		Type: builder.output(resourceTypes["machine"]),
-		Args: saveArgs(resourceTypes["machine"]),
-		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			v, err := convert[domain.Machine](params.Args["input"])
-			if err != nil {
-				return nil, err
-			}
-
-			saved, err := server.Engine.SaveMachine(v)
-
-			return mapOf(saved), err
-		}),
-	}
+	mutations["saveMachine"] = resourceMutation(builder, func(_ context.Context, value domain.Machine) (domain.Machine, error) {
+		return server.Engine.SaveMachine(value)
+	})
+	mutations["saveProject"] = resourceMutation(builder, server.Engine.SaveProjectContext)
+	mutations["saveSource"] = resourceMutation(builder, func(_ context.Context, value domain.Source) (domain.Source, error) {
+		return server.Engine.SaveSource(value)
+	})
+	mutations["saveProvider"] = resourceMutation(builder, func(_ context.Context, value domain.Provider) (domain.Provider, error) {
+		return server.Engine.SaveProvider(value)
+	})
 
 	mutations["savePool"] = &graphql.Field{
 		Type: builder.output(resourceTypes["pool"]),
@@ -96,51 +93,6 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 			v, err := server.Engine.SavePool(params.Args["yaml"].(string))
 
 			return mapOf(v), err
-		}),
-	}
-
-	mutations["saveProject"] = &graphql.Field{
-		Type: builder.output(resourceTypes["project"]),
-		Args: saveArgs(resourceTypes["project"]),
-		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			v, err := convert[domain.Project](params.Args["input"])
-			if err != nil {
-				return nil, err
-			}
-
-			saved, err := server.Engine.SaveProjectContext(params.Context, v)
-
-			return mapOf(saved), err
-		}),
-	}
-
-	mutations["saveSource"] = &graphql.Field{
-		Type: builder.output(resourceTypes["source"]),
-		Args: saveArgs(resourceTypes["source"]),
-		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			v, err := convert[domain.Source](params.Args["input"])
-			if err != nil {
-				return nil, err
-			}
-
-			saved, err := server.Engine.SaveSource(v)
-
-			return mapOf(saved), err
-		}),
-	}
-
-	mutations["saveProvider"] = &graphql.Field{
-		Type: builder.output(resourceTypes["provider"]),
-		Args: saveArgs(resourceTypes["provider"]),
-		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			v, err := convert[domain.Provider](params.Args["input"])
-			if err != nil {
-				return nil, err
-			}
-
-			saved, err := server.Engine.SaveProvider(v)
-
-			return mapOf(saved), err
 		}),
 	}
 

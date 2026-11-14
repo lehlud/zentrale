@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 
@@ -78,11 +79,28 @@ def text_snapshot(content, exists=True):
     return {"exists": exists, "text": text, "notice": ""}
 
 
+def open_regular_file(filename):
+    # Opening a FIFO normally blocks before fstat can reject it. O_NONBLOCK
+    # also closes that race if a regular path is replaced just before open.
+    descriptor = os.open(filename, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        mode = os.fstat(descriptor).st_mode
+        if stat.S_ISDIR(mode):
+            raise IsADirectoryError(errno.EISDIR, "expected a file", filename)
+        if not stat.S_ISREG(mode):
+            raise ToolInputError("expected a regular file; special files cannot be read")
+        source = os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return source
+
+
 def snapshot_file(filename):
     if os.path.isdir(filename):
         return {"exists": True, "text": None, "notice": "directory"}
     try:
-        with open(filename, "rb") as source:
+        with open_regular_file(filename) as source:
             return text_snapshot(source.read(MAX_DIFF_INPUT + 1))
     except FileNotFoundError:
         return text_snapshot(b"", exists=False)
@@ -141,7 +159,7 @@ def within(directory, filename):
 
 
 def read_file(filename, options=None):
-    with open(filename, "rb") as source:
+    with open_regular_file(filename) as source:
         content = source.read(2 * 1024 * 1024 + 1)
     if len(content) > 2 * 1024 * 1024:
         raise ToolInputError("file exceeds 2 MiB; use a bounded command to inspect it")

@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"golang.org/x/crypto/ssh"
@@ -23,7 +25,9 @@ func terminalCommand(command string) string {
 // Terminal uses the sandbox's controlling PTY, never a host SSH PTY.
 type Terminal struct {
 	*Process
-	writeMu sync.Mutex
+	writeMu   sync.Mutex
+	failureMu sync.Mutex
+	failure   error
 }
 
 func ValidTerminalSize(cols, rows int) bool {
@@ -66,6 +70,19 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		return nil, err
 	}
 	terminal := &Terminal{Process: process}
+	keepaliveContext, stopKeepalive := context.WithCancel(ctx)
+	process.OnClose(stopKeepalive)
+	go func() {
+		// WebSocket pings cover only the browser/backend hop, not an idle SSH
+		// transport. A lost SSH peer must also unblock the terminal's readers.
+		err := terminalKeepalive(keepaliveContext, 20*time.Second, 15*time.Second, connection.Ping)
+		if err != nil && keepaliveContext.Err() == nil {
+			terminal.failureMu.Lock()
+			terminal.failure = fmt.Errorf("terminal SSH connection lost: %w", err)
+			terminal.failureMu.Unlock()
+			terminal.Close()
+		}
+	}()
 	// StartProcess does not wait for shell output. Send the geometry consumed
 	// by the relay before it forks the child.
 	if err := terminal.frame(map[string]int{"cols": cols, "rows": rows}); err != nil {
@@ -83,6 +100,43 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		return nil, errors.New("invalid terminal startup acknowledgement")
 	}
 	return terminal, nil
+}
+
+func terminalKeepalive(ctx context.Context, interval, timeout time.Duration, ping func(context.Context) error) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// This transport may be shared through retained handles. Closing a
+			// terminal must not cancel Ping and disconnect its other users. A
+			// probe may outlive it by at most timeout; only a genuinely stalled
+			// transport reaches Ping's destructive deadline.
+			probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+			err := ping(probe)
+			cancel()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (terminal *Terminal) Read(buffer []byte) (int, error) {
+	count, err := terminal.Process.Read(buffer)
+	if err != nil {
+		terminal.failureMu.Lock()
+		defer terminal.failureMu.Unlock()
+		if terminal.failure != nil {
+			err = terminal.failure
+		}
+	}
+	return count, err
 }
 
 func (terminal *Terminal) frame(value any) error {

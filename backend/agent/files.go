@@ -19,6 +19,10 @@ var fileScript string
 //go:embed scripts/patch.py
 var patchScript string
 
+// Include connection, VM preparation and helper I/O, not only the final read.
+// A stalled filesystem must not pin the agent (or its reviewer) indefinitely.
+const fileOperationTimeout = 60 * time.Second
+
 func fileOperationScript(action string) string {
 	if action != "apply_patch" {
 		return fileScript
@@ -65,7 +69,19 @@ func (engine *Engine) file(
 	action string,
 	args map[string]any,
 	network, outside bool,
-) (map[string]any, error) {
+) (result map[string]any, err error) {
+	ctx, cancel := context.WithTimeout(ctx, fileOperationTimeout)
+	defer cancel()
+	phase := "environment connection"
+	defer func() {
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			warning := ""
+			if phase == "remote helper" && action != "read_file" && action != "list_files" {
+				warning = "; changes may already have been applied: read affected files before retrying"
+			}
+			err = fmt.Errorf("%s timed out during %s%s: %w", action, phase, warning, ctx.Err())
+		}
+	}()
 	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
 	defer releaseEnvironment()
 	options, err := fileReadOptions(args)
@@ -112,6 +128,7 @@ func (engine *Engine) file(
 		return nil, err
 	}
 
+	phase = "workspace preparation"
 	if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporaryDirectory); err != nil {
 		return nil, err
 	}
@@ -123,6 +140,7 @@ func (engine *Engine) file(
 		" " + remote.Quote(filename) +
 		" " + remote.Quote(action) + " '-' " + remote.Quote(JSON(options))
 
+	phase = "sandbox preparation"
 	command, level, err := engine.sandbox(ctx, connection, machine, remote.Execution{
 		AgentID:   agentRecord.ID,
 		ProjectID: project.ID,
@@ -151,12 +169,13 @@ func (engine *Engine) file(
 	}
 
 	input := strings.NewReader(payload)
+	phase = "remote helper"
 	out, err := remote.RunPipe(ctx, connection.Client, command, input)
 	if err != nil {
 		return nil, fmt.Errorf("remote file operation: %w", err)
 	}
 
-	result, err := decodeFileResult(out)
+	result, err = decodeFileResult(out)
 	if err != nil {
 		return nil, err
 	}

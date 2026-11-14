@@ -21,7 +21,7 @@ func steeringTestChild(t *testing.T, engine *Engine, parent domain.Agent) domain
 }
 
 func TestSteerAgentDiscoveryAndDecoding(t *testing.T) {
-	if _, ok := reviewedTools["steer_agent"]; !ok {
+	if policy, ok := toolPolicies["steer_agent"]; !ok || policy.Review != reviewRequired {
 		t.Fatal("steering must require independent approval")
 	}
 	if !slices.Contains(codeModeTools(), "steer_agent") {
@@ -195,7 +195,7 @@ func TestSteerAgentResumesErroredAndWakesRunningChild(t *testing.T) {
 	}
 	steer := func(id, text string) {
 		t.Helper()
-		if _, err := engine.reviewedTool(context.Background(), parent, interaction{Action: "steer_agent", Arguments: map[string]any{"agentId": child.ID, "id": id, "text": text}}); err != nil {
+		if _, err := engine.runTool(context.Background(), parent, interaction{Action: "steer_agent", Arguments: map[string]any{"agentId": child.ID, "id": id, "text": text}}); err != nil {
 			t.Fatal(err)
 		}
 	}

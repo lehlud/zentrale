@@ -4,12 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providers"
 )
 
 const maximumInspectionTurns = 20
+
+// Bound both queueing and all model/inspection turns. A reviewer emitting a
+// trickle of output must not monopolize the family's gate forever.
+const approvalTimeout = 2 * time.Minute
 
 const approverInstructions = `You are the independent auto-approval agent for one Zentrale main-agent family, shared by its main agent and subagents.
 Your private context is persistent and separate from the working agents. Each review identifies its actual requesting agent; decisions are scoped to that agent and exact action, never transferable to a sibling or a different request.
@@ -51,7 +56,16 @@ func (engine *Engine) approve(
 	ctx context.Context,
 	agentRecord domain.Agent,
 	request interaction,
-) (bool, error) {
+) (blanket bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, approvalTimeout)
+	defer cancel()
+	phase := "review queue"
+	defer func() {
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			blanket = false
+			err = fmt.Errorf("auto-approval timed out during %s; action not authorized: %w", phase, ctx.Err())
+		}
+	}()
 	approver, err := engine.familyApprover(agentRecord)
 	if err != nil {
 		return false, err
@@ -61,6 +75,7 @@ func (engine *Engine) approve(
 		return false, err
 	}
 	defer release()
+	phase = "review preparation"
 	revision := engine.instructionRevision(agentRecord.ProjectID)
 
 	configuration, err := engine.inferenceConfiguration(ctx, approver)
@@ -106,6 +121,7 @@ func (engine *Engine) approve(
 					"reason": map[string]any{"type": "string"}, "blanket": map[string]any{"type": "boolean"}},
 				"required": []string{"allowed", "reason", "blanket"}}
 		}
+		phase = "review model"
 		result, err := engine.Provider.Complete(ctx, providers.Request{
 			Config:         configuration.Provider,
 			ReasoningLevel: configuration.ReasoningLevel,
@@ -129,6 +145,9 @@ func (engine *Engine) approve(
 		}
 
 		if len(result.Calls) == 0 {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
 			if engine.instructionRevision(agentRecord.ProjectID) != revision {
 				return false, errors.New("user instructions changed during review; request approval again")
 			}
@@ -136,6 +155,7 @@ func (engine *Engine) approve(
 			return engine.recordApproval(agentRecord, request, parseApprovalDecision(result.Text))
 		}
 
+		phase = "review inspection"
 		if err := engine.inspectForApprover(ctx, agentRecord, approver, result.Calls); err != nil {
 			return false, err
 		}
@@ -217,6 +237,9 @@ func (engine *Engine) inspectForApprover(
 	calls []providers.Call,
 ) error {
 	for _, call := range calls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		value, inspectionError := engine.executeInspection(ctx, mainAgent, approver, call)
 		content := JSON(value)
 
@@ -226,6 +249,9 @@ func (engine *Engine) inspectForApprover(
 
 		if err := engine.appendMessage(approver.ID, "tool", content, "", call.ID, call.Name); err != nil {
 			return fmt.Errorf("persist inspection result: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 	}
 

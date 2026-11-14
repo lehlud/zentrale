@@ -10,13 +10,13 @@ import {
 import { useRef, useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
-import { CONFIG, useAPI, useQuery } from "./api";
-import { MoreButton, useBatch } from "./batches";
-import type { Config } from "./config";
+import { useAPI } from "./api";
+import { ResourceList, useResourcePage } from "./resource-page";
+import { useBatch } from "./batches";
 import type { SSHKey } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
-import { Empty, Failure, Inspect, Loading, Title, useAction } from "./ui";
+import { Failure, Inspect, Title, useAction } from "./ui";
 import { Icon } from "./icons";
 
 function keyAlgorithm(key: SSHKey) {
@@ -30,14 +30,13 @@ function keyAlgorithm(key: SSHKey) {
 
 export function Keys() {
   const { t } = useI18n();
-  const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
+  const resource = useResourcePage();
+  const { data, mutate, run } = resource;
+  const privateKeys = useBatch(data?.sshKeys ?? []);
+  const hostKeys = useBatch(data?.trustedKeys ?? []);
   const { params } = useRoute();
   const selected = params.get("type") === "hosts" ? "hosts" : "private";
   const [addingHost, setAddingHost] = useState(false);
-  const action = useAction();
-  const privateKeys = useBatch(data?.sshKeys ?? []);
-  const hostKeys = useBatch(data?.trustedKeys ?? []);
 
   return (
     <>
@@ -54,12 +53,8 @@ export function Keys() {
           ) : (
             <Button
               className="min-h-11"
-              isPending={action.busy}
-              onPress={() =>
-                action.run(() =>
-                  api.mutate("mutation{generateSSHKey{id publicKey}}"),
-                )
-              }
+              isPending={resource.busy}
+              onPress={() => mutate("mutation{generateSSHKey{id publicKey}}")}
             >
               <Icon name="plus" />
               {t("SSH-Schlüssel erzeugen")}
@@ -69,7 +64,7 @@ export function Keys() {
       >
         {t("Schlüssel")}
       </Title>
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
+      <Failure message={resource.error} onRetry={resource.retry} />
       <Tabs
         variant="secondary"
         align="start"
@@ -95,16 +90,13 @@ export function Keys() {
               "Maschinenschlüssel gehören in ~/.ssh/authorized_keys. Repo-Schlüssel werden automatisch als Deploy-Keys hinterlegt. Private Schlüssel bleiben in der Zentrale.",
             )}
           </p>
-          {loading && !data && <Loading />}
-          {!loading && !error && !data?.sshKeys.length && (
-            <Empty>{t("Keine SSH-Schlüssel")}</Empty>
-          )}
-          <div
-            className={
-              privateKeys.items.length ? "divide-y divide-separator" : ""
-            }
+          <ResourceList
+            resource={resource}
+            batch={privateKeys}
+            empty={t("Keine SSH-Schlüssel")}
+            className="divide-y divide-separator"
           >
-            {privateKeys.items.map((key) => {
+            {(key) => {
               const usedBy = key.usages ?? [];
               const repository = usedBy.find(
                 (usage) => usage?.kind === "repository",
@@ -186,7 +178,7 @@ export function Keys() {
                       size="sm"
                       variant="secondary"
                       onPress={() =>
-                        action.run(() =>
+                        run(() =>
                           navigator.clipboard.writeText(key.publicKey ?? ""),
                         )
                       }
@@ -196,7 +188,7 @@ export function Keys() {
                     </Button>
                     <ActionsMenu
                       label={t("Aktionen für {name}", { name })}
-                      isDisabled={action.busy}
+                      isDisabled={resource.busy}
                       actions={[
                         ...(key.canRevoke
                           ? [
@@ -207,11 +199,9 @@ export function Keys() {
                                 ),
                                 destructive: true,
                                 onAction: () =>
-                                  action.run(() =>
-                                    api.mutate(
-                                      "mutation($id:Int!){revokeRepositoryKey(id:$id)}",
-                                      { id: key.id },
-                                    ),
+                                  mutate(
+                                    "mutation($id:Int!){revokeRepositoryKey(id:$id)}",
+                                    { id: key.id },
                                   ),
                               },
                             ]
@@ -222,21 +212,17 @@ export function Keys() {
                           destructive: true,
                           isDisabled: !key.canDelete,
                           onAction: () =>
-                            action.run(() =>
-                              api.mutate(
-                                "mutation($id:Int!){deleteSSHKey(id:$id)}",
-                                { id: key.id },
-                              ),
-                            ),
+                            mutate("mutation($id:Int!){deleteSSHKey(id:$id)}", {
+                              id: key.id,
+                            }),
                         },
                       ]}
                     />
                   </div>
                 </section>
               );
-            })}
-          </div>
-          <MoreButton batch={privateKeys} />
+            }}
+          </ResourceList>
         </Tabs.Panel>
         <Tabs.Panel id="hosts" className="p-0">
           <p className="mb-5 max-w-2xl text-sm leading-6 text-muted">
@@ -244,14 +230,13 @@ export function Keys() {
               "Host-Schlüssel werden beim ersten Verbindungsaufbau geprüft. Hier lassen sich vorhandene Vertrauensbeziehungen einsehen und entziehen.",
             )}
           </p>
-          {loading && !data && <Loading />}
-          {!loading && !error && !data?.trustedKeys.length && (
-            <Empty>{t("Noch keine vertrauenswürdigen Hosts")}</Empty>
-          )}
-          <div
-            className={hostKeys.items.length ? "divide-y divide-separator" : ""}
+          <ResourceList
+            resource={resource}
+            batch={hostKeys}
+            empty={t("Noch keine vertrauenswürdigen Hosts")}
+            className="divide-y divide-separator"
           >
-            {hostKeys.items.map((key) => (
+            {(key) => (
               <section
                 key={key.fingerprint}
                 className="flex min-w-0 items-center gap-4 px-4 py-4 sm:px-5"
@@ -269,7 +254,7 @@ export function Keys() {
                     className="mt-2 min-h-11"
                     aria-label={t("Öffentlichen Schlüssel kopieren")}
                     onPress={() =>
-                      action.run(() =>
+                      run(() =>
                         navigator.clipboard.writeText(key.publicKey ?? ""),
                       )
                     }
@@ -281,26 +266,23 @@ export function Keys() {
                   label={t("Aktionen für {name}", {
                     name: key.fingerprint || t("SSH-Host"),
                   })}
-                  isDisabled={action.busy}
+                  isDisabled={resource.busy}
                   actions={[
                     {
                       id: "distrust",
                       label: t("Vertrauen entziehen"),
                       destructive: true,
                       onAction: () =>
-                        action.run(() =>
-                          api.mutate(
-                            "mutation($publicKey:String!,$trust:String!){trustHostKey(publicKey:$publicKey,trust:$trust)}",
-                            { publicKey: key.publicKey, trust: "distrust" },
-                          ),
+                        mutate(
+                          "mutation($publicKey:String!,$trust:String!){trustHostKey(publicKey:$publicKey,trust:$trust)}",
+                          { publicKey: key.publicKey, trust: "distrust" },
                         ),
                     },
                   ]}
                 />
               </section>
-            ))}
-          </div>
-          <MoreButton batch={hostKeys} />
+            )}
+          </ResourceList>
         </Tabs.Panel>
       </Tabs>
       {addingHost && <TrustHost onClose={() => setAddingHost(false)} />}

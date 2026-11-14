@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"slices"
 	"sort"
 	"strings"
 
@@ -13,46 +12,17 @@ import (
 )
 
 func codeModeTools() []string {
-	names := []string{
-		"exec_command",
-		"write_stdin",
-		"read_file",
-		"list_files",
-		"apply_patch",
-		"update_plan",
-
-		"instructions_read",
-		"note_save",
-		"note_list",
-		"note_read",
-		"note_delete",
-
-		"job_status",
-		"job_logs",
-		"job_wait",
-		"job_stop",
-		"tool_output",
-
-		"create_goal",
-		"get_goal",
-		"update_goal",
-
-		"question_ask",
-		"question_list",
-		"question_withdraw",
-		"venv_cleanup",
-
-		"mcp_list",
-		"mcp_disconnect",
-	}
-
-	for name := range reviewedTools {
-		names = append(names, name)
+	// exec_command is the native transport alias for the canonical exec action.
+	names := []string{"exec_command"}
+	for name, policy := range toolPolicies {
+		if !policy.HideInCodeMode {
+			names = append(names, name)
+		}
 	}
 
 	sort.Strings(names)
 
-	return slices.Compact(names)
+	return names
 }
 
 func codeModeCall(name string, arguments map[string]any) providers.Call {

@@ -10,31 +10,29 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { ActionsMenu, type MenuAction } from "./actions-menu";
-import { CONFIG, useAPI, useQuery } from "./api";
 import { MoreButton, useBatch } from "./batches";
-import type { Config } from "./config";
+import { ResourceContent, useResourcePage } from "./resource-page";
 import type { Provider } from "./generated";
 import { ProviderModels } from "./models";
 import { setRouteParameter, useRoute } from "./navigation";
 import { ProviderEditor, loginLabels } from "./provider-editor";
 import { ProviderSignIn } from "./provider-login";
 import { useI18n } from "./preferences";
-import { Empty, Failure, Loading, Title, useAction } from "./ui";
+import { Empty, Failure, Title } from "./ui";
 import { Icon } from "./icons";
 import { useMediaQuery } from "./media";
 
 export function Providers() {
   const { t } = useI18n();
-  const api = useAPI();
+  const resource = useResourcePage();
+  const { data, mutate } = resource;
+  const providers = useBatch(data?.providers ?? []);
   const compact = useMediaQuery("(max-width: 1279px)");
-  const { data, error, loading } = useQuery<Config>(CONFIG);
   const { params } = useRoute();
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [signingIn, setSigningIn] = useState<Provider | null>(null);
   const [catalogRequest, setCatalogRequest] = useState<string>();
   const catalogHeading = useRef<HTMLHeadingElement>(null);
-  const action = useAction();
-  const providers = useBatch(data?.providers ?? []);
   const selected =
     data?.providers.find(
       (provider) => provider.id === params.get("provider"),
@@ -82,11 +80,9 @@ export function Providers() {
         label: t("Modelle aktualisieren"),
         isDisabled: !provider.connected || provider.catalogStatus === "loading",
         onAction: () =>
-          action.run(() =>
-            api.mutate(
-              "mutation($providerId:String!){refreshModels(providerId:$providerId)}",
-              { providerId: provider.id },
-            ),
+          mutate(
+            "mutation($providerId:String!){refreshModels(providerId:$providerId)}",
+            { providerId: provider.id },
           ),
       },
     ];
@@ -102,11 +98,9 @@ export function Providers() {
         id: "disconnect",
         label: t("Trennen"),
         onAction: () =>
-          action.run(() =>
-            api.mutate(
-              "mutation($providerId:String!){disconnectProvider(providerId:$providerId)}",
-              { providerId: provider.id },
-            ),
+          mutate(
+            "mutation($providerId:String!){disconnectProvider(providerId:$providerId)}",
+            { providerId: provider.id },
           ),
       });
 
@@ -114,13 +108,7 @@ export function Providers() {
       id: "remove",
       label: t("Entfernen"),
       destructive: true,
-      onAction: () =>
-        action.run(() =>
-          api.mutate(
-            "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-            { kind: "provider", id: provider.id },
-          ),
-        ),
+      onAction: () => resource.remove("provider", provider.id),
     });
 
     return actions;
@@ -132,7 +120,7 @@ export function Providers() {
       kind={kindName(provider)}
       selected={selected?.id === provider.id}
       actions={accountActions(provider)}
-      busy={action.busy}
+      busy={resource.busy}
       compact={compact}
       onSelect={() => selectAccount(provider)}
     />
@@ -153,12 +141,12 @@ export function Providers() {
       >
         {t("Provider")}
       </Title>
-      <Failure message={error || action.error} onRetry={() => api.refresh()} />
-      {loading && !data ? (
-        <Loading />
-      ) : !error && !data?.providers.length ? (
-        <Empty>{t("Keine Provider konfiguriert")}</Empty>
-      ) : (
+      <Failure message={resource.error} onRetry={resource.retry} />
+      <ResourceContent
+        resource={resource}
+        items={data?.providers}
+        empty={t("Keine Provider konfiguriert")}
+      >
         <div className="grid min-w-0 items-start gap-7 xl:grid-cols-[15rem_minmax(0,1fr)]">
           <section
             aria-label={t("Provider-Zugänge")}
@@ -255,11 +243,9 @@ export function Providers() {
                   <Failure
                     message={selected.catalogError}
                     onRetry={() =>
-                      action.run(() =>
-                        api.mutate(
-                          "mutation($providerId:String!){refreshModels(providerId:$providerId)}",
-                          { providerId: selected.id },
-                        ),
+                      mutate(
+                        "mutation($providerId:String!){refreshModels(providerId:$providerId)}",
+                        { providerId: selected.id },
                       )
                     }
                   />
@@ -274,7 +260,7 @@ export function Providers() {
             </section>
           )}
         </div>
-      )}
+      </ResourceContent>
       {editing && (
         <ProviderEditor
           initial={editing}

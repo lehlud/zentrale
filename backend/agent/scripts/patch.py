@@ -10,7 +10,7 @@ import os
 import sys
 
 from zentrale_files import (
-    ToolInputError, file_change, run_cli, stage_file, text_snapshot, within,
+    ToolInputError, file_change, open_regular_file, run_cli, stage_file, text_snapshot, within,
 )
 
 MAX_PATCH_BYTES = 1024 * 1024
@@ -162,7 +162,7 @@ def prepare_changes(workspace, temporary_directory, operations):
         if os.path.lexists(filename):
             if not os.path.isfile(filename):
                 raise ToolInputError("patch targets must be regular files")
-            with open(filename, "rb") as source:
+            with open_regular_file(filename) as source:
                 content = source.read(MAX_FILE_BYTES + 1)
             if len(content) > MAX_FILE_BYTES:
                 raise ToolInputError("patch target exceeds 2 MiB")
@@ -238,7 +238,7 @@ def commit_changes(originals, modes, replacements):
                 if os.path.lexists(filename):
                     raise ToolInputError("patch destination was created during preparation")
             else:
-                with open(filename, "rb") as source:
+                with open_regular_file(filename) as source:
                     if source.read(MAX_FILE_BYTES + 1) != original:
                         raise ToolInputError(
                             "patch target changed during preparation; read it again"

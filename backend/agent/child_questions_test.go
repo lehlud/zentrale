@@ -69,7 +69,7 @@ func TestMainAnswersChildQuestionsDurablyWithoutOverridingUserPause(t *testing.T
 	if err != nil || len(listed) != 0 {
 		t.Fatal("closed child question remains pending", listed, err)
 	}
-	if _, ok := reviewedTools["question_answer"]; !ok {
+	if policy, ok := toolPolicies["question_answer"]; !ok || policy.Review != reviewRequired {
 		t.Fatal("parent answers must be independently reviewed")
 	}
 }

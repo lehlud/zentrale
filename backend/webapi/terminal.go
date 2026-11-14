@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -39,6 +41,17 @@ type terminalFrame struct {
 	Data string `json:"data"`
 	Cols int    `json:"cols"`
 	Rows int    `json:"rows"`
+}
+
+func terminalWebSocketReadReason(err error) string {
+	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		return "browser_closed"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return "websocket_heartbeat_timeout"
+	}
+	return "websocket_read_error"
 }
 
 func terminalGeometry(request *http.Request) (int, int, error) {
@@ -87,12 +100,35 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	defer connection.Close()
 	ctx, cancel := context.WithCancel(request.Context())
 	defer cancel()
+	started := time.Now()
+	var receiptMu sync.Mutex
+	phase, endReason := "starting", ""
+	markEnd := func(reason string) {
+		receiptMu.Lock()
+		if endReason == "" {
+			endReason = reason
+		}
+		receiptMu.Unlock()
+	}
+	defer func() {
+		receiptMu.Lock()
+		defer receiptMu.Unlock()
+		// Only fixed categories/phase names and identifiers: never log shell
+		// input, output, error text (which may contain output), or credentials.
+		slog.Info("terminal session ended", "project", requestContext.Param("project"),
+			"agent", request.URL.Query().Get("agent"), "phase", phase,
+			"reason", endReason, "duration_ms", time.Since(started).Milliseconds())
+	}()
 	var writer sync.Mutex
 	write := func(kind int, data []byte) error {
 		writer.Lock()
 		defer writer.Unlock()
 		_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		return connection.WriteMessage(kind, data)
+		err := connection.WriteMessage(kind, data)
+		if err != nil {
+			markEnd("websocket_write_error")
+		}
+		return err
 	}
 	event := func(value any) error {
 		data, err := json.Marshal(value)
@@ -102,8 +138,11 @@ func (server *Server) terminal(requestContext echo.Context) error {
 		return write(websocket.TextMessage, data)
 	}
 	fail := func(err error) { _ = event(map[string]string{"type": "error", "message": err.Error()}) }
-	ctx = remote.WithStartupProgress(ctx, func(phase string) {
-		if err := event(map[string]string{"type": "status", "status": phase}); err != nil {
+	ctx = remote.WithStartupProgress(ctx, func(status string) {
+		receiptMu.Lock()
+		phase = status
+		receiptMu.Unlock()
+		if err := event(map[string]string{"type": "status", "status": status}); err != nil {
 			cancel()
 			connection.Close()
 		}
@@ -124,6 +163,7 @@ func (server *Server) terminal(requestContext echo.Context) error {
 				return
 			case <-ticker.C:
 				if err := connection.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					markEnd("websocket_ping_failed")
 					cancel()
 					connection.Close()
 					return
@@ -141,6 +181,7 @@ func (server *Server) terminal(requestContext echo.Context) error {
 		for {
 			kind, data, err := connection.ReadMessage()
 			if err != nil {
+				markEnd(terminalWebSocketReadReason(err))
 				return
 			}
 			var frame terminalFrame
@@ -148,14 +189,26 @@ func (server *Server) terminal(requestContext echo.Context) error {
 				frame = terminalFrame{Type: "input", Data: string(data)}
 			} else if kind == websocket.TextMessage {
 				if err := json.Unmarshal(data, &frame); err != nil {
+					markEnd("invalid_frame")
 					fail(errors.New("invalid terminal message"))
 					return
 				}
 			} else {
+				markEnd("invalid_frame")
 				fail(errors.New("unsupported terminal message"))
 				return
 			}
+			// JavaScript cannot observe native WebSocket ping/pong. Answer its
+			// liveness probe during VM preparation too, never via the shell or
+			// the bounded terminal input queue.
+			if frame.Type == "ping" {
+				if err := event(map[string]string{"type": "pong"}); err != nil {
+					return
+				}
+				continue
+			}
 			if (frame.Type != "input" && frame.Type != "resize") || (frame.Type == "input" && len(frame.Data) > 65536) || (frame.Type == "resize" && !remote.ValidTerminalSize(frame.Cols, frame.Rows)) {
+				markEnd("invalid_frame")
 				fail(errors.New("invalid terminal input or resize"))
 				return
 			}
@@ -164,6 +217,7 @@ func (server *Server) terminal(requestContext echo.Context) error {
 			case <-ctx.Done():
 				return
 			default:
+				markEnd("input_queue_exceeded")
 				fail(errors.New("terminal input queue exceeded"))
 				return
 			}
@@ -176,6 +230,9 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	err = server.Engine.Terminal(ctx, requestContext.Param("project"), request.URL.Query().Get("agent"), cols, rows, func(sessionContext context.Context, terminal *remote.Terminal) error {
 		stop := context.AfterFunc(sessionContext, func() { connection.Close() })
 		defer stop()
+		receiptMu.Lock()
+		phase = "ready"
+		receiptMu.Unlock()
 		if err := event(map[string]string{"type": "status", "status": "ready"}); err != nil {
 			return err
 		}
@@ -196,6 +253,7 @@ func (server *Server) terminal(requestContext echo.Context) error {
 						err = terminal.Resize(frame.Cols, frame.Rows)
 					}
 					if err != nil {
+						markEnd("ssh_input_error")
 						cancel()
 						terminal.Close()
 						return
@@ -213,18 +271,27 @@ func (server *Server) terminal(requestContext echo.Context) error {
 			}
 			if readError != nil {
 				if sessionContext.Err() != nil {
+					markEnd("session_canceled")
 					return sessionContext.Err()
 				}
 				if !errors.Is(readError, io.EOF) {
+					markEnd("ssh_read_error")
 					return readError
 				}
+				code := terminal.Exit(sessionContext)
+				if code == nil {
+					markEnd("ssh_exit_status_missing")
+					return errors.New("terminal SSH connection closed without an exit status")
+				}
+				markEnd("shell_exit")
 				return event(struct {
 					Type string `json:"type"`
-					Code *int   `json:"code,omitempty"`
-				}{"exit", terminal.Exit(sessionContext)})
+					Code int    `json:"code"`
+				}{"exit", *code})
 			}
 		}
 	})
+	markEnd("environment_or_terminal_error")
 	if err != nil && ctx.Err() == nil {
 		fail(err)
 	}

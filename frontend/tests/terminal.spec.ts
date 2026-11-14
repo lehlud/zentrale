@@ -295,6 +295,97 @@ test("real rejected WebSocket handshake shows actionable origin diagnostics", as
   expect(probes).toBe(1);
 });
 
+test("opened startup transport errors are not diagnosed as failed upgrades, and missing exit receipts are errors", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  await page.routeWebSocket("**/events?*", () => {});
+  let probes = 0;
+  await page.route("**/terminal/**", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    probes++;
+    return route.fulfill({ status: 403, json: { message: "Forbidden" } });
+  });
+  const sockets: WebSocketRoute[] = [];
+  let pings = 0;
+  await page.routeWebSocket("**/terminal/**", (socket) => {
+    sockets.push(socket);
+    socket.onMessage((data) => {
+      if (typeof data === "string" && JSON.parse(data).type === "ping") {
+        pings++;
+        socket.send(JSON.stringify({ type: "pong" }));
+      }
+    });
+    socket.send(
+      JSON.stringify({
+        type: "status",
+        status: sockets.length === 1 ? "starting" : "ready",
+      }),
+    );
+  });
+  await page.route("**/graphql", (route) => {
+    const { query } = route.request().postDataJSON();
+    const data = query.includes("status{")
+      ? { status: { needsSetup: false, authenticated: true } }
+      : isTranscriptQuery(query)
+        ? {
+            ...transcript,
+            agent,
+            messages: [],
+            questions: [],
+            jobs: [],
+            recentMessages: [],
+          }
+        : query.includes("agents(projectId:")
+          ? { project, agents }
+          : config;
+    return route.fulfill({ json: { data: bootstrapData(query, data) } });
+  });
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  // Install after navigation: routeWebSocket installs its own constructor in
+  // an init script, whose ordering against other init scripts is unspecified.
+  await page.evaluate(() => {
+    const RoutedSocket = window.WebSocket;
+    window.WebSocket = class extends RoutedSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        if (String(url).includes("/terminal/")) {
+          Object.assign(window, { testTerminalSocket: this });
+        }
+      }
+    };
+  });
+  await page
+    .getByRole("button", { name: "Terminal in der VM öffnen", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "VM-Terminal", exact: true });
+  await expect(dialog.getByRole("status")).toHaveText(
+    "Terminal-Verbindung wird vorbereitet …",
+  );
+  await expect.poll(() => pings).toBe(1); // onopen ran, even though PTY is not ready.
+  await page.evaluate(() => {
+    const socket = (window as typeof window & { testTerminalSocket: WebSocket })
+      .testTerminalSocket;
+    socket.dispatchEvent(new Event("error"));
+  });
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "Terminal-Verbindung wurde unerwartet unterbrochen.",
+  );
+  expect(probes).toBe(0);
+  expect(sockets).toHaveLength(1);
+
+  await dialog
+    .getByRole("button", { name: "Erneut verbinden", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toHaveText("Verbunden");
+  sockets[1].send(JSON.stringify({ type: "exit" }));
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "Terminal-Verbindung wurde unerwartet unterbrochen.",
+  );
+  expect(sockets).toHaveLength(2);
+  expect(probes).toBe(0);
+});
+
 for (const variant of [
   { locale: "de", theme: "light", width: 1440, height: 1000 },
   { locale: "en", theme: "dark", width: 390, height: 844 },
@@ -486,11 +577,40 @@ for (const variant of [
       })
       .click();
     await expect(screen).toContainText("READY_4");
+    // Even a clean WS close is not a shell exit without its explicit receipt.
+    // Keep scrollback and never open a replacement or replay input silently.
+    sockets[3].close({ code: 1000, reason: "transport closed" });
+    await expect(dialog.getByRole("alert")).toHaveText(
+      label(
+        "Terminal-Verbindung wurde unerwartet unterbrochen.",
+        "The terminal connection was interrupted unexpectedly.",
+      ),
+    );
+    await expect(screen).toContainText("READY_4");
+    await expect(dialog).toContainText(
+      label(
+        "Erneut verbinden startet eine neue Shell. Eingaben werden nicht wiederholt.",
+        "Reconnecting starts a new shell. Input will not be replayed.",
+      ),
+    );
+    const inputBeforeDisconnect = Buffer.concat(input).toString("hex");
+    await screen.locator("textarea").focus();
+    await page.keyboard.type("do-not-replay");
+    expect(Buffer.concat(input).toString("hex")).toBe(inputBeforeDisconnect);
+    expect(sockets).toHaveLength(4);
+    await dialog
+      .getByRole("button", {
+        name: label("Erneut verbinden", "Reconnect"),
+        exact: true,
+      })
+      .click();
+    await expect(screen).toContainText("READY_5");
+    expect(Buffer.concat(input).toString("hex")).toBe(inputBeforeDisconnect);
     await dialog
       .getByRole("button", { name: label("Schließen", "Close"), exact: true })
       .click();
     await expect(dialog).not.toBeVisible();
-    await expect.poll(() => closed.size).toBe(4);
-    expect(sockets).toHaveLength(4);
+    await expect.poll(() => closed.size).toBe(5);
+    expect(sockets).toHaveLength(5);
   });
 }

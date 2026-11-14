@@ -224,7 +224,9 @@ func testEngine(t *testing.T, provider providers.Client) (*Engine, domain.Agent)
 
 func waitForAgent(t *testing.T, engine *Engine, agentID string) domain.Agent {
 	t.Helper()
-	timeout := time.NewTimer(5 * time.Second)
+	// This is a hang guard, not a latency assertion. Multi-turn SSH/DB fixtures
+	// also run under CPU emulation; give every agent flow the same finite budget.
+	timeout := time.NewTimer(30 * time.Second)
 	defer timeout.Stop()
 
 	updates, unsubscribe := engine.Subscribe()

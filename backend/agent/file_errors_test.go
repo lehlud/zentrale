@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -34,11 +35,16 @@ func TestEmbeddedFileHelperErrorsBecomeConciseToolFailures(t *testing.T) {
 	}
 	for _, test := range []struct{ action, path, input, message string }{
 		{"read_file", "missing.txt", "", "path not found"},
+		{"read_file", "fifo", "", "regular file"},
+		{"write_file", "fifo", "bmV3", "regular file"},
 		{"write_file", "directory", "bmV3", "directory"},
 		{"apply_patch", "", "*** Begin Patch\n*** Update File: one.txt\n@@\n-one\n+changed\n*** Update File: two.txt\n@@\n-outdated\n+new\n*** End Patch\n", "two.txt: patch context did not match"},
 	} {
 		t.Run(test.action, func(t *testing.T) {
 			root := t.TempDir()
+			if err := syscall.Mkfifo(filepath.Join(root, "fifo"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			for name, content := range map[string]string{"one.txt": "one\n", "two.txt": "two\n"} {
 				if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0600); err != nil {
 					t.Fatal(err)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-type Batch<T> = { items: T[]; hasMore: boolean; showMore: () => void };
+export type Batch<T> = { items: T[]; hasMore: boolean; showMore: () => void };
 
 export function useBatch<T>(
   items: T[],

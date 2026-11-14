@@ -62,7 +62,7 @@ func TestMachinePropertyCatalogIsSeparateSortedAndCountsMachines(t *testing.T) {
 	if got := countMachineProperties(nil); got == nil || len(got) != 0 {
 		t.Fatal(got)
 	}
-	if _, ok := reviewedTools["machine_properties"]; !ok {
+	if policy, ok := toolPolicies["machine_properties"]; !ok || policy.Review != reviewRequired {
 		t.Fatal("property catalog is not independently available")
 	}
 }

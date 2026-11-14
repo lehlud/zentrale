@@ -1,6 +1,38 @@
 import { expect, test } from "@playwright/test";
 
-import { terminalConnectionError } from "../src/terminal-connection";
+import {
+  TerminalHeartbeat,
+  terminalConnectionError,
+  terminalHeartbeatInterval,
+} from "../src/terminal-connection";
+
+test("terminal heartbeat detects missing replies but tolerates hidden pages and browser suspension", () => {
+  const interval = terminalHeartbeatInterval;
+  const stalled = new TerminalHeartbeat(0);
+  expect(stalled.check(interval, false)).toBe(true);
+  expect(stalled.check(2 * interval, false)).toBe(true);
+  expect(stalled.check(3 * interval, false)).toBe(false);
+
+  const healthy = new TerminalHeartbeat(0);
+  for (let n = 1; n <= 12; n++) {
+    expect(healthy.check(n * interval, false)).toBe(true);
+    healthy.acknowledge(n * interval);
+  }
+
+  const suspended = new TerminalHeartbeat(0);
+  expect(suspended.check(30 * interval, false)).toBe(true);
+  expect(suspended.check(31 * interval, false)).toBe(true);
+  expect(suspended.check(32 * interval, false)).toBe(true);
+  expect(suspended.check(33 * interval, false)).toBe(false);
+
+  const background = new TerminalHeartbeat(0);
+  for (let n = 1; n <= 12; n++) {
+    expect(background.check(n * interval, true)).toBe(true);
+  }
+  // A visible-page event grants a new probe window after background throttling.
+  background.acknowledge(100 * interval);
+  expect(background.check(100 * interval, false)).toBe(true);
+});
 
 test("failed WebSocket diagnostics distinguish auth, origin, routing and upgrade failures", async () => {
   const url = new URL(

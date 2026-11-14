@@ -127,6 +127,25 @@ class FileChangeTests(unittest.TestCase):
             files.read_file(self.filename, {"offset": 3, "limit": 1})["hasMore"]
         )
 
+    def test_special_files_cannot_block_reads_or_write_snapshots(self):
+        os.mkfifo(self.filename)
+        for operation in (files.read_file, files.snapshot_file):
+            with self.assertRaisesRegex(files.ToolInputError, "regular file"):
+                operation(self.filename)
+
+    def test_read_rejects_fifo_replacing_a_regular_path_before_open(self):
+        self.write(b"original")
+        original_open = os.open
+
+        def replace_then_open(filename, flags):
+            os.unlink(filename)
+            os.mkfifo(filename)
+            return original_open(filename, flags)
+
+        with patch.object(files.os, "open", side_effect=replace_then_open):
+            with self.assertRaisesRegex(files.ToolInputError, "regular file"):
+                files.read_file(self.filename)
+
 
 if __name__ == "__main__":
     unittest.main()

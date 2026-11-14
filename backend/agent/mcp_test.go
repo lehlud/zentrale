@@ -40,6 +40,9 @@ for line in sys.stdin:
     elif method == "tools/call":
         params = message["params"]
         if params.get("arguments",{}).get("wait"):
+            marker = params["arguments"].get("started")
+            if marker:
+                open(marker, "w").close()
             sys.stdin.read()
             break
         if params["name"] == "write_marker":
@@ -475,23 +478,49 @@ func TestMCPCallCancellationAndMachineChangesRequireReconnect(t *testing.T) {
 					false,
 				)
 			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-
-				_, err = mcpDispatch(
-					engine,
-					ctx,
-					record,
-					"mcp_call",
-					map[string]any{
-						"serverId": info.ID,
-						"tool":     "decompile",
-						"arguments": map[string]any{
-							"wait": true,
+				started := filepath.Join(t.TempDir(), "call-started")
+				done := make(chan error, 1)
+				go func() {
+					_, failure := mcpDispatch(
+						engine,
+						ctx,
+						record,
+						"mcp_call",
+						map[string]any{
+							"serverId": info.ID,
+							"tool":     "decompile",
+							"arguments": map[string]any{
+								"wait":    true,
+								"started": started,
+							},
 						},
-					},
-					false,
-				)
+						false,
+					)
+					done <- failure
+				}()
+				// Cancel actual remote I/O, not whichever approval/setup phase
+				// happens to be running after an arbitrary 150ms on this machine.
+				deadline := time.After(30 * time.Second)
+				for {
+					if _, failure := os.Stat(started); failure == nil {
+						break
+					}
+					select {
+					case failure := <-done:
+						t.Fatalf("MCP call ended before entering the server: %v", failure)
+					case <-deadline:
+						t.Fatal("MCP call never entered the server")
+					case <-time.After(10 * time.Millisecond):
+					}
+				}
+				cancel()
+				select {
+				case err = <-done:
+				case <-time.After(30 * time.Second):
+					t.Fatal("MCP I/O did not observe cancellation")
+				}
 			}
 
 			if err == nil || len(engine.mcpServersFor(record.ID)) != 0 {

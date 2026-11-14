@@ -5,7 +5,11 @@ import "@wterm/dom/css";
 
 import { Icon } from "./icons";
 import { useI18n } from "./preferences";
-import { terminalConnectionError } from "./terminal-connection";
+import {
+  TerminalHeartbeat,
+  terminalConnectionError,
+  terminalHeartbeatInterval,
+} from "./terminal-connection";
 import {
   isTerminalStartupPhase,
   terminalStartupLabels,
@@ -70,19 +74,45 @@ export default function VMTerminal({
     if (!element) return;
     let disposed = false;
     let ready = false;
+    let opened = false;
     let finished = false;
     const diagnosis = new AbortController();
     let socket: WebSocket | undefined;
     let resizeFrame = 0;
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    const heartbeat = new TerminalHeartbeat(performance.now());
+    const stopHeartbeat = () => clearInterval(heartbeatTimer);
     const encoder = new TextEncoder();
     const fail = (message: string) => {
       if (disposed || finished) return;
       finished = true;
       ready = false;
+      stopHeartbeat();
       setError(message);
       setState("error");
       socket?.close();
     };
+    const probe = () => {
+      if (disposed || finished || socket?.readyState !== WebSocket.OPEN) return;
+      if (!heartbeat.check(performance.now(), document.hidden)) {
+        fail(
+          "Terminal-Verbindung antwortet nicht mehr. Bitte Netzwerk und Server prüfen.",
+        );
+        return;
+      }
+      try {
+        socket.send(JSON.stringify({ type: "ping" }));
+      } catch {
+        fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
+      }
+    };
+    const resume = () => {
+      if (document.hidden) return;
+      heartbeat.acknowledge(performance.now());
+      probe();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("pageshow", resume);
     const sendBytes = (bytes: Uint8Array) => {
       if (!ready || socket?.readyState !== WebSocket.OPEN) return;
       // Bound each frame, including large paste input and raw mouse reports.
@@ -136,6 +166,12 @@ export default function VMTerminal({
         );
         socket = new WebSocket(url);
         socket.binaryType = "arraybuffer";
+        socket.onopen = () => {
+          opened = true;
+          heartbeat.acknowledge(performance.now());
+          heartbeatTimer = setInterval(probe, terminalHeartbeatInterval);
+          probe();
+        };
         socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
           if (disposed || finished) return;
           if (event.data instanceof ArrayBuffer) {
@@ -144,7 +180,12 @@ export default function VMTerminal({
           }
           try {
             const message = JSON.parse(event.data);
-            if (message.type === "status" && message.status === "ready") {
+            if (message.type === "pong") {
+              heartbeat.acknowledge(performance.now());
+            } else if (
+              message.type === "status" &&
+              message.status === "ready"
+            ) {
               ready = true;
               setState("ready");
               terminal.fit();
@@ -163,9 +204,14 @@ export default function VMTerminal({
                   : "Terminal-Verbindung fehlgeschlagen.",
               );
             } else if (message.type === "exit") {
+              if (!Number.isInteger(message.code)) {
+                fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
+                return;
+              }
               finished = true;
               ready = false;
-              if (typeof message.code === "number") setExitCode(message.code);
+              stopHeartbeat();
+              setExitCode(message.code);
               setState("closed");
               socket?.close();
             }
@@ -175,7 +221,12 @@ export default function VMTerminal({
         };
         socket.onerror = () => {
           if (disposed || finished) return;
-          fail("Terminal-Verbindung fehlgeschlagen.");
+          fail(
+            opened
+              ? "Terminal-Verbindung wurde unerwartet unterbrochen."
+              : "Terminal-Verbindung fehlgeschlagen.",
+          );
+          if (opened) return;
           void terminalConnectionError(url, diagnosis.signal).then(
             (message) => {
               if (!disposed) setError(message);
@@ -184,9 +235,7 @@ export default function VMTerminal({
         };
         socket.onclose = () => {
           if (!disposed && !finished) {
-            finished = true;
-            ready = false;
-            setState("closed");
+            fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
           }
         };
       })
@@ -194,9 +243,13 @@ export default function VMTerminal({
     return () => {
       disposed = true;
       diagnosis.abort();
+      stopHeartbeat();
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("pageshow", resume);
       ready = false;
       cancelAnimationFrame(resizeFrame);
       if (socket) {
+        socket.onopen = null;
         socket.onmessage = null;
         socket.onerror = null;
         socket.onclose = null;
@@ -268,6 +321,13 @@ export default function VMTerminal({
                   className="shrink-0 break-words bg-danger-soft p-3 text-sm text-danger-soft-foreground"
                 >
                   {t(error)}
+                </p>
+              )}
+              {(state === "closed" || state === "error") && (
+                <p className="shrink-0 px-3 py-2 text-xs text-muted">
+                  {t(
+                    "Erneut verbinden startet eine neue Shell. Eingaben werden nicht wiederholt.",
+                  )}
                 </p>
               )}
               <div className="relative min-h-0 flex-1 overflow-hidden">

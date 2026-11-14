@@ -1215,6 +1215,12 @@ Object.assign(english, {
   "Terminal-Verbindung wird aufgebaut …": "Opening terminal connection …",
   "Terminal-Verbindung beendet": "Terminal connection closed",
   "Terminal-Verbindung fehlgeschlagen.": "Terminal connection failed.",
+  "Terminal-Verbindung wurde unerwartet unterbrochen.":
+    "The terminal connection was interrupted unexpectedly.",
+  "Terminal-Verbindung antwortet nicht mehr. Bitte Netzwerk und Server prüfen.":
+    "The terminal connection is no longer responding. Please check the network and server.",
+  "Erneut verbinden startet eine neue Shell. Eingaben werden nicht wiederholt.":
+    "Reconnecting starts a new shell. Input will not be replayed.",
   "Rückfrage des Subagenten": "Question from subagent",
   "Antwort des Hauptagenten": "Answer from main agent",
   "Technische Details": "Technical details",

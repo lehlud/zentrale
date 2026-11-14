@@ -57,7 +57,7 @@ func TestSubagentDiscoveryIncludesDelegationThreshold(t *testing.T) {
 			t.Errorf("discovery missing delegation guidance: %q", guidance)
 		}
 	}
-	if _, ok := reviewedTools["subagent"]; !ok {
+	if policy, ok := toolPolicies["subagent"]; !ok || policy.Review != reviewRequired {
 		t.Fatal("delegation must still require independent approval")
 	}
 }

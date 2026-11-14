@@ -24,7 +24,7 @@ func (failure *ProjectConnectionError) Unwrap() error {
 }
 
 type agentConnection struct {
-	mutex      sync.Mutex
+	mutex      connectionMutex
 	connection *remote.Connection
 	machine    domain.Machine
 	projectKey string
@@ -33,6 +33,34 @@ type agentConnection struct {
 	ready      *connectionReadiness
 	expiry     *time.Timer
 }
+
+// Connection state sometimes covers remote setup. Waiters must be cancellable
+// even when another operation is stuck in that setup. Lock keeps the usual
+// interface for short, non-I/O state transitions elsewhere in the engine.
+type connectionMutex struct {
+	once sync.Once
+	gate chan struct{}
+}
+
+func (mutex *connectionMutex) LockContext(ctx context.Context) error {
+	mutex.once.Do(func() { mutex.gate = make(chan struct{}, 1) })
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case mutex.gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			mutex.Unlock()
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (mutex *connectionMutex) Lock()   { _ = mutex.LockContext(context.Background()) }
+func (mutex *connectionMutex) Unlock() { <-mutex.gate }
 
 func (engine *Engine) connectionEntry(agentID string) *agentConnection {
 	engine.mu.Lock()
@@ -81,8 +109,15 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 		return nil, domain.Machine{}, project, engine.ctx.Err()
 	}
 
-	entry.mutex.Lock()
-	defer entry.mutex.Unlock()
+	if err := entry.mutex.LockContext(ctx); err != nil {
+		return nil, domain.Machine{}, project, err
+	}
+	locked := true
+	defer func() {
+		if locked {
+			entry.mutex.Unlock()
+		}
+	}()
 
 	projectKey := JSON(project)
 
@@ -97,13 +132,17 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 			// State ownership must not cover SSH traffic: another agent's slow
 			// availability/receipt probe must not queue an already warm terminal.
 			entry.mutex.Unlock()
+			locked = false
 			probe, cancel := context.WithTimeout(ctx, 5*time.Second)
 			alive := retainError == nil && engine.canReuseConnection(probe, snapshot, projectKey, preferredMachine)
 			cancel()
 			if retained != nil {
 				retained.Close()
 			}
-			entry.mutex.Lock()
+			if err := entry.mutex.LockContext(ctx); err != nil {
+				return nil, domain.Machine{}, project, err
+			}
+			locked = true
 			if entry.connection != original {
 				continue // Invalidation/reconnect won the race; validate the new state.
 			}
@@ -177,9 +216,13 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 				return nil, machine, project, &ProjectConnectionError{Cause: err}
 			}
 			entry.mutex.Unlock()
+			locked = false
 			resolved, err := engine.Remote.ResolveProject(ctx, retained, machine, project)
 			retained.Close()
-			entry.mutex.Lock()
+			if err := entry.mutex.LockContext(ctx); err != nil {
+				return nil, machine, project, err
+			}
+			locked = true
 			if entry.connection != original {
 				continue // Never publish a receipt for a replaced transport/scope.
 			}

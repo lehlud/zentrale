@@ -25,7 +25,10 @@ import (
 // every operation through an authenticated SSH session to this isolated peer.
 func shellPeerHandler(shell string, environment []string) testssh.CommandHandler {
 	return func(command string, stdin io.Reader, stdout, stderr io.Writer) int {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// This peer also hosts persistent stdio MCP servers across several
+		// reviewed calls. Bound hung fixtures without imposing a ten-second
+		// session lifetime on slower or emulated test environments.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
 		arguments := []string{"-c", command}

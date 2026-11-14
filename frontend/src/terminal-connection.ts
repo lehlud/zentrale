@@ -1,4 +1,32 @@
-// Only run after a failed upgrade: normal sessions need no extra round trip.
+export const terminalHeartbeatInterval = 25_000;
+const terminalHeartbeatTimeout = 75_000;
+
+// Native WebSocket pongs are invisible to JavaScript. Track application-level
+// replies so a half-open socket cannot leave the UI saying "connected" forever.
+export class TerminalHeartbeat {
+  private lastReply: number;
+  private lastCheck: number;
+
+  constructor(now: number) {
+    this.lastReply = this.lastCheck = now;
+  }
+
+  acknowledge(now: number) {
+    this.lastReply = now;
+  }
+
+  check(now: number, hidden: boolean): boolean {
+    // Background throttling, device sleep and a frozen event loop are not
+    // evidence of a lost connection. Give a resumed page a full probe window.
+    if (hidden || now - this.lastCheck > 2 * terminalHeartbeatInterval) {
+      this.lastReply = now;
+    }
+    this.lastCheck = now;
+    return now - this.lastReply < terminalHeartbeatTimeout;
+  }
+}
+
+// Only run after a failed upgrade, not after an established session is lost.
 // Unlike WebSocket.onerror, fetch exposes authentication and routing failures.
 // The POST checks the same guards, without provisioning a VM or opening a shell.
 export async function terminalConnectionError(
