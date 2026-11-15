@@ -658,6 +658,10 @@ for (const variant of [
       .locator("../..")
       .getByRole("button", { name: /^(Mehr anzeigen|Show more)/ });
     await expect(more).toHaveCount(0);
+
+    // Earlier screenshots may leave the diff outside the viewport. Approach
+    // the rendered boundary before expecting IntersectionObserver to load more.
+    await largeDiff.getByRole("row").last().scrollIntoViewIfNeeded();
     await expect(largeDiff.getByRole("row")).toHaveCount(122);
     await expect(
       largeDiff.getByText("print(120)", { exact: true }),

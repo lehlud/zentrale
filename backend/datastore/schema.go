@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS private_ssh_keys (
 );
 CREATE TABLE IF NOT EXISTS known_ssh_keys (x509_data BLOB PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS settings (name VARCHAR PRIMARY KEY, value VARCHAR NOT NULL);
+CREATE TABLE IF NOT EXISTS credential_records (name VARCHAR PRIMARY KEY, ciphertext BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL);
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     agent_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, id VARCHAR NOT NULL,
@@ -59,6 +60,7 @@ func initializeSchema(db *sql.DB) error {
 		"SELECT id,x509_data,purpose,purpose_id FROM private_ssh_keys LIMIT 0",
 		"SELECT x509_data FROM known_ssh_keys LIMIT 0",
 		"SELECT name,value FROM settings LIMIT 0",
+		"SELECT name,ciphertext FROM credential_records LIMIT 0",
 		"SELECT token_hash,expires_at FROM sessions LIMIT 0",
 		"SELECT kind,id,parent_id,data,created_at FROM resources LIMIT 0",
 		"SELECT id,type,agent_id,data,created_at FROM events LIMIT 0",

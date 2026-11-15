@@ -91,9 +91,15 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			requestContext.Response().Header().Set("Referrer-Policy", "same-origin")
 			requestContext.Response().Header().Set("X-Frame-Options", "SAMEORIGIN")
 
+			if strings.HasSuffix(requestContext.Request().URL.Path, "/oauth/callback") {
+				requestContext.Response().Header().Set("Cache-Control", "no-store")
+				requestContext.Response().Header().Set("Referrer-Policy", "no-referrer")
+			}
+
 			if strings.HasPrefix(requestContext.Request().URL.Path, "/graphql") ||
 				strings.HasPrefix(requestContext.Request().URL.Path, "/events") ||
 				strings.HasPrefix(requestContext.Request().URL.Path, "/terminal/") ||
+				strings.HasPrefix(requestContext.Request().URL.Path, "/side/") ||
 				strings.HasPrefix(requestContext.Request().URL.Path, "/mcp") {
 				requestContext.Response().Header().Set("Cache-Control", "no-store")
 			}
@@ -142,7 +148,22 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			})
 		}
 
-		session := &requestState{authenticated: valid, client: clientAddress(requestContext.Request())}
+		origin := server.Origin
+		if origin == "" {
+			scheme := "http"
+			if secure {
+				scheme = "https"
+			}
+
+			origin = scheme + "://" + requestContext.Request().Host
+		}
+
+		session := &requestState{
+			authenticated: valid,
+			sessionHash:   auth.TokenHash(server.token(requestContext.Request())),
+			origin:        origin,
+			client:        clientAddress(requestContext.Request()),
+		}
 		session.login = func(password string) (bool, error) {
 			token, err := server.Auth.Login(password, clientAddress(requestContext.Request()))
 			if err != nil {
@@ -151,6 +172,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 			setCookie(token, 86400)
 			session.authenticated = true
+			session.sessionHash = auth.TokenHash(token)
 
 			return true, nil
 		}
@@ -159,6 +181,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			err := server.Auth.Logout(server.token(requestContext.Request()))
 			setCookie("", -1)
 			session.authenticated = false
+			session.sessionHash = ""
 
 			return err
 		}
@@ -185,6 +208,8 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.POST("/attachments/:agent/:id", server.attachment)
 	e.GET("/attachments/:agent/:id", server.attachment)
 	e.GET("/terminal/:project", server.terminal)
+	e.GET("/side/:agent", server.side)
+	e.HEAD("/side/:agent", server.sideStatus)
 	e.POST("/terminal/:project", server.terminal)
 	e.POST("/mcp", server.mcp)
 	e.Any("/ide/:project/:session/*", server.ide)

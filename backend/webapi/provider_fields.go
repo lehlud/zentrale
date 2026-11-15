@@ -216,10 +216,18 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 
 	mutations["beginProviderLogin"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()),
-		Args: requiredString("providerId"),
+		Args: graphql.FieldConfigArgument{
+			"providerId":  {Type: graphql.NewNonNull(graphql.String)},
+			"redirectUri": {Type: graphql.String, DefaultValue: ""},
+		},
 
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			login, err := server.Engine.BeginProviderLogin(params.Context, params.Args["providerId"].(string))
+			ctx, err := browserLoginContext(params.Context, params.Args["redirectUri"].(string))
+			if err != nil {
+				return nil, err
+			}
+
+			login, err := server.Engine.BeginProviderLogin(ctx, params.Args["providerId"].(string))
 			return mapOf(login), err
 		}),
 	}

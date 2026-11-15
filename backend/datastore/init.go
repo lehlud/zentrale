@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/duckdb/duckdb-go/v2"
@@ -17,6 +18,13 @@ type Instance struct {
 	db          *sql.DB
 	reads       *sql.DB
 	readQueries atomic.Uint64
+
+	closeOnce sync.Once
+	closeErr  error
+	closed    atomic.Bool
+
+	credentialMu  sync.Mutex
+	credentialKey []byte
 }
 
 // Sharing the connector, rather than opening another DSN, also shares in-memory
@@ -98,21 +106,30 @@ func openError(path string, err error) error {
 }
 
 func (i *Instance) Close() error {
-	if i == nil || i.db == nil {
+	if i == nil {
 		return nil
 	}
 
-	var readErr error
-	if i.reads != nil {
-		readErr = i.reads.Close()
-		i.reads = nil
-	}
-	err := errors.Join(readErr, i.db.Close())
-	i.db = nil
+	i.closeOnce.Do(func() {
+		i.closed.Store(true)
 
-	return err
+		// Keep pool pointers immutable: in-flight readers may have passed
+		// Closed already. database/sql synchronizes those queries with Close.
+		var readErr, writeErr error
+		if i.reads != nil {
+			readErr = i.reads.Close()
+		}
+
+		if i.db != nil {
+			writeErr = i.db.Close()
+		}
+
+		i.closeErr = errors.Join(readErr, writeErr)
+	})
+
+	return i.closeErr
 }
 
 func (i *Instance) Closed() bool {
-	return i == nil || i.db == nil
+	return i == nil || i.closed.Load() || i.db == nil
 }

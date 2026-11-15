@@ -6,9 +6,73 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestCloseIsConcurrentAndIdempotent(t *testing.T) {
+	store, err := Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	if err := store.CreateSession("active", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+
+	for range 8 {
+		workers.Go(func() {
+			<-start
+
+			for range 100 {
+				_ = store.Closed()
+				_, _ = store.SessionValid("active")
+			}
+		})
+	}
+
+	for range 4 {
+		workers.Go(func() {
+			<-start
+
+			if err := store.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
+	close(start)
+	workers.Wait()
+
+	if !store.Closed() {
+		t.Fatal("closed store still reports open")
+	}
+
+	if valid, err := store.SessionValid("active"); valid || err == nil {
+		t.Fatal("closed store accepted a session", valid, err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatal("repeated close failed", err)
+	}
+}
+
+func TestNilAndZeroStoresAreClosed(t *testing.T) {
+	for _, store := range []*Instance{nil, {}} {
+		if !store.Closed() {
+			t.Fatal("uninitialized store reports open")
+		}
+
+		if err := store.Close(); err != nil {
+			t.Fatal("closing uninitialized store failed", err)
+		}
+	}
+}
 
 func TestDatabaseLockRejectsAnotherProcessWithoutChangingData(t *testing.T) {
 	const variable = "ZENTRALE_TEST_LOCK_DATABASE"

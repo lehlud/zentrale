@@ -14,6 +14,8 @@ type requestKey struct{}
 
 type requestState struct {
 	authenticated bool
+	sessionHash   string
+	origin        string
 	login         func(string) (bool, error)
 	logout        func() error
 	client        string

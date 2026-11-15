@@ -19,7 +19,13 @@ func modelHistory(history []domain.Message, contextWindow int) []domain.Message 
 	budget := max(1024, min(maximumModelToolOutputBytes, contextWindow/2))
 
 	for index, message := range result {
-		if message.Role != "tool" || len(message.Content) <= budget {
+		if message.Role != "tool" {
+			continue
+		}
+
+		observation := compactJobObservation(message)
+		if len(observation) <= budget {
+			result[index].Content = observation
 			continue
 		}
 
@@ -60,6 +66,66 @@ func modelHistory(history []domain.Message, contextWindow int) []domain.Message 
 	}
 
 	return result
+}
+
+// Observation tools repeatedly return the launch command, which can itself be
+// an entire script. Keep its original record, not another copy in every poll.
+// Other tool results are deliberately untouched: a field named "command" in an
+// application document is not launch metadata.
+func compactJobObservation(message domain.Message) string {
+	if message.ID == "" {
+		return message.Content
+	}
+
+	switch message.ToolName {
+	case "job_status", "job_logs", "job_wait", "write_stdin":
+	default:
+		return message.Content
+	}
+
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal([]byte(message.Content), &envelope) != nil {
+		return message.Content
+	}
+
+	var result map[string]json.RawMessage
+	if json.Unmarshal(envelope["result"], &result) != nil || result == nil {
+		return message.Content
+	}
+
+	job := result
+	nested := false
+	if raw, found := result["job"]; found {
+		job = nil
+		if json.Unmarshal(raw, &job) != nil || job == nil {
+			return message.Content
+		}
+
+		nested = true
+	}
+
+	if _, found := job["command"]; !found || job["id"] == nil || job["status"] == nil {
+		return message.Content
+	}
+
+	delete(job, "command")
+	if nested {
+		result["job"] = json.RawMessage(JSON(job))
+	}
+
+	envelope["result"] = json.RawMessage(JSON(result))
+	envelope["observation"] = json.RawMessage(JSON("Repeated launch command omitted; all output and status retained."))
+	envelope["readOriginal"] = json.RawMessage(JSON(map[string]any{
+		"action":    "tool_output",
+		"arguments": map[string]any{"messageId": message.ID, "offset": 0, "limit": 4096},
+	}))
+
+	compact := JSON(envelope)
+	if len(compact) >= len(message.Content) {
+		return message.Content
+	}
+
+	return compact
 }
 
 func toolOutputError(content string) string {

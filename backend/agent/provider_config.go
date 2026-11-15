@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 
@@ -29,29 +30,59 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 	}
 
 	var previous domain.Provider
-	if engine.Store.Load("provider", configuration.ID, &previous) == nil &&
+	loadErr := engine.loadProvider(configuration.ID, &previous)
+	if loadErr != nil && !errors.Is(loadErr, sql.ErrNoRows) {
+		return configuration, loadErr
+	}
+
+	preserveAuthorization := loadErr == nil &&
 		configuration.Kind == previous.Kind &&
 		configuration.AuthMode == previous.AuthMode &&
-		configuration.BaseURL == previous.BaseURL {
+		configuration.OAuthClientID == previous.OAuthClientID &&
+		configuration.OAuthProjectID == previous.OAuthProjectID &&
+		(configuration.OAuthClientSecret == "" || configuration.OAuthClientSecret == previous.OAuthClientSecret) &&
+		configuration.BaseURL == previous.BaseURL
+	if preserveAuthorization {
 		if configuration.Credential == "" {
 			configuration.Credential = previous.Credential
 		}
 
 		configuration.OAuth = previous.OAuth
+		if configuration.OAuthClientSecret == "" {
+			configuration.OAuthClientSecret = previous.OAuthClientSecret
+		}
 		configuration.ModelCount = previous.ModelCount
 		configuration.CatalogStatus = previous.CatalogStatus
-	} else {
+	}
+
+	if configuration.AuthMode == "oauth" && configuration.OAuthClientSecret == "" {
+		return configuration, errors.New("Google web OAuth client secret is required")
+	}
+
+	if !preserveAuthorization {
+		configuration.OAuth = nil
 		if err := engine.Store.ReplaceCollection("model", configuration.ID, nil); err != nil {
 			return configuration, err
 		}
 	}
 
-	if err := engine.Store.ReplaceCollection("provider_login", configuration.ID, nil); err != nil {
+	if configuration.AuthMode == "oauth" {
+		configuration.Credential = ""
+	}
+
+	if err := engine.clearProviderLogins(configuration.ID); err != nil {
 		return configuration, err
 	}
 
-	if err := engine.Store.Save("provider", configuration.ID, "", configuration); err != nil {
+	if err := engine.saveProvider(configuration); err != nil {
 		return configuration, err
+	}
+
+	engine.stopLoginPolling("provider:"+configuration.ID, "")
+	if configuration.AuthMode != "oauth" && previous.AuthMode == "oauth" {
+		if err := engine.Store.DeleteCredential("google_provider/" + configuration.ID); err != nil {
+			return configuration, err
+		}
 	}
 
 	engine.catalogRevisions[configuration.ID]++
@@ -60,8 +91,17 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 		engine.scheduleModelRefresh(configuration.ID)
 	}
 
+	configuration.Connected = configuration.Credential != "" ||
+		(configuration.OAuth != nil && configuration.OAuth.AccessToken != "") ||
+		(configuration.AuthMode != "oauth" && configuration.CatalogStatus == "ready")
+	configuration.AccountLabel = ""
+	if configuration.OAuth != nil {
+		configuration.AccountLabel = configuration.OAuth.AccountLabel
+	}
+
 	configuration.Credential = ""
 	configuration.OAuth = nil
+	configuration.OAuthClientSecret = ""
 	engine.Emit("provider", "", map[string]string{"id": configuration.ID})
 
 	return configuration, nil

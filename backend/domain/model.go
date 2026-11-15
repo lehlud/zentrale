@@ -117,6 +117,10 @@ type Provider struct {
 	BillingMode string       `json:"billingMode"`
 	OAuth       *OAuthTokens `json:"oauth,omitempty"`
 
+	OAuthClientID     string `json:"oauthClientId"`
+	OAuthProjectID    string `json:"oauthProjectId"`
+	OAuthClientSecret string `json:"oauthClientSecret,omitempty"`
+
 	CatalogStatus string `json:"catalogStatus"`
 	CatalogError  string `json:"catalogError"`
 	ModelCount    int    `json:"modelCount"`

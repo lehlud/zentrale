@@ -29,7 +29,11 @@ export function mutationConfirmation(
     };
   }
 
-  if (/\b(disconnectProvider|disconnectGitConnection)\b/.test(query)) {
+  if (
+    /\b(disconnectProvider|disconnectGitConnection|disconnectHuggingFace)\b/.test(
+      query,
+    )
+  ) {
     return { message: "Zugang wirklich trennen?", actionLabel: "Trennen" };
   }
 

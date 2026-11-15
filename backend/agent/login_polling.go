@@ -162,11 +162,16 @@ func (engine *Engine) BeginGitLogin(ctx context.Context, connectionID string) (d
 
 func (engine *Engine) startGitLogin(login domain.GitLogin) error {
 	connectionID := login.ConnectionID
+	// Browser flows only inspect session/expiry while awaiting consent. Once the
+	// code has been exchanged, the same worker can retry a transient profile read
+	// without ever replaying that code or starting a device authorization request.
+	poll := func(ctx context.Context) (loginPollState, error) {
+		value, err := engine.PollGitLogin(ctx, connectionID, login.ID)
+		return loginPollState{status: value.Status, interval: value.Interval}, err
+	}
+
 	return engine.startLoginPolling("git:"+connectionID, login.ID, login.ExpiresAt, login.Interval,
-		func(ctx context.Context) (loginPollState, error) {
-			value, err := engine.PollGitLogin(ctx, connectionID, login.ID)
-			return loginPollState{status: value.Status, interval: value.Interval}, err
-		}, func(reason string) {
+		poll, func(reason string) {
 			if engine.GitForge.EndLogin(connectionID, login.ID, reason) == nil {
 				engine.Emit("git_login", "", map[string]string{"id": login.ID, "connectionId": connectionID})
 			}
@@ -177,7 +182,13 @@ func (engine *Engine) startGitLogin(login domain.GitLogin) error {
 // Persisted protocol state is resumed, not a new authorization grant. Capacity
 // errors finalize selected sessions explicitly rather than silently dropping.
 func (engine *Engine) recoverLoginProtocols() error {
-	for _, connectionID := range []string{"github", "gitlab"} {
+	connections, err := engine.GitForge.Connections()
+	if err != nil {
+		return err
+	}
+
+	for _, connection := range connections {
+		connectionID := connection.ID
 		login, err := engine.GitForge.PendingLogin(connectionID)
 		if err != nil {
 			return err

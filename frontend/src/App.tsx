@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { useAPI, useQuery } from "./api";
 import { Authentication } from "./authentication";
+import { BrowserLoginCallback, isBrowserLoginCallback } from "./browser-login";
 import { Keys, Machines, Providers, Settings } from "./config";
 import { SESSION_QUERY, type SessionData } from "./session";
 import { useRoute } from "./navigation";
@@ -46,6 +47,10 @@ export default function App() {
 
   if (page === "editor") {
     return <EditorLauncher projectId={projectId} />;
+  }
+
+  if (isBrowserLoginCallback) {
+    return <BrowserLoginCallback />;
   }
 
   return (

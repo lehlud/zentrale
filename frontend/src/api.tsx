@@ -589,7 +589,7 @@ export const CONFIG = `query {
     id name keyId maxMachines sharedHome workspaceRoot singleUser sandbox storage { id path shared description } quotaCommand machines { id name host user gpuDevices }
   }
   providers(limit:500) {
-    id name kind baseUrl authMode billingMode connected accountLabel catalogStatus catalogError modelCount
+    id name kind baseUrl authMode billingMode oauthClientId oauthProjectId connected accountLabel catalogStatus catalogError modelCount
   }
   sshKeys { id publicKey fingerprint purpose purposeId canDelete canRevoke usages { kind id name projectId } }
   trustedKeys { publicKey fingerprint }

@@ -315,5 +315,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		mutations[name] = field
 	}
 
+	for name, field := range builder.huggingFaceMutations() {
+		mutations[name] = field
+	}
+
 	return mutations
 }

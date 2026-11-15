@@ -1,4 +1,5 @@
 import { GitConnections } from "./git-connections";
+import { HuggingFaceSettings } from "./huggingface-connection";
 import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ export function Settings() {
         <GlobalModelDefaults />
         <CommitIdentitySettings />
         <GitConnections />
+        <HuggingFaceSettings />
         <details>
           <summary className="min-h-11 cursor-pointer text-sm text-muted">
             {t("Erweiterter API-Zugang")}

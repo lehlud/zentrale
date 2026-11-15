@@ -154,14 +154,18 @@ func (client *Client) deployKeys(
 	for page := 1; page <= 100; page++ {
 		var rows []map[string]any
 		address := client.apiRoot(account) + path + suffix + "?per_page=100&page=" + strconv.Itoa(page)
-		if err := client.request(ctx, "GET", address, account.AccessToken, nil, false, &rows); err != nil {
+		if isForge(account.Public.Kind) {
+			address += "&limit=100"
+		}
+
+		if err := client.accountRequest(ctx, account, "GET", address, nil, false, &rows); err != nil {
 			return nil, err
 		}
 
 		for _, row := range rows {
 			key := deployKey{ID: number(row["id"]), PublicKey: text(row["key"])}
 
-			if account.Public.Kind == "github" {
+			if account.Public.Kind != "gitlab" {
 				readOnly, valid := row["read_only"].(bool)
 				key.Writable = valid && !readOnly
 			} else {
@@ -171,7 +175,7 @@ func (client *Client) deployKeys(
 			result = append(result, key)
 		}
 
-		if len(rows) < 100 {
+		if len(rows) == 0 || (!isForge(account.Public.Kind) && len(rows) < 100) {
 			return result, nil
 		}
 	}
@@ -207,13 +211,13 @@ func (client *Client) createDeployKey(
 	}
 
 	var response map[string]any
-	if err := client.request(ctx, "POST", client.apiRoot(account)+path+suffix, account.AccessToken, body, false, &response); err != nil {
+	if err := client.accountRequest(ctx, account, "POST", client.apiRoot(account)+path+suffix, body, false, &response); err != nil {
 		return deployKey{}, err
 	}
 
 	key := deployKey{ID: number(response["id"]), PublicKey: text(response["key"])}
 
-	if account.Public.Kind == "github" {
+	if account.Public.Kind != "gitlab" {
 		readOnly, valid := response["read_only"].(bool)
 		key.Writable = valid && !readOnly
 	} else {
@@ -244,11 +248,11 @@ func (client *Client) deleteDeployKey(
 		suffix = "/deploy_keys/"
 	}
 
-	return client.request(
+	return client.accountRequest(
 		ctx,
+		account,
 		"DELETE",
 		client.apiRoot(account)+path+suffix+strconv.Itoa(keyID),
-		account.AccessToken,
 		nil,
 		false,
 		nil,

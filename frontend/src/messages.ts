@@ -1,6 +1,101 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Mit Hugging Face anmelden": "Sign in with Hugging Face",
+  "Hugging-Face-OAuth-App einrichten": "Configure a Hugging Face OAuth app",
+  "OAuth-App bei Hugging Face registrieren":
+    "Register an OAuth app at Hugging Face",
+  "Diese Callback-URL exakt in der OAuth-App registrieren:":
+    "Register this exact callback URL in the OAuth app:",
+  "Hugging-Face-OAuth-Client-ID": "Hugging Face OAuth client ID",
+  "Hugging-Face-OAuth-Client-Secret": "Hugging Face OAuth client secret",
+  "Öffentliche OAuth-App ohne Client-Secret":
+    "Public OAuth app without a client secret",
+  "OAuth-App speichern": "Save OAuth app",
+  "Über OAuth verbunden": "Connected through OAuth",
+  "Hugging-Face-Anmeldung öffnen": "Open Hugging Face sign-in",
+  "Öffne die Anmeldung und bestätige den Zugriff bei Hugging Face.":
+    "Open sign-in and approve access at Hugging Face.",
+  "OAuth und Access Token sind alternative Anmeldewege. OAuth erlaubt Profil- und Lesezugriff auf private sowie bereits freigeschaltete Gated-Repositories. Organisationen wählst du bei Hugging Face; für einzelne Repositories ist ein fein eingeschränkter Token genauer.":
+    "OAuth and access tokens are alternative sign-in methods. OAuth grants profile and read access to private and already approved gated repositories. Select organizations at Hugging Face; a fine-grained token offers narrower access to individual repositories.",
+  "Ein leeres Secret behält das bisherige Secret derselben Client-ID. Eine andere OAuth-App trennt eine bestehende OAuth-Verbindung; eine Token-Verbindung bleibt erhalten. Ohne Client-ID wird OAuth deaktiviert.":
+    "An empty secret keeps the existing secret for the same client ID. Changing the OAuth app disconnects an OAuth account but preserves a token connection. Clearing the client ID disables OAuth.",
+  "Browser-Anmeldung": "Browser sign-in",
+  "Anmeldung übermittelt. Kehre zum ursprünglichen Fenster zurück.":
+    "Sign-in submitted. Return to the original window.",
+  "Diese Anmeldung konnte nicht abgeschlossen werden. Starte sie im ursprünglichen Fenster erneut.":
+    "This sign-in could not be completed. Start it again in the original window.",
+  "Fenster schließen": "Close window",
+  "{name} hinzufügen": "Add {name}",
+  "Instanz-Adresse": "Instance address",
+  "Verbindungen ins private Netzwerk erlauben":
+    "Allow private-network connections",
+  "Nur für eine vertrauenswürdige interne Git-Instanz aktivieren. Link-Local- und Metadaten-Adressen bleiben gesperrt.":
+    "Only enable for a trusted internal Git instance. Link-local and metadata addresses remain blocked.",
+  "Auf der Instanz eine eigene OAuth-App mit PKCE (S256) registrieren. Für öffentliche Clients ist kein Client-Secret nötig.":
+    "Register your own OAuth app with PKCE (S256) on the instance. Public clients do not need a client secret.",
+  "OAuth-Callback-Adresse": "OAuth callback URL",
+  "Gitea ab 1.23: Lesen des Profils sowie Schreibzugriff auf Repositories und Organisationen für Repository-Erstellung und Deploy-Keys.":
+    "Gitea 1.23+: profile read access and repository/organization write access for repository creation and deploy keys.",
+  "Forgejo schränkt OAuth-Tokens derzeit nicht über Scopes ein: Die Anmeldung gewährt breiten Account-Zugriff. Agenten erhalten nur Repository-Deploy-Keys.":
+    "Forgejo currently does not restrict OAuth tokens using scopes: sign-in grants broad account access. Agents only receive repository deploy keys.",
+  "Auf der Anmeldeseite zustimmen. Die Zentrale erkennt die Anmeldung automatisch.":
+    "Approve on the sign-in page. Zentrale detects completion automatically.",
+  "Google-API-Konto": "Google API account",
+  "Anthropic unterstützt hier API-Schlüssel, keinen Claude-Abo-Login. Claude-Free-/Pro-/Max-/Ultra-Zugänge dürfen nicht in Drittanbieter-Apps übernommen werden.":
+    "Anthropic supports API keys here, not Claude subscription sign-in. Claude Free/Pro/Max/Ultra credentials cannot be used in third-party apps.",
+  "Benötigt eine eigene Google-Cloud-OAuth-App (Webanwendung), eine aktivierte Gemini API und ein berechtigtes API-Projekt. Es gelten API-Kontingente und gegebenenfalls verbrauchsabhängige Kosten, nicht dein AI-Pro-/Ultra-Abo.":
+    "Requires your own Google Cloud OAuth app (web application), an enabled Gemini API and an authorized API project. API quotas and possible usage charges apply, not your AI Pro/Ultra subscription.",
+  "Google-Cloud-Projekt-ID": "Google Cloud project ID",
+  "Leer lassen, um das vorhandene App-Secret zu behalten. Es wird verschlüsselt gespeichert und nicht wieder angezeigt.":
+    "Leave blank to keep the existing app secret. It is stored encrypted and never displayed again.",
+  "Hugging-Face-Token": "Hugging Face token",
+  "Der Account wird beim Verbinden geprüft. Bei Zugriffsfehlern prüfe Freigaben und Token-Rechte bei Hugging Face.":
+    "The account is checked when connecting. If access fails, check approvals and token permissions on Hugging Face.",
+  "Token ersetzen": "Replace token",
+  "Token bei Hugging Face erstellen oder widerrufen":
+    "Create or revoke a token on Hugging Face",
+  "Datensätze für Agenten freigeben. Verwende einen fein eingeschränkten Lese-Token für die benötigten Repositories und gegebenenfalls freigeschaltete Gated-Datensätze.":
+    "Make datasets available to agents. Use a fine-grained read token for the required repositories and, if needed, approved gated datasets.",
+  "Der Token bleibt bei Zentrale und wird nicht an Agenten oder die VM weitergegeben. Bedingungen und Zugriffsanfragen für Gated-Datensätze erledigst du selbst bei Hugging Face.":
+    "The token stays with Zentrale and is not shared with agents or the VM. You accept gated dataset terms and request access yourself on Hugging Face.",
+  "Trennen löscht die lokale Verbindung und beendet laufende HF-Übertragungen. Bereits geladene Dateien bleiben erhalten; den Token selbst widerrufst du bei Hugging Face.":
+    "Disconnecting removes the local connection and cancels active HF transfers. Downloaded files remain; revoke the token itself on Hugging Face.",
+
+  // Temporary side questions and explicit collaboration.
+  "Nebenfrage (/side)": "Side question (/side)",
+  Nebenunterhaltung: "Side conversation",
+  "Kurze Frage zum Hauptthread": "Short question about the main thread",
+  "Nebenfrage senden": "Send side question",
+  "Nebenunterhaltung wird geöffnet …": "Opening side conversation …",
+  "Nebenunterhaltung beendet. Für weitere Fragen das Modal neu öffnen.":
+    "Side conversation ended. Reopen the modal for more questions.",
+  "Antwort wird erarbeitet …": "Working on an answer …",
+  "Nur lesender Zugriff · temporär": "Read-only access · temporary",
+  "Die Nebenfrage darf höchstens 16000 Bytes lang sein.":
+    "The side question must not exceed 16000 bytes.",
+  "Ungültige Antwort der Nebenunterhaltung.":
+    "Invalid side conversation response.",
+  "Nebenfrage fehlgeschlagen.": "Side question failed.",
+  "Liest den Hauptthread und seine Unteragenten, ohne die Hauptarbeit zu verändern. Beim Schließen werden Unterhaltung und Agent beendet. Die Nutzung wird dem Hauptagenten zugerechnet.":
+    "Reads the main thread and its subagents without changing the main work. Closing ends the conversation and agent. Usage is attributed to the main agent.",
+  "Teamwork-Board öffnen": "Open teamwork board",
+  "Teamwork-Board": "Teamwork board",
+  "Worker-Limit": "Worker limit",
+  "Noch kein Teamwork-Board. Mit /teamwork <Aufgabe> kannst du gezielte Zusammenarbeit anfordern. Agenten werden nicht automatisch gestartet.":
+    "No teamwork board yet. Use /teamwork <task> to request focused collaboration. Agents are not started automatically.",
+  "Deklarierte Schreibbereiche koordinieren die Arbeit; sie sind keine Dateisperren oder Berechtigungen. Ein Board-Abbruch beendet keine laufenden Agenten oder Jobs.":
+    "Declared write scopes coordinate work; they are not file locks or permissions. Cancelling a board does not stop running agents or jobs.",
+  Abgebrochen: "Cancelled",
+  Abnahme: "Acceptance criteria",
+  Zuständig: "Owner",
+  Abhängigkeiten: "Dependencies",
+  Schreibbereiche: "Write scopes",
+  Belege: "Evidence",
+  Verifikation: "Verification",
+  "Gesamtprüfung / Abbruchgrund":
+    "Integration verification / cancellation reason",
+
   "Bestehende Umgebung wird kurz geprüft …":
     "Checking the existing environment …",
   "Vorbereitete Umgebung ist bereit …": "Prepared environment is ready …",

@@ -50,6 +50,10 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 	}
 
 	if provider {
+		if selected["connected"] || selected["accountLabel"] {
+			selected["authMode"] = true
+		}
+
 		// These private fields are consumed by the resolver and removed before
 		// output. Neither is present in the public GraphQL type.
 		if selected["connected"] {

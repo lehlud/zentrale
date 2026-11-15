@@ -17,14 +17,17 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/oauthflow"
 )
 
 const openAIClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
 type Client struct {
-	HTTP          *http.Client
-	OpenAIAuthURL string
-	OpenRouterURL string
+	HTTP           *http.Client
+	OpenAIAuthURL  string
+	OpenRouterURL  string
+	GoogleAuthURL  string
+	GoogleTokenURL string
 }
 
 type Transaction struct {
@@ -32,6 +35,7 @@ type Transaction struct {
 	NextPollAt            time.Time            `json:"nextPollAt"`
 	DeviceAuthorizationID string               `json:"deviceAuthorizationId,omitempty"`
 	CodeVerifier          string               `json:"codeVerifier,omitempty"`
+	BrowserFlow           *oauthflow.Pending   `json:"browserFlow,omitempty"`
 }
 
 // Public error text must not expose transport URLs, token bodies or device IDs.
@@ -46,9 +50,11 @@ func (*SlowDownPollError) Error() string { return "provider requested a slower l
 
 func New() *Client {
 	return &Client{
-		HTTP:          &http.Client{Timeout: 30 * time.Second},
-		OpenAIAuthURL: "https://auth.openai.com",
-		OpenRouterURL: "https://openrouter.ai",
+		HTTP:           &http.Client{Timeout: 30 * time.Second},
+		OpenAIAuthURL:  "https://auth.openai.com",
+		OpenRouterURL:  "https://openrouter.ai",
+		GoogleAuthURL:  "https://accounts.google.com/o/oauth2/v2/auth",
+		GoogleTokenURL: "https://oauth2.googleapis.com/token",
 	}
 }
 
@@ -58,6 +64,8 @@ func SupportedMethods(kind string) []string {
 		return []string{"api", "device"}
 	case "openrouter":
 		return []string{"api", "browser"}
+	case "gemini":
+		return []string{"api", "oauth"}
 	default:
 		return []string{"api"}
 	}
@@ -69,6 +77,8 @@ func (client *Client) Begin(ctx context.Context, provider domain.Provider) (Tran
 		return client.beginOpenAI(ctx, provider.ID)
 	case provider.Kind == "openrouter" && provider.AuthMode == "browser":
 		return client.beginOpenRouter(provider.ID), nil
+	case provider.Kind == "gemini" && provider.AuthMode == "oauth":
+		return client.beginGoogle(ctx, provider)
 	default:
 		return Transaction{}, errors.New("this provider does not offer the selected native login method")
 	}

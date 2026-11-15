@@ -10,6 +10,7 @@ import (
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/gitforge"
+	"github.com/lehlud/zentrale/huggingface"
 	"github.com/lehlud/zentrale/modelcatalog"
 	"github.com/lehlud/zentrale/providerlogin"
 	"github.com/lehlud/zentrale/providers"
@@ -73,6 +74,7 @@ type Engine struct {
 	Catalog      *modelcatalog.Client
 	AccountLogin *providerlogin.Client
 	GitForge     *gitforge.Service
+	HuggingFace  *huggingface.Service
 
 	accountMu        sync.Mutex
 	loginPollMu      sync.Mutex
@@ -100,8 +102,10 @@ type Engine struct {
 
 	configMu        sync.Mutex
 	attachmentGate  chan struct{}
+	sideSlots       chan struct{}
 	questionMu      sync.Mutex
-	reviewGates     sync.Map // Shared approver ID -> cancellable review semaphore.
+	teamworkMu      sync.Mutex // Short atomic board transitions, never inference or remote work.
+	reviewGates     sync.Map   // Shared approver ID -> cancellable review semaphore.
 	clarificationMu sync.Mutex
 	sandboxMu       sync.Mutex
 
@@ -125,9 +129,11 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		Catalog:              modelcatalog.New(),
 		AccountLogin:         providerlogin.New(),
 		GitForge:             gitforge.New(store),
+		HuggingFace:          huggingface.New(store),
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
 		attachmentGate:       make(chan struct{}, 1),
+		sideSlots:            make(chan struct{}, 8),
 		cancel:               cancel,
 		running:              make(map[string]context.CancelFunc),
 		wake:                 make(map[string]chan struct{}),
@@ -206,6 +212,8 @@ func (engine *Engine) Close() {
 	engine.configMu.Lock()
 	engine.cancel()
 	engine.configMu.Unlock()
+	engine.HuggingFace.Close()
+
 	engine.mu.Lock()
 
 	for _, cancel := range engine.running {

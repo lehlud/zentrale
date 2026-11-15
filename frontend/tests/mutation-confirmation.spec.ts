@@ -7,6 +7,7 @@ test("destructive actions keep their explanation and label together", () => {
     ["stopJob", {}, "Diesen Job", "Job beenden"],
     ["revokeRepositoryKey", {}, "Repo-Zugriff", "Zugriff widerrufen"],
     ["disconnectGitConnection", {}, "Zugang", "Trennen"],
+    ["disconnectHuggingFace", {}, "Zugang", "Trennen"],
     ["disconnectProvider", {}, "Zugang", "Trennen"],
     ["trustHostKey", { trust: "distrust" }, "Vertrauen", "Vertrauen entziehen"],
     ["deleteResource", { kind: "agent" }, "Agentenbaum", "Entfernen"],

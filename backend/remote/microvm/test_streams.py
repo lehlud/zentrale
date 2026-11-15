@@ -235,8 +235,20 @@ class StreamingTests(unittest.TestCase):
         reference = runner.process_reference()
         (self.control / "supervisor.pid").write_text(json.dumps(reference))
         original_read = os.read
+        original_sleep = time.sleep
 
         def recovered(_duration):
+            # This test replaces an idle supervisor, not an active stdin pump.
+            # Wait for its real EOF marker before removing the mailbox; otherwise
+            # the input thread can create stdin.eof during shutil.rmtree.
+            deadline = time.monotonic() + 2
+
+            while not (self.job / "stdin.eof").exists():
+                if time.monotonic() >= deadline:
+                    self.fail("stdin pump did not finish before simulated recovery")
+
+                original_sleep(0.001)
+
             shutil.rmtree(self.job)
             (self.control / "supervisor.pid").write_text(
                 json.dumps(dict(reference, started="replacement"))

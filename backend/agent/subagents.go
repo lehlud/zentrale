@@ -75,7 +75,7 @@ func (engine *Engine) spawn(parent domain.Agent, arguments map[string]any) (any,
 	return child, engine.Prompt(child.ID, stringArg(arguments, "task"))
 }
 
-func (engine *Engine) inspectChildAgent(parent domain.Agent, childID string) (any, error) {
+func (engine *Engine) inspectChildAgent(parent domain.Agent, childID string, options ...map[string]any) (any, error) {
 	var child domain.Agent
 	if err := engine.Store.Load("agent", childID, &child); err != nil {
 		return nil, err
@@ -86,7 +86,34 @@ func (engine *Engine) inspectChildAgent(parent domain.Agent, childID string) (an
 		return nil, errors.New("agent is not a child of this agent")
 	}
 
-	history, err := engine.loadHistory(child.ID)
+	arguments := map[string]any{}
+	if len(options) > 0 {
+		arguments = options[0]
+	}
 
-	return map[string]any{"agent": child, "history": history}, err
+	if messageID := stringArg(arguments, "messageId"); messageID != "" {
+		return engine.threadMessage(child, messageID, arguments)
+	}
+
+	limit, err := outputInteger(arguments, "limit", 10, 1, 50)
+	if err != nil {
+		return nil, err
+	}
+
+	history, err := engine.Store.MessageExcerpts(child.ID, stringArg(arguments, "before"), stringArg(arguments, "search"), limit+1, 512)
+	if err != nil {
+		return nil, err
+	}
+
+	hasMore := len(history) > limit
+	if hasMore {
+		history = history[:limit]
+	}
+
+	next := ""
+	if len(history) > 0 {
+		next, _ = history[len(history)-1]["id"].(string)
+	}
+
+	return map[string]any{"agent": child, "history": history, "excerpts": true, "hasMore": hasMore, "nextCursor": next}, nil
 }

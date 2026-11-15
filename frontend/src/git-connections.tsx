@@ -2,6 +2,7 @@ import { Alert, Button, Card, Chip, Link, buttonVariants } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
 import { useAPI } from "./api";
+import { browserLoginRedirectURI } from "./browser-login";
 import { ResourceContent, useResourcePage } from "./resource-page";
 import { ActionsMenu } from "./actions-menu";
 import { CodeSnippet } from "./code-snippet";
@@ -10,15 +11,48 @@ import { useI18n } from "./preferences";
 import { Editor, Failure, Inspect, Loading } from "./ui";
 
 export const gitConnectionFields =
-  "id kind baseUrl clientId configured connected userName reauthorizationRequired";
+  "id kind name baseUrl clientId privateNetwork configured connected userName reauthorizationRequired";
 
 export const gitConnectionsQuery = `query{gitConnections{${gitConnectionFields}}}`;
 
 const loginFields =
-  "id connectionId verificationUrl userCode status expiresAt interval error";
+  "id connectionId method verificationUrl userCode status expiresAt interval error";
 
 export function gitName(kind: string) {
-  return kind === "github" ? "GitHub" : "GitLab";
+  const names: Record<string, string> = {
+    github: "GitHub",
+    gitlab: "GitLab",
+    gitea: "Gitea",
+    forgejo: "Forgejo",
+  };
+
+  return names[kind] ?? kind;
+}
+
+export function gitConnectionLabel(connection: GitConnection) {
+  if (connection.kind === "github" || connection.kind === "gitlab") {
+    return gitName(connection.kind);
+  }
+
+  const name = connection.name || gitName(connection.kind);
+  return connection.baseUrl
+    ? `${name} · ${new URL(connection.baseUrl).host}`
+    : name;
+}
+
+function newGitInstance(kind: string): GitConnection {
+  return {
+    id: "",
+    kind,
+    name: "",
+    baseUrl: "",
+    clientId: "",
+    privateNetwork: false,
+    configured: false,
+    connected: false,
+    userName: "",
+    reauthorizationRequired: false,
+  };
 }
 
 export function GitConnections() {
@@ -54,7 +88,9 @@ export function GitConnections() {
             <Card key={connection.id} variant="secondary">
               <Card.Content className="gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-medium">{gitName(connection.kind)}</h3>
+                  <h3 className="font-medium">
+                    {gitConnectionLabel(connection)}
+                  </h3>
                   <Chip
                     size="sm"
                     color={
@@ -108,7 +144,7 @@ export function GitConnections() {
                   )}
                   <ActionsMenu
                     label={t("Aktionen für {name}", {
-                      name: gitName(connection.kind),
+                      name: gitConnectionLabel(connection),
                     })}
                     isDisabled={resource.busy}
                     actions={[
@@ -145,9 +181,22 @@ export function GitConnections() {
           ))}
         </div>
       </ResourceContent>
+      <div className="flex flex-wrap gap-2">
+        {(["gitea", "forgejo"] as const).map((kind) => (
+          <Button
+            key={kind}
+            variant="secondary"
+            className="min-h-11"
+            onPress={() => setSelected({ connection: newGitInstance(kind) })}
+          >
+            {t("{name} hinzufügen", { name: gitName(kind) })}
+          </Button>
+        ))}
+      </div>
       {selected && (
         <GitConnect
           connection={selected.connection}
+          key={selected.connection.id || selected.connection.kind}
           configureOnly={selected.configure}
           onClose={() => setSelected(undefined)}
         />
@@ -168,6 +217,7 @@ export function GitConnect({
   const { t } = useI18n();
   const api = useAPI();
   const [current, setCurrent] = useState(connection);
+  const custom = connection.kind === "gitea" || connection.kind === "forgejo";
   const [configuring, setConfiguring] = useState(
     configureOnly || !connection.configured,
   );
@@ -176,24 +226,32 @@ export function GitConnect({
       <Editor
         title={t("{name} verbinden", { name: gitName(connection.kind) })}
         initial={{
+          id: current.id,
           kind: current.kind,
+          name: current.name,
           baseUrl: current.baseUrl,
           clientId: current.clientId,
           clientSecret: "",
+          privateNetwork: current.privateNetwork,
         }}
         fields={[
-          ...(connection.kind === "gitlab"
+          ...(custom
+            ? [{ key: "name", label: t("Name"), required: true }]
+            : []),
+          ...(connection.kind === "gitlab" || custom
             ? [
                 {
                   key: "baseUrl",
-                  label: t("GitLab-Adresse"),
+                  label: t(custom ? "Instanz-Adresse" : "GitLab-Adresse"),
                   required: true,
-                  placeholder: "https://gitlab.com",
+                  placeholder: custom
+                    ? "https://git.example.org"
+                    : "https://gitlab.com",
                 },
               ]
             : []),
           { key: "clientId", label: t("OAuth-App Client-ID"), required: true },
-          ...(connection.kind === "gitlab"
+          ...(connection.kind === "gitlab" || custom
             ? [
                 {
                   key: "clientSecret",
@@ -205,27 +263,61 @@ export function GitConnect({
                 },
               ]
             : []),
+          ...(custom
+            ? [
+                {
+                  key: "privateNetwork",
+                  type: "check" as const,
+                  label: t("Verbindungen ins private Netzwerk erlauben"),
+                  description: t(
+                    "Nur für eine vertrauenswürdige interne Git-Instanz aktivieren. Link-Local- und Metadaten-Adressen bleiben gesperrt.",
+                  ),
+                },
+              ]
+            : []),
         ]}
-        renderExtra={() => (
-          <p className="text-sm leading-6 text-muted">
-            {t(
-              connection.kind === "github"
-                ? "Einmalig eine eigene OAuth-App registrieren und den Device-Flow aktivieren."
-                : "Einmalig eine OAuth-App mit api-Berechtigung registrieren. GitLab muss den Device-Flow unterstützen.",
-            )}{" "}
-            <Link
-              href={
+        renderExtra={() =>
+          custom ? (
+            <div className="space-y-3 text-sm leading-6 text-muted">
+              <p>
+                {t(
+                  "Auf der Instanz eine eigene OAuth-App mit PKCE (S256) registrieren. Für öffentliche Clients ist kein Client-Secret nötig.",
+                )}
+              </p>
+              <CodeSnippet
+                text={browserLoginRedirectURI()}
+                label={t("OAuth-Callback-Adresse")}
+                wrap
+              />
+              <p>
+                {t(
+                  connection.kind === "gitea"
+                    ? "Gitea ab 1.23: Lesen des Profils sowie Schreibzugriff auf Repositories und Organisationen für Repository-Erstellung und Deploy-Keys."
+                    : "Forgejo schränkt OAuth-Tokens derzeit nicht über Scopes ein: Die Anmeldung gewährt breiten Account-Zugriff. Agenten erhalten nur Repository-Deploy-Keys.",
+                )}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm leading-6 text-muted">
+              {t(
                 connection.kind === "github"
-                  ? "https://github.com/settings/developers"
-                  : `${current.baseUrl}/-/user_settings/applications`
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {t("OAuth-App registrieren ↗")}
-            </Link>
-          </p>
-        )}
+                  ? "Einmalig eine eigene OAuth-App registrieren und den Device-Flow aktivieren."
+                  : "Einmalig eine OAuth-App mit api-Berechtigung registrieren. GitLab muss den Device-Flow unterstützen.",
+              )}{" "}
+              <Link
+                href={
+                  connection.kind === "github"
+                    ? "https://github.com/settings/developers"
+                    : `${current.baseUrl}/-/user_settings/applications`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t("OAuth-App registrieren ↗")}
+              </Link>
+            </p>
+          )
+        }
         onClose={onClose}
         closeOnSave={configureOnly}
         submitLabel={t(configureOnly ? "Speichern" : "Weiter zur Anmeldung")}
@@ -281,8 +373,11 @@ function GitDeviceLogin({
         attempt,
         connectionId: connection.id,
         promise: api.mutate(
-          `mutation($connectionId:String!){beginGitLogin(connectionId:$connectionId){${loginFields}}}`,
-          { connectionId: connection.id },
+          `mutation($connectionId:String!,$redirectUri:String){beginGitLogin(connectionId:$connectionId,redirectUri:$redirectUri){${loginFields}}}`,
+          {
+            connectionId: connection.id,
+            redirectUri: browserLoginRedirectURI(),
+          },
           { announce: false, refresh: false },
         ),
       };
@@ -350,7 +445,7 @@ function GitDeviceLogin({
 
   return (
     <Inspect
-      title={t("{name} verbinden", { name: gitName(connection.kind) })}
+      title={t("{name} verbinden", { name: gitConnectionLabel(connection) })}
       onClose={onClose}
     >
       <div className="space-y-5">
@@ -360,10 +455,18 @@ function GitDeviceLogin({
           <>
             <p className="text-sm leading-6 text-muted">
               {t(
-                "Diesen Code auf der Anmeldeseite eingeben. Die Zentrale erkennt die Anmeldung automatisch.",
+                login.method === "browser"
+                  ? "Auf der Anmeldeseite zustimmen. Die Zentrale erkennt die Anmeldung automatisch."
+                  : "Diesen Code auf der Anmeldeseite eingeben. Die Zentrale erkennt die Anmeldung automatisch.",
               )}
             </p>
-            <CodeSnippet text={login.userCode} label={t("Anmeldecode")} wrap />
+            {login.method !== "browser" && (
+              <CodeSnippet
+                text={login.userCode}
+                label={t("Anmeldecode")}
+                wrap
+              />
+            )}
             <Link
               className={buttonVariants({ className: "min-h-11" })}
               href={login.verificationUrl}

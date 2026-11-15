@@ -91,6 +91,18 @@ func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain
 		}
 
 		state["goal"] = goal
+		board, err := engine.CurrentTeamwork(agent.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		if board != nil && board.Status == "active" {
+			state["teamwork"], err = teamworkView(board, map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		state["questions"], err = engine.openQuestions(agent)
 		if err != nil {
 			return nil, err

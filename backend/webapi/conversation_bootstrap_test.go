@@ -150,6 +150,10 @@ func BenchmarkConversationSmallListsLargeHistory(b *testing.B) {
 
 func TestConversationQueriesDoNotGrowSQLCountWithHistory(t *testing.T) {
 	f := bootstrapFixture(t)
+
+	// Measure only these read-only queries, not the VM supervisor's periodic reads.
+	f.engine.Close()
+
 	queries := []string{
 		`query { projects(limit:500) { id name } }`,
 		`query { agents(projectId:"history-project",limit:500) { id projectId parentId approverId name role status } }`,

@@ -111,7 +111,12 @@ func (client *Client) get(
 		request.Header.Set("x-api-key", credential)
 		request.Header.Set("anthropic-version", "2023-06-01")
 	case "gemini":
-		request.Header.Set("x-goog-api-key", credential)
+		if provider.AuthMode == "oauth" && provider.OAuth != nil {
+			request.Header.Set("Authorization", "Bearer "+credential)
+			request.Header.Set("x-goog-user-project", provider.OAuthProjectID)
+		} else {
+			request.Header.Set("x-goog-api-key", credential)
+		}
 	default:
 		if credential != "" {
 			request.Header.Set("Authorization", "Bearer "+credential)

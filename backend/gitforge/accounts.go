@@ -15,6 +15,8 @@ import (
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/netguard"
+	"github.com/lehlud/zentrale/oauthflow"
 )
 
 type account struct {
@@ -30,9 +32,10 @@ type account struct {
 }
 
 type loginTransaction struct {
-	Public     domain.GitLogin `json:"public"`
-	DeviceCode string          `json:"deviceCode"`
-	NextPollAt time.Time       `json:"nextPollAt"`
+	Public      domain.GitLogin    `json:"public"`
+	DeviceCode  string             `json:"deviceCode"`
+	NextPollAt  time.Time          `json:"nextPollAt"`
+	BrowserFlow *oauthflow.Pending `json:"browserFlow,omitempty"`
 }
 
 type repositoryCache struct {
@@ -54,13 +57,14 @@ func New(store *datastore.Instance) *Service {
 }
 
 func (service *Service) account(id string) (account, error) {
-	if id != "github" && id != "gitlab" {
-		return account{}, errors.New("unknown Git connection")
+	value := account{Public: domain.GitConnection{ID: id, Kind: id, BaseURL: "https://" + id + ".com"}}
+	err := service.loadAccount(id, &value)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return value, err
 	}
 
-	value := account{Public: domain.GitConnection{ID: id, Kind: id, BaseURL: "https://" + id + ".com"}}
-	if err := service.Store.Load("git_account", id, &value); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return value, err
+	if errors.Is(err, sql.ErrNoRows) && id != "github" && id != "gitlab" {
+		return account{}, errors.New("unknown Git connection")
 	}
 
 	prefix := strings.ToUpper(id)
@@ -89,16 +93,17 @@ func (service *Service) account(id string) (account, error) {
 	return value, nil
 }
 
-func (service *Service) save(value account) error {
-	return service.Store.Save("git_account", value.Public.ID, "", value)
-}
-
 func (service *Service) Connections() ([]domain.GitConnection, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
+	ids, err := service.connectionIDs()
+	if err != nil {
+		return nil, err
+	}
+
 	result := []domain.GitConnection{}
-	for _, id := range []string{"github", "gitlab"} {
+	for _, id := range ids {
 		value, err := service.account(id)
 		if err != nil {
 			return nil, err
@@ -114,7 +119,7 @@ func (service *Service) Configure(input domain.GitConnectionConfig) (domain.GitC
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	value, err := service.account(input.Kind)
+	value, err := service.accountForConfiguration(input)
 	if err != nil {
 		return domain.GitConnection{}, err
 	}
@@ -125,11 +130,23 @@ func (service *Service) Configure(input domain.GitConnectionConfig) (domain.GitC
 		return value.Public, errors.New("OAuth client ID is required")
 	}
 
-	if input.BaseURL == "" {
+	if input.BaseURL == "" && !isForge(input.Kind) {
 		input.BaseURL = "https://" + input.Kind + ".com"
 	}
 
 	input.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	if isForge(input.Kind) {
+		origin, err := netguard.Origin(input.BaseURL)
+		if err != nil {
+			return value.Public, err
+		}
+
+		input.BaseURL = origin
+		if value.Public.Configured && value.Public.BaseURL != origin {
+			return value.Public, errors.New("create a separate connection for another Git instance")
+		}
+	}
+
 	address, err := url.Parse(input.BaseURL)
 	local := address != nil &&
 		(address.Hostname() == "localhost" ||
@@ -159,13 +176,16 @@ func (service *Service) Configure(input domain.GitConnectionConfig) (domain.GitC
 	}
 
 	value.Public.ClientID, value.Public.BaseURL = input.ClientID, input.BaseURL
+	value.Public.Name = strings.TrimSpace(input.Name)
+	value.Public.PrivateNetwork = isForge(input.Kind) && input.PrivateNetwork
+	value.Login = nil
 
 	if input.ClientSecret != "" {
 		value.Secret = input.ClientSecret
 	}
 
 	value.Public.Configured = true
-	delete(service.cache, input.Kind)
+	delete(service.cache, value.Public.ID)
 
 	return value.Public, service.save(value)
 }
@@ -181,6 +201,10 @@ func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, 
 
 	if !value.Public.Configured {
 		return domain.GitLogin{}, errors.New("configure the OAuth app client ID first")
+	}
+
+	if isForge(value.Public.Kind) {
+		return service.beginBrowser(ctx, value)
 	}
 
 	path, scopes := "/login/device/code", "repo read:org workflow"
@@ -234,6 +258,7 @@ func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, 
 	login := domain.GitLogin{
 		ID:              domain.NewID(),
 		ConnectionID:    id,
+		Method:          "device",
 		VerificationURL: verification,
 		UserCode:        text(response["user_code"]),
 		Status:          "pending",
@@ -269,9 +294,30 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 	}
 
 	if !service.Now().Before(transaction.Public.ExpiresAt) {
+		if transaction.BrowserFlow != nil && value.Public.UserName == "" {
+			value.AccessToken = ""
+			value.RefreshToken = ""
+			value.TokenExpiry = time.Time{}
+		}
+
 		transaction.Public.Status, transaction.Public.Error = "expired", "Git login expired; start again"
 		transaction.DeviceCode = ""
+		transaction.BrowserFlow = nil
 		return transaction.Public, service.save(value)
+	}
+
+	if transaction.BrowserFlow != nil {
+		if err := service.browserSessionValid(transaction.BrowserFlow.Owner); err != nil {
+			return service.rejectBrowser(&value)
+		}
+
+		if transaction.BrowserFlow.Verifier != "" {
+			return transaction.Public, nil
+		}
+
+		if value.AccessToken == "" {
+			return service.rejectBrowser(&value)
+		}
 	}
 
 	if service.Now().Before(transaction.NextPollAt) {
@@ -279,6 +325,7 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 	}
 
 	if transaction.DeviceCode == "" && value.AccessToken != "" {
+		transaction.NextPollAt = service.Now().Add(5 * time.Second)
 		return service.finishLogin(ctx, &value)
 	}
 
@@ -342,11 +389,11 @@ func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.Gi
 
 func (service *Service) finishLogin(ctx context.Context, value *account) (domain.GitLogin, error) {
 	var user map[string]any
-	if err := service.Client.request(
+	if err := service.Client.accountRequest(
 		ctx,
+		*value,
 		"GET",
 		service.Client.apiRoot(*value)+"/user",
-		value.AccessToken,
 		nil,
 		false,
 		&user,
@@ -359,8 +406,15 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 		}
 		return value.Login.Public, err
 	}
+
 	if ctx.Err() != nil {
 		return value.Login.Public, ctx.Err()
+	}
+
+	if value.Login.BrowserFlow != nil {
+		if err := service.browserSessionValid(value.Login.BrowserFlow.Owner); err != nil {
+			return service.rejectBrowser(value)
+		}
 	}
 
 	value.Public.UserName = text(user["login"])
@@ -372,6 +426,7 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 	if value.Public.UserName == "" {
 		return value.Login.Public, errors.New("Git provider returned no account identity")
 	}
+
 	if value.Public.Kind == "github" && !slices.Contains(value.Scopes, "workflow") {
 		value.Login.Public.Status = "failed"
 		value.Login.Public.Error = "GitHub workflow permission was not granted; sign in again and approve workflow access"
@@ -380,6 +435,7 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 
 	value.Public.Connected, value.Login.Public.Status = true, "connected"
 	value.Login.Public.Error = ""
+	value.Login.BrowserFlow = nil
 	delete(service.cache, value.Public.ID)
 
 	return value.Login.Public, service.save(*value)
@@ -401,9 +457,6 @@ func (service *Service) PendingLogin(id string) (*domain.GitLogin, error) {
 }
 
 func (service *Service) Login(id, loginID string) (*domain.GitLogin, error) {
-	if id != "github" && id != "gitlab" {
-		return nil, errors.New("unknown Git connection")
-	}
 	var value account
 	if err := service.Store.Load("git_account", id, &value); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -435,6 +488,7 @@ func (service *Service) EndLogin(id, loginID, status string) error {
 		value.TokenExpiry = time.Time{}
 	}
 	value.Login.DeviceCode = ""
+	value.Login.BrowserFlow = nil
 	value.Login.Public.Status = status
 	value.Login.Public.Error = ""
 	if status == "cancelled" {
@@ -508,6 +562,16 @@ func (service *Service) authenticated(ctx context.Context, id string) (account, 
 	}
 
 	if text(response["error"]) != "" {
+		if code := text(response["error"]); code == "invalid_grant" || code == "invalid_token" || code == "access_denied" {
+			value.AccessToken = ""
+			value.RefreshToken = ""
+			value.Public.Connected = false
+			delete(service.cache, id)
+			if err := service.save(value); err != nil {
+				return value, err
+			}
+		}
+
 		return value, errors.New("Git account session could not be refreshed; reconnect")
 	}
 

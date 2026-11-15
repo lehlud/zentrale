@@ -3,10 +3,12 @@ package domain
 import "time"
 
 type GitConnection struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	BaseURL  string `json:"baseUrl"`
-	ClientID string `json:"clientId"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	BaseURL        string `json:"baseUrl"`
+	ClientID       string `json:"clientId"`
+	PrivateNetwork bool   `json:"privateNetwork"`
 
 	Configured bool   `json:"configured"`
 	Connected  bool   `json:"connected"`
@@ -16,15 +18,19 @@ type GitConnection struct {
 }
 
 type GitConnectionConfig struct {
-	Kind         string `json:"kind"`
-	BaseURL      string `json:"baseUrl"`
-	ClientID     string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	BaseURL        string `json:"baseUrl"`
+	ClientID       string `json:"clientId"`
+	ClientSecret   string `json:"clientSecret"`
+	PrivateNetwork bool   `json:"privateNetwork"`
 }
 
 type GitLogin struct {
 	ID           string `json:"id"`
 	ConnectionID string `json:"connectionId"`
+	Method       string `json:"method"`
 
 	VerificationURL string `json:"verificationUrl"`
 	UserCode        string `json:"userCode"`

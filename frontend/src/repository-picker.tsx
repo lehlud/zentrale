@@ -21,7 +21,11 @@ import type {
   GitRepository,
   GitRepositoryPage,
 } from "./generated";
-import { GitConnect, gitConnectionsQuery, gitName } from "./git-connections";
+import {
+  GitConnect,
+  gitConnectionsQuery,
+  gitConnectionLabel,
+} from "./git-connections";
 import { useI18n } from "./preferences";
 import { Editor, Empty, Failure, Loading } from "./ui";
 import { Icon } from "./icons";
@@ -134,10 +138,10 @@ export function RepositoryPicker({
                     <ListBox.Item
                       id={entry.id}
                       key={entry.id}
-                      textValue={gitName(entry.kind)}
+                      textValue={gitConnectionLabel(entry)}
                       className="min-h-11"
                     >
-                      <Label>{gitName(entry.kind)}</Label>
+                      <Label>{gitConnectionLabel(entry)}</Label>
                       <ListBox.ItemIndicator />
                     </ListBox.Item>
                   ))}
@@ -170,7 +174,9 @@ export function RepositoryPicker({
                 className="min-h-11"
                 onPress={() => setConnecting(true)}
               >
-                {t("{name} verbinden", { name: gitName(connection.kind) })}
+                {t("{name} verbinden", {
+                  name: gitConnectionLabel(connection),
+                })}
               </Button>
             )}
           </>

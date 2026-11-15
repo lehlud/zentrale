@@ -18,12 +18,17 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/netguard"
 )
 
 type Client struct {
 	HTTP          *http.Client
 	GitHubAuthURL string
 	GitHubAPIURL  string
+	// ForgeHTTP is an optional transport override for isolated adapter tests.
+	ForgeHTTP        *http.Client
+	publicForgeHTTP  *http.Client
+	privateForgeHTTP *http.Client
 
 	hostKeyMu sync.Mutex
 	hostKeys  []ssh.PublicKey
@@ -42,8 +47,10 @@ func NewClient() *Client {
 				return nil
 			},
 		},
-		GitHubAuthURL: "https://github.com",
-		GitHubAPIURL:  "https://api.github.com",
+		GitHubAuthURL:    "https://github.com",
+		GitHubAPIURL:     "https://api.github.com",
+		publicForgeHTTP:  netguard.HTTPClient(false),
+		privateForgeHTTP: netguard.HTTPClient(true),
 	}
 }
 
@@ -58,6 +65,53 @@ func (failure *APIError) Error() string {
 
 func (client *Client) request(
 	ctx context.Context,
+	method, address, token string,
+	body any,
+	form bool,
+	result any,
+) error {
+	return client.requestWithHTTP(ctx, client.HTTP, method, address, token, body, form, result)
+}
+
+func (client *Client) accountRequest(
+	ctx context.Context,
+	value account,
+	method, address string,
+	body any,
+	form bool,
+	result any,
+) error {
+	transport := client.HTTP
+	if isForge(value.Public.Kind) {
+		root, rootError := url.Parse(value.Public.BaseURL)
+		target, targetError := url.Parse(address)
+		if rootError != nil || targetError != nil || target.Scheme != root.Scheme ||
+			target.Host != root.Host || target.User != nil || target.Fragment != "" {
+			return errors.New("Git request must stay on the configured instance")
+		}
+
+		transport = client.publicForgeHTTP
+		if value.Public.PrivateNetwork {
+			transport = client.privateForgeHTTP
+		}
+
+		if client.ForgeHTTP != nil {
+			transport = client.ForgeHTTP
+		}
+	}
+
+	err := client.requestWithHTTP(ctx, transport, method, address, value.AccessToken, body, form, result)
+	var failure *APIError
+	if isForge(value.Public.Kind) && errors.As(err, &failure) {
+		return &APIError{Status: failure.Status, Message: http.StatusText(failure.Status)}
+	}
+
+	return err
+}
+
+func (client *Client) requestWithHTTP(
+	ctx context.Context,
+	transport *http.Client,
 	method, address, token string,
 	body any,
 	form bool,
@@ -90,9 +144,9 @@ func (client *Client) request(
 	}
 
 	request.Header.Set("X-GitHub-Api-Version", "2026-03-10")
-	response, err := client.HTTP.Do(request)
+	response, err := transport.Do(request)
 	if err != nil {
-		return err
+		return errors.New("Git service request failed")
 	}
 	defer response.Body.Close()
 
@@ -130,7 +184,7 @@ func (client *Client) request(
 		}
 
 		if values, ok := body.(url.Values); ok {
-			for _, name := range []string{"client_secret", "device_code", "refresh_token"} {
+			for _, name := range []string{"client_secret", "device_code", "refresh_token", "code", "code_verifier"} {
 				if secret := values.Get(name); secret != "" {
 					message = strings.ReplaceAll(message, secret, "[redacted]")
 				}
@@ -183,11 +237,15 @@ func (client *Client) apiRoot(account account) string {
 		return strings.TrimRight(client.GitHubAPIURL, "/")
 	}
 
+	if isForge(account.Public.Kind) {
+		return account.Public.BaseURL + "/api/v1"
+	}
+
 	return account.Public.BaseURL + "/api/v4"
 }
 
 func (client *Client) tokenURL(account account) string {
-	if account.Public.Kind == "github" {
+	if account.Public.Kind == "github" || isForge(account.Public.Kind) {
 		return client.authRoot(account) + "/login/oauth/access_token"
 	}
 
@@ -202,7 +260,8 @@ func (client *Client) oauth(ctx context.Context, account account, values url.Val
 	}
 
 	var result map[string]any
-	err := client.request(ctx, http.MethodPost, client.tokenURL(account), "", values, true, &result)
+	account.AccessToken = ""
+	err := client.accountRequest(ctx, account, http.MethodPost, client.tokenURL(account), values, true, &result)
 	// Device-flow pending/denied responses can use HTTP 400; their OAuth error
 	// code must be interpreted rather than being mistaken for a transport error.
 	var failure *APIError
@@ -217,7 +276,7 @@ func normalizeRepository(kind string, data map[string]any) domain.GitRepository 
 	repository := domain.GitRepository{Name: text(data["name"]), Identity: strconv.Itoa(number(data["id"]))}
 	permissions := object(data["permissions"])
 
-	if kind == "github" {
+	if kind == "github" || isForge(kind) {
 		repository.ID, repository.FullName = text(data["full_name"]), text(data["full_name"])
 		repository.SSHURL, repository.WebURL = text(data["ssh_url"]), text(data["html_url"])
 		repository.Private, _ = data["private"].(bool)
@@ -251,7 +310,7 @@ func repositoryPath(kind, reference string) (string, error) {
 		parts[0] == ".." ||
 		parts[1] == "." ||
 		parts[1] == ".." {
-		return "", errors.New("invalid GitHub repository identifier")
+		return "", errors.New("invalid Git repository identifier")
 	}
 
 	return "/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]), nil
@@ -268,7 +327,7 @@ func (client *Client) repository(
 	}
 
 	var data map[string]any
-	err = client.request(ctx, http.MethodGet, client.apiRoot(account)+path, account.AccessToken, nil, false, &data)
+	err = client.accountRequest(ctx, account, http.MethodGet, client.apiRoot(account)+path, nil, false, &data)
 
 	return normalizeRepository(account.Public.Kind, data), err
 }
@@ -285,8 +344,12 @@ func (client *Client) repositories(ctx context.Context, account account) ([]doma
 			)
 		}
 
+		if isForge(account.Public.Kind) {
+			path = fmt.Sprintf("/user/repos?limit=100&page=%d", page)
+		}
+
 		var rows []map[string]any
-		if err := client.request(ctx, http.MethodGet, client.apiRoot(account)+path, account.AccessToken, nil, false, &rows); err != nil {
+		if err := client.accountRequest(ctx, account, http.MethodGet, client.apiRoot(account)+path, nil, false, &rows); err != nil {
 			return nil, err
 		}
 
@@ -300,7 +363,7 @@ func (client *Client) repositories(ctx context.Context, account account) ([]doma
 			result = append(result, repository)
 		}
 
-		if len(rows) < 100 {
+		if len(rows) == 0 || (!isForge(account.Public.Kind) && len(rows) < 100) {
 			return result, nil
 		}
 	}
@@ -311,7 +374,7 @@ func (client *Client) repositories(ctx context.Context, account account) ([]doma
 func (client *Client) namespaces(ctx context.Context, account account) ([]domain.GitNamespace, error) {
 	result := []domain.GitNamespace{}
 
-	if account.Public.Kind == "github" {
+	if account.Public.Kind == "github" || isForge(account.Public.Kind) {
 		result = append(result, domain.GitNamespace{
 			ID:       account.Public.UserName,
 			Name:     account.Public.UserName,
@@ -326,14 +389,25 @@ func (client *Client) namespaces(ctx context.Context, account account) ([]domain
 			path = fmt.Sprintf("/namespaces?per_page=100&page=%d", page)
 		}
 
+		if isForge(account.Public.Kind) {
+			path = fmt.Sprintf("/user/orgs?limit=100&page=%d", page)
+		}
+
 		var rows []map[string]any
-		if err := client.request(ctx, http.MethodGet, client.apiRoot(account)+path, account.AccessToken, nil, false, &rows); err != nil {
+		if err := client.accountRequest(ctx, account, http.MethodGet, client.apiRoot(account)+path, nil, false, &rows); err != nil {
 			return nil, err
 		}
 
 		for _, row := range rows {
-			if account.Public.Kind == "github" {
+			if account.Public.Kind == "github" || isForge(account.Public.Kind) {
 				name := text(row["login"])
+				if isForge(account.Public.Kind) {
+					name = text(row["username"])
+					if name == "" {
+						name = text(row["name"])
+					}
+				}
+
 				result = append(result, domain.GitNamespace{ID: name, Name: name})
 			} else {
 				result = append(
@@ -347,7 +421,7 @@ func (client *Client) namespaces(ctx context.Context, account account) ([]domain
 			}
 		}
 
-		if len(rows) < 100 {
+		if len(rows) == 0 || (!isForge(account.Public.Kind) && len(rows) < 100) {
 			return result, nil
 		}
 	}
@@ -368,7 +442,7 @@ func (client *Client) createRepository(
 		"auto_init":   false,
 	}
 
-	if account.Public.Kind == "github" && input.NamespaceID != account.Public.UserName {
+	if (account.Public.Kind == "github" || isForge(account.Public.Kind)) && input.NamespaceID != account.Public.UserName {
 		path = "/orgs/" + url.PathEscape(input.NamespaceID) + "/repos"
 	}
 
@@ -395,7 +469,7 @@ func (client *Client) createRepository(
 	}
 
 	var data map[string]any
-	err := client.request(ctx, http.MethodPost, client.apiRoot(account)+path, account.AccessToken, body, false, &data)
+	err := client.accountRequest(ctx, account, http.MethodPost, client.apiRoot(account)+path, body, false, &data)
 
 	return normalizeRepository(account.Public.Kind, data), err
 }

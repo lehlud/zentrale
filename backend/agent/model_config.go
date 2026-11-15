@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/providerlogin"
 )
 
 type inferenceConfig struct {
@@ -83,6 +84,10 @@ func (engine *Engine) validateModelChoice(choice domain.ModelChoice) (domain.Lan
 		provider.AuthMode == "browser") &&
 		provider.Credential == "" &&
 		provider.OAuth == nil {
+		return domain.LanguageModel{}, errors.New("sign in to this provider first")
+	}
+
+	if provider.AuthMode == "oauth" && !provider.Connected {
 		return domain.LanguageModel{}, errors.New("sign in to this provider first")
 	}
 
@@ -177,8 +182,34 @@ func (engine *Engine) providerWithCredentials(ctx context.Context, providerID st
 	defer engine.accountMu.Unlock()
 
 	var provider domain.Provider
-	if err := engine.Store.Load("provider", providerID, &provider); err != nil {
+	if err := engine.loadProvider(providerID, &provider); err != nil {
 		return provider, err
+	}
+
+	if provider.AuthMode == "oauth" {
+		if provider.OAuth == nil {
+			return provider, errors.New("sign in to this provider first")
+		}
+
+		if time.Until(provider.OAuth.ExpiresAt) < time.Minute {
+			tokens, err := engine.AccountLogin.RefreshGoogle(ctx, provider)
+			if err != nil {
+				if errors.Is(err, providerlogin.ErrGoogleReauthorization) {
+					provider.OAuth = nil
+					provider.CatalogStatus = "disconnected"
+					if saveErr := engine.saveProvider(provider); saveErr != nil {
+						return provider, saveErr
+					}
+				}
+
+				return provider, err
+			}
+
+			provider.OAuth = tokens
+			if err := engine.saveProvider(provider); err != nil {
+				return provider, err
+			}
+		}
 	}
 
 	if provider.AuthMode == "device" {

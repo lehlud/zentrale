@@ -135,6 +135,21 @@ func Validate(configuration *domain.Provider) error {
 		return errors.New("billing mode must be metered or fixed")
 	}
 
+	if configuration.AuthMode == "oauth" {
+		if configuration.BaseURL != defaults["gemini"] {
+			return errors.New("Google OAuth only supports the official Gemini API endpoint")
+		}
+
+		if configuration.BillingMode != "metered" {
+			return errors.New("Google API OAuth uses metered API billing, not a consumer subscription")
+		}
+
+		if configuration.OAuthClientID == "" || configuration.OAuthProjectID == "" ||
+			strings.ContainsAny(configuration.OAuthClientID+configuration.OAuthProjectID, "\r\n\x00") {
+			return errors.New("Google OAuth client ID and API project are required")
+		}
+	}
+
 	u, err := url.Parse(configuration.BaseURL)
 	if err != nil ||
 		u.Host == "" ||
@@ -195,7 +210,12 @@ func (client *HTTPClient) post(
 		req.Header.Set("x-api-key", credential)
 		req.Header.Set("anthropic-version", "2023-06-01")
 	} else if configuration.Kind == "gemini" {
-		req.Header.Set("x-goog-api-key", credential)
+		if configuration.AuthMode == "oauth" && configuration.OAuth != nil {
+			req.Header.Set("Authorization", "Bearer "+credential)
+			req.Header.Set("x-goog-user-project", configuration.OAuthProjectID)
+		} else {
+			req.Header.Set("x-goog-api-key", credential)
+		}
 	} else if credential != "" {
 		req.Header.Set("Authorization", "Bearer "+credential)
 	}

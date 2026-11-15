@@ -12,6 +12,19 @@ import (
 func (builder *schemaBuilder) queries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["teamwork"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.Teamwork]()),
+		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			board, err := server.Engine.CurrentTeamwork(params.Args["agentId"].(string))
+			if board == nil || err != nil {
+				return nil, err
+			}
+
+			return mapOf(*board), nil
+		}),
+	}
+
 	queries["goalHistory"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.Goal]())),
 		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
@@ -206,6 +219,12 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 
 				if kind == "provider" {
 					for _, row := range rows {
+						if row["authMode"] == "oauth" {
+							delete(row, "oauth")
+							delete(row, "credential")
+							continue
+						}
+
 						credential, _ := row["credential"].(string)
 						oauth, _ := row["oauth"].(map[string]any)
 						row["connected"] = row["catalogStatus"] == "ready" ||
@@ -311,6 +330,10 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 	}
 
 	for name, field := range builder.gitQueries() {
+		queries[name] = field
+	}
+
+	for name, field := range builder.huggingFaceQueries() {
 		queries[name] = field
 	}
 

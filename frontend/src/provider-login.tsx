@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAPI } from "./api";
+import { browserLoginRedirectURI } from "./browser-login";
 import type { Provider, ProviderLogin } from "./generated";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
@@ -38,6 +39,15 @@ export function ProviderSignIn({
   const codeInput = useRef<HTMLInputElement>(null);
   const finishButton = useRef<HTMLButtonElement>(null);
   const action = useAction();
+  const request = useRef<
+    | {
+        attempt: number;
+        providerId: string;
+        promise: Promise<{ beginProviderLogin: ProviderLogin }>;
+      }
+    | undefined
+  >(undefined);
+  const lifecycle = useRef(0);
   const cancel = useCallback(
     (id: string) =>
       api
@@ -48,20 +58,29 @@ export function ProviderSignIn({
 
   useEffect(() => {
     let active = true;
-    let sessionId = "";
+    const generation = ++lifecycle.current;
     setLogin(undefined);
     setError("");
     setCode("");
     setCopied(false);
-    api
-      .query<{ beginProviderLogin: ProviderLogin }>(
-        `mutation($providerId:String!){beginProviderLogin(providerId:$providerId){${loginFields}}}`,
-        { providerId: provider.id },
-      )
+    if (
+      request.current?.attempt !== attempt ||
+      request.current.providerId !== provider.id
+    ) {
+      request.current = {
+        attempt,
+        providerId: provider.id,
+        promise: api.query<{ beginProviderLogin: ProviderLogin }>(
+          `mutation($providerId:String!,$redirectUri:String){beginProviderLogin(providerId:$providerId,redirectUri:$redirectUri){${loginFields}}}`,
+          { providerId: provider.id, redirectUri: browserLoginRedirectURI() },
+        ),
+      };
+    }
+
+    const promise = request.current.promise;
+    promise
       .then((result) => {
-        sessionId = result.beginProviderLogin.id;
         if (active) setLogin(result.beginProviderLogin);
-        else void cancel(sessionId);
       })
       .catch((error: Error) => {
         if (active) setError(error.message);
@@ -69,7 +88,18 @@ export function ProviderSignIn({
 
     return () => {
       active = false;
-      if (sessionId) void cancel(sessionId);
+      queueMicrotask(() => {
+        if (
+          lifecycle.current !== generation &&
+          request.current?.promise === promise
+        ) {
+          return;
+        }
+
+        void promise
+          .then((result) => cancel(result.beginProviderLogin.id))
+          .catch(() => {});
+      });
     };
   }, [api, provider.id, attempt, cancel]);
 
@@ -125,7 +155,9 @@ export function ProviderSignIn({
             {t(
               login.method === "device"
                 ? "Diesen Code auf der Anmeldeseite eingeben. Die Zentrale erkennt die Anmeldung automatisch."
-                : "Bei OpenRouter anmelden und den angezeigten Code hier einfügen.",
+                : login.method === "oauth"
+                  ? "Auf der Anmeldeseite zustimmen. Die Zentrale erkennt die Anmeldung automatisch."
+                  : "Bei OpenRouter anmelden und den angezeigten Code hier einfügen.",
             )}
           </p>
           {login.userCode && (
@@ -163,7 +195,7 @@ export function ProviderSignIn({
           >
             {t("Anmeldeseite öffnen ↗")}
           </Link>
-          {login.method === "device" ? (
+          {login.method === "device" || login.method === "oauth" ? (
             <p role="status" className="text-sm text-muted">
               {t("Warte auf Anmeldung im Browser …")}
             </p>

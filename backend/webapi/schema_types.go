@@ -87,7 +87,7 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 	for index := 0; index < goType.NumField(); index++ {
 		field := goType.Field(index)
 		name := strings.Split(field.Tag.Get("json"), ",")[0]
-		if name == "" || name == "-" || name == "credential" || name == "oauth" {
+		if name == "" || name == "-" || name == "credential" || name == "oauth" || name == "oauthClientSecret" {
 			continue
 		}
 

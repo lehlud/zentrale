@@ -43,6 +43,7 @@ type executionRequest struct {
 	Command        string
 	DisplayCommand string
 	Input          io.Reader
+	OpenInput      func(context.Context) (io.ReadCloser, error)
 
 	Network           bool
 	OutsideSandbox    bool
@@ -91,7 +92,11 @@ func (engine *Engine) executeRemote(
 		return nil, errors.New("invalid command")
 	}
 
-	if request.Interactive && (request.Input != nil || len(command) > 64000) {
+	if request.Input != nil && request.OpenInput != nil {
+		return nil, errors.New("commands must choose one stdin source")
+	}
+
+	if request.Interactive && (request.Input != nil || request.OpenInput != nil || len(command) > 64000) {
 		return nil, errors.New("interactive commands must be at most 64 KB and cannot use a fixed stdin payload")
 	}
 
@@ -306,41 +311,43 @@ func (engine *Engine) runJob(
 		engine.monitorOccupancy(ctx, running, machine, connection)
 	}()
 	lastPublished := time.Time{}
-	output, runError := remote.RunStreamingInput(ctx, connection.Client, command, input, running.input != nil, func(output string) {
-		running.mu.Lock()
-		running.job.Output = output
-		publish := time.Since(lastPublished) >= 500*time.Millisecond
-		snapshot := running.job
-		var window remote.OutputWindow
+	output, runError := runWithJobInput(ctx, input, running.execution.OpenInput, func(input io.Reader) (string, error) {
+		return remote.RunStreamingInput(ctx, connection.Client, command, input, running.input != nil, func(output string) {
+			running.mu.Lock()
+			running.job.Output = output
+			publish := time.Since(lastPublished) >= 500*time.Millisecond
+			snapshot := running.job
+			var window remote.OutputWindow
 
-		if publish {
-			lastPublished = time.Now()
-			window = running.output.Window()
-		}
+			if publish {
+				lastPublished = time.Now()
+				window = running.output.Window()
+			}
 
-		running.mu.Unlock()
+			running.mu.Unlock()
 
-		if publish {
-			_ = engine.Store.Save("job", snapshot.ID, snapshot.AgentID, snapshot)
-			_ = engine.Store.Save(
-				"job_output",
-				snapshot.ID,
-				snapshot.AgentID,
-				jobOutputCheckpoint{
-					ID:      snapshot.ID,
-					AgentID: snapshot.AgentID,
-					Window:  window,
-				},
-			)
+			if publish {
+				_ = engine.Store.Save("job", snapshot.ID, snapshot.AgentID, snapshot)
+				_ = engine.Store.Save(
+					"job_output",
+					snapshot.ID,
+					snapshot.AgentID,
+					jobOutputCheckpoint{
+						ID:      snapshot.ID,
+						AgentID: snapshot.AgentID,
+						Window:  window,
+					},
+				)
 
-			engine.Emit("job", snapshot.AgentID, snapshot)
-		}
-	}, func(chunk []byte) {
-		running.mu.Lock()
-		_, _ = running.output.Write(chunk)
-		close(running.changed)
-		running.changed = make(chan struct{})
-		running.mu.Unlock()
+				engine.Emit("job", snapshot.AgentID, snapshot)
+			}
+		}, func(chunk []byte) {
+			running.mu.Lock()
+			_, _ = running.output.Write(chunk)
+			close(running.changed)
+			running.changed = make(chan struct{})
+			running.mu.Unlock()
+		})
 	})
 
 	commandCancelled := ctx.Err() != nil
@@ -354,7 +361,10 @@ func (engine *Engine) runJob(
 		running.job.Status = "failed"
 		running.job.Error = runError.Error()
 		var exitStatus *ssh.ExitError
-		connectionLost := !commandCancelled && !errors.As(runError, &exitStatus)
+		var inputFailure *jobInputError
+		connectionLost := !commandCancelled &&
+			!errors.As(runError, &exitStatus) &&
+			!errors.As(runError, &inputFailure)
 		if connectionLost && running.terminationReason == "" {
 			running.terminationReason = "remote command connection was lost"
 		}

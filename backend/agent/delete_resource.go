@@ -54,8 +54,17 @@ func (engine *Engine) Delete(kind, id string) error {
 		defer engine.accountMu.Unlock()
 
 		engine.catalogRevisions[id]++
+		engine.stopLoginPolling("provider:"+id, "")
 
-		for _, collection := range []string{"model", "model_metadata", "provider_login"} {
+		if err := engine.clearProviderLogins(id); err != nil {
+			return err
+		}
+
+		if err := engine.Store.DeleteCredential("google_provider/" + id); err != nil {
+			return err
+		}
+
+		for _, collection := range []string{"model", "model_metadata"} {
 			if err := engine.Store.ReplaceCollection(collection, id, nil); err != nil {
 				return err
 			}

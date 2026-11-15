@@ -112,7 +112,14 @@ func (builder *schemaBuilder) gitMutations() graphql.Fields {
 					return nil, err
 				}
 
-				engine.StopGitLogin(input.Kind)
+				connectionID := input.ID
+				if connectionID == "" && (input.Kind == "github" || input.Kind == "gitlab") {
+					connectionID = input.Kind
+				}
+
+				if connectionID != "" {
+					engine.StopGitLogin(connectionID)
+				}
 				value, err := service().Configure(input)
 
 				return mapOf(value), err
@@ -121,13 +128,20 @@ func (builder *schemaBuilder) gitMutations() graphql.Fields {
 
 		"beginGitLogin": &graphql.Field{
 			Type: builder.output(reflect.TypeFor[domain.GitLogin]()),
-			Args: gitStringArgs("connectionId"),
+			Args: browserGitLoginArgs(),
 
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				value, err := engine.BeginGitLogin(params.Context, params.Args["connectionId"].(string))
+				ctx, err := browserLoginContext(params.Context, params.Args["redirectUri"].(string))
+				if err != nil {
+					return nil, err
+				}
+
+				value, err := engine.BeginGitLogin(ctx, params.Args["connectionId"].(string))
 				return mapOf(value), err
 			}),
 		},
+
+		"completeBrowserLogin": builder.completeBrowserLogin(),
 
 		"pollGitLogin": &graphql.Field{
 			Type: builder.output(reflect.TypeFor[domain.GitLogin]()),

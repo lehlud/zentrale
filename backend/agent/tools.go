@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/huggingface"
 	"github.com/lehlud/zentrale/providers"
 )
 
@@ -29,39 +30,42 @@ const (
 // One policy catalog drives dispatch, command-lifetime validation and code-mode
 // discovery. Native/harness argument decoding remains a transport concern.
 var toolPolicies = map[string]toolPolicy{
-	"apply_patch":        {},
-	"read_file":          {Review: reviewReadSnapshot},
-	"list_files":         {},
-	"write_file":         {},
-	"delete_file":        {},
-	"exec":               {CommandLifetime: true},
-	"python":             {CommandLifetime: true},
-	"venv_create":        {CommandLifetime: true},
-	"packages_install":   {RequiresNetwork: true, CommandLifetime: true},
-	"microvm_reset":      {},
-	"microvm_info":       {},
-	"container":          {CommandLifetime: true},
-	"websearch":          {RequiresNetwork: true},
-	"webfetch":           {RequiresNetwork: true},
-	"github":             {RequiresNetwork: true},
-	"clone_source":       {RequiresNetwork: true, CommandLifetime: true},
-	"source_git":         {CommandLifetime: true},
-	"machine_list":       {},
-	"machine_properties": {},
-	"machine_select":     {},
-	"resource_list":      {},
-	"storage_list":       {},
-	"storage_quota":      {},
-	"subagent":           {},
-	"steer_agent":        {},
-	"inspect_agent":      {},
-	"question_answer":    {},
-	"write_stdin":        {Review: reviewInHandler},
-	"mcp_connect":        {Review: reviewInHandler},
-	"mcp_list":           {Review: reviewInHandler},
-	"mcp_tools":          {Review: reviewInHandler},
-	"mcp_call":           {Review: reviewInHandler},
-	"mcp_disconnect":     {Review: reviewInHandler},
+	"apply_patch":          {},
+	"read_file":            {Review: reviewReadSnapshot},
+	"list_files":           {},
+	"write_file":           {},
+	"delete_file":          {},
+	"exec":                 {CommandLifetime: true},
+	"python":               {CommandLifetime: true},
+	"venv_create":          {CommandLifetime: true},
+	"packages_install":     {RequiresNetwork: true, CommandLifetime: true},
+	"microvm_reset":        {},
+	"microvm_info":         {},
+	"container":            {CommandLifetime: true},
+	"websearch":            {RequiresNetwork: true},
+	"webfetch":             {RequiresNetwork: true},
+	"github":               {RequiresNetwork: true},
+	"huggingface_status":   {Review: reviewNone},
+	"huggingface_files":    {RequiresNetwork: true},
+	"huggingface_download": {RequiresNetwork: true, CommandLifetime: true},
+	"clone_source":         {RequiresNetwork: true, CommandLifetime: true},
+	"source_git":           {CommandLifetime: true},
+	"machine_list":         {},
+	"machine_properties":   {},
+	"machine_select":       {},
+	"resource_list":        {},
+	"storage_list":         {},
+	"storage_quota":        {},
+	"subagent":             {},
+	"steer_agent":          {},
+	"inspect_agent":        {},
+	"question_answer":      {},
+	"write_stdin":          {Review: reviewInHandler},
+	"mcp_connect":          {Review: reviewInHandler},
+	"mcp_list":             {Review: reviewInHandler},
+	"mcp_tools":            {Review: reviewInHandler},
+	"mcp_call":             {Review: reviewInHandler},
+	"mcp_disconnect":       {Review: reviewInHandler},
 
 	"code_mode":         {Review: reviewNone, HideInCodeMode: true},
 	"tool_search":       {Review: reviewNone, HideInCodeMode: true},
@@ -75,6 +79,8 @@ var toolPolicies = map[string]toolPolicy{
 	"get_goal":          {Review: reviewNone},
 	"update_goal":       {Review: reviewNone},
 	"tool_output":       {Review: reviewNone},
+	"thread_history":    {Review: reviewNone},
+	"teamwork":          {Review: reviewNone},
 	"note_save":         {Review: reviewNone},
 	"note_list":         {Review: reviewNone},
 	"note_read":         {Review: reviewNone},
@@ -329,6 +335,17 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 		return engine.research(ctx, agentRecord, stringArg(arguments, "url"), boolArg(arguments, "raw"))
 	case "github":
 		return engine.github(ctx, arguments)
+	case "huggingface_status":
+		return engine.HuggingFace.Status()
+	case "huggingface_files":
+		var input huggingface.DatasetFilesRequest
+		if err := decodeDatasetArguments(arguments, &input); err != nil {
+			return nil, err
+		}
+
+		return engine.HuggingFace.Files(ctx, input)
+	case "huggingface_download":
+		return engine.downloadDataset(ctx, agentRecord, arguments)
 	case "clone_source":
 		return engine.cloneSource(ctx, agentRecord, stringArg(arguments, "sourceId"))
 	case "source_git":
@@ -355,7 +372,11 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 	case "steer_agent":
 		return engine.steerChildAgent(agentRecord, arguments)
 	case "inspect_agent":
-		return engine.inspectChildAgent(agentRecord, stringArg(arguments, "agentId"))
+		return engine.inspectChildAgent(agentRecord, stringArg(arguments, "agentId"), arguments)
+	case "thread_history":
+		return engine.threadHistory(agentRecord, arguments)
+	case "teamwork":
+		return engine.teamwork(agentRecord, arguments)
 	case "question_answer":
 		return engine.answerChildQuestion(agentRecord, arguments)
 	default:

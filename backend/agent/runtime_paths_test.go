@@ -37,7 +37,7 @@ func TestRuntimeProjectUsesCurrentExecutionPathsWithoutChangingStorage(t *testin
 			record.MachineID = project.MachineIDs[0]
 			if test.worker {
 				record.ParentID = record.ID
-				record.ID, record.Role = NewID(), "worker"
+				record.ID, record.Role = NewID(), "subagent"
 			}
 			if err := engine.Store.Save("agent", record.ID, record.ProjectID, record); err != nil {
 				t.Fatal(err)

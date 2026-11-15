@@ -115,6 +115,8 @@ export type GitConnection = {
   connected: boolean;
   id: string;
   kind: string;
+  name: string;
+  privateNetwork: boolean;
   reauthorizationRequired: boolean;
   userName: string;
 };
@@ -122,7 +124,10 @@ export type GitConnectionConfigInput = {
   baseUrl?: string | null;
   clientId?: string | null;
   clientSecret?: string | null;
+  id?: string | null;
   kind?: string | null;
+  name?: string | null;
+  privateNetwork?: boolean | null;
 };
 export type GitLogin = {
   connectionId: string;
@@ -130,6 +135,7 @@ export type GitLogin = {
   expiresAt: string;
   id: string;
   interval: number;
+  method: string;
   status: string;
   userCode: string;
   verificationUrl: string;
@@ -191,6 +197,26 @@ export type GoalReview = {
   nextStep: string;
   reason: string;
   status: string;
+};
+export type HuggingFaceConnection = {
+  authMode: string;
+  checkedAt: string;
+  connected: boolean;
+  login: HuggingFaceLogin;
+  oauthClientId: string;
+  oauthConfidential: boolean;
+  oauthConfigured: boolean;
+  userName: string;
+};
+export type HuggingFaceLogin = {
+  authorizationUrl: string;
+  expiresAt: string;
+  id: string;
+};
+export type HuggingFaceOAuthConfigInput = {
+  clientId?: string | null;
+  clientSecret?: string | null;
+  publicClient?: boolean | null;
 };
 export type Job = {
   agentId: string;
@@ -299,19 +325,25 @@ export type ModelMetadataInput = {
 export type Mutation = {
   answerQuestion: boolean | null;
   beginGitLogin: GitLogin | null;
+  beginHuggingFaceLogin: HuggingFaceLogin | null;
   beginProviderLogin: ProviderLogin | null;
   cancelGitLogin: boolean | null;
   cancelGoal: boolean | null;
   cancelInput: boolean | null;
   cancelProviderLogin: boolean | null;
+  completeBrowserLogin: boolean | null;
   configureGitConnection: GitConnection | null;
+  configureHuggingFaceOAuth: HuggingFaceConnection | null;
+  connectHuggingFace: HuggingFaceConnection | null;
   connectRepository: Source | null;
   createAgent: Agent | null;
   createGitRepository: GitRepository | null;
   deleteResource: boolean | null;
   deleteSSHKey: boolean | null;
   disconnectGitConnection: boolean | null;
+  disconnectHuggingFace: boolean | null;
   disconnectProvider: boolean | null;
+  endHuggingFaceLogin: boolean | null;
   generateSSHKey: SSHKey | null;
   login: boolean | null;
   logout: boolean | null;
@@ -417,6 +449,8 @@ export type Provider = {
   kind: string;
   modelCount: number;
   name: string;
+  oauthClientId: string;
+  oauthProjectId: string;
 };
 export type ProviderInput = {
   authMode?: string | null;
@@ -426,6 +460,9 @@ export type ProviderInput = {
   id?: string | null;
   kind?: string | null;
   name?: string | null;
+  oauthClientId?: string | null;
+  oauthClientSecret?: string | null;
+  oauthProjectId?: string | null;
 };
 export type ProviderKind = {
   authMethods: Array<string>;
@@ -459,6 +496,7 @@ export type Query = {
   goal: Goal | null;
   goalHistory: Array<Goal | null> | null;
   goalReviews: Array<GoalReview | null> | null;
+  huggingFaceConnection: HuggingFaceConnection | null;
   job: Job | null;
   jobs: Array<Job | null> | null;
   machines: Array<Machine | null> | null;
@@ -479,6 +517,7 @@ export type Query = {
   sources: Array<Source | null> | null;
   sshKeys: Array<SSHKey | null> | null;
   status: Status | null;
+  teamwork: Teamwork | null;
   trustedKeys: Array<SSHKey | null> | null;
   usage: Array<Usage | null> | null;
   usageSummary: UsageSummary | null;
@@ -558,6 +597,32 @@ export type StorageVolumeInput = {
   id?: string | null;
   path?: string | null;
   shared?: boolean | null;
+};
+export type TeamTask = {
+  acceptance: string;
+  dependsOn: Array<string>;
+  evidence: string;
+  id: string;
+  kind: string;
+  objective: string;
+  ownerId: string;
+  result: string;
+  status: string;
+  title: string;
+  writePaths: Array<string>;
+};
+export type Teamwork = {
+  agentId: string;
+  evidence: string;
+  id: string;
+  maxWorkers: number;
+  objective: string;
+  pattern: string;
+  projectId: string;
+  revision: number;
+  status: string;
+  tasks: Array<TeamTask>;
+  updatedAt: string;
 };
 export type ToolActivity = {
   arguments: string;

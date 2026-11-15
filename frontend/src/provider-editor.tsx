@@ -14,6 +14,8 @@ import {
 import { useRef, useState } from "react";
 
 import { useAPI } from "./api";
+import { browserLoginRedirectURI } from "./browser-login";
+import { CodeSnippet } from "./code-snippet";
 import type { Provider, ProviderKind } from "./generated";
 import { ProviderSignIn } from "./provider-login";
 import { useI18n } from "./preferences";
@@ -23,6 +25,7 @@ export const loginLabels: Record<string, string> = {
   api: "API-Schlüssel",
   device: "ChatGPT-Konto",
   browser: "OpenRouter-Konto",
+  oauth: "Google-API-Konto",
 };
 
 export function ProviderEditor({
@@ -97,6 +100,12 @@ export function ProviderEditor({
             baseUrl: value.authMode === "api" ? (value.baseUrl ?? "") : "",
             credential:
               value.authMode === "api" ? (value.credential ?? "") : "",
+            oauthClientId:
+              value.authMode === "oauth" ? value.oauthClientId : "",
+            oauthProjectId:
+              value.authMode === "oauth" ? value.oauthProjectId : "",
+            oauthClientSecret:
+              value.authMode === "oauth" ? value.oauthClientSecret : "",
           },
         },
       );
@@ -107,7 +116,8 @@ export function ProviderEditor({
         !(
           initial.connected &&
           initial.kind === provider.kind &&
-          initial.authMode === provider.authMode
+          initial.authMode === provider.authMode &&
+          provider.connected
         )
       )
         setConnecting(provider);
@@ -158,6 +168,9 @@ export function ProviderEditor({
                 billingMode: "metered",
                 baseUrl: "",
                 credential: "",
+                oauthClientId: "",
+                oauthProjectId: "",
+                oauthClientSecret: "",
               }))
             }
             isDisabled={busy}
@@ -238,6 +251,13 @@ export function ProviderEditor({
           )}
           {value.authMode === "api" ? (
             <>
+              {value.kind === "anthropic" && (
+                <p className="text-sm leading-6 text-muted">
+                  {t(
+                    "Anthropic unterstützt hier API-Schlüssel, keinen Claude-Abo-Login. Claude-Free-/Pro-/Max-/Ultra-Zugänge dürfen nicht in Drittanbieter-Apps übernommen werden.",
+                  )}
+                </p>
+              )}
               <TextField
                 value={String(value.credential ?? "")}
                 onChange={(credential) => update("credential", credential)}
@@ -334,6 +354,49 @@ export function ProviderEditor({
                 "Nach dem Speichern startet die Anmeldung. Anschließend werden die verfügbaren Modelle automatisch geladen.",
               )}
             </p>
+          )}
+          {value.authMode === "oauth" && (
+            <div className="space-y-4">
+              <p className="text-sm leading-6 text-muted">
+                {t(
+                  "Benötigt eine eigene Google-Cloud-OAuth-App (Webanwendung), eine aktivierte Gemini API und ein berechtigtes API-Projekt. Es gelten API-Kontingente und gegebenenfalls verbrauchsabhängige Kosten, nicht dein AI-Pro-/Ultra-Abo.",
+                )}
+              </p>
+              <CodeSnippet
+                text={browserLoginRedirectURI()}
+                label={t("OAuth-Callback-Adresse")}
+                wrap
+              />
+              {[
+                { key: "oauthClientId", label: "Google OAuth Client-ID" },
+                { key: "oauthProjectId", label: "Google-Cloud-Projekt-ID" },
+                {
+                  key: "oauthClientSecret",
+                  label: "Google OAuth Client-Secret",
+                },
+              ].map((field) => (
+                <TextField
+                  key={field.key}
+                  value={String(value[field.key] ?? "")}
+                  onChange={(next) => update(field.key, next)}
+                  type={field.key === "oauthClientSecret" ? "password" : "text"}
+                  autoComplete="off"
+                  isDisabled={busy}
+                  isRequired={field.key !== "oauthClientSecret" || !initial.id}
+                  className="gap-2"
+                >
+                  <Label>{t(field.label)}</Label>
+                  <Input className="min-h-11" />
+                  {field.key === "oauthClientSecret" && (
+                    <Description>
+                      {t(
+                        "Leer lassen, um das vorhandene App-Secret zu behalten. Es wird verschlüsselt gespeichert und nicht wieder angezeigt.",
+                      )}
+                    </Description>
+                  )}
+                </TextField>
+              ))}
+            </div>
           )}
           <Failure message={error} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">

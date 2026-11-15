@@ -19,16 +19,16 @@ func TestToolPolicyPreservesReviewAndDiscoveryBoundaries(t *testing.T) {
 			venv_create packages_install microvm_reset microvm_info container websearch
 			webfetch github clone_source source_git machine_list machine_properties
 			machine_select resource_list storage_list storage_quota subagent steer_agent
-			inspect_agent question_answer`,
+			inspect_agent question_answer huggingface_files huggingface_download`,
 		reviewReadSnapshot: `read_file`,
 		reviewInHandler:    `write_stdin mcp_connect mcp_list mcp_tools mcp_call mcp_disconnect`,
 		reviewNone: `code_mode tool_search approval_clarify context_clear context_rotate
 			context_compact instructions_read update_plan create_goal get_goal update_goal
-			tool_output note_save note_list note_read note_delete question_ask question_list
-			question_withdraw job_status job_logs job_wait job_stop venv_cleanup`,
+			tool_output thread_history teamwork note_save note_list note_read note_delete question_ask question_list
+			question_withdraw job_status job_logs job_wait job_stop venv_cleanup huggingface_status`,
 	}
-	network := strings.Fields("packages_install websearch webfetch github clone_source")
-	lifetime := strings.Fields("exec python venv_create packages_install container source_git clone_source")
+	network := strings.Fields("packages_install websearch webfetch github clone_source huggingface_files huggingface_download")
+	lifetime := strings.Fields("exec python venv_create packages_install container source_git clone_source huggingface_download")
 	hidden := strings.Fields("code_mode tool_search approval_clarify context_clear context_rotate context_compact")
 	wantNames := []string{"exec_command"}
 	count := 0
