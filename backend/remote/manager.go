@@ -108,7 +108,7 @@ func (manager *Manager) Connect(
 
 	preferCandidate(candidates, preferredMachine)
 	manager.Release(ownerID)
-	failures := []string{}
+	failures := []error{}
 	for _, candidate := range candidates {
 		if excludedMachines[candidate.id] {
 			continue
@@ -132,10 +132,13 @@ func (manager *Manager) Connect(
 			return nil, domain.Machine{}, err
 		}
 
-		failures = append(failures, candidate.id+": "+err.Error())
+		failures = append(failures, fmt.Errorf("%s: %w", candidate.id, err))
 	}
 
-	return nil, domain.Machine{}, fmt.Errorf("no available machine: %s", strings.Join(failures, "; "))
+	if len(failures) == 0 {
+		return nil, domain.Machine{}, errors.New("no available machine: all assigned machines are excluded or reserved")
+	}
+	return nil, domain.Machine{}, fmt.Errorf("no available machine: %w", errors.Join(failures...))
 }
 
 func (manager *Manager) projectCandidates(project domain.Project) ([]machineCandidate, error) {

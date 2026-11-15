@@ -10,6 +10,16 @@ import { fetchGraphQL } from "./transport";
 import { LiveResponses } from "./live-responses";
 import { InputDelivery } from "./input-delivery";
 import { sameJSONValue } from "./stable-data";
+import { uploadAttachment } from "./attachments";
+import { mutationConfirmation } from "./mutation-confirmation";
+import {
+  AuthenticationError,
+  requiresAuthentication,
+  SESSION_EXPIRED,
+  SESSION_QUERY,
+  type GraphQLResult,
+  type SessionData,
+} from "./session";
 
 export class API {
   readonly responses = new LiveResponses();
@@ -49,15 +59,17 @@ export class API {
       throw new ConnectionError("WebSocket reconnecting");
     },
     () => {
-      this.inputs.flush();
+      if (!this.authenticationRequired) this.inputs.flush();
     },
     false,
   );
 
   confirm:
     ((message: string, actionLabel?: string) => Promise<boolean>) | undefined;
+  authenticationRequired = false;
   private pendingMutations = new Map<string, Promise<unknown>>();
   private connectionGeneration = 0;
+  private sessionGeneration = 0;
 
   private listeners = new Set<() => void>();
   private version = 0;
@@ -65,6 +77,7 @@ export class API {
   private socket: WebSocket | null = null;
   private reconnect: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
+  private sessionCheck: AbortController | undefined;
   private lastEvent: number | undefined;
   private nextSubscription = 0;
   private hiddenConversations = new Map<string, number>();
@@ -73,10 +86,7 @@ export class API {
     {
       query: string;
       variables: Record<string, unknown>;
-      receive: (result: {
-        data?: unknown;
-        errors?: { message: string }[];
-      }) => void;
+      receive: (result: GraphQLResult) => void;
     }
   >();
 
@@ -138,7 +148,11 @@ export class API {
     const subscription = {
       query,
       variables,
-      receive: (result: { data?: unknown; errors?: { message: string }[] }) => {
+      receive: (result: GraphQLResult) => {
+        if (requiresAuthentication(result.errors)) {
+          this.expireSession();
+          return;
+        }
         if (result.errors?.length)
           fail(
             new Error(result.errors.map((error) => error.message).join("; ")),
@@ -187,13 +201,53 @@ export class API {
   snapshot = () => this.version;
 
   private async bootstrapSession() {
-    const session = await this.query(
-      "query{status{needsSetup authenticated githubConnected}}",
-    );
+    const session = await this.query<SessionData>(SESSION_QUERY);
+    this.publishSession(session);
+  }
+
+  private publishSession(session: SessionData) {
+    this.sessionGeneration++;
+    this.authenticationRequired = !session.status.authenticated;
+    if (this.authenticationRequired) {
+      this.disconnect();
+      this.lastEvent = undefined;
+      this.responses.reset();
+      this.connection.clearFailure();
+    }
     for (const subscription of this.subscriptions.values()) {
-      if (/^\s*query\s*\{\s*status\s*\{/.test(subscription.query)) {
+      if (subscription.query === SESSION_QUERY) {
         subscription.receive({ data: session });
       }
+    }
+  }
+
+  private expireSession() {
+    if (this.authenticationRequired) return;
+    this.publishSession({
+      status: {
+        needsSetup: false,
+        authenticated: false,
+        githubConnected: false,
+      },
+    });
+  }
+
+  private async request<T>(send: () => Promise<T>): Promise<T> {
+    const generation = this.sessionGeneration;
+    try {
+      return await send();
+    } catch (error) {
+      // Responses started before a sign-in/out must not invalidate a newer
+      // session or resurrect an old outage notification.
+      if (generation === this.sessionGeneration) {
+        if (error instanceof AuthenticationError) this.expireSession();
+        else if (
+          error instanceof ConnectionError &&
+          !this.authenticationRequired
+        )
+          this.connection.reportFailure();
+      }
+      throw error;
     }
   }
 
@@ -222,13 +276,27 @@ export class API {
     signal?: AbortSignal,
     keepalive = false,
   ): Promise<T> {
-    try {
-      return await fetchGraphQL<T>(query, variables, signal, keepalive);
-    } catch (error) {
-      if (error instanceof ConnectionError) this.connection.reportFailure();
-      throw error;
-    }
+    return this.request(() =>
+      fetchGraphQL<T>(query, variables, signal, keepalive),
+    );
   }
+
+  uploadAttachment(
+    agentId: string,
+    id: string,
+    file: File,
+    signal: AbortSignal,
+  ) {
+    return this.request(() => uploadAttachment(agentId, id, file, signal));
+  }
+
+  // Non-GraphQL callers share session handling without retrying the operation.
+  fetch: typeof fetch = (input, options) =>
+    this.request(async () => {
+      const response = await fetch(input, options);
+      if (response.status === 401) throw new AuthenticationError();
+      return response;
+    });
 
   async mutate<T>(
     query: string,
@@ -242,44 +310,11 @@ export class API {
     }
 
     const operation = (async () => {
-      const destructive =
-        /deleteResource|deleteSSHKey|revokeRepositoryKey|disconnectGitConnection|disconnectProvider|stopJob|stopEditor/.test(
-          query,
-        ) ||
-        (/trustHostKey/.test(query) && variables.trust === "distrust");
+      const confirmation = mutationConfirmation(query, variables);
       if (
-        destructive &&
+        confirmation &&
         this.confirm &&
-        !(await this.confirm(
-          query.includes("stopEditor")
-            ? "Editor wirklich beenden? Nicht gespeicherte Änderungen können verloren gehen."
-            : query.includes("stopJob")
-              ? "Diesen Job wirklich beenden?"
-              : query.includes("revokeRepositoryKey")
-                ? "Repo-Zugriff beim Anbieter widerrufen und den Schlüssel dauerhaft löschen?"
-                : query.includes("disconnectProvider") ||
-                    query.includes("disconnectGitConnection")
-                  ? "Zugang wirklich trennen?"
-                  : variables.kind === "agent"
-                    ? "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?"
-                    : variables.kind === "project"
-                      ? "Projekt mit allen Agenten, Verläufen und Quellen dauerhaft entfernen? Repository-Dateien bleiben erhalten."
-                      : variables.trust === "distrust"
-                        ? "Vertrauen wirklich entziehen?"
-                        : "Dieses Element dauerhaft entfernen?",
-          query.includes("stopEditor")
-            ? "Editor beenden"
-            : query.includes("stopJob")
-              ? "Job beenden"
-              : query.includes("revokeRepositoryKey")
-                ? "Zugriff widerrufen"
-                : query.includes("disconnectProvider") ||
-                    query.includes("disconnectGitConnection")
-                  ? "Trennen"
-                  : variables.trust === "distrust"
-                    ? "Vertrauen entziehen"
-                    : "Entfernen",
-        ))
+        !(await this.confirm(confirmation.message, confirmation.actionLabel))
       ) {
         throw Object.assign(new Error("Action cancelled"), {
           name: "CancelledMutation",
@@ -291,14 +326,7 @@ export class API {
         // A successful sign-in/out changes the cookie used by the WebSocket
         // handshake. This is a one-off session bootstrap following an explicit
         // user action, not a live-update fallback or a periodic health probe.
-        const session = await this.query(
-          "query{status{needsSetup authenticated githubConnected}}",
-        );
-        for (const subscription of this.subscriptions.values()) {
-          if (/^\s*query\s*\{\s*status\s*\{/.test(subscription.query)) {
-            subscription.receive({ data: session });
-          }
-        }
+        await this.bootstrapSession();
       }
       if (options.refresh !== false) this.notifyListeners();
 
@@ -331,17 +359,29 @@ export class API {
         `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/events?after=${this.lastEvent ?? "latest"}`,
       );
       this.socket = socket;
+      let opened = false;
       socket.onopen = () => {
         if (this.stopped || generation !== this.connectionGeneration) return;
+        opened = true;
+        this.sessionCheck?.abort();
+        this.sessionCheck = undefined;
         this.connection.reportRestored();
         for (const [requestId, subscription] of this.subscriptions) {
           this.sendSubscription(requestId, subscription);
         }
       };
       socket.onmessage = (event) => {
+        if (this.stopped || generation !== this.connectionGeneration) return;
         const data = JSON.parse(event.data);
         if (data.type === "query_result") {
           const subscription = this.subscriptions.get(data.requestId);
+          if (
+            subscription?.query === SESSION_QUERY &&
+            data.result.data?.status?.authenticated === false
+          ) {
+            this.publishSession(data.result.data);
+            return;
+          }
           if (subscription && !this.conversationHidden(subscription))
             subscription.receive(data.result);
           return;
@@ -360,20 +400,58 @@ export class API {
           this.lastEvent = data.id;
         }
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (!this.stopped && generation === this.connectionGeneration) {
+          if (event.code === SESSION_EXPIRED) {
+            this.expireSession();
+            return;
+          }
           this.connection.reportFailure();
           this.reconnect = setTimeout(open, 2000);
+          // Browsers hide the HTTP status of a rejected WebSocket handshake.
+          // Check only session status after that failure, never resource data
+          // or mutations. Established sockets report expiry with code 4401.
+          if (!opened) void this.checkSession(generation);
         }
       };
     };
     open();
   }
 
+  private async checkSession(generation: number) {
+    if (this.sessionCheck) return;
+    const controller = new AbortController();
+    this.sessionCheck = controller;
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const current = () =>
+      !controller.signal.aborted &&
+      !this.stopped &&
+      generation === this.connectionGeneration;
+    try {
+      const session = await fetchGraphQL<SessionData>(
+        SESSION_QUERY,
+        {},
+        controller.signal,
+      );
+      if (current() && !session.status.authenticated)
+        this.publishSession(session);
+    } catch (error) {
+      if (current() && error instanceof AuthenticationError)
+        this.expireSession();
+      // An unavailable server is not evidence of an expired session. The
+      // normal WebSocket retry remains responsible for network recovery.
+    } finally {
+      clearTimeout(timeout);
+      if (this.sessionCheck === controller) this.sessionCheck = undefined;
+    }
+  }
+
   disconnect() {
     this.stopped = true;
     this.connectionGeneration++;
     clearTimeout(this.reconnect);
+    this.sessionCheck?.abort();
+    this.sessionCheck = undefined;
     this.socket?.close();
     this.socket = null;
   }

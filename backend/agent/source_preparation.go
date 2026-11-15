@@ -143,7 +143,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		// Staging can prepare a guest, so give it a separate cold-boot budget.
 		// Start the command timeout only once its runtime is ready.
 		stageContext, cancelStage := context.WithTimeout(ctx, remote.ManagedVMSetupTimeout)
-		command, _, err := engine.sandbox(stageContext, connection, machine, remote.Execution{
+		command, level, err := engine.sandbox(stageContext, connection, machine, remote.Execution{
 			AgentID:            scope,
 			ProjectID:          project.ID,
 			Workspace:          project.Directory,
@@ -158,7 +158,13 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 		runContext, cancelRun := context.WithTimeout(ctx, timeout)
 		defer cancelRun()
-		return remote.RunPipe(runContext, connection.Client, command, strings.NewReader(JSON(configuration)))
+		output, err := remote.RunPipe(runContext, connection.Client, command, strings.NewReader(JSON(configuration)))
+		if level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
+			if interrupted := remote.ParseVMInvocationFailure(output, err); interrupted != nil {
+				return output, interrupted
+			}
+		}
+		return output, err
 	}
 	rememberPrepared := func() {
 		if entry != nil && ctx.Err() == nil {
@@ -173,7 +179,8 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	// Remove previously issued credentials before consulting current source/key
 	// state. A removed source or failed refresh must never retain an old key.
 	if _, err := run(map[string]any{
-		"operation": "clear-project-git", "project": project.Directory,
+		"operation": "clear-project-git", "project": ".",
+		"storageRoot": project.Directory,
 	}, false, time.Minute); err != nil {
 		return fmt.Errorf("clear project Git credentials: %w", err)
 	}
@@ -201,7 +208,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 		directory, _ := sourceDirectory(project, source)
 		configurationContext, cancelConfiguration := context.WithTimeout(ctx, time.Minute)
-		configuration, err := engine.sourceGitConfiguration(configurationContext, source, directory, temporary)
+		configuration, err := engine.sourceGitConfiguration(configurationContext, source, directory)
 		cancelConfiguration()
 		if err == nil {
 			configuration["operation"] = "prepare"
@@ -224,7 +231,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	for _, source := range sources {
 		directory, _ := sourceDirectory(project, source)
 		configurationContext, cancelConfiguration := context.WithTimeout(ctx, time.Minute)
-		configuration, err := engine.sourceGitConfiguration(configurationContext, source, directory, temporary)
+		configuration, err := engine.sourceGitConfiguration(configurationContext, source, directory)
 		cancelConfiguration()
 		if err != nil {
 			return fmt.Errorf("configure repository %q: %w", source.Name, err)
@@ -233,7 +240,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		configurations = append(configurations, configuration)
 	}
 	if _, err := run(map[string]any{
-		"operation": "configure-project-git", "project": project.Directory,
+		"operation": "configure-project-git", "project": ".",
 		"sources": configurations,
 	}, false, time.Minute); err != nil {
 		return fmt.Errorf("configure project Git: %w", err)

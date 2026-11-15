@@ -34,6 +34,7 @@ import traceback
 UNAVAILABLE = 78
 RECOVERY_REQUIRED = 75
 STARTUP_FAILED = 76
+INVOCATION_INTERRUPTED = 77
 STARTUP_TIMEOUT = 1080
 CONTROL_PROTOCOL = 1
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -59,6 +60,16 @@ class StartupFailure(RuntimeError):
     def __init__(self, reason, diagnostic):
         self.reason = reason
         super().__init__("Fedora MicroVM startup failed: " + reason + "\n" + diagnostic)
+
+
+class InvocationInterrupted(RuntimeError):
+    """An invocation lost its VM generation; its command must not be replayed."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(
+            "the Fedora MicroVM connection was interrupted; its disk is retained"
+        )
 
 
 def gpu_devices(configuration):
@@ -1319,8 +1330,10 @@ def run_invocation(invocation):
                 or current_supervisor != supervisor
                 or not alive(supervisor)
             ):
-                raise RuntimeError(
-                    "the Fedora MicroVM connection was interrupted; its disk is retained"
+                raise InvocationInterrupted(
+                    "generation_replaced"
+                    if current_supervisor != supervisor
+                    else "supervisor_stopped"
                 )
             time.sleep(0.03)
     finally:
@@ -1494,6 +1507,15 @@ if __name__ == "__main__":
             flush=True,
         )
         sys.exit(STARTUP_FAILED)
+    except InvocationInterrupted as error:
+        print(str(error), file=sys.stderr)
+        print(
+            "ZENTRALE_VM_INVOCATION_INTERRUPTED "
+            + json.dumps({"reason": error.reason}),
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(INVOCATION_INTERRUPTED)
     except UnavailableError as error:
         if len(sys.argv) < 2 or sys.argv[1] != "select":
             print("MicroVM unavailable: " + str(error), file=sys.stderr)

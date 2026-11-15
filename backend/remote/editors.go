@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
@@ -122,7 +121,7 @@ func (editors *Editors) StartFor(
 
 	if session == nil {
 		sessionContext, cancel := context.WithCancel(editors.ctx)
-		id := rand.Text()
+		id := domain.NewID()
 		session = &editorSession{
 			project: project,
 			target:  target,
@@ -240,9 +239,10 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 	}
 
 	session.info.Sandbox = session.runtime.sandbox
+	paths := PathsForExecution(machine, session.runtime.sandbox, session.project.Directory, "")
+	session.info.Directory = paths.Workspace
 	if session.runtime.sandbox == SandboxMicroVM {
-		session.info.Directory = ManagedGuestWorkspace
-		session.info.URL = prefix + "/?folder=" + url.QueryEscape(ManagedGuestWorkspace)
+		session.info.URL = prefix + "/?folder=" + url.QueryEscape(paths.Workspace)
 		if session.target.AgentID != "" {
 			session.info.URL += "&agent=" + url.QueryEscape(session.target.AgentID)
 		}

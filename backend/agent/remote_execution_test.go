@@ -25,6 +25,14 @@ import (
 // every operation through an authenticated SSH session to this isolated peer.
 func shellPeerHandler(shell string, environment []string) testssh.CommandHandler {
 	return func(command string, stdin io.Reader, stdout, stderr io.Writer) int {
+		// This is a shell fixture, not a managed-VM integration target. Do not
+		// let the test host's KVM availability boot real VMs during an auto
+		// probe. VM-specific fixtures intercept their runner commands first.
+		if strings.Contains(command, "if test -c /dev/kvm && test -r /dev/kvm") {
+			_, _ = fmt.Fprintln(stdout, "none")
+			return 0
+		}
+
 		// This peer also hosts persistent stdio MCP servers across several
 		// reviewed calls. Bound hung fixtures without imposing a ten-second
 		// session lifetime on slower or emulated test environments.

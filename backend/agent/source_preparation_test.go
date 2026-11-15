@@ -166,6 +166,18 @@ func TestRepositoryPreparationRecoversAnAbandonedClone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(checkout, ".git", "index.lock"), []byte("interrupted"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	receipt := map[string]any{
+		"version":   1,
+		"directory": fixture.directory,
+		"url":       fixture.source.URL,
+		"phase":     "cloning",
+		"entries":   []string{},
+		"owner":     nil,
+	}
+	if err := os.WriteFile(filepath.Join(stage, "clone.json"), []byte(JSON(receipt)), 0600); err != nil {
+		t.Fatal(err)
+	}
+
 	if result := fixture.engine.CheckAgentConnection(context.Background(), fixture.record.ID); !result.Connected {
 		t.Fatal(result)
 	}

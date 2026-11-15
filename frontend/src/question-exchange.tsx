@@ -2,6 +2,13 @@ import { Accordion } from "@heroui/react";
 import { ActivityFields, record } from "./activity-values";
 import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
+import { QuestionModeHint } from "./question-mode-hint";
+
+const exchangeLabels: Record<string, string> = {
+  subagent_question: "Rückfrage des Subagenten",
+  parent_question_answer: "Antwort des Hauptagenten",
+  user_question_answer: "Deine Antwort",
+};
 
 // Keep the model-facing routing/security notice in the stored event, not in the
 // reader's normal transcript. Both sides of a question use the same disclosure.
@@ -12,7 +19,12 @@ export function QuestionExchange({
 }) {
   const { t, showDiagnostics } = useI18n();
   const question = record(value.question);
-  const answered = value.kind === "parent_question_answer";
+  const humanAnswer = value.kind === "user_question_answer";
+  const answered = humanAnswer || value.kind === "parent_question_answer";
+  const label =
+    humanAnswer && question.status === "dismissed"
+      ? "Rückfrage verworfen"
+      : (exchangeLabels[String(value.kind)] ?? "Rückfrage");
   const title = typeof question.title === "string" ? question.title : "";
   const answer = typeof question.answer === "string" ? question.answer : "";
   const options = Array.isArray(question.options)
@@ -25,13 +37,7 @@ export function QuestionExchange({
       <Accordion.Item id="question-exchange">
         <Accordion.Heading>
           <Accordion.Trigger className="min-h-11 min-w-0 gap-3 text-left text-sm">
-            <span className="shrink-0 font-medium">
-              {t(
-                answered
-                  ? "Antwort des Hauptagenten"
-                  : "Rückfrage des Subagenten",
-              )}
-            </span>
+            <span className="shrink-0 font-medium">{t(label)}</span>
             <span className="min-w-0 flex-1 truncate text-muted">{title}</span>
             <Accordion.Indicator className="shrink-0" />
           </Accordion.Trigger>
@@ -41,6 +47,13 @@ export function QuestionExchange({
             <p className="whitespace-pre-wrap break-words font-medium [overflow-wrap:anywhere]">
               {title}
             </p>
+            {!answered && (
+              <QuestionModeHint
+                mode={
+                  typeof question.mode === "string" ? question.mode : undefined
+                }
+              />
+            )}
             {options.length > 0 && (
               <ul className="list-disc space-y-1 pl-5">
                 {options.map((option, index) => (

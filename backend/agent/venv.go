@@ -30,11 +30,13 @@ func (engine *Engine) createVenv(
 	if err != nil {
 		return nil, err
 	}
-	dir := temporary + "/venv-" + id
-	command := "python3 -m venv " + remote.Quote(dir)
+
+	name := "venv-" + id
+	hostDirectory := temporary + "/" + name
+	command := "python3 -m venv \"$TMPDIR\"/" + remote.Quote(name)
 
 	if len(packages) > 0 {
-		command += " && " + remote.Quote(dir+"/bin/pip") + " install --"
+		command += " && \"$TMPDIR\"/" + remote.Quote(name+"/bin/pip") + " install --"
 
 		for _, pkg := range packages {
 			command += " " + remote.Quote(pkg)
@@ -42,13 +44,18 @@ func (engine *Engine) createVenv(
 	}
 
 	// Save ownership first so partial creation is cleaned up on errors as well.
-	conn, m, _, err := engine.connect(ctx, agentRecord)
+	connection, machine, _, err := engine.connect(ctx, agentRecord)
 	if err != nil {
 		return nil, err
 	}
 
-	conn.Close()
-	record := map[string]any{"id": id, "agentId": agentRecord.ID, "path": dir, "machineId": m.ID}
+	connection.Close()
+	record := map[string]any{
+		"id":        id,
+		"agentId":   agentRecord.ID,
+		"path":      hostDirectory,
+		"machineId": machine.ID,
+	}
 	if err := engine.Store.Save("venv", id, agentRecord.ID, record); err != nil {
 		return nil, err
 	}
@@ -58,7 +65,11 @@ func (engine *Engine) createVenv(
 		return nil, err
 	}
 
-	return map[string]any{"id": id, "venv": dir, "execution": result}, nil
+	// Cleanup retains the host-backed path; callers receive the runtime path.
+	paths := remote.PathsForExecution(machine, stringArg(result.(map[string]any), "sandbox"), "", temporary)
+	directory := paths.TemporaryDirectory + "/" + name
+
+	return map[string]any{"id": id, "venv": directory, "execution": result}, nil
 }
 
 func (engine *Engine) cleanupVenv(agentRecord domain.Agent, id string) (any, error) {
@@ -76,12 +87,8 @@ func (engine *Engine) cleanupVenv(agentRecord domain.Agent, id string) (any, err
 	if err != nil {
 		return nil, err
 	}
-	// Old worker-owned environments can still be removed by their recorded owner.
-	legacy := agentTemporaryDirectory(agentRecord.ID)
-	valid := false
-	for _, root := range []string{temporary, legacy} {
-		valid = valid || (strings.HasPrefix(dir, root+"/venv-") && !strings.Contains(strings.TrimPrefix(dir, root+"/"), "/"))
-	}
+	valid := strings.HasPrefix(dir, temporary+"/venv-") &&
+		!strings.Contains(strings.TrimPrefix(dir, temporary+"/"), "/")
 	if !valid || strings.Contains(dir, "..") {
 		return nil, errors.New("invalid managed venv path")
 	}

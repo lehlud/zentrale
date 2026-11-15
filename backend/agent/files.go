@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -123,8 +124,8 @@ func (engine *Engine) file(
 	if err != nil {
 		return nil, err
 	}
-	if _, err := remote.Workspace(project.Directory, filename); err != nil &&
-		!strings.HasPrefix(filename, temporaryDirectory+"/") {
+	filenameArgument, err := filePathArgument(project.Directory, temporaryDirectory, filename)
+	if err != nil {
 		return nil, err
 	}
 
@@ -135,9 +136,7 @@ func (engine *Engine) file(
 
 	// File contents travel over stdin, outside both host and guest argv limits.
 	command := "python3 -I -c " + remote.Quote(script) +
-		" " + remote.Quote(project.Directory) +
-		" " + remote.Quote(temporaryDirectory) +
-		" " + remote.Quote(filename) +
+		" '.' \"$TMPDIR\" " + filenameArgument +
 		" " + remote.Quote(action) + " '-' " + remote.Quote(JSON(options))
 
 	phase = "sandbox preparation"
@@ -334,6 +333,36 @@ func (engine *Engine) approvedRead(
 
 func noSecrets(s string) bool {
 	return !strings.ContainsRune(s, '\x00')
+}
+
+// Normalize only structured file arguments, never arbitrary command strings.
+// Both project and scratch symlinks are checked again by the remote helper.
+func filePathArgument(workspace, temporary, filename string) (string, error) {
+	if relative, err := remote.WorkspaceRelative(workspace, filename); err == nil {
+		return remote.Quote(relative), nil
+	}
+
+	if strings.ContainsRune(filename, '\x00') {
+		return "", errors.New("file path must not contain a NUL byte")
+	}
+
+	cleaned := path.Clean(filename)
+
+	for _, root := range []string{temporary, remote.ManagedGuestTemporaryDirectory} {
+		if root == "" {
+			continue
+		}
+
+		if cleaned == root {
+			return "\"$TMPDIR\"", nil
+		}
+
+		if strings.HasPrefix(cleaned, root+"/") {
+			return "\"$TMPDIR\"" + remote.Quote(strings.TrimPrefix(cleaned, root)), nil
+		}
+	}
+
+	return "", errors.New("path leaves the project and its managed temporary directory")
 }
 
 func agentTemporaryDirectory(agentID string) string {

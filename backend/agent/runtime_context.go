@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/remote"
 )
 
 // Snapshots belong to the inference view, not the visible conversation. Their
@@ -36,7 +37,7 @@ func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain
 
 		var plan taskPlan
 		_ = engine.Store.Load("plan", agent.ID, &plan)
-		state["project"], state["sources"], state["plan"] = project, sources, plan.Plan
+		state["sources"], state["plan"] = sources, plan.Plan
 		state["agent"] = map[string]string{
 			"id":        agent.ID,
 			"name":      agent.Name,
@@ -54,6 +55,14 @@ func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain
 			if err != nil {
 				return nil, err
 			}
+
+			level := machine.Sandbox
+			if status := engine.SandboxStatus(machine.ID); status != nil && status.Error == "" {
+				level = status.Level
+			}
+
+			paths := remote.PathsForExecution(machine, level, project.Directory, "")
+			project.Directory = paths.Workspace
 
 			volumes := []any{}
 			for _, volume := range machine.Storage {
@@ -74,6 +83,7 @@ func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain
 			}
 		}
 
+		state["project"] = project
 		state["mcpServers"] = engine.mcpServersFor(agent.ID)
 		goal, err := engine.CurrentGoal(agent.ID)
 		if err != nil {
@@ -81,6 +91,10 @@ func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain
 		}
 
 		state["goal"] = goal
+		state["questions"], err = engine.openQuestions(agent)
+		if err != nil {
+			return nil, err
+		}
 		completed, err := engine.listAll("job_completion", &agent.ID)
 		if err != nil {
 			return nil, err

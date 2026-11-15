@@ -129,20 +129,64 @@ def normalized_repository_url(url):
     return url.rstrip("/")
 
 
-def clear_project_git(project):
+def inventory_git_directory(project, storage_root, recorded):
+    directory = Path(recorded)
+    if directory.is_absolute():
+        # Persisted storage coordinates are data, not extra guest mounts.
+        for root in (Path(project), Path(storage_root)):
+            if directory.is_relative_to(root):
+                directory = directory.relative_to(root)
+                break
+        else:
+            raise ValueError("Git credentials are outside project")
+
+    directory = Path(os.path.abspath(Path(project) / directory))
+    if not directory.is_relative_to(Path(project)):
+        raise ValueError("Git credentials are outside project")
+
+    return str(directory)
+
+
+def include_git_configuration(directory, configuration):
+    result = subprocess.run(
+        ["git", "-C", directory, "config", "--local", "--get-all", "include.path"],
+        env=git_environment(),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in (0, 1):
+        result.check_returncode()
+
+    if str(configuration) not in result.stdout.splitlines():
+        subprocess.run(
+            [
+                "git", "-C", directory, "config", "--local", "--add",
+                "include.path", str(configuration),
+            ],
+            env=git_environment(),
+            check=True,
+            capture_output=True,
+        )
+
+
+def clear_project_git(project, storage_root):
     state = project_git_state(project, create=False)
     if state is None:
         return
+
     manifest = state / "sources.json"
     if manifest.is_symlink():
         raise ValueError("Git credential manifest must not be a symlink")
+
     directories = json.loads(manifest.read_text()) if manifest.exists() else []
-    for directory in directories:
+    for recorded in directories:
+        directory = inventory_git_directory(project, storage_root, recorded)
         if not (Path(directory) / ".git").exists():
             continue
         managed = managed_git_directory(project, directory)
         # Keep a fail-closed include rather than falling back to user SSH keys.
         atomic_secret(managed, "config", "[core]\n\tsshCommand = false\n")
+        include_git_configuration(directory, managed / "config")
         subprocess.run(
             [
                 "git",
@@ -169,7 +213,8 @@ def configure_project_git(configuration):
     if state is None:
         return
     # Publish the inventory first so interrupted setup is cleared on reconnect.
-    atomic_secret(state, "sources.json", json.dumps([s["directory"] for s in sources]))
+    directories = [os.path.relpath(source["directory"], project) for source in sources]
+    atomic_secret(state, "sources.json", json.dumps(directories))
     for source in sources:
         if not checkout_exists(source):
             raise ValueError("Cannot configure a missing repository")
@@ -240,14 +285,7 @@ def configure_project_git(configuration):
         os.replace(managed / "config.pending", managed / "config")
         # Includes are exact paths, not a global includeIf that could affect
         # unrelated repositories. Preserve all user-owned configuration/hooks.
-        includes = subprocess.run(
-            ["git", "-C", directory, "config", "--local", "--get-all", "include.path"],
-            env=git_environment(),
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        if str(managed / "config") not in includes:
-            config("--local", "--add", "include.path", str(managed / "config"))
+        include_git_configuration(directory, managed / "config")
 
 
 def repository_url_aliases(url, destination, http_urls):
@@ -445,20 +483,6 @@ def interrupted_clones(source, timeout=20):
                     stages.append((stage, receipt))
             except (OSError, ValueError, KeyError, TypeError):
                 pass
-        elif names == {"repository"}:
-            # Older versions had no receipt. Recognize only a real checkout of
-            # the selected source, and retain every byte when cloning again.
-            metadata = checkout / ".git"
-            if (
-                metadata.is_dir()
-                and metadata.resolve() == metadata
-                and not (metadata / "config").is_symlink()
-            ):
-                try:
-                    if checkout_exists({**source, "directory": str(checkout)}, timeout):
-                        stages.append((stage, None))
-                except ValueError:
-                    pass
     return stages
 
 
@@ -620,9 +644,7 @@ def clone_repository(configuration, environment):
 
 
 def run_git(configuration):
-    temporary_directory = tempfile.mkdtemp(
-        prefix="git-", dir=configuration["temporaryDirectory"]
-    )
+    temporary_directory = tempfile.mkdtemp(prefix="git-")
     os.chmod(temporary_directory, 0o700)
     try:
         key = write_secret(temporary_directory, "key", configuration["key"])
@@ -657,8 +679,17 @@ def run_git(configuration):
 
 def main():
     configuration = json.load(sys.stdin)
+    # Resolve structured paths against the process CWD, never a host mount alias.
+    for checkout in [configuration, *configuration.get("sources", [])]:
+        for field in ("project", "directory"):
+            if field in checkout:
+                checkout[field] = os.path.abspath(checkout[field])
+
     if configuration["operation"] == "clear-project-git":
-        clear_project_git(configuration["project"])
+        clear_project_git(
+            configuration["project"],
+            configuration.get("storageRoot", configuration["project"]),
+        )
         return
     if configuration["operation"] == "configure-project-git":
         configure_project_git(configuration)

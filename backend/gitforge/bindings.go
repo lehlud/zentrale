@@ -2,7 +2,6 @@ package gitforge
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -294,7 +293,7 @@ func (service *Service) AttachSource(ctx context.Context, projectID, connectionI
 	}
 
 	source := domain.Source{
-		ID:             rand.Text(),
+		ID:             domain.NewID(),
 		ProjectID:      projectID,
 		Name:           name,
 		URL:            binding.SSHURL,

@@ -2,7 +2,6 @@ package gitforge
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -233,7 +232,7 @@ func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, 
 
 	interval := max(5, number(response["interval"]))
 	login := domain.GitLogin{
-		ID:              rand.Text(),
+		ID:              domain.NewID(),
 		ConnectionID:    id,
 		VerificationURL: verification,
 		UserCode:        text(response["user_code"]),

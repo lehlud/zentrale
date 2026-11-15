@@ -44,11 +44,12 @@ func Sandbox(
 		return "", "", err
 	}
 
-	command := "cd " + Quote(execution.Workspace) + " && " + execution.Command
+	command := hostExecutionCommand(execution)
 
 	if execution.OutsideSandbox {
 		if execution.TTY {
-			command = "cd " + Quote(execution.Workspace) + " && " + terminalCommand(execution.Command)
+			execution.Command = terminalCommand(execution.Command)
+			command = hostExecutionCommand(execution)
 		}
 
 		if execution.GuestRoot {
@@ -65,7 +66,7 @@ func Sandbox(
 
 	if execution.TTY && (level != SandboxMicroVM || machine.MicroVMCommand != "") {
 		execution.Command = terminalCommandWithProtocol(execution.Command, execution.TerminalProtocol)
-		command = "cd " + Quote(execution.Workspace) + " && " + execution.Command
+		command = hostExecutionCommand(execution)
 	}
 
 	if level == SandboxDisabled {
@@ -174,6 +175,17 @@ func InspectSandbox(
 	connection *Connection,
 	machine domain.Machine,
 ) domain.SandboxStatus {
+	status, _ := InspectSandboxWithError(ctx, connection, machine)
+	return status
+}
+
+// InspectSandboxWithError retains the typed transport/configuration failure for
+// preparation retry decisions. SandboxStatus.Error is a display diagnostic.
+func InspectSandboxWithError(
+	ctx context.Context,
+	connection *Connection,
+	machine domain.Machine,
+) (domain.SandboxStatus, error) {
 	level, err := sandboxLevel(ctx, connection, machine)
 	status := domain.SandboxStatus{
 		MachineID: machine.ID,
@@ -186,7 +198,18 @@ func InspectSandbox(
 		status.Error = err.Error()
 	}
 
-	return status
+	return status, err
+}
+
+// Host execution and non-VM sandboxes also receive the owner's scratch path.
+// Helpers can use TMPDIR without embedding a host path into a guest command.
+func hostExecutionCommand(execution Execution) string {
+	command := "cd " + Quote(execution.Workspace) + " && "
+	if execution.TemporaryDirectory != "" {
+		command += "export TMPDIR=" + Quote(execution.TemporaryDirectory) + " && "
+	}
+
+	return command + execution.Command
 }
 
 func bubblewrapCommand(execution Execution) string {
@@ -206,6 +229,7 @@ func bubblewrapCommand(execution Execution) string {
 		"--bind "+Quote(execution.TemporaryDirectory)+" "+Quote(execution.TemporaryDirectory),
 		"--proc /proc --dev /dev",
 		"--chdir "+Quote(execution.Workspace),
+		"--setenv TMPDIR "+Quote(execution.TemporaryDirectory),
 		"/bin/sh -c "+Quote(execution.Command),
 	)
 

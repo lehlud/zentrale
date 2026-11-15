@@ -271,7 +271,8 @@ func (engine *Engine) runAgent(ctx context.Context, agentID string, cancel conte
 			}
 		}
 
-		if runError != nil && engine.ctx.Err() == nil {
+		var waiting *questionWaitingError
+		if runError != nil && engine.ctx.Err() == nil && !errors.As(runError, &waiting) {
 			status := "blocked"
 
 			if errors.Is(runError, context.Canceled) {
@@ -336,6 +337,10 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 				agentRecord.Status, agentRecord.Error = "stopped", ""
 			}
 		}
+		var waiting *questionWaitingError
+		if errors.As(runError, &waiting) {
+			agentRecord.Status, agentRecord.Error = "waiting", ""
+		}
 	}
 
 	// Process cancellation is not a user stop. Retain a restart marker even
@@ -350,6 +355,10 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 
 	_ = engine.saveAgent(agentRecord)
 	phase := agentRecord.Status
+	var waiting *questionWaitingError
+	if errors.As(runError, &waiting) && phase == "waiting" {
+		phase = "waiting_question"
+	}
 	engine.setRunState(agentID, phase, runError)
 }
 

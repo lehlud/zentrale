@@ -122,13 +122,11 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		valid := server.Auth.Valid(server.token(requestContext.Request()))
 		if err := ValidateQuery(request.Query, request.OperationName, valid); err != nil {
-			return requestContext.JSON(400, map[string]any{
-				"errors": []any{
-					map[string]string{
-						"message": err.Error(),
-					},
-				},
-			})
+			status := http.StatusBadRequest
+			if errors.Is(err, errAuthenticationRequired) {
+				status = http.StatusUnauthorized
+			}
+			return requestContext.JSON(status, graphQLErrorResult(err))
 		}
 
 		secure := server.SecureCookie || requestContext.Request().TLS != nil
@@ -244,6 +242,13 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 		return err
 	}
 	defer conn.Close()
+	defer func() {
+		if !server.Auth.Valid(token) {
+			_ = conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(sessionExpired, errAuthenticationRequired.Error()),
+				time.Now().Add(10*time.Second))
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(requestContext.Request().Context())
 	defer cancel()

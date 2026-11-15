@@ -3,7 +3,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -17,9 +16,9 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-// NewID creates an opaque resource identifier with at least 128 bits of entropy.
+// NewID creates a compact resource reference, not an authentication token.
 func NewID() string {
-	return rand.Text()
+	return domain.NewID()
 }
 
 // JSON serializes internal domain values. Passing a channel, function or cyclic
@@ -53,11 +52,11 @@ type runningJob struct {
 	output            *remote.OutputBuffer
 	changed           chan struct{}
 
-	execution  executionRequest
-	sandbox    string
-	yielded    bool
-	connection *remote.Connection
-	project    domain.Project
+	execution       executionRequest
+	sandbox         string
+	yielded         bool
+	connection      *remote.Connection
+	launchDirectory string
 
 	inputHistory        []string
 	inputHistoryOmitted bool

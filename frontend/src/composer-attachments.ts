@@ -12,9 +12,10 @@ import {
   attachmentPath,
   isPreviewImage,
   largeTextPaste,
-  uploadAttachment,
   type Attachment,
 } from "./attachments";
+import { useAPI } from "./api";
+import { newResourceId } from "./resource-id";
 
 type DraftAttachment = {
   id: string;
@@ -28,6 +29,7 @@ function releasePreview(item: DraftAttachment) {
 }
 
 export function useComposerAttachments(agentId: string) {
+  const api = useAPI();
   const [items, setItems] = useState<DraftAttachment[]>([]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -68,7 +70,7 @@ export function useComposerAttachments(agentId: string) {
       return;
     }
     const next = files.map((file) => ({
-      id: crypto.randomUUID(),
+      id: newResourceId(),
       file,
       preview: isPreviewImage(file.type) ? URL.createObjectURL(file) : "",
     }));
@@ -119,7 +121,12 @@ export function useComposerAttachments(agentId: string) {
       for (const item of itemsRef.current) {
         const uploaded =
           item.uploaded ??
-          (await uploadAttachment(agentId, item.id, item.file, abort.signal));
+          (await api.uploadAttachment(
+            agentId,
+            item.id,
+            item.file,
+            abort.signal,
+          ));
         if (abort.signal.aborted || !alive.current) return null;
         results.push(uploaded);
         itemsRef.current = itemsRef.current.map((entry) =>

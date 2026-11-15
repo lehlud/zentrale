@@ -487,6 +487,7 @@ export type Question = {
   agentId: string;
   answer: string;
   id: string;
+  mode: string;
   options: Array<string>;
   status: string;
   title: string;

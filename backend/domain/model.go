@@ -248,8 +248,9 @@ type Question struct {
 	ID      string `json:"id"`
 	AgentID string `json:"agentId"`
 
-	Title   string   `json:"title"`
-	Options []string `json:"options"`
+	Title   string       `json:"title"`
+	Options []string     `json:"options"`
+	Mode    QuestionMode `json:"mode"`
 
 	Status string `json:"status"`
 	Answer string `json:"answer"`

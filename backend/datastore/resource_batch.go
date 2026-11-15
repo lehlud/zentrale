@@ -1,7 +1,6 @@
 package datastore
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -31,10 +30,8 @@ func (instance *Instance) resourceBatch(
 		return nil, errors.New("resource batch exceeds 500 IDs")
 	}
 
-	result := []map[string]any{}
-
 	if len(ids) == 0 {
-		return result, nil
+		return []map[string]any{}, nil
 	}
 
 	projection, arguments := resourceProjection(fields)
@@ -55,25 +52,5 @@ func (instance *Instance) resourceBatch(
 		}
 	}
 
-	rows, err := instance.readDB().Query("SELECT "+projection+"::VARCHAR FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, err
-		}
-
-		var record map[string]any
-		if err := json.Unmarshal([]byte(data), &record); err != nil {
-			return nil, err
-		}
-
-		result = append(result, record)
-	}
-
-	return result, rows.Err()
+	return instance.queryResources("SELECT "+projection+"::VARCHAR FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
 }

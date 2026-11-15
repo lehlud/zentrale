@@ -33,12 +33,16 @@ export class ConnectionMonitor {
 
   reportRestored() {
     if (!this.interrupted) return;
+    this.clearFailure();
+    this.onRestored();
+  }
+
+  clearFailure() {
     this.interrupted = false;
     this.delay = 2000;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.listeners.forEach((listener) => listener());
-    this.onRestored();
   }
 
   reportFailure() {

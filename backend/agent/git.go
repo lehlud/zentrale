@@ -50,11 +50,7 @@ func (engine *Engine) runSourceGit(
 		return nil, err
 	}
 
-	temporary, err := engine.temporaryDirectory(agentRecord.ID)
-	if err != nil {
-		return nil, err
-	}
-	configuration, err := engine.sourceGitConfiguration(ctx, source, directory, temporary)
+	configuration, err := engine.sourceGitConfiguration(ctx, source, directory)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +77,16 @@ func (engine *Engine) runSourceGit(
 
 func sourceDirectory(project domain.Project, source domain.Source) (string, error) {
 	if source.ProjectRoot {
-		return remote.Workspace(project.Directory, "")
+		return remote.WorkspaceRelative(project.Directory, "")
 	}
 
-	return remote.Workspace(project.Directory, source.Name)
+	return remote.WorkspaceRelative(project.Directory, source.Name)
 }
 
 func (engine *Engine) sourceGitConfiguration(
 	ctx context.Context,
 	source domain.Source,
-	directory, temporary string,
+	directory string,
 ) (map[string]any, error) {
 	if err := engine.GitForge.RefreshRepositoryAuthorization(ctx, source.BindingID, source.URL); err != nil {
 		return nil, err
@@ -115,12 +111,11 @@ func (engine *Engine) sourceGitConfiguration(
 			Type:  "EC PRIVATE KEY",
 			Bytes: privateKey,
 		})),
-		"known":              knownHosts,
-		"url":                source.URL,
-		"httpUrls":           httpURLs,
-		"directory":          directory,
-		"readOnly":           source.ReadOnly,
-		"temporaryDirectory": temporary,
+		"known":     knownHosts,
+		"url":       source.URL,
+		"httpUrls":  httpURLs,
+		"directory": directory,
+		"readOnly":  source.ReadOnly,
 	}, nil
 }
 

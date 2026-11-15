@@ -62,10 +62,12 @@ func (engine *Engine) Delete(kind, id string) error {
 		}
 	}
 
-	err := engine.Store.Remove(kind, id)
+	if err := engine.Store.Remove(kind, id); err != nil {
+		return err
+	}
 	engine.Emit("resources", "", nil)
 
-	return err
+	return nil
 }
 
 func (engine *Engine) checkResourceReferences(kind, id string) error {

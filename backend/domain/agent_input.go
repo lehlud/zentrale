@@ -2,8 +2,9 @@ package domain
 
 import "time"
 
-// AgentInput is the durable receipt for a user message. Queued messages enter
-// model and approval history only when their turn starts.
+// AgentInput is the durable receipt for an instruction or question answer.
+// Queued messages enter model and approval history only when their turn starts;
+// question answers commit their receipt and already-delivered context together.
 type AgentInput struct {
 	ID        string `json:"id"`
 	AgentID   string `json:"agentId"`

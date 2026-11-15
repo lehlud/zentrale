@@ -40,6 +40,7 @@ export function Notifications() {
       } else if (wasInterrupted) {
         wasInterrupted = false;
         if (networkToast) queue.close(networkToast);
+        if (api.authenticationRequired) return;
 
         successToast = queue.add(
           {

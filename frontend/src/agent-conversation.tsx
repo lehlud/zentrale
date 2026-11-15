@@ -302,6 +302,10 @@ const MessageContent = memo(function MessageContent({
   }
 
   if (message.role === "user") {
+    const feedback = record(parseJSON(message.content));
+    if (feedback.kind === "user_question_answer") {
+      return <QuestionExchange value={feedback} />;
+    }
     return (
       <>
         <p className="whitespace-pre-wrap break-words leading-7 [overflow-wrap:anywhere]">

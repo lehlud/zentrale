@@ -26,6 +26,8 @@ export const english: Record<string, string> = {
   "Ungültige Upload-Bestätigung.": "Invalid upload confirmation.",
   "Modellverbindung unterbrochen, neuer Versuch …":
     "Model connection interrupted, retrying …",
+  "Verbindung unterbrochen, Umgebung wird automatisch erneut geprüft …":
+    "Connection interrupted, automatically rechecking the environment …",
   Denkintensität: "Reasoning effort",
   "Standard (regulär)": "Default (regular)",
   "Provider-Standard": "Provider default",
@@ -1222,7 +1224,14 @@ Object.assign(english, {
   "Erneut verbinden startet eine neue Shell. Eingaben werden nicht wiederholt.":
     "Reconnecting starts a new shell. Input will not be replayed.",
   "Rückfrage des Subagenten": "Question from subagent",
+  "Unabhängige Arbeit läuft weiter. Du kannst später antworten.":
+    "Independent work continues. You can answer later.",
+  "Für die nächsten Schritte ist eine Antwort erforderlich.":
+    "An answer is required for the next steps.",
+  "Eine notwendige Antwort steht noch aus …": "Waiting for a required answer …",
   "Antwort des Hauptagenten": "Answer from main agent",
+  "Deine Antwort": "Your answer",
+  "Rückfrage verworfen": "Question dismissed",
   "Technische Details": "Technical details",
   "GitHub-Ergebnis": "GitHub result",
   Einträge: "Entries",

@@ -88,7 +88,7 @@ func ValidateQuery(query, operationName string, authenticated bool) error {
 						node.Name.Value != "status" &&
 						node.Name.Value != "login" &&
 						node.Name.Value != "setup" {
-						return errors.New("authentication required")
+						return errAuthenticationRequired
 					}
 				}
 

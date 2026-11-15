@@ -139,13 +139,33 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 	}
 	defer release()
 	defer connection.Close()
-	temporary := agentTemporaryDirectory(record.ID)
+	temporary, err := engine.temporaryDirectory(record.ID)
+	if err != nil {
+		return attachment, err
+	}
+
 	if err := prepareRemoteWorkspace(ctx, connection, project.Directory, temporary); err != nil {
 		return attachment, err
 	}
+
 	digest := fmt.Sprintf("%x", sha256.Sum256(data))
-	baseCommand := "python3 -I -c " + remote.Quote(attachmentScript) + " " + remote.Quote(temporary) + " " + remote.Quote(attachment.ID) + " " + remote.Quote(filename) + " " + fmt.Sprint(len(data)) + " " + remote.Quote(digest)
-	execution := remote.Execution{AgentID: record.ID, ProjectID: project.ID, Workspace: project.Directory, TemporaryDirectory: temporary, Command: baseCommand + " check " + remote.Quote(attachment.Name), Tooling: true}
+	baseCommand := strings.Join([]string{
+		"python3", "-I", "-c", remote.Quote(attachmentScript),
+		`"$TMPDIR"`,
+		remote.Quote(attachment.ID),
+		remote.Quote(filename),
+		fmt.Sprint(len(data)),
+		remote.Quote(digest),
+	}, " ")
+
+	execution := remote.Execution{
+		AgentID:            record.ID,
+		ProjectID:          project.ID,
+		Workspace:          project.Directory,
+		TemporaryDirectory: temporary,
+		Command:            baseCommand + " check " + remote.Quote(attachment.Name),
+		Tooling:            true,
+	}
 	checkCommand, level, err := engine.sandboxWithRecovery(ctx, connection, machine, execution, false)
 	if err != nil {
 		return attachment, err
@@ -170,7 +190,9 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 			return attachment, fmt.Errorf("stage attachment: %w", err)
 		}
 	}
-	attachment.Path = path.Join(temporary, "attachments", attachment.ID, filename)
+
+	paths := remote.PathsForExecution(machine, level, project.Directory, temporary)
+	attachment.Path = path.Join(paths.TemporaryDirectory, "attachments", attachment.ID, filename)
 	attachment.MachineID = machine.ID
 	return attachment, nil
 }

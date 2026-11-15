@@ -20,7 +20,7 @@ test("bootstrap selection contains core attachments but excludes detail blobs", 
     "attachments { id name mimeType size path machineId }",
   );
   expect(conversationBootstrapQuery).toContain(
-    "questions { id title options status answer agentId }",
+    "questions { id title options mode status answer agentId }",
   );
   expect(conversationBootstrapQuery).not.toMatch(
     /\b(approvals|notes|usageSummary|providerKinds)\b/,

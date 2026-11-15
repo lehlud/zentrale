@@ -360,3 +360,245 @@ test("scrollback uses stable cursors and long transcripts keep expensive rendere
   await expect(page.getByText(/Nachricht 349/)).toBeVisible();
   expect(await page.locator('[data-rendered="true"]').count()).toBeLessThan(50);
 });
+
+const relativeReadPath = "backend/agent/vm_scope.go";
+for (const { name, path, label } of [
+  {
+    name: "configured root",
+    path: `${project.directory}/${relativeReadPath}`,
+    label: relativeReadPath,
+  },
+  {
+    name: "managed host root",
+    path: `/home/gunter/.local/share/zentrale/projects/project-${project.id}/${relativeReadPath}`,
+    label: relativeReadPath,
+  },
+  {
+    name: "VM root",
+    path: `/home/zentrale/project/${relativeReadPath}`,
+    label: relativeReadPath,
+  },
+  { name: "already relative", path: relativeReadPath, label: relativeReadPath },
+  { name: "outside project", path: "/etc/hosts", label: "/etc/hosts" },
+  {
+    name: "similar directory prefix",
+    path: `${project.directory}-other/${relativeReadPath}`,
+    label: `${project.directory}-other/${relativeReadPath}`,
+  },
+]) {
+  test(`file reads display scoped paths: ${name}`, async ({ page }) => {
+    const call = message("read-call", "assistant", "", 1);
+    call.wire = JSON.stringify([
+      {
+        type: "function_call",
+        call_id: "read",
+        name: "read_file",
+        arguments: JSON.stringify({ path }),
+      },
+    ]);
+    // The content deliberately contains the absolute path: only its label is
+    // presentation data; file contents and tool arguments must stay untouched.
+    const content = `// Original source: ${path}\npackage agent\n`;
+    const result = message(
+      "read-result",
+      "tool",
+      JSON.stringify({ result: { path, content, offset: 1, totalLines: 2 } }),
+      2,
+    );
+    result.callId = "read";
+    result.toolName = "read_file";
+    await fixture(page, [call, result]);
+    await page.getByRole("button", { name: /Datei lesen/ }).click();
+    await expect(
+      page.locator("figcaption").getByText(label, { exact: true }),
+    ).toBeVisible();
+    const code = page.getByLabel(`Codeblock: ${label}`, { exact: true });
+    await expect(code).toBeVisible();
+    await expect(code).toContainText(path);
+  });
+}
+
+const pythonScript =
+  'def greet():\n    return "<img src=x onerror=alert(1)>"\n';
+const shellScript = "printf '%s\\n' \"$HOME\"\n";
+
+for (const { name, path, content, offset, tokenClass, token } of [
+  {
+    name: "env shebang without extension",
+    offset: 1,
+    path: "bin/launch",
+    content: "#!/usr/bin/env bash\n" + shellScript,
+    tokenClass: "hljs-built_in",
+    token: "printf",
+  },
+  {
+    name: "direct shebang overrides extension",
+    offset: 1,
+    path: "bin/launch.sh",
+    content: "#!/usr/bin/python3.12\n" + pythonScript,
+    tokenClass: "hljs-keyword",
+    token: "def",
+  },
+  {
+    name: "unknown shebang keeps extension",
+    offset: 1,
+    path: "bin/launch.py",
+    content: "#!/opt/custom-wrapper\n" + pythonScript,
+    tokenClass: "hljs-keyword",
+    token: "def",
+  },
+  {
+    name: "unknown shebang without extension stays plain",
+    offset: 1,
+    path: "bin/launch-unknown",
+    content: "#!/opt/custom-wrapper\n" + pythonScript,
+    tokenClass: "hljs-keyword",
+    token: undefined,
+  },
+  {
+    name: "later file excerpt is not an executable shebang",
+    path: "bin/partial.py",
+    content: "#!/usr/bin/env bash\n" + pythonScript,
+    offset: 201,
+    tokenClass: "hljs-keyword",
+    token: "def",
+  },
+]) {
+  test(`file reads highlight shebangs: ${name}`, async ({ page }) => {
+    const call = message("read-call", "assistant", "", 1);
+    call.wire = JSON.stringify([
+      {
+        type: "function_call",
+        call_id: "read",
+        name: "read_file",
+        arguments: JSON.stringify({ path }),
+      },
+    ]);
+
+    const result = message(
+      "read-result",
+      "tool",
+      JSON.stringify({
+        result: { path, content, offset, totalLines: offset + 2 },
+      }),
+      2,
+    );
+    result.callId = "read";
+    result.toolName = "read_file";
+
+    await fixture(page, [call, result]);
+    await page.getByRole("button", { name: /Datei lesen/ }).click();
+    const code = page.getByLabel(`Codeblock: ${path}`, { exact: true });
+    await expect(code.locator(".syntax-highlight")).toBeVisible();
+    await expect.poll(() => code.textContent()).toBe(content);
+    await expect(code.locator("img")).toHaveCount(0);
+
+    const tokens = code.locator(`.${tokenClass}`);
+    if (token) {
+      await expect(
+        tokens.filter({ hasText: new RegExp(`^${token}$`) }),
+      ).toBeVisible();
+    } else {
+      await expect(tokens).toHaveCount(0);
+    }
+  });
+}
+
+for (const { name, path, kind, patch, expected, absent } of [
+  {
+    name: "each version keeps its interpreter across hunks",
+    kind: "modified",
+    path: "launcher.sh",
+    patch:
+      "@@ -1 +1 @@\n-#!/usr/bin/env python3\n+#!/usr/bin/env bash\n" +
+      "@@ -20,2 +20,2 @@\n-def old_value():\n-    return 1\n+printf hello\n+exit 0\n",
+    expected: [
+      ["hljs-keyword", "def"],
+      ["hljs-built_in", "printf"],
+    ],
+    absent: [],
+  },
+  {
+    name: "removed interpreter falls back independently",
+    kind: "modified",
+    path: "launcher.sh",
+    patch:
+      "@@ -1 +0,0 @@\n-#!/usr/bin/env python3\n" +
+      "@@ -20 +19 @@\n-def old_value():\n+printf hello\n",
+    expected: [
+      ["hljs-keyword", "def"],
+      ["hljs-built_in", "printf"],
+    ],
+    absent: [],
+  },
+  {
+    name: "later hunk is not a file shebang",
+    kind: "modified",
+    path: "launcher.sh",
+    patch:
+      "@@ -20,2 +20,2 @@\n #!/usr/bin/env python3\n-echo old\n+def fake():\n",
+    expected: [["hljs-built_in", "echo"]],
+    absent: [["hljs-keyword", "def"]],
+  },
+  {
+    name: "created extensionless script",
+    kind: "created",
+    path: "launcher",
+    patch: "@@ -0,0 +1,2 @@\n+#!/usr/bin/env python3\n+def created():\n",
+    expected: [["hljs-keyword", "def"]],
+    absent: [],
+  },
+]) {
+  test(`diff shebang highlighting: ${name}`, async ({ page }) => {
+    const call = message("patch-call", "assistant", "", 1);
+    call.wire = JSON.stringify([
+      {
+        type: "function_call",
+        call_id: "patch",
+        name: "apply_patch",
+        arguments: JSON.stringify({ input: "*** Begin Patch\n*** End Patch" }),
+      },
+    ]);
+
+    const result = message("patch-result", "tool", "{}", 2);
+    result.callId = "patch";
+    result.toolName = "apply_patch";
+    result.change = {
+      id: "shebang-diff",
+      agentId: agent.id,
+      messageId: result.id,
+      createdAt: result.createdAt,
+      path,
+      kind,
+      added: patch.split("\n").filter((line) => line.startsWith("+")).length,
+      removed: patch.split("\n").filter((line) => line.startsWith("-")).length,
+      truncated: false,
+      notice: "",
+      patch,
+    };
+
+    await fixture(page, [call, result]);
+    await page.getByRole("button", { name: /Dateien ändern/ }).click();
+    const diff = page.getByRole("region", {
+      name: `Dateiänderungen: ${path}`,
+      exact: true,
+    });
+    await expect(diff).toBeVisible();
+
+    for (const [className, text] of expected) {
+      await expect(
+        diff
+          .locator(`.${className}`)
+          .filter({ hasText: new RegExp(`^${text}$`) }),
+      ).toBeVisible();
+    }
+
+    for (const [className, text] of absent) {
+      await expect(
+        diff
+          .locator(`.${className}`)
+          .filter({ hasText: new RegExp(`^${text}$`) }),
+      ).toHaveCount(0);
+    }
+  });
+}

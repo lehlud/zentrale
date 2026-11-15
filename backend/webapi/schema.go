@@ -5,7 +5,6 @@ package webapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 
 	"github.com/graphql-go/graphql"
@@ -32,7 +31,7 @@ func state(ctx context.Context) *requestState {
 func authenticated(fn graphql.FieldResolveFn) graphql.FieldResolveFn {
 	return func(params graphql.ResolveParams) (any, error) {
 		if !state(params.Context).authenticated {
-			return nil, errors.New("authentication required")
+			return nil, errAuthenticationRequired
 		}
 
 		return fn(params)

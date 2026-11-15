@@ -192,16 +192,18 @@ func (engine *Engine) startJob(
 	}
 	request.Timeout = timeout
 	jobContext, cancel := context.WithTimeout(engine.ctx, timeout)
+	paths := remote.PathsForExecution(machine, sandbox, project.Directory, "")
+
 	running := &runningJob{
-		yielded:    request.Background,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		output:     &remote.OutputBuffer{},
-		changed:    make(chan struct{}),
-		execution:  request,
-		sandbox:    sandbox,
-		connection: connection,
-		project:    project,
+		yielded:         request.Background,
+		cancel:          cancel,
+		done:            make(chan struct{}),
+		output:          &remote.OutputBuffer{},
+		changed:         make(chan struct{}),
+		execution:       request,
+		sandbox:         sandbox,
+		connection:      connection,
+		launchDirectory: paths.Workspace,
 		job: domain.Job{
 			ID:        NewID(),
 			AgentID:   agentRecord.ID,

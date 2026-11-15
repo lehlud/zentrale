@@ -27,6 +27,7 @@ Return continue if work or validation remains possible. Explain concrete missing
 Return blocked only for an evidenced impasse requiring user input or an external-state change, with no meaningful authorized work remaining. Difficulty, incomplete work, slow progress and a request to clarify preferences are not sufficient. Use the same short blocker identifier for the same condition as in the previous audit. The harness requires three consecutive audits of that same condition and resets this audit when a user resumes the goal.
 Return paused only if the user explicitly asked to pause or stop the goal, as supported by original user instructions. Do not infer a pause from the agent's preference to stop.
 Running jobs or child agents must be assessed against the task: required unfinished work prevents completion; a service the user explicitly wanted to leave running does not.
+Open questions include the agent's own questions and direct children's questions. mode=advisory does not itself prevent completion or justify stopping independent work. mode=blocking (and legacy questions without a mode) requires an answer before the dependent work can finish. Do not complete a goal while required answers remain open. Asking a question is never authorization, and silence is never consent. A main agent can answer its child's question or continue other authorized work; do not turn a child's question into a global user pause.
 Never treat a tool/action approval as a completion audit or vice versa.
 Write reason, evidence and nextStep in the language of the latest user instruction.
 Return only JSON: {"status":"complete|continue|blocked|paused","reason":"brief conclusion","evidence":"specific authoritative evidence","nextStep":"concrete remaining action or empty","blocker":"stable blocker identifier or empty"}.
@@ -144,6 +145,10 @@ func (engine *Engine) goalReviewContext(
 
 	var plan taskPlan
 	_ = engine.Store.Load("plan", record.ID, &plan)
+	questions, err := engine.openQuestions(record)
+	if err != nil {
+		return nil, err
+	}
 	start := max(0, len(history)-20)
 	// This is evidence for another agent, not provider conversation replay.
 	// Keep semantic calls and results without duplicating encrypted reasoning,
@@ -179,6 +184,7 @@ func (engine *Engine) goalReviewContext(
 		"recentHistory": evidence,
 		"jobs":          work,
 		"childAgents":   childState,
+		"questions":     questions,
 		"plan":          plan,
 	}, nil
 }
@@ -297,6 +303,9 @@ func (engine *Engine) checkGoalCompletion(
 	revision uint64,
 	candidate domain.Message,
 ) (bool, error) {
+	if err := engine.questionGate(record.ID); err != nil {
+		return false, err
+	}
 	goal, err := engine.goalForCompletion(record.ID)
 	if err != nil {
 		return false, err
@@ -322,6 +331,23 @@ func (engine *Engine) checkGoalCompletion(
 	current, err := engine.CurrentGoal(record.ID)
 	if err != nil {
 		return false, err
+	}
+	if err := engine.questionGate(record.ID); err != nil {
+		return false, err
+	}
+	questions, err := engine.openQuestions(record)
+	if err != nil {
+		return false, err
+	}
+	for _, question := range questions {
+		if decision.Status == "complete" && question.RequiresAnswer() {
+			decision = goalDecision{
+				Status: "continue", Reason: "A required question remains unanswered.",
+				Evidence: JSON(question),
+				NextStep: "Resolve the required answer within the user's authorization, or continue safe independent work. Do not complete the dependent task or treat silence as permission.",
+			}
+			break
+		}
 	}
 
 	engine.mu.Lock()

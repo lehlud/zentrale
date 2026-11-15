@@ -90,7 +90,20 @@ func microVMConfiguration(machines ...domain.Machine) string {
 		"storage":    machine.Storage,
 	})
 
-	digest := sha256.Sum256([]byte(managedMicroVMRunner + managedMicroVMGuest + managedMicroVMInit + managedMicroVMStreams + managedVFIO + managedNVIDIA + terminalRelay + string(managedMicroVMRelease) + string(options)))
+	hashInput := strings.Join([]string{
+		managedMicroVMRunner,
+		managedMicroVMGuest,
+		managedMicroVMInit,
+		managedMicroVMStreams,
+		managedVFIO,
+		managedNVIDIA,
+		terminalRelay,
+		string(managedMicroVMRelease),
+		string(options),
+	}, "")
+
+	digest := sha256.Sum256([]byte(hashInput))
+
 	configuration, err := json.Marshal(map[string]any{
 		"release":    managedMicroVMRelease,
 		"guest":      managedMicroVMGuest,

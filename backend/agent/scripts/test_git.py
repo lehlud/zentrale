@@ -176,44 +176,28 @@ class RepositoryPreparationTests(unittest.TestCase):
             )
         return stage, checkout
 
-    def test_interrupted_legacy_checkout_is_retained_and_rebuilt(self):
+    def test_staging_without_a_receipt_is_unknown_data_and_stays_untouched(self):
         stage, checkout = self.staged_clone()
-        (checkout / ".git" / "index").unlink()
         (checkout / ".git" / "index.lock").write_bytes(b"partial index")
         (checkout / "README.md").write_text("preserve staging edits")
         (checkout / "draft.txt").write_text("preserve unknown data")
-        (checkout / "docs" / "notes.txt").unlink()
-        inspected = self.run_helper("inspect")
-        self.assertEqual(inspected.returncode, 0, inspected.stderr)
-        self.assertEqual(json.loads(inspected.stdout), ["root"])
 
-        prepared = self.run_helper("prepare")
-        self.assertEqual(prepared.returncode, 0, prepared.stderr)
-        self.assertEqual(
-            (self.directory / "README.md").read_text(), "repository content\n"
-        )
-        self.assertEqual(
-            (self.directory / "docs" / "notes.txt").read_text(), "tracked notes\n"
-        )
-        self.assertFalse((self.directory / ".git" / "index.lock").exists())
-        self.assertFalse(
-            (self.directory / ".git" / "objects" / "info" / "alternates").exists()
-        )
-        saved = (
-            self.directory
-            / ".git"
-            / "zentrale-clone-recovery"
-            / stage.name
-            / "repository"
-        )
-        self.assertEqual((saved / "README.md").read_text(), "preserve staging edits")
-        self.assertEqual((saved / "draft.txt").read_text(), "preserve unknown data")
-        self.assertEqual((saved / ".git" / "index.lock").read_bytes(), b"partial index")
-        self.assertEqual(list(self.directory.glob(".zentrale-clone-*")), [])
-        self.assertEqual(self.git("status", "--porcelain"), "")
+        for operation in ("inspect", "prepare"):
+            result = self.run_helper(operation)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(stage.exists())
+            self.assertEqual((checkout / "README.md").read_text(), "preserve staging edits")
+            self.assertEqual((checkout / "draft.txt").read_text(), "preserve unknown data")
+            self.assertEqual((checkout / ".git" / "index.lock").read_bytes(), b"partial index")
+            self.assertFalse((self.directory / ".git").exists())
 
     def test_failed_recovery_preserves_the_previous_attempt_for_retry(self):
-        stage, checkout = self.staged_clone()
+        stage, checkout = self.staged_clone(receipt=True)
+        manifest = stage / "clone.json"
+        receipt = json.loads(manifest.read_text())
+        receipt["phase"] = "cloning"
+        manifest.write_text(json.dumps(receipt))
+
         saved = checkout / "draft.txt"
         saved.write_text("retain this")
         unavailable = self.origin.with_name("unavailable.git")

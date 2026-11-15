@@ -96,11 +96,11 @@ func prepareEditorRuntimeOnce(
 		return editorRuntime{}, err
 	}
 
-	directory := project.Directory
-	if level == SandboxMicroVM {
-		directory = ManagedGuestWorkspace
-	}
-	command := "python3 -u -I -c " + Quote(editorSupervisor) + " " + Quote(prefix) + " " + Quote(directory) + " " + Quote(vscode.RemoteManifest())
+	paths := PathsForExecution(machine, level, project.Directory, "")
+	directory := paths.Workspace
+	command := "python3 -u -I -c " + Quote(editorSupervisor) +
+		" " + Quote(prefix) + " " + Quote(directory) +
+		" " + Quote(vscode.RemoteManifest())
 
 	if level != SandboxMicroVM {
 		return editorRuntime{
@@ -144,30 +144,10 @@ func prepareEditorRuntimeOnce(
 		return editorRuntime{}, errors.New("managed MicroVM did not expose its editor tunnel")
 	}
 
-	// These packages are installed in Fedora, never on the SSH host. They persist
-	// alongside the agent's other packages and survive editor restarts.
-	bootstrap := execution
-	bootstrap.GuestRoot = true
-	bootstrap.Command = `if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! test -f /usr/lib64/libstdc++.so.6; then
-  if command -v microdnf >/dev/null 2>&1; then manager=microdnf
-  elif command -v dnf5 >/dev/null 2>&1; then manager=dnf5
-  else manager=dnf; fi
-  "$manager" -y install python3 git libstdc++ libatomic
-fi`
-
-	wrapped, _, err := Sandbox(ctx, connection, machine, bootstrap)
-	if err != nil {
-		return editorRuntime{}, err
-	}
-
-	if _, err := Run(ctx, connection.Client, wrapped); err != nil {
-		return editorRuntime{}, fmt.Errorf("prepare Fedora editor packages: %w", err)
-	}
-
 	token := rand.Text() + rand.Text()
 	configuration, _ := json.Marshal(map[string]string{"token": token})
 	execution.Command = WithCommitIdentity(command+" "+Quote(string(configuration)), target.CommitIdentity)
-	wrapped, _, err = Sandbox(ctx, connection, machine, execution)
+	wrapped, _, err := Sandbox(ctx, connection, machine, execution)
 
 	return editorRuntime{
 		command: wrapped,

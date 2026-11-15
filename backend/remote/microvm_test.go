@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -103,6 +104,43 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 
 	if len(SandboxImplementationID()) != 64 {
 		t.Fatal("sandbox observation identity is missing")
+	}
+}
+
+// Keep the byte order of the original concatenation when refactoring the hash input.
+func TestMicroVMRunnerHashPreservesConcatenation(t *testing.T) {
+	machine := WithMachineDefaults(domain.Machine{})
+	options, err := json.Marshal(map[string]any{
+		"gpu":        GPUEnabled(machine),
+		"gpuDevices": machine.GPUDevices,
+		"storage":    machine.Storage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalInput := managedMicroVMRunner +
+		managedMicroVMGuest +
+		managedMicroVMInit +
+		managedMicroVMStreams +
+		managedVFIO +
+		managedNVIDIA +
+		terminalRelay +
+		string(managedMicroVMRelease) +
+		string(options)
+
+	digest := sha256.Sum256([]byte(originalInput))
+	expectedHash := hex.EncodeToString(digest[:])
+
+	var configuration struct {
+		RunnerHash string `json:"runnerHash"`
+	}
+	if err := json.Unmarshal([]byte(microVMConfiguration()), &configuration); err != nil {
+		t.Fatal(err)
+	}
+
+	if configuration.RunnerHash != expectedHash {
+		t.Fatalf("runner hash changed: got %q, want %q", configuration.RunnerHash, expectedHash)
 	}
 }
 

@@ -101,7 +101,7 @@ func (engine *Engine) writeStdin(ctx context.Context, record domain.Agent, reque
 				"guestRoot": running.execution.GuestRoot,
 				"tty":       running.execution.TTY,
 
-				"launchDirectory": running.project.Directory,
+				"launchDirectory": running.launchDirectory,
 
 				"recentInputs":       recentInputs,
 				"olderInputsOmitted": omitted,

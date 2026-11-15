@@ -1,3 +1,5 @@
+import { AuthenticationError } from "./session";
+
 export type Attachment = {
   id: string;
   name: string;
@@ -50,6 +52,7 @@ export async function uploadAttachment(
       signal,
     },
   );
+  if (response.status === 401) throw new AuthenticationError();
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const detail =

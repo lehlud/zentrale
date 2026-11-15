@@ -94,29 +94,7 @@ func (i *Instance) ListFields(
 
 	q += ` ORDER BY created_at,id LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
-	rows, err := i.readDB().Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]map[string]any, 0)
-
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, err
-		}
-
-		var item map[string]any
-		if err := json.Unmarshal([]byte(data), &item); err != nil {
-			return nil, err
-		}
-
-		result = append(result, item)
-	}
-
-	return result, rows.Err()
+	return i.queryResources(q, args...)
 }
 
 func (i *Instance) Remove(kind, id string) error {
@@ -420,31 +398,10 @@ func (i *Instance) SearchModels(providerID, search string, limit, offset int) ([
 	}
 
 	pattern := "%" + strings.ToLower(search) + "%"
-	rows, err := i.readDB().Query(`SELECT data::VARCHAR FROM resources
+	return i.queryResources(`SELECT data::VARCHAR FROM resources
   WHERE kind='model' AND parent_id=?
   AND (lower(json_extract_string(data,'$.name')) LIKE ? OR lower(json_extract_string(data,'$.id')) LIKE ?)
   ORDER BY json_extract_string(data,'$.name'),id LIMIT ? OFFSET ?`, providerID, pattern, pattern, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := []map[string]any{}
-	for rows.Next() {
-		var encoded string
-		if err := rows.Scan(&encoded); err != nil {
-			return nil, err
-		}
-
-		var model map[string]any
-		if err := json.Unmarshal([]byte(encoded), &model); err != nil {
-			return nil, err
-		}
-
-		result = append(result, model)
-	}
-
-	return result, rows.Err()
 }
 
 // Both JSON keys and paths are bound parameters, even though GraphQL validates

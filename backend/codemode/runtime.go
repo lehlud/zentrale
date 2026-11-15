@@ -129,13 +129,19 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 			return nil, errors.New("code_mode call limit reached; continue in another model round")
 		}
 
-		encoded, err := args[1].JSONStringify()
-		if err != nil || len(encoded) > 1024*1024 {
+		if !args[1].IsString() {
+			return nil, errors.New("tool arguments must be encoded as JSON")
+		}
+		encoded := args[1].String()
+		if len(encoded) > 1024*1024 {
 			return nil, errors.New("tool arguments must be a JSON object of at most 1 MiB")
 		}
 
 		var arguments map[string]any
-		if json.Unmarshal([]byte(encoded), &arguments) != nil || arguments == nil {
+		if err := json.Unmarshal([]byte(encoded), &arguments); err != nil {
+			return nil, fmt.Errorf("tool arguments must be a JSON object: %w", err)
+		}
+		if arguments == nil {
 			return nil, errors.New("tool arguments must be a JSON object")
 		}
 
@@ -163,12 +169,6 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 		for index, value := range this.Args() {
 			text := value.String()
 
-			if value.IsObject() {
-				if encoded, failure := value.JSONStringify(); failure == nil {
-					text = encoded
-				}
-			}
-
 			if index > 0 {
 				appendOutput(&result, " ")
 			}
@@ -181,9 +181,17 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 		return js.NewUndefined(), nil
 	})
 	encodedNames, _ := json.Marshal(names)
-	bootstrap := `const tools = Object.freeze(Object.fromEntries(` + string(encodedNames) + `
-  .map(name => [name, args => __call(name, args ?? {})])));
-const print = (...values) => __print(...values);
+	// Serialize inside JavaScript: qjs v0.0.6's native JSONStringify binding
+	// can return corrupted bytes for long strings with a full tool catalog.
+	bootstrap := `const encodeJSON = JSON.stringify;
+const tools = Object.freeze(Object.fromEntries(` + string(encodedNames) + `
+  .map(name => [name, args => __call(name, encodeJSON(args ?? {}))])));
+const print = (...values) => __print(...values.map(value => {
+  if (value !== null && typeof value === "object") {
+    try { return encodeJSON(value); } catch {}
+  }
+  return String(value);
+}));
 const text = print;
 const console = Object.freeze({log: print, info: print, error: print});
 `

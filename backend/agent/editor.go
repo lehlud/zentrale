@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"time"
@@ -164,7 +163,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	if selected.ID != "" {
 		connection, machine, project, err = engine.connectWithEditorCandidate(ctx, selected, true)
 	} else {
-		owner := "ide-prepare:" + scope + ":" + rand.Text()
+		owner := "ide-prepare:" + scope + ":" + NewID()
 		leaseOwner = owner
 		defer engine.Remote.Release(owner)
 
@@ -205,7 +204,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	defer connection.Close()
 	// Cached agent connections may expire independently while a terminal is
 	// still open. Retain the selected pool/GPU lease for this whole operation.
-	lease := "workspace:" + rand.Text()
+	lease := "workspace:" + NewID()
 	engine.Remote.Hold(leaseOwner, lease)
 	defer engine.Remote.Release("job:" + lease)
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/url"
 	"path"
@@ -71,7 +72,9 @@ func (engine *Engine) SaveMachine(machine domain.Machine) (domain.Machine, error
 		},
 	)
 
-	engine.Emit("resources", "", nil)
+	if err == nil {
+		engine.Emit("resources", "", nil)
+	}
 
 	return machine, err
 }
@@ -143,6 +146,8 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 			// Editing an old project through the new UI must not move its files.
 			project.Directory = previous.Directory
 		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return project, err
 	}
 
 	if project.ManagedWorkspace || project.Directory == "" {
@@ -181,7 +186,9 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 	}
 
 	project, err := engine.GitForge.SaveProject(ctx, project)
-	engine.Emit("resources", "", nil)
+	if err == nil {
+		engine.Emit("resources", "", nil)
+	}
 
 	return project, err
 }
@@ -193,7 +200,9 @@ func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 	var existing domain.Source
 
 	if source.ID != "" {
-		_ = engine.Store.Load("source", source.ID, &existing)
+		if err := engine.Store.Load("source", source.ID, &existing); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return source, err
+		}
 	}
 
 	if existing.BindingID != "" {
@@ -281,7 +290,9 @@ func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 		},
 	)
 
-	engine.Emit("resources", "", nil)
+	if err == nil {
+		engine.Emit("resources", "", nil)
+	}
 
 	return source, err
 }

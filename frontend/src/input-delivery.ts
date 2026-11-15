@@ -1,4 +1,5 @@
 import { ConnectionError } from "./connection";
+import { newResourceId } from "./resource-id";
 import type { AgentInput } from "./generated";
 import type { Attachment } from "./attachments";
 
@@ -70,7 +71,7 @@ export class InputDelivery {
     attachments: Attachment[] = [],
   ) {
     const input: OutgoingInput = {
-      id: crypto.randomUUID(),
+      id: newResourceId(),
       agentId,
       text,
       mode,

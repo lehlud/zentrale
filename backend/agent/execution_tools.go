@@ -76,15 +76,19 @@ func (engine *Engine) runPython(
 		if err != nil {
 			return nil, err
 		}
-		managedPrefix := temporary + "/venv-"
-		if !strings.HasPrefix(environment, managedPrefix) {
-			environment, err = remote.Workspace(project.Directory, environment)
-			if err != nil {
-				return nil, err
-			}
+		managed := strings.HasPrefix(environment, temporary+"/venv-") ||
+			strings.HasPrefix(environment, remote.ManagedGuestTemporaryDirectory+"/venv-")
+		if managed {
+			executable, err = filePathArgument(project.Directory, temporary, environment+"/bin/python")
+		} else {
+			var relative string
+			relative, err = remote.WorkspaceRelative(project.Directory, environment+"/bin/python")
+			executable = remote.Quote(relative)
 		}
 
-		executable = remote.Quote(environment + "/bin/python")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	command := executable + " -c " + remote.Quote(stringArg(arguments, "code"))

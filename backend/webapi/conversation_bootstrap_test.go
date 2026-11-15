@@ -81,7 +81,7 @@ const historyBootstrapQuery = `query{conversationBootstrap(projectId:"history-pr
  goal { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
  agentInputs { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
  agentRunState { agentId phase error hostKey { host fingerprint publicKey } }
- questions { id title options status answer agentId }
+ questions { id title options mode status answer agentId }
  jobs { id command status error startedAt machineId agentId timeoutMs }
  modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
  machineName sandboxMode
@@ -238,7 +238,7 @@ const bootstrapTestQuery = `query($projectId:String!, $agentId:String) {
  conversationBootstrap(projectId:$projectId,agentId:$agentId) {
   project{id name} agents{id role summary} agent{id role projectId parentId summary}
   messages{id role content attachments{id name path} activities{name} changes{id path}}
-  questions{id status title} agentInputs{id status}
+  questions{id status title mode} agentInputs{id status}
  }
 }`
 
@@ -348,7 +348,7 @@ func TestConversationBootstrapRecentMessagesMatchPaginationAndKeepPendingQuestio
 			status = "open"
 		}
 		saveBootstrapResource(t, f, "question", fmt.Sprintf("question-%03d", index), "main", map[string]any{
-			"agentId": "main", "title": id, "status": status,
+			"agentId": "main", "title": id, "status": status, "mode": "advisory",
 		})
 	}
 	data := requireData(t, f.query(t, bootstrapTestQuery, map[string]any{"projectId": "project"}))["conversationBootstrap"].(map[string]any)
@@ -368,6 +368,9 @@ func TestConversationBootstrapRecentMessagesMatchPaginationAndKeepPendingQuestio
 	questions := data["questions"].([]any)
 	if len(questions) != 1 || questions[0].(map[string]any)["status"] != "open" {
 		t.Fatalf("pending question lost beyond first page: %v", questions)
+	}
+	if questions[0].(map[string]any)["mode"] != "advisory" {
+		t.Fatalf("pending question lost its continuation mode: %v", questions)
 	}
 	for field, selection := range map[string]string{"approvals": "id", "notes": "id", "usageSummary": "requestCount"} {
 		response := f.query(t, `query{conversationBootstrap(projectId:"project"){`+field+`{`+selection+`}}}`, nil)

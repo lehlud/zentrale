@@ -9,11 +9,13 @@ import { SourceCode } from "./syntax";
 export function CodeSnippet({
   text,
   label,
+  startLine,
   wrap = false,
   formatJavaScript = false,
 }: {
   text: string;
   label: string;
+  startLine?: number;
   wrap?: boolean;
   formatJavaScript?: boolean;
 }) {
@@ -69,7 +71,7 @@ export function CodeSnippet({
         className={`min-w-0 p-3 font-mono text-xs leading-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:p-4 ${wrap ? "whitespace-pre-wrap! break-words [overflow-wrap:anywhere]" : "overflow-x-auto whitespace-pre!"}`}
       >
         <code>
-          <SourceCode text={display} language={label} />
+          <SourceCode text={display} language={label} startLine={startLine} />
         </code>
       </pre>
       {failed && (

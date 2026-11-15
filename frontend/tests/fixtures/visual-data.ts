@@ -262,6 +262,7 @@ export const transcript = {
       agentId: agent.id,
       title: "Welche Evaluation soll nach dem nächsten Checkpoint laufen?",
       options: ["Vollständiger Validierungsdatensatz", "Schneller Testlauf"],
+      mode: "advisory",
       status: "open",
       answer: "",
     },

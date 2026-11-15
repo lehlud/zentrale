@@ -1,89 +1,17 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import type { Element, Root, RootContent } from "hast";
-import { common, createLowlight } from "lowlight";
 
 import { SyntaxTokens, type DiffSourceLine, type SyntaxToken } from "./syntax";
+import { highlighter, languageFor } from "./syntax-language";
 import "./syntax.css";
-
-const highlighter = createLowlight(common);
-
-const extensions: Record<string, string> = {
-  py: "python",
-  pyw: "python",
-  go: "go",
-  rs: "rust",
-  js: "javascript",
-  jsx: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  ts: "typescript",
-  tsx: "typescript",
-  mts: "typescript",
-  cts: "typescript",
-  json: "json",
-  jsonc: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  html: "xml",
-  htm: "xml",
-  xml: "xml",
-  svg: "xml",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  md: "markdown",
-  mdx: "markdown",
-  sql: "sql",
-  java: "java",
-  kt: "kotlin",
-  kts: "kotlin",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  hpp: "cpp",
-  cc: "cpp",
-  cs: "csharp",
-  rb: "ruby",
-  php: "php",
-  swift: "swift",
-  lua: "lua",
-  r: "r",
-  toml: "ini",
-  ini: "ini",
-  conf: "ini",
-  graphql: "graphql",
-  gql: "graphql",
-  diff: "diff",
-  patch: "diff",
-};
-
-function languageFor(label: string) {
-  const name = label.toLowerCase().split(/[\\/]/).at(-1) ?? "";
-  if (["command", "befehl", ".bashrc", ".zshrc"].includes(name)) {
-    return "bash";
-  }
-
-  if (["makefile", "gnumakefile"].includes(name)) {
-    return "makefile";
-  }
-
-  if (name === ".env" || name.startsWith(".env.")) {
-    return "ini";
-  }
-
-  const language = extensions[name.split(".").at(-1) ?? ""] ?? name;
-
-  return highlighter.registered(language) ? language : undefined;
-}
 
 // Split the token tree into lines without losing multiline strings or comments.
 // React renders text nodes, so source code is never inserted as HTML.
-function sourceLines(text: string, label: string): SyntaxToken[][] {
+function sourceLines(
+  text: string,
+  language: string | undefined,
+): SyntaxToken[][] {
   const plain = () => text.split("\n").map((line) => [{ text: line }]);
-  const language = languageFor(label);
   if (!language || text.length > 200_000) {
     return plain();
   }
@@ -125,11 +53,16 @@ function sourceLines(text: string, label: string): SyntaxToken[][] {
 export function HighlightedSource({
   text,
   language,
+  startLine = 1,
 }: {
   text: string;
   language: string;
+  startLine?: number;
 }) {
-  const lines = useMemo(() => sourceLines(text, language), [text, language]);
+  const lines = useMemo(
+    () => sourceLines(text, languageFor(language, text, startLine)),
+    [text, language, startLine],
+  );
   return (
     <span className="syntax-highlight">
       {lines.map((tokens, index) => (
@@ -142,8 +75,20 @@ export function HighlightedSource({
   );
 }
 
-function diffLines(lines: DiffSourceLine[], language: string): SyntaxToken[][] {
+function diffLines(lines: DiffSourceLine[], label: string): SyntaxToken[][] {
   const result = lines.map((line) => [{ text: line.text }]);
+
+  // Only actual file line 1 can supply a shebang. Keep each version's language
+  // across hunks, even when a patch changes or removes the interpreter.
+  const beforeLanguage = languageFor(
+    label,
+    lines.find((line) => line.oldLine === 1)?.text ?? "",
+  );
+  const afterLanguage = languageFor(
+    label,
+    lines.find((line) => line.newLine === 1)?.text ?? "",
+  );
+
   // Each hunk has its own context. Highlight both versions, then map tokens back
   // onto their rows; deleted lines never affect the new file's syntax state.
   let start = 0;
@@ -162,14 +107,14 @@ function diffLines(lines: DiffSourceLine[], language: string): SyntaxToken[][] {
         .filter((line) => ["context", "removed"].includes(line.kind))
         .map((line) => line.text)
         .join("\n"),
-      language,
+      beforeLanguage,
     );
     const after = sourceLines(
       group
         .filter((line) => ["context", "added"].includes(line.kind))
         .map((line) => line.text)
         .join("\n"),
-      language,
+      afterLanguage,
     );
     let oldIndex = 0,
       newIndex = 0;

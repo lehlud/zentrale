@@ -2,7 +2,12 @@ import { Fragment, lazy, Suspense, type ReactNode } from "react";
 
 export type SyntaxToken = { text: string; className?: string };
 
-export type DiffSourceLine = { kind: string; text: string };
+export type DiffSourceLine = {
+  kind: string;
+  text: string;
+  oldLine?: number;
+  newLine?: number;
+};
 
 const HighlightedSource = lazy(() =>
   import("./syntax-highlight").then((module) => ({
@@ -32,13 +37,19 @@ export function SyntaxTokens({ tokens }: { tokens: SyntaxToken[] }) {
 export function SourceCode({
   text,
   language,
+  startLine,
 }: {
   text: string;
   language: string;
+  startLine?: number;
 }) {
   return (
     <Suspense fallback={text}>
-      <HighlightedSource text={text} language={language} />
+      <HighlightedSource
+        text={text}
+        language={language}
+        startLine={startLine}
+      />
     </Suspense>
   );
 }

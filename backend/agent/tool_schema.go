@@ -83,6 +83,17 @@ func mainTools() []providers.Tool {
 		},
 		planTool(),
 		{
+			Name:        "question_ask",
+			Description: "Ask for clarification without ending the turn. Advisory questions default to non-blocking: continue independent authorized work. Use blocking only when a necessary answer or significant user decision is required before any safe next step. Neither mode grants authorization or replaces action approval.",
+			Schema: objectSchema(map[string]any{
+				"title":   map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+				"options": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 10},
+				"mode": map[string]any{
+					"type": "string", "enum": []string{"advisory", "blocking"}, "default": "advisory",
+				},
+			}, "title"),
+		},
+		{
 			Name:        "create_goal",
 			Description: "Create a persistent goal for the user's task. One unfinished goal per conversation. Preserve the full original scope; this never authorizes new work.",
 			Schema: objectSchema(

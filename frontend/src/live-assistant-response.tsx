@@ -11,6 +11,23 @@ import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { WorkingIndicator } from "./working-indicator";
 
+const phaseLabels: Record<string, string> = {
+  accepted: "Nachricht übernommen …",
+  goal_review: "Auto-Approver prüft den Zielabschluss …",
+  checking_ready: "Bestehende Umgebung wird kurz geprüft …",
+  ready: "Vorbereitete Umgebung ist bereit …",
+  connecting: "Verbindung zur Maschine wird hergestellt …",
+  retrying_connection:
+    "Verbindung unterbrochen, Umgebung wird automatisch erneut geprüft …",
+  checking_sandbox: "Sandbox wird geprüft …",
+  recovering_sandbox: "Umgebung wird wiederhergestellt …",
+  workspace: "Projektverzeichnis wird vorbereitet …",
+  sandbox: "Sandbox wird vorbereitet …",
+  repository: "Repository wird vorbereitet …",
+  retrying_model: "Modellverbindung unterbrochen, neuer Versuch …",
+  waiting_question: "Eine notwendige Antwort steht noch aus …",
+};
+
 export function LiveAssistantResponse({
   agentId,
   messages,
@@ -65,33 +82,12 @@ export function LiveAssistantResponse({
       {working && (
         <WorkingIndicator
           label={t(
-            phase === "accepted"
-              ? "Nachricht übernommen …"
-              : phase === "goal_review"
-                ? "Auto-Approver prüft den Zielabschluss …"
-                : phase === "checking_ready"
-                  ? "Bestehende Umgebung wird kurz geprüft …"
-                  : phase === "ready"
-                    ? "Vorbereitete Umgebung ist bereit …"
-                    : phase === "connecting"
-                      ? "Verbindung zur Maschine wird hergestellt …"
-                      : phase === "checking_sandbox"
-                        ? "Sandbox wird geprüft …"
-                        : phase === "recovering_sandbox"
-                          ? "Umgebung wird wiederhergestellt …"
-                          : phase === "workspace"
-                            ? "Projektverzeichnis wird vorbereitet …"
-                            : phase === "sandbox"
-                              ? "Sandbox wird vorbereitet …"
-                              : phase === "repository"
-                                ? "Repository wird vorbereitet …"
-                                : phase === "retrying_model"
-                                  ? "Modellverbindung unterbrochen, neuer Versuch …"
-                                  : generating
-                                    ? text
-                                      ? "Schreibt …"
-                                      : "Antwort wird vorbereitet …"
-                                    : "Arbeitet …",
+            phaseLabels[phase ?? ""] ??
+              (generating
+                ? text
+                  ? "Schreibt …"
+                  : "Antwort wird vorbereitet …"
+                : "Arbeitet …"),
           )}
         />
       )}

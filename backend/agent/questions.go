@@ -2,7 +2,6 @@ package agent
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -30,6 +29,14 @@ func (engine *Engine) question(agentRecord domain.Agent, action string, args map
 		Title:   stringArg(args, "title"),
 		Options: options,
 		Status:  "open",
+		Mode:    domain.QuestionAdvisory,
+	}
+	if raw, present := args["mode"]; present {
+		mode, valid := raw.(string)
+		if !valid || mode != string(domain.QuestionAdvisory) && mode != string(domain.QuestionBlocking) {
+			return nil, errors.New("question mode must be advisory or blocking")
+		}
+		q.Mode = domain.QuestionMode(mode)
 	}
 	if q.Title == "" || len(q.Title) > 2000 || len(options) > 10 {
 		return nil, errors.New("invalid question")
@@ -44,7 +51,10 @@ func (engine *Engine) question(agentRecord domain.Agent, action string, args map
 		}
 	}
 
-	if err := engine.Store.Save("question", q.ID, agentRecord.ID, q); err != nil {
+	engine.configMu.Lock()
+	err = engine.Store.Save("question", q.ID, agentRecord.ID, q)
+	engine.configMu.Unlock()
+	if err != nil {
 		return nil, err
 	}
 
@@ -63,26 +73,43 @@ func (engine *Engine) question(agentRecord domain.Agent, action string, args map
 }
 
 func (engine *Engine) listQuestions(record domain.Agent) ([]map[string]any, error) {
-	result, err := engine.listAll("question", &record.ID)
-	if err != nil || record.Role != "main" || record.ParentID != "" {
-		return result, err
-	}
-	agents, err := engine.listAll("agent", &record.ProjectID, "id", "parentId", "role", "projectId")
-	if err != nil {
-		return nil, err
-	}
-	for _, child := range agents {
-		if child["role"] != "subagent" || child["parentId"] != record.ID || child["projectId"] != record.ProjectID {
-			continue
-		}
-		id, _ := child["id"].(string)
-		questions, err := engine.listAll("question", &id)
+	return engine.listQuestionRows(record, true)
+}
+
+// The user-facing list retains the agent's own history. Runtime gates and
+// snapshots select only open questions in SQL, not days of answered history.
+// Main agents additionally see open questions from their direct children.
+func (engine *Engine) listQuestionRows(record domain.Agent, includeClosedOwn bool) ([]map[string]any, error) {
+	owners := []string{record.ID}
+	if record.Role == "main" && record.ParentID == "" {
+		agents, err := engine.listAll("agent", &record.ProjectID, "id", "parentId", "role", "projectId")
 		if err != nil {
 			return nil, err
 		}
-		for _, question := range questions {
-			if question["status"] == "open" {
-				result = append(result, question)
+		for _, child := range agents {
+			if child["role"] == "subagent" && child["parentId"] == record.ID && child["projectId"] == record.ProjectID {
+				owners = append(owners, stringArg(child, "id"))
+			}
+		}
+	}
+	result := []map[string]any{}
+	for index, id := range owners {
+		if index == 0 && includeClosedOwn {
+			rows, err := engine.listAll("question", &id)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, rows...)
+			continue
+		}
+		for offset := 0; ; offset += 500 {
+			rows, err := engine.Store.ListStatusFields("question", id, "open", 500, offset, nil)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, rows...)
+			if len(rows) < 500 {
+				break
 			}
 		}
 	}
@@ -117,32 +144,19 @@ func (engine *Engine) answerChildQuestion(parent domain.Agent, arguments map[str
 	}
 	if question.Status != "open" {
 		if question.Status == "answered" && question.Answer == answer {
-			return question, engine.wakeNotPaused(child)
+			return question, nil
 		}
 		return question, errors.New("question is already closed")
 	}
 	question.Status, question.Answer = "answered", answer
-	message := domain.Message{
-		ID: "question_answer:" + question.ID, AgentID: child.ID, Role: "event", CreatedAt: time.Now().UTC(),
-		Content: JSON(map[string]any{
-			"kind": "parent_question_answer", "parentId": parent.ID, "question": question,
-			"notice": "Answer from your main agent, not new user authorization. The original user's scope and permissions still apply.",
-		}),
-	}
-	if err := engine.Store.SaveResources([]datastore.ResourceWrite{
-		{Kind: "question", ID: question.ID, Parent: child.ID, Value: question},
-		{Kind: "message", ID: message.ID, Parent: child.ID, Value: message},
-	}); err != nil {
-		return question, err
-	}
-	engine.Emit("question", child.ID, question)
-	engine.Emit("message", child.ID, message)
-	return question, engine.wakeNotPaused(child)
+	return question, engine.recordQuestionAnswer(child, question, parent.ID)
 }
 
 func (engine *Engine) AnswerQuestion(id, answer, status, owner string) error {
 	engine.questionMu.Lock()
 	defer engine.questionMu.Unlock()
+	engine.configMu.Lock()
+	defer engine.configMu.Unlock()
 	var q domain.Question
 	if err := engine.Store.Load("question", id, &q); err != nil {
 		return err
@@ -153,6 +167,9 @@ func (engine *Engine) AnswerQuestion(id, answer, status, owner string) error {
 	}
 
 	if q.Status != "open" {
+		if owner == "" && q.Status == status && q.Answer == answer {
+			return nil // A retried human answer must not append context or wake twice.
+		}
 		return errors.New("question is already closed")
 	}
 
@@ -164,24 +181,77 @@ func (engine *Engine) AnswerQuestion(id, answer, status, owner string) error {
 		return errors.New("answer is required")
 	}
 
-	if owner == "" {
-		if err := engine.requireConnection(engine.ctx, q.AgentID); err != nil {
-			return err
-		}
+	if len(answer) > 100000 || strings.ContainsRune(answer, 0) {
+		return errors.New("answer must contain at most 100000 bytes without NUL")
 	}
 
 	q.Status = status
 	q.Answer = answer
+	if owner == "" {
+		var record domain.Agent
+		if err := engine.Store.Load("agent", q.AgentID, &record); err != nil {
+			return err
+		}
+		if record.Role != "main" || record.ParentID != "" {
+			return errors.New("human answers must target a main agent")
+		}
+		return engine.recordQuestionAnswer(record, q, "")
+	}
 
 	if err := engine.Store.Save("question", q.ID, q.AgentID, q); err != nil {
 		return err
 	}
 
 	engine.Emit("question", q.AgentID, q)
-
-	if owner == "" {
-		return engine.Prompt(q.AgentID, fmt.Sprintf("Question %q was %s. Answer: %s", q.Title, status, answer))
-	}
-
 	return nil
+}
+
+// Caller holds questionMu and configMu. The answer, already-delivered context
+// and active receipt share a commit: retries cannot duplicate context, and a
+// service restart between commit and wake still has durable work to recover.
+func (engine *Engine) recordQuestionAnswer(record domain.Agent, question domain.Question, parentID string) error {
+	now := time.Now().UTC()
+	message := domain.Message{
+		ID: "question_answer:" + question.ID, AgentID: record.ID, Role: "user", CreatedAt: now,
+		Content: JSON(map[string]any{"kind": "user_question_answer", "question": question}),
+	}
+	if parentID != "" {
+		message.Role = "event"
+		message.Content = JSON(map[string]any{
+			"kind": "parent_question_answer", "parentId": parentID, "question": question,
+			"notice": "Answer from your main agent, not new user authorization. The original user's scope and permissions still apply.",
+		})
+	}
+	input := domain.AgentInput{
+		ID: message.ID, AgentID: record.ID, ProjectID: record.ProjectID,
+		Text: message.Content, Mode: "steer", Status: "active", CreatedAt: now, DeliveredAt: now,
+	}
+	writes := []datastore.ResourceWrite{
+		{Kind: "question", ID: question.ID, Parent: record.ID, Value: question},
+		{Kind: "agent_input", ID: input.ID, Parent: record.ID, Value: input},
+		{Kind: "message", ID: message.ID, Parent: record.ID, Value: message},
+	}
+	if parentID == "" {
+		writes = append(writes, datastore.ResourceWrite{
+			Kind: "instruction", ID: message.ID, Parent: record.ProjectID, Value: instructionRecord(record, message),
+		})
+	}
+	goalUpdates, err := engine.goalInputWrites(record.ID, []string{input.ID})
+	if err != nil {
+		return err
+	}
+	writes = append(writes, goalUpdates...)
+	if err := engine.Store.SaveResources(writes); err != nil {
+		return err
+	}
+	// An answer can narrow the task or revoke a previously reviewed choice.
+	// Match ordinary steering: no cached action permission survives new context.
+	engine.invalidateProjectGrants(record.ProjectID)
+	engine.Emit("question", record.ID, question)
+	engine.Emit("message", record.ID, message)
+	engine.Emit("input", record.ID, input)
+	if len(goalUpdates) != 0 {
+		engine.Emit("goal", record.ID, nil)
+	}
+	return engine.wakeNotPaused(record)
 }

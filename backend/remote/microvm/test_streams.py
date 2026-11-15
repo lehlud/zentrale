@@ -252,8 +252,9 @@ class StreamingTests(unittest.TestCase):
                 ),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "connection was interrupted"):
+            with self.assertRaises(runner.InvocationInterrupted) as failure:
                 runner.run_invocation(self.job)
+            self.assertEqual(failure.exception.reason, "generation_replaced")
 
 
 if __name__ == "__main__":

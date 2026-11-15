@@ -46,6 +46,23 @@ The unreleased application uses one transactional
 incompatible development schemas fail without being rewritten or deleted.
 Historical migration and downgrade chains are intentionally absent.
 
+## Execution environment
+
+Managed Fedora commands, VS Code and terminals use `/home/zentrale/project`
+and the conversation owner's shared `/tmp/zentrale` scratch directory. Runtime
+context reports this execution view; persisted project/cleanup records describe
+host-backed storage. `remote.PathsForExecution` selects paths from the actual
+sandbox level; custom runners and explicit `outsideSandbox` keep their host
+contract. Never rewrite arbitrary command strings to translate between views.
+
+Internal file, Git, download, attachment and Python-environment helpers use the
+process working directory and `TMPDIR`. Git inventories store project-relative
+paths, and existing storage coordinates are validated against the configured
+project root before use. Checkout data and Fedora disks are retained. Old host
+path mount aliases, receipt-less clone compatibility and worker-owned scratch
+fallbacks are not supported. Shared Fedora provisioning owns baseline packages;
+starting VS Code must not install a separate environment.
+
 ## Shared application flows
 
 - **Tools:** `backend/agent/tools.go` owns the supported-action policy catalog
@@ -68,6 +85,81 @@ Historical migration and downgrade chains are intentionally absent.
 Prefer these existing boundaries over a new helper per action or a universal
 registry of page options. Domain-specific editors and authorization rules should
 remain visible where their decisions are made.
+
+## Code standards
+
+- **Optimize for the next reader.** Use domain names, early returns and explicit
+  control flow. Keep an action's related values together rather than duplicating
+  nested conditionals. Comments explain invariants and trade-offs, not syntax.
+- **Use whitespace to show semantic groups, in every language.** Keep only
+  tightly related statements adjacent. Separate independent guard clauses and
+  distinct setup, processing and result-building steps with a blank line.
+  Single-line groups are valid; do not merge unrelated statements to avoid
+  them. Choose boundaries by meaning, not a fixed line count. Cohesive data
+  literals and call/error-check pairs belong together. Split long expressions
+  across lines or use well-named intermediate values when that helps. Review
+  grouping yourself: formatters do not decide semantic grouping.
+- **Share boundaries, not incidental similarities.** Reuse typed request,
+  resource and persistence flows where they own a real invariant. Keep domain
+  validation visible; avoid one helper per action or a universal registry.
+- **Make failure part of the contract.** Propagate storage and decode errors;
+  distinguish a missing record from a broken read. Publish success events only
+  after a successful save. Collection reads close their result sets and do not
+  return partially decoded data alongside an error.
+- **Separate authentication from connectivity.** GraphQL authentication errors
+  carry `extensions.code: UNAUTHENTICATED`; protected HTTP requests return 401.
+  Established event sockets close with application code 4401 when their session
+  expires. The API service switches the app to its existing login screen and
+  stops reconnecting, preserving the requested hash route for a later sign-in.
+  Browsers hide rejected WebSocket handshake statuses, so failed handshakes get
+  a bounded session-status check. This is not a resource-data polling fallback.
+  Network, permission and ordinary application errors must not log users out.
+- **Protect behavior while refactoring.** Test observable success and failure
+  paths, including cancellation and recovery when relevant. Keep generated
+  schema/types generated. Run the formatters, static checks and affected tests;
+  do not replace small verified changes with a cosmetic rewrite.
+
+## Recovery and unattended work
+
+Background agents retry transient SSH, managed-VM startup and recognized VM
+interruption failures during harness-owned, idempotent environment/repository
+preparation. Immediate attempts are bounded; an active worker then backs off up
+to one minute between preparation cycles and publishes `retrying_connection`.
+Stopping the agent or shutting down cancels the wait. Unknown host keys,
+authentication, permission and ordinary command errors remain explicit failures,
+not reasons to guess from error text or bypass approval.
+
+The native runner reports an interrupted invocation with exit 77 and a structured
+marker. This is evidence that the supervisor or VM generation was lost, **not**
+that the command never ran. Only trusted preparation consumes it for retry;
+user commands, mutations and terminal input are never automatically replayed.
+Recovery retains the VM disk and invalidates stale connection/readiness receipts.
+
+New `question_ask` requests default to `mode: advisory`: the question stays open
+while independent, already authorized work continues. Use `mode: blocking` only
+when a required answer or authorization is missing and no safe independent work
+remains. Legacy questions without a mode remain blocking. Only an agent's own
+blocking questions gate its worker; a main agent can still answer a child's
+question or do independent work. Required child answers also prevent premature
+goal completion. Neither asking nor silence grants permission.
+
+Answers atomically persist the question, conversation message and durable input
+receipt before waking a worker. Retried answers do not duplicate context; an
+explicit user stop or paused/blocked goal is not overridden. The HTTP answer path
+does not wait for an SSH connection or VM boot.
+
+## Resource references
+
+New opaque resource IDs use 96 cryptographically random bits encoded as 17
+URL-safe characters (including a letter prefix for VM scope compatibility),
+shared by the Go domain generator and frontend helper.
+Saved IDs are never rewritten or truncated: older long IDs remain valid. These
+references are not credentials; session tokens, editor secrets, CSP nonces and
+integrity/ownership fingerprints retain their separate generators and lengths.
+
+Approval denials contain the concrete reason and `approvalId`, without repeating
+tool-use warnings in every error. The separate clarification tool and independent
+approval checks keep their existing behavior.
 
 ## Context and usage
 

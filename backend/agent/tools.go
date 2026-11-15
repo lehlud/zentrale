@@ -106,15 +106,29 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 	if !exists {
 		return nil, errors.New("unknown action")
 	}
-
-	switch policy.Review {
-	case reviewRequired, reviewReadSnapshot:
+	// Reject malformed requests before consulting persisted state or review.
+	if policy.Review == reviewRequired || policy.Review == reviewReadSnapshot {
 		if policy.RequiresNetwork && !request.Network {
 			return nil, errors.New("request network=true for this individual interaction")
 		}
 		if boolArg(request.Arguments, "outsideSandbox") && request.Justification == "" {
 			return nil, errors.New("outsideSandbox requires justification and script inspection")
 		}
+	}
+
+	// A required question can be asked inside a multi-call batch or code_mode.
+	// Do not let later work in that same batch run before its answer. Question
+	// inspection/withdrawal and the static tool catalog remain available.
+	switch request.Action {
+	case "question_list", "question_withdraw", "get_goal", "tool_search":
+	default:
+		if err := engine.questionGate(agentRecord.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	switch policy.Review {
+	case reviewRequired, reviewReadSnapshot:
 		if policy.Review == reviewReadSnapshot {
 			return engine.approvedRead(ctx, agentRecord, request.Arguments, request.Justification, request.Network)
 		}
@@ -203,6 +217,8 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 		requiredArgument = "id"
 	case "steer_agent":
 		requiredArgument = "agentId"
+	case "question_ask":
+		requiredArgument = "title"
 	default:
 		return interaction{}, errors.New("unknown tool")
 	}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import "@wterm/dom/css";
 
 import { Icon } from "./icons";
+import { useAPI } from "./api";
 import { useI18n } from "./preferences";
 import {
   TerminalHeartbeat,
@@ -50,6 +51,7 @@ export default function VMTerminal({
   onClose: () => void;
 }) {
   const { t, theme, locale } = useI18n();
+  const api = useAPI();
   const host = useRef<HTMLDivElement>(null);
   const themeRef = useRef(theme);
   themeRef.current = theme;
@@ -227,7 +229,7 @@ export default function VMTerminal({
               : "Terminal-Verbindung fehlgeschlagen.",
           );
           if (opened) return;
-          void terminalConnectionError(url, diagnosis.signal).then(
+          void terminalConnectionError(url, diagnosis.signal, api.fetch).then(
             (message) => {
               if (!disposed) setError(message);
             },
@@ -257,7 +259,7 @@ export default function VMTerminal({
       }
       terminal.destroy();
     };
-  }, [projectId, agentId, attempt]);
+  }, [api, projectId, agentId, attempt]);
 
   const status =
     state === "starting"

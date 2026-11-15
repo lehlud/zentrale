@@ -289,6 +289,9 @@ func (engine *Engine) setInputStatus(agentID, from, to string) error {
 func (engine *Engine) persistFinalResponse(message domain.Message) error {
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
+	if err := engine.questionGate(message.AgentID); err != nil {
+		return err
+	}
 
 	inputs, err := engine.Store.AgentInputs(message.AgentID)
 	if err != nil {

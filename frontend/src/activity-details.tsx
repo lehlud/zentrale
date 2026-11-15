@@ -447,6 +447,7 @@ export function ActivityResult({
   failed?: boolean;
 }) {
   const { t, showDiagnostics } = useI18n();
+  const projectPath = useProjectPath();
   const decoded = structured(value);
   const result = record(decoded);
   if (name === "github") return <GitHubResult value={decoded} />;
@@ -550,8 +551,11 @@ export function ActivityResult({
           )}
         <CodeSnippet
           text={result.content}
+          startLine={typeof result.offset === "number" ? result.offset : 1}
           label={
-            typeof result.path === "string" ? result.path : t("Dateiinhalt")
+            typeof result.path === "string"
+              ? projectPath(result.path)
+              : t("Dateiinhalt")
           }
         />
       </div>

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useAPI, useQuery } from "./api";
 import { Authentication } from "./authentication";
 import { Keys, Machines, Providers, Settings } from "./config";
-import type { Status } from "./generated";
+import { SESSION_QUERY, type SessionData } from "./session";
 import { useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { Projects, ProjectView } from "./projects";
@@ -16,9 +16,7 @@ export default function App() {
   const { t } = useI18n();
 
   const api = useAPI();
-  const { data, error, loading } = useQuery<{ status: Status }>(
-    "query{status{needsSetup authenticated githubConnected}}",
-  );
+  const { data, error, loading } = useQuery<SessionData>(SESSION_QUERY);
   const { page, projectId } = useRoute();
   const authenticated = Boolean(data?.status.authenticated);
 

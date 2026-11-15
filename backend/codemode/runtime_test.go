@@ -2,6 +2,7 @@ package codemode
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -65,5 +66,46 @@ func TestLimitsCancellationAndNoHostAccess(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestToolStringArgumentsRoundTrip(t *testing.T) {
+	for _, command := range []string{
+		"printf record-once >> effects.txt",
+		`printf record-once >> '/tmp/TestToolConnectionRecoveryKeepsRecordedFailureWithoutReplayingEf1043936771/001/project '"'"'quotes'"'"' $literal; space/effects.txt'`,
+		"printf record-once >> '/tmp/project '\"'\"'quotes'\"'\"' $literal; space/effects.txt'",
+		strings.Repeat("long-path/", 30) + "file.txt",
+	} {
+		encoded, err := json.Marshal(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := fmt.Sprintf(`await tools.exec_command({cmd:%s,timeout_ms:5000});`, encoded)
+		names := []string{"exec_command"}
+		for index := 0; index < 80; index++ {
+			names = append(names, fmt.Sprintf("fixture_tool_%d", index))
+		}
+		result, err := Run(context.Background(), source, names, func(_ string, args map[string]any) (any, error) {
+			if args["cmd"] != command {
+				t.Errorf("tool string changed: %q, expected %q", args["cmd"], command)
+			}
+			return true, nil
+		})
+		if err != nil || result.Calls != 1 {
+			t.Fatalf("script=%s result=%+v error=%v", source, result, err)
+		}
+	}
+}
+
+func TestInvalidToolArgumentsNeverReachTheCallback(t *testing.T) {
+	for _, arguments := range []string{`[]`, `"text"`, `42`, `{text:"x".repeat(1024*1024)}`} {
+		calls := 0
+		result, err := Run(context.Background(), "tools.read("+arguments+");", []string{"read"}, func(string, map[string]any) (any, error) {
+			calls++
+			return nil, nil
+		})
+		if err == nil || result.Calls != 0 || calls != 0 {
+			t.Fatalf("invalid arguments reached callback: %s result=%+v calls=%d error=%v", arguments, result, calls, err)
+		}
 	}
 }

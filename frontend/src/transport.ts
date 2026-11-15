@@ -1,4 +1,9 @@
 import { ConnectionError } from "./connection";
+import {
+  AuthenticationError,
+  requiresAuthentication,
+  type GraphQLResult,
+} from "./session";
 
 export async function fetchGraphQL<T>(
   query: string,
@@ -25,7 +30,10 @@ export async function fetchGraphQL<T>(
     throw new ConnectionError(error);
   }
 
-  let data;
+  // A proxy or middleware may return a non-JSON 401 response.
+  if (response.status === 401) throw new AuthenticationError();
+
+  let data: GraphQLResult<T>;
 
   try {
     data = await response.json();
@@ -46,9 +54,8 @@ export async function fetchGraphQL<T>(
   }
 
   if (data.errors?.length) {
-    throw new Error(
-      data.errors.map((error: { message: string }) => error.message).join("\n"),
-    );
+    if (requiresAuthentication(data.errors)) throw new AuthenticationError();
+    throw new Error(data.errors.map((error) => error.message).join("\n"));
   }
 
   if (!response.ok) {

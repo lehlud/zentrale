@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,59 @@ import (
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
 )
+
+func TestRepositoryPreparationRecoversAnInterruptedCredentialCleanup(t *testing.T) {
+	for _, status := range []int{77, 1} {
+		t.Run(fmt.Sprintf("exit%d", status), func(t *testing.T) {
+			var cleanups, stops atomic.Int32
+			shell := shellPeerHandler("/bin/sh", os.Environ())
+			engine, main, _ := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+				if !strings.Contains(command, "<zentrale-microvm>") {
+					return shell(command, input, stdout, stderr)
+				}
+				command = strings.ReplaceAll(command, `'"'"'`, `'`)
+				if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
+					fmt.Fprintln(stdout, "microvm")
+					return 0
+				}
+				if strings.Contains(command, " 'run'") {
+					var request struct{ Operation string }
+					if err := json.NewDecoder(input).Decode(&request); err != nil {
+						t.Error(err)
+						return 1
+					}
+					if request.Operation != "clear-project-git" {
+						t.Errorf("unexpected preparation operation: %s", request.Operation)
+						return 1
+					}
+					if cleanups.Add(1) == 1 {
+						fmt.Fprintln(stderr, `ZENTRALE_VM_INVOCATION_INTERRUPTED {"reason":"generation_replaced"}`)
+						return status
+					}
+					return 0
+				}
+				io.Copy(io.Discard, input)
+				if strings.Contains(command, " 'stage'") {
+					fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
+					return 0
+				}
+				if strings.Contains(command, " 'stop'") || strings.Contains(command, " 'reset'") {
+					stops.Add(1)
+				}
+				fmt.Fprint(stdout, `{"os":"fedora","version":"45"}`)
+				return 0
+			})
+			check := engine.CheckAgentConnection(context.Background(), main.ID)
+			wantAttempts := int32(1)
+			if status == 77 {
+				wantAttempts = 2
+			}
+			if check.Connected != (status == 77) || cleanups.Load() != wantAttempts || stops.Load() != 0 {
+				t.Fatalf("connected=%v cleanups=%d stops=%d error=%s", check.Connected, cleanups.Load(), stops.Load(), check.Error)
+			}
+		})
+	}
+}
 
 func TestVMPreflightRetriesOnlyRecognizedStartupFailures(t *testing.T) {
 	for _, test := range []struct {

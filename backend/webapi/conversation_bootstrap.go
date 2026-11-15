@@ -53,7 +53,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			// Do not silently lose open questions beyond the first history page.
 			for offset := 0; ; offset += 100 {
 				rows, err := server.Store.ListStatusFields("question", id, "open", 100, offset,
-					[]string{"id", "agentId", "title", "options", "status", "answer"})
+					[]string{"id", "agentId", "title", "options", "mode", "status", "answer"})
 				if err != nil {
 					return nil, err
 				}

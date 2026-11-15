@@ -30,7 +30,7 @@ export const transcriptQuery = `query($id:String!) {
   agentRunState(agentId:$id) { agentId phase error hostKey { host fingerprint publicKey } }
   agent(id:$id) { ${agentFields} }
   messages: recentMessages(agentId:$id) { ${messageFields} }
-  questions(agentId:$id, limit:500) { id title options status answer agentId }
+  questions(agentId:$id, limit:500) { id title options mode status answer agentId }
   jobs(agentId:$id, limit:100) { id command status error startedAt machineId agentId timeoutMs }
 }`;
 

@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { ActionsMenu } from "./actions-menu";
 import { CONFIG, useAPI, useQuery } from "./api";
 import { ResourceList, useResourcePage } from "./resource-page";
+import { newResourceId } from "./resource-id";
 import { useBatch } from "./batches";
 import type { Config } from "./config";
 import type { Project, Source } from "./generated";
@@ -39,7 +40,7 @@ import { Icon } from "./icons";
 
 function newProject() {
   return {
-    id: crypto.randomUUID(),
+    id: newResourceId(),
     name: "",
     machineIds: [],
     poolIds: [],
@@ -363,7 +364,7 @@ function Sources({ projectId }: { projectId: string }) {
           variant="ghost"
           className="min-h-11"
           onPress={() =>
-            setEditing({ id: crypto.randomUUID(), projectId, readOnly: false })
+            setEditing({ id: newResourceId(), projectId, readOnly: false })
           }
         >
           {t("Quelle manuell hinzufügen")}

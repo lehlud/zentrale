@@ -6,11 +6,66 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/lehlud/zentrale/remote"
 )
+
+func TestConnectionPreparationRetriesInterruptedCredentialCleanup(t *testing.T) {
+	calls := 0
+	err := retryConnectionPreparation(context.Background(), time.Second, 0, func(context.Context) error {
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("clear project Git credentials: %w", &remote.VMInvocationInterrupted{Reason: "generation_replaced"})
+		}
+		return nil
+	})
+	if err != nil || calls != 2 {
+		t.Fatalf("interrupted preparation did not recover: calls=%d error=%v", calls, err)
+	}
+}
+
+func TestBackgroundConnectionRecoversAfterSeveralTransientFailures(t *testing.T) {
+	calls, notices := 0, 0
+	err := retryConnectionUntilReady(context.Background(), 0, 0, func(context.Context) error {
+		calls++
+		if calls < 5 {
+			return &ProjectConnectionError{Cause: syscall.ECONNREFUSED}
+		}
+		return nil
+	}, func(error) { notices++ })
+	if err != nil || calls != 5 || notices != 4 {
+		t.Fatalf("background task stopped instead of waiting: calls=%d notices=%d error=%v", calls, notices, err)
+	}
+}
+
+func TestBackgroundConnectionStopsForRealBlockersAndCancellation(t *testing.T) {
+	for _, failure := range []error{
+		errors.New("permission denied"),
+		errors.New("MicroVM connection was interrupted; its disk is retained"),
+		syscall.EPERM,
+		context.Canceled,
+	} {
+		calls := 0
+		err := retryConnectionUntilReady(context.Background(), 0, 0, func(context.Context) error {
+			calls++
+			return failure
+		}, func(error) { t.Fatal("permanent failure was retried") })
+		if !errors.Is(err, failure) || calls != 1 {
+			t.Fatalf("lost real blocker: calls=%d error=%v", calls, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := retryConnectionUntilReady(ctx, time.Hour, time.Hour, func(context.Context) error {
+		return &remote.VMInvocationInterrupted{Reason: "supervisor_stopped"}
+	}, func(error) { cancel() })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation did not interrupt recovery backoff: %v", err)
+	}
+}
 
 func TestConnectionPreparationRetriesWrappedDeadlineWithFreshBudget(t *testing.T) {
 	calls := 0

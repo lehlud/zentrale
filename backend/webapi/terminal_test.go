@@ -85,6 +85,8 @@ func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 	defer cancel()
 	peer, err := testssh.StartWithCommandHandler(func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		process := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+		// Do not inherit the developer's interactive shell or startup configuration.
+		process.Env = append(os.Environ(), "SHELL=/bin/sh")
 		process.Stdout, process.Stderr = stdout, stderr
 		stdin, err := process.StdinPipe()
 		if err != nil {

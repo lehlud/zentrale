@@ -29,42 +29,75 @@ guest = load_module("guest_execution", "guest.py")
 
 class GuestShellTests(unittest.TestCase):
     def test_commands_and_terminal_use_clean_guest_environment(self):
-        session = {"workspace": "/host/private/project-id", "temporaryDirectory": "/host/private/scratch", "uid": 1000, "gid": 1000}
-        with (
-            patch.object(guest, "mount"),
-            patch.object(guest, "login_shell", return_value="/usr/bin/fish"),
-            patch.object(guest.os, "chroot") as chroot,
-            patch.object(guest.os, "chdir") as chdir,
-            patch.object(guest.os, "fchown"),
-            patch.object(guest, "drop_privileges"),
-            patch.object(guest.resource, "setrlimit"),
-            patch.object(guest.os, "execve") as execute,
-        ):
-            guest.execute({"network": True, "tty": True}, session, "pwd")
-        chroot.assert_called_once_with(guest.FEDORA)
-        chdir.assert_called_once_with("/home/zentrale/project")
-        environment = execute.call_args.args[2]
-        self.assertEqual(environment["HOME"], "/home/zentrale")
-        self.assertEqual(environment["TMPDIR"], "/tmp/zentrale")
-        self.assertEqual(environment["XDG_CACHE_HOME"], "/tmp/zentrale/cache")
-        self.assertEqual(environment["TERM"], "xterm-256color")
-        self.assertNotIn("/host/", json.dumps(environment))
-        os.close(int(execute.call_args.args[1][1].rsplit("/", 1)[1]))
-
-    def test_guest_project_paths_are_stable_and_preserve_compatibility(self):
-        request = {
-            "workspace": "/home/host-user/.local/share/zentrale/projects/project-id",
-            "temporaryDirectory": "/tmp/host-scratch-id",
+        session = {
+            "workspace": "/host/private/project-id",
+            "temporaryDirectory": "/host/private/scratch",
+            "uid": 1000,
+            "gid": 1000,
         }
-        exports = guest_init.project_exports(request)
-        self.assertIn(("workspace", "/home/zentrale/project"), exports)
-        self.assertIn(("temporary", "/tmp/zentrale"), exports)
-        self.assertIn(("workspace", request["workspace"]), exports)
-        self.assertIn(("temporary", request["temporaryDirectory"]), exports)
-        self.assertEqual(len(exports), 4)
-        canonical = {"workspace": "/home/zentrale/project", "temporaryDirectory": "/tmp/zentrale"}
-        self.assertEqual(len(guest_init.project_exports(canonical)), 2)
-        self.assertEqual(request["workspace"], "/home/host-user/.local/share/zentrale/projects/project-id")
+        requests = [
+            {"network": False},
+            {"network": True},
+            {"network": True, "tty": True},
+            {"network": False, "guestRoot": True},
+            {"network": False, "tooling": True, "guestRoot": True},
+        ]
+        for request in requests:
+            with self.subTest(request=request):
+                tooling = request.get("tooling", False)
+                guest_root = request.get("guestRoot", False) and not tooling
+                shell = "/bin/sh" if guest_root or tooling else "/usr/bin/fish"
+                with (
+                    patch.object(guest, "mount"),
+                    patch.object(guest, "login_shell", return_value=shell),
+                    patch.object(guest.os, "chroot") as chroot,
+                    patch.object(guest.os, "chdir") as chdir,
+                    patch.object(guest.os, "fchown"),
+                    patch.object(guest, "drop_privileges") as privileges,
+                    patch.object(guest.resource, "setrlimit"),
+                    patch.object(guest.os, "execve") as execute,
+                ):
+                    guest.execute(request, session, "pwd")
+
+                root = "/run/zentrale-tools" if tooling else guest.FEDORA
+                chroot.assert_called_once_with(root)
+                chdir.assert_called_once_with("/home/zentrale/project")
+                privileges.assert_called_once_with(1000, 1000, guest_root)
+                environment = execute.call_args.args[2]
+                self.assertEqual(environment["HOME"], "/root" if guest_root else "/home/zentrale")
+                self.assertEqual(environment["TMPDIR"], "/tmp/zentrale")
+                self.assertEqual(environment["XDG_CACHE_HOME"], "/tmp/zentrale/cache")
+                self.assertEqual(environment["SHELL"], shell)
+                self.assertNotIn("/host/", json.dumps(environment))
+                if request.get("tty"):
+                    self.assertEqual(environment["TERM"], "xterm-256color")
+                else:
+                    self.assertNotIn("TERM", environment)
+                os.close(int(execute.call_args.args[1][1].rsplit("/", 1)[1]))
+
+    def test_only_stable_guest_project_paths_are_mounted(self):
+        self.assertEqual(
+            guest_init.project_exports(),
+            [
+                ("workspace", "/home/zentrale/project"),
+                ("temporary", "/tmp/zentrale"),
+            ],
+        )
+
+    def test_standard_tool_probe_checks_non_executable_libraries(self):
+        library = self.root / "libstdc++.so.6"
+        library.write_text("library fixture")
+        library.chmod(0o644)
+        packages = {
+            "present-library": (str(library),),
+            "missing-library": (str(self.root / "missing.so"),),
+            "shell": ("sh",),
+        }
+        with (
+            patch.object(guest_init, "STANDARD_PACKAGES", packages),
+            patch.object(guest_init, "enter_guest", return_value=None),
+        ):
+            self.assertEqual(guest_init.missing_standard_packages(self.root), ["missing-library"])
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

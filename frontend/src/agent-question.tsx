@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAPI } from "./api";
 import type { Question } from "./generated";
 import { useI18n } from "./preferences";
+import { QuestionModeHint } from "./question-mode-hint";
 import { Failure, useAction } from "./ui";
 
 export function AgentQuestion({ question }: { question: Question }) {
@@ -29,6 +30,7 @@ export function AgentQuestion({ question }: { question: Question }) {
       <h3 id={`question-${question.id}`} className="text-sm font-medium">
         {question.title}
       </h3>
+      <QuestionModeHint mode={question.mode} />
       <div className="flex flex-wrap gap-2">
         {question.options.map((option) => (
           <Button

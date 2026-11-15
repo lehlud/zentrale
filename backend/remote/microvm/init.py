@@ -171,6 +171,8 @@ GUEST_ENV = {
 STANDARD_PACKAGES = {
     "fish": ("fish",),
     "git-core": ("git",),
+    "libstdc++": ("/usr/lib64/libstdc++.so.6",),
+    "libatomic": ("/usr/lib64/libatomic.so.1",),
     "ripgrep": ("rg",),
     "python3": ("python3",),
     "python3-pip": ("pip3",),
@@ -196,17 +198,11 @@ STANDARD_PACKAGES = {
 }
 
 
-def project_exports(request):
-    # Stable guest paths are independent of the host username/project ID. Keep
-    # the old paths as compatibility mounts for queued actions and existing Git
-    # SSH commands; these expose only the same project/scratch, never host HOME.
-    exports = [
-        ("workspace", request["workspace"]),
-        ("temporary", request["temporaryDirectory"]),
+def project_exports():
+    return [
         ("workspace", "/home/zentrale/project"),
         ("temporary", "/tmp/zentrale"),
     ]
-    return list(dict.fromkeys(exports))
 
 
 def prepare_fedora(request):
@@ -264,7 +260,7 @@ def prepare_fedora(request):
     # CUDA and other startup probes need /proc even when no package install
     # runs. Individual jobs later mount their own PID namespace's procfs.
     mount("proc", str(root / "proc"), "proc", NOSUID | NODEV | NOEXEC)
-    for source, destination in project_exports(request) + [
+    for source, destination in project_exports() + [
         ("storage-" + str(index), entry["guestPath"])
         for index, entry in enumerate(request.get("storage") or [])
     ]:
@@ -441,7 +437,10 @@ def missing_standard_packages(root):
             "-c",
             """while [ "$#" -gt 0 ]; do
     package=$1; command=$2; shift 2
-    command -v "$command" >/dev/null 2>&1 || printf '%s\\n' "$package"
+    case "$command" in
+        /*) test -f "$command" ;;
+        *) command -v "$command" >/dev/null 2>&1 ;;
+    esac || printf '%s\\n' "$package"
 done""",
             "standard-packages",
             *arguments,
@@ -532,7 +531,7 @@ def prepare_tooling(request):
     (root / "dev/fd").symlink_to("/proc/self/fd")
     for number, name in enumerate(("stdin", "stdout", "stderr")):
         (root / "dev" / name).symlink_to("/proc/self/fd/" + str(number))
-    for source, destination in project_exports(request) + [
+    for source, destination in project_exports() + [
         ("storage-" + str(index), entry["guestPath"])
         for index, entry in enumerate(request.get("storage") or [])
     ]:
