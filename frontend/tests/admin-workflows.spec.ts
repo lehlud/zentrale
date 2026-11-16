@@ -239,8 +239,11 @@ for (const variant of [
       .click();
 
     await expect(
-      page.getByRole("main").getByRole("heading", { level: 1 }),
-    ).toHaveCount(1);
+      page.getByRole("main").getByRole("heading", {
+        name: project.name,
+        exact: true,
+      }),
+    ).toHaveCount(0);
 
     const controls = page.getByRole("group", {
       name: label("Agentensteuerung", "Agent controls"),
@@ -249,7 +252,7 @@ for (const variant of [
 
     await expect(
       controls.getByRole("heading", { name: project.name, exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       controls.getByRole("link", {
         name: label(

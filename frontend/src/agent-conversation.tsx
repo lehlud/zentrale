@@ -29,6 +29,7 @@ import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { Icon } from "./icons";
 import { QuestionExchange } from "./question-exchange";
+import { AgentCoordination } from "./agent-coordination";
 import { AttachmentList } from "./attachment-list";
 import { attachedFiles } from "./attachments";
 
@@ -280,6 +281,10 @@ const MessageContent = memo(function MessageContent({
   const { t } = useI18n();
   if (message.role === "event") {
     const feedback = record(parseJSON(message.content));
+    if (feedback.kind === "agent_coordination") {
+      return <AgentCoordination value={feedback} />;
+    }
+
     if (
       feedback.kind === "subagent_question" ||
       feedback.kind === "parent_question_answer"
@@ -568,22 +573,10 @@ export const AgentConversation = memo(function AgentConversation({
                         : "min-w-0 py-5"
                     }
                   >
-                    <div
-                      className={
-                        message.role === "event"
-                          ? "mb-2 text-xs text-muted"
-                          : "sr-only"
-                      }
-                    >
-                      <span>
-                        {t(
-                          user
-                            ? "Du"
-                            : message.role === "event"
-                              ? "System"
-                              : "Agent",
-                        )}
-                      </span>
+                    <div className="sr-only">
+                      {message.role !== "event" && (
+                        <span>{t(user ? "Du" : "Agent")}</span>
+                      )}
                       <span className="sr-only">
                         <MessageTime message={message} />
                       </span>

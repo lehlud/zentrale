@@ -1,6 +1,15 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  Befehle: "Commands",
+  "Anweisung des Hauptagenten": "Instruction from main agent",
+  "Kurze Nebenfrage zum aktuellen Verlauf stellen":
+    "Ask a brief side question about this thread",
+  "Teamwork-Board öffnen; mit Aufgabe Teamwork beauftragen":
+    "Open the teamwork board; add a task to request teamwork",
+  "An der aktuellen Aufgabe weiterarbeiten":
+    "Continue working on the current task",
+  "Den aktuellen Agenten stoppen": "Stop the current agent",
   "Mit Hugging Face anmelden": "Sign in with Hugging Face",
   "Hugging-Face-OAuth-App einrichten": "Configure a Hugging Face OAuth app",
   "OAuth-App bei Hugging Face registrieren":

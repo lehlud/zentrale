@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { openComposerCommand } from "./fixtures/composer";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { agent, config, project, transcript } from "./fixtures/visual-data";
 
@@ -89,7 +90,7 @@ test("teamwork is a safe on-demand native board with live updates", async ({
   const fixture = await teamworkFixture(page);
   expect(fixture.reads()).toBe(0);
 
-  await page.getByRole("button", { name: "Teamwork-Board öffnen" }).click();
+  await openComposerCommand(page, "teamwork");
   const modal = page.getByRole("dialog", { name: "Teamwork", exact: true });
   await expect(modal).toContainText("Implementieren und unabhängig prüfen");
   await modal.locator("summary").click();
@@ -119,7 +120,7 @@ test("/teamwork submits an explicit request, never an automatic swarm", async ({
   page,
 }) => {
   const fixture = await teamworkFixture(page, true);
-  await page.getByRole("button", { name: "Teamwork-Board öffnen" }).click();
+  await openComposerCommand(page, "teamwork");
   const modal = page.getByRole("dialog", { name: "Teamwork", exact: true });
   await expect(modal).toContainText("Noch kein Teamwork-Board");
   expect(fixture.submissions).toHaveLength(0);
@@ -143,7 +144,7 @@ test("teamwork board instructions follow the selected UI language", async ({
 }) => {
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "en"));
   await teamworkFixture(page, true);
-  await page.getByRole("button", { name: "Open teamwork board" }).click();
+  await openComposerCommand(page, "teamwork");
 
   const modal = page.getByRole("dialog", { name: "Teamwork", exact: true });
   await expect(modal).toContainText("No teamwork board yet.");

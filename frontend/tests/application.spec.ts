@@ -421,8 +421,8 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .click();
 
   await expect(
-    page.getByRole("heading", { name: "Mein Projekt" }),
-  ).toBeVisible();
+    page.getByRole("heading", { name: "Mein Projekt", exact: true }),
+  ).toHaveCount(0);
 
   await page
     .getByRole("main")
@@ -434,7 +434,7 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await page
     .getByLabel("Aufgabe oder neue Instruktion")
     .fill("Prüfe den Ablauf und speichere eine Notiz.");
-  await page.getByRole("button", { name: "Starten" }).click();
+  await page.getByLabel("Aufgabe oder neue Instruktion").press("Enter");
 
   await expect(
     page.getByText("Die Aufgabe ist abgeschlossen.", { exact: true }),
@@ -463,26 +463,49 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await page
     .getByRole("button", { name: "Projektaktionen", exact: true })
     .click();
-  await page
-    .getByRole("menuitem", { name: "Auto-Approver ↗", exact: true })
-    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Auto-Approver ↗", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // Approver conversations remain addressable and read-only; the redundant
+  // navigation links are deliberately no longer part of the actions menu.
+  const location = new URL(page.url());
+  const projectRoute = location.hash.split("?")[0];
+  const projectId = projectRoute.split("/").at(-1)!;
+  const response = await page.request.post("/graphql", {
+    data: {
+      query: "query($id:String!){agents(projectId:$id){id role name}}",
+      variables: { id: projectId },
+    },
+  });
+  const result = await response.json();
+  expect(result.errors).toBeUndefined();
+  const sessions: { id: string; role: string; name: string }[] =
+    result.data.agents;
+  const approver = sessions.find((item) => item.role === "approver");
+  const main = sessions.find((item) => item.role === "main");
+  expect(approver).toBeDefined();
+  expect(main).toBeDefined();
+  await page.goto(
+    `${location.origin}${location.pathname}${projectRoute}?agent=${approver!.id}`,
+  );
+  await expect(
+    page.getByRole("button", { name: /^Agent wechseln:/ }),
+  ).toBeVisible();
 
   await expect(
     page.getByLabel("Aufgabe oder neue Instruktion"),
   ).not.toBeVisible();
 
+  await page.getByRole("button", { name: /^Agent wechseln:/ }).click();
   await page
-    .getByRole("button", { name: "Projektaktionen", exact: true })
-    .click();
-
-  await expect(
-    page.getByRole("menuitem", {
-      name: "← Prüfe den Ablauf und speichere eine Notiz.",
+    .getByRole("menuitemradio", {
+      name: main!.name,
       exact: true,
-    }),
-  ).toBeVisible();
-
-  await page.keyboard.press("Escape");
+    })
+    .click();
+  await expect(page.getByLabel("Aufgabe oder neue Instruktion")).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("desktop.png"),
     fullPage: true,

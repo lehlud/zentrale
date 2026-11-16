@@ -11,6 +11,8 @@ import { Icon } from "./icons";
 import { useComposerAttachments } from "./composer-attachments";
 import { SideConversation } from "./side-conversation";
 import { TeamworkBoard } from "./teamwork-board";
+import { composerCommand } from "./composer-commands";
+import { ComposerCommandMenu } from "./composer-command-menu";
 
 // Keystrokes stay in this small subtree, never in the transcript owner.
 export const AgentComposer = memo(function AgentComposer({
@@ -52,28 +54,53 @@ export const AgentComposer = memo(function AgentComposer({
   }, [agentId]);
 
   const hasMessage = Boolean(prompt.trim() || attachments.items.length);
-  const stop = current?.status === "running" && !hasMessage;
-
-  const send = async (mode: "steer" | "queue" = "steer") => {
-    if (!hasMessage || attachments.uploading || sending.current) return;
-
-    const side = /^\/side(?:\s+([\s\S]*))?$/.exec(prompt.trim());
-
-    if (side) {
-      setSideQuestion(side[1]?.trim() ?? "");
-      setPrompt("");
-
+  const send = async (mode: "steer" | "queue" = "steer", text = prompt) => {
+    if (
+      (!text.trim() && !attachments.items.length) ||
+      attachments.uploading ||
+      sending.current ||
+      action.busy
+    )
       return;
-    }
 
     sending.current = true;
     try {
+      const parsed = composerCommand(text);
+      if (parsed) {
+        let handled = true;
+        await action.run(async () => {
+          handled = await parsed.command.execute(
+            {
+              side: setSideQuestion,
+              teamwork: () => setTeamworkOpen(true),
+              resume: () =>
+                api.mutate(
+                  "mutation($agentId:String!){resumeInputs(agentId:$agentId)}",
+                  { agentId },
+                  { announce: false },
+                ),
+              stop: () =>
+                api.mutate(
+                  "mutation($agentId:String!){stopAgent(agentId:$agentId)}",
+                  { agentId },
+                  { announce: false },
+                ),
+            },
+            parsed.args,
+          );
+
+          if (handled) setPrompt("");
+        });
+
+        if (handled) return;
+      }
+
       const uploaded = await attachments.upload();
       if (!uploaded) return;
 
       // /teamwork is an ordinary durable user request understood by the main
       // prompt. Preserve its wording; no routing inference or automatic spawn.
-      api.inputs.submit(agentId, prompt, mode, uploaded);
+      api.inputs.submit(agentId, text, mode, uploaded);
       setPrompt("");
       attachments.clear();
       latest();
@@ -210,93 +237,65 @@ export const AgentComposer = memo(function AgentComposer({
             >
               <Icon name="attachment" />
             </Button>
-            <TextField
-              fullWidth
-              className="min-w-0 flex-1"
+            <ComposerCommandMenu
               value={prompt}
               onChange={setPrompt}
-              autoFocus={autoFocus}
-              isDisabled={attachments.uploading}
+              onCommand={(name) => void send("steer", `/${name}`)}
             >
-              <Label className="sr-only">
-                {t("Aufgabe oder neue Instruktion")}
-              </Label>
-              <TextArea
-                className="min-h-16 max-h-40 resize-none [field-sizing:content]"
-                placeholder={t("Was soll der Agent erledigen?")}
-                rows={2}
-                onPaste={attachments.paste}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Tab" &&
-                    !event.shiftKey &&
-                    !event.ctrlKey &&
-                    !event.metaKey &&
-                    !event.altKey &&
-                    !event.nativeEvent.isComposing &&
-                    hasMessage
-                  ) {
-                    event.preventDefault();
-                    send("queue");
-                  } else if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    if (hasMessage) void send();
-                  }
-                }}
-              />
-            </TextField>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={() => setSideQuestion("")}
-              aria-label={t("Nebenfrage (/side)")}
-            >
-              /side
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={() => setTeamworkOpen(true)}
-              aria-label={t("Teamwork-Board öffnen")}
-            >
-              Teamwork
-            </Button>
-            <Button
-              isIconOnly
-              className="min-h-11 min-w-11 shrink-0"
-              aria-label={
-                stop
-                  ? t("Agent stoppen")
-                  : `${current?.status === "running" ? t("Instruktion senden") : t("Starten")} ↑`
-              }
-              type={stop ? "button" : "submit"}
-              isPending={action.busy || attachments.uploading}
-              isDisabled={
-                attachments.uploading ||
-                (!hasMessage && current?.status !== "running")
-              }
-              onPress={
-                stop
-                  ? () =>
-                      action.run(() =>
-                        api.mutate(
-                          "mutation($agentId:String!){stopAgent(agentId:$agentId)}",
-                          { agentId },
-                          { announce: false },
-                        ),
+              {(commandsOpen) => (
+                <TextField
+                  fullWidth
+                  className="min-w-0 flex-1"
+                  value={prompt}
+                  onChange={setPrompt}
+                  autoFocus={autoFocus}
+                  isDisabled={attachments.uploading}
+                >
+                  <Label className="sr-only">
+                    {t("Aufgabe oder neue Instruktion")}
+                  </Label>
+                  <TextArea
+                    className="min-h-16 max-h-40 resize-none [field-sizing:content]"
+                    placeholder={t("Was soll der Agent erledigen?")}
+                    rows={2}
+                    onPaste={attachments.paste}
+                    onKeyDown={(event) => {
+                      if (
+                        commandsOpen &&
+                        [
+                          "ArrowDown",
+                          "ArrowUp",
+                          "Enter",
+                          "Tab",
+                          "Escape",
+                        ].includes(event.key)
                       )
-                  : undefined
-              }
-            >
-              <Icon
-                name={stop ? "stop" : "arrow"}
-                className={stop ? "size-4 fill-current" : "size-5 -rotate-90"}
-              />
-            </Button>
+                        return;
+
+                      if (
+                        event.key === "Tab" &&
+                        !event.shiftKey &&
+                        !event.ctrlKey &&
+                        !event.metaKey &&
+                        !event.altKey &&
+                        !event.nativeEvent.isComposing &&
+                        hasMessage
+                      ) {
+                        event.preventDefault();
+                        send("queue");
+                      } else if (
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        if (hasMessage) void send();
+                      }
+                    }}
+                  />
+                </TextField>
+              )}
+            </ComposerCommandMenu>
           </div>
           <div className="mt-2 flex min-h-7 min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-2 text-[11px] text-muted">
             <Button

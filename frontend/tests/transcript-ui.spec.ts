@@ -9,6 +9,7 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 import type { Goal, Message } from "../src/generated";
+import { pythonHereDoc } from "./fixtures/embedded-source";
 
 function message(
   id: string,
@@ -421,6 +422,193 @@ for (const { name, path, label } of [
 const pythonScript =
   'def greet():\n    return "<img src=x onerror=alert(1)>"\n';
 const shellScript = "printf '%s\\n' \"$HOME\"\n";
+
+test("parent steering is collapsed like questions without redundant System headers", async ({
+  page,
+}) => {
+  const guidance =
+    "Bitte prüfe die unabhängige Implementierung.\n\n<img src=x onerror=alert(1)>";
+  const event = message(
+    "coordination",
+    "event",
+    JSON.stringify({
+      kind: "agent_coordination",
+      origin: "parent_agent",
+      authorAgentId: "parent",
+      recipientAgentId: agent.id,
+      text: guidance,
+      notice: "MODEL_ROUTING_NOTICE",
+    }),
+    1,
+  );
+  await fixture(page, [event]);
+
+  const disclosure = page.getByRole("button", {
+    name: "Anweisung des Hauptagenten",
+    exact: true,
+  });
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByText("Bitte prüfe die unabhängige Implementierung.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByText("System", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("MODEL_ROUTING_NOTICE", { exact: true }),
+  ).toHaveCount(0);
+
+  await disclosure.click();
+  await expect(
+    page.getByText("Bitte prüfe die unabhängige Implementierung.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator("[data-message-id=coordination] img")).toHaveCount(
+    0,
+  );
+  await disclosure.click();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+});
+
+for (const surface of ["command", "markdown", "file"] as const) {
+  test(`embedded here-doc highlighting in ${surface}`, async ({
+    page,
+    context,
+  }) => {
+    const source = pythonHereDoc.replace(
+      "print(result, flush=True)",
+      'print("<img src=x onerror=alert(1)>", flush=True)',
+    );
+    let messages: Message[];
+
+    if (surface === "markdown") {
+      messages = [
+        message(
+          "embedded-message",
+          "assistant",
+          `\`\`\`shell\n${source}\`\`\``,
+          1,
+        ),
+      ];
+    } else {
+      const call = message("embedded-call", "assistant", "", 1);
+      const toolName = surface === "command" ? "exec_command" : "read_file";
+      call.wire = JSON.stringify([
+        {
+          type: "function_call",
+          call_id: "embedded",
+          name: toolName,
+          arguments: JSON.stringify(
+            surface === "command" ? { cmd: source } : { path: "script.sh" },
+          ),
+        },
+      ]);
+
+      const content =
+        surface === "command"
+          ? { result: { job: { status: "completed", output: "" } } }
+          : {
+              result: {
+                path: "script.sh",
+                content: source,
+                offset: 1,
+                totalLines: source.split("\n").length,
+              },
+            };
+      const result = message(
+        "embedded-result",
+        "tool",
+        JSON.stringify(content),
+        2,
+      );
+      result.callId = "embedded";
+      result.toolName = toolName;
+      messages = [call, result];
+    }
+
+    await fixture(page, messages);
+    if (surface !== "markdown") {
+      await page
+        .getByRole("button", {
+          name: surface === "command" ? /Befehl ausführen/ : /Datei lesen/,
+        })
+        .click();
+    }
+
+    const code = page
+      .locator("pre")
+      .filter({ hasText: "TMPDIR=/home/zentrale/scan-tmp" });
+    await expect(
+      code.locator(".hljs-keyword").filter({ hasText: /^def$/ }),
+    ).toBeVisible();
+    await expect(
+      code.locator(".hljs-number").filter({ hasText: /^15$/ }),
+    ).toBeVisible();
+    await expect(code.locator("img")).toHaveCount(0);
+
+    const expected =
+      surface === "markdown" ? source.replace(/\n$/, "") : source;
+    await expect.poll(() => code.textContent()).toBe(expected);
+
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await code
+      .locator("..")
+      .getByRole("button", { name: "Kopieren", exact: true })
+      .click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      expected,
+    );
+  });
+}
+
+test("diff here-docs highlight both language versions independently", async ({
+  page,
+}) => {
+  const call = message("embedded-patch-call", "assistant", "", 1);
+  call.wire = JSON.stringify([
+    {
+      type: "function_call",
+      call_id: "embedded-patch",
+      name: "apply_patch",
+      arguments: JSON.stringify({ input: "*** Begin Patch\n*** End Patch" }),
+    },
+  ]);
+
+  const result = message("embedded-patch-result", "tool", "{}", 2);
+  result.callId = "embedded-patch";
+  result.toolName = "apply_patch";
+  result.change = {
+    id: "embedded-diff",
+    agentId: agent.id,
+    messageId: result.id,
+    createdAt: result.createdAt,
+    path: "script.sh",
+    kind: "modified",
+    added: 2,
+    removed: 3,
+    truncated: false,
+    notice: "",
+    patch:
+      "@@ -1,4 +1,3 @@\n-python - <<'CODE'\n-def greet():\n-    return True\n+node - <<'CODE'\n+const answer = 42;\n CODE\n",
+  };
+
+  await fixture(page, [call, result]);
+  await page.getByRole("button", { name: /Dateien ändern/ }).click();
+  const diff = page.getByRole("region", {
+    name: "Dateiänderungen: script.sh",
+    exact: true,
+  });
+  await expect(
+    diff.locator(".hljs-keyword").filter({ hasText: /^def$/ }),
+  ).toBeVisible();
+  await expect(
+    diff.locator(".hljs-keyword").filter({ hasText: /^const$/ }),
+  ).toBeVisible();
+  await expect(
+    diff.locator(".hljs-number").filter({ hasText: /^42$/ }),
+  ).toBeVisible();
+});
 
 for (const { name, path, content, offset, tokenClass, token } of [
   {

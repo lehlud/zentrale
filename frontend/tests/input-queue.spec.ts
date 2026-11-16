@@ -298,14 +298,7 @@ for (const english of [false, true]) {
 
       await page
         .getByRole("button", {
-          name: label("Projektaktionen", "Project actions"),
-          exact: true,
-        })
-        .click();
-      await page
-        .getByRole("menuitem", {
-          name: label("Agentendetails", "Agent details"),
-          exact: true,
+          name: new RegExp("^" + label("Agentendetails", "Agent details")),
         })
         .click();
       const details = page.getByRole("dialog");

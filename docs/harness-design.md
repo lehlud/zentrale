@@ -34,6 +34,21 @@ permissions in this project.
 - Preserve original user instructions, independent approval, cancellation,
   no-replay guarantees and provider-native reasoning boundaries.
 
+### Composer commands
+
+- Type `/` in the existing composer to open the native HeroUI autocomplete.
+  Prefixes filter the menu; arrow keys choose a command, Enter executes it,
+  and Escape closes the menu without discarding the draft. Shift+Enter remains
+  a newline; ordinary text still uses Enter to send and Tab to queue.
+- `/side [question]` opens the temporary side conversation. `/teamwork` opens
+  the shared board; `/teamwork <task>` remains a durable request to the main agent.
+- `/continue` resumes work and `/stop` stops the current agent through the same
+  existing lifecycle mutations. Failed commands preserve the draft for retry.
+  Stop is also available in the top-right actions menu, not beside the input.
+- Add commands in `frontend/src/composer-commands.ts`: one definition supplies
+  matching, the translated menu description and dispatch. The composer does not
+  need another button or command-specific keyboard branch.
+
 ### `/side`
 
 - A modal owns one ephemeral conversation. It has its own messages and provider

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { openComposerCommand } from "./fixtures/composer";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { agent, config, project, transcript } from "./fixtures/visual-data";
 
@@ -115,9 +116,7 @@ test("/side answers in an ephemeral modal without steering the main agent", asyn
   await expect(modal).toHaveCount(0);
   await expect.poll(fixture.closed).toBe(1);
 
-  await page
-    .getByRole("button", { name: "Nebenfrage (/side)", exact: true })
-    .click();
+  await openComposerCommand(page, "side");
   await expect(modal).toBeVisible();
   await expect(modal).not.toContainText("Was meldet der Prüfagent?");
   expect(fixture.questions).toHaveLength(2);
@@ -128,9 +127,7 @@ test("side conversation controls follow the selected UI language", async ({
 }) => {
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "en"));
   await sideFixture(page);
-  await page
-    .getByRole("button", { name: "Side question (/side)", exact: true })
-    .click();
+  await openComposerCommand(page, "side");
 
   const modal = page.getByRole("dialog", { name: "Side question (/side)" });
   await expect(modal).toContainText("Usage is attributed to the main agent.");
@@ -148,9 +145,7 @@ test("closing /side cancels its socket even while an answer is running", async (
   page,
 }) => {
   const fixture = await sideFixture(page, false);
-  await page
-    .getByRole("button", { name: "Nebenfrage (/side)", exact: true })
-    .click();
+  await openComposerCommand(page, "side");
   const modal = page.getByRole("dialog", { name: "Nebenfrage (/side)" });
   await modal
     .getByRole("textbox", { name: "Kurze Frage zum Hauptthread" })
@@ -166,9 +161,7 @@ test("page hide closes /side and does not replay on a restored page", async ({
   page,
 }) => {
   const fixture = await sideFixture(page);
-  await page
-    .getByRole("button", { name: "Nebenfrage (/side)", exact: true })
-    .click();
+  await openComposerCommand(page, "side");
   await expect(
     page.getByRole("dialog", { name: "Nebenfrage (/side)" }),
   ).toBeVisible();
@@ -189,9 +182,7 @@ test("/side honors the configured preview base", async ({ page }) => {
       globalThis as typeof globalThis & { __ZENTRALE_PREVIEW_BASE__?: string }
     ).__ZENTRALE_PREVIEW_BASE__ = "/preview/";
   });
-  await page
-    .getByRole("button", { name: "Nebenfrage (/side)", exact: true })
-    .click();
+  await openComposerCommand(page, "side");
   await expect.poll(() => fixture.connections.length).toBe(1);
   expect(fixture.connections[0].url()).toContain(`/preview/side/${agent.id}`);
 });

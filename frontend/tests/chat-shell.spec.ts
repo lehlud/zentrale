@@ -164,13 +164,20 @@ for (const mobile of [false, true]) {
     ).toBeVisible();
 
     await input.fill("Zweiter Entwurf");
+    await openNavigation();
     await page
-      .getByRole("button", { name: "Projektaktionen", exact: true })
+      .getByRole("button", {
+        name: "Aktionen für Neue Unterhaltung",
+        exact: true,
+      })
       .click();
     await page
       .getByRole("menuitem", { name: "Umbenennen", exact: true })
       .click();
-    const rename = page.getByRole("dialog");
+    const rename = page.getByRole("dialog", {
+      name: "Unterhaltung umbenennen",
+      exact: true,
+    });
     await rename
       .getByLabel("Name", { exact: true })
       .fill("Mein nächster Schritt");
@@ -180,6 +187,12 @@ for (const mobile of [false, true]) {
 
     await expect(rename).toHaveCount(0);
     expect(renames).toBe(1);
+    if (mobile) {
+      await page
+        .getByRole("button", { name: "Menü schließen", exact: true })
+        .click();
+    }
+
     await expect(
       page.getByRole("button", {
         name: "Agent wechseln: Mein nächster Schritt",

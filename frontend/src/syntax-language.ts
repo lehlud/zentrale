@@ -93,22 +93,24 @@ function interpreterLanguage(executable: string) {
     : undefined;
 }
 
-function shebangLanguage(text: string) {
-  const firstLine = text.split("\n", 1)[0];
-  if (!firstLine.startsWith("#!")) {
-    return;
+export function interpreterCommand(words: string[]) {
+  function command(executable: string, argumentsStart: number) {
+    const language = interpreterLanguage(executable);
+
+    return language
+      ? { language, args: words.slice(argumentsStart) }
+      : undefined;
   }
 
-  const words = firstLine.slice(2).trim().split(/\s+/);
-  const executable = words.shift() ?? "";
+  const executable = words[0] ?? "";
   if (executable.split("/").at(-1) !== "env") {
-    return interpreterLanguage(executable);
+    return command(executable, 1);
   }
 
-  for (let index = 0; index < words.length; index++) {
+  for (let index = 1; index < words.length; index++) {
     const word = words[index];
     if (word === "--") {
-      return interpreterLanguage(words[index + 1] ?? "");
+      return command(words[index + 1] ?? "", index + 2);
     }
 
     if (["-i", "--ignore-environment", "-S", "--split-string"].includes(word)) {
@@ -125,11 +127,11 @@ function shebangLanguage(text: string) {
     }
 
     if (word.startsWith("--split-string=")) {
-      return interpreterLanguage(word.slice("--split-string=".length));
+      return command(word.slice("--split-string=".length), index + 1);
     }
 
     if (word.startsWith("-S") && word.length > 2) {
-      return interpreterLanguage(word.slice(2));
+      return command(word.slice(2), index + 1);
     }
 
     // Unknown env options may take arguments. Do not guess from their values.
@@ -137,8 +139,17 @@ function shebangLanguage(text: string) {
       return;
     }
 
-    return interpreterLanguage(word);
+    return command(word, index + 1);
   }
+}
+
+function shebangLanguage(text: string) {
+  const firstLine = text.split("\n", 1)[0];
+  if (!firstLine.startsWith("#!")) {
+    return;
+  }
+
+  return interpreterCommand(firstLine.slice(2).trim().split(/\s+/))?.language;
 }
 
 // A recognized shebang describes execution, so it outranks the filename.
@@ -149,7 +160,7 @@ export function languageFor(label: string, text = "", startLine = 1) {
   }
 
   const name = label.toLowerCase().split(/[\\/]/).at(-1) ?? "";
-  if (["command", "befehl", ".bashrc", ".zshrc"].includes(name)) {
+  if (["command", "befehl", "shell", ".bashrc", ".zshrc"].includes(name)) {
     return "bash";
   }
 

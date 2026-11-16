@@ -19,11 +19,7 @@ export function AgentControls({
   agents,
   onSelect,
   action,
-  onDetails,
-  onRename,
   headerRef,
-  onCreateAgent,
-  canCreateAgent,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
   children: headerContent,
@@ -34,21 +30,13 @@ export function AgentControls({
   agents: Agent[];
   onSelect: (id: string) => void;
   action: ReturnType<typeof useAction>;
-  onDetails: () => void;
-  onRename?: () => void;
   headerRef: RefObject<HTMLDivElement | null>;
-  onCreateAgent: () => void;
-  canCreateAgent: boolean;
   focusAgentSwitcher: boolean;
   onAgentSwitcherFocus: () => void;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const parent = agents.find((agent) => agent.id === current?.parentId);
-  const children = agents.filter(
-    (agent) => agent.parentId === current?.id && agent.role !== "approver",
-  );
   const canRemove =
     Boolean(current) &&
     current?.role !== "approver" &&
@@ -64,12 +52,6 @@ export function AgentControls({
       <div className="flex min-w-0 items-center justify-between gap-2">
         <SidebarToggle iconOnly />
         <div className="min-w-0 flex-1">
-          <h1
-            className="truncate px-2 text-xs font-normal leading-5 text-muted"
-            title={project.name}
-          >
-            {project.name}
-          </h1>
           {current && (
             <AgentSwitcher
               current={current}
@@ -136,84 +118,12 @@ export function AgentControls({
                       </Dropdown.Item>
                     )}
                   <Dropdown.Item
-                    id="create"
-                    className="min-h-11"
-                    isDisabled={!canCreateAgent}
-                    onAction={onCreateAgent}
-                  >
-                    <Label>{t("Neue Unterhaltung")}</Label>
-                  </Dropdown.Item>
-                  {current && (
-                    <Dropdown.Item
-                      id="details"
-                      className="min-h-11"
-                      onAction={onDetails}
-                    >
-                      <Label>{t("Agentendetails")}</Label>
-                    </Dropdown.Item>
-                  )}
-                  {current && onRename && (
-                    <Dropdown.Item
-                      id="rename"
-                      className="min-h-11"
-                      isDisabled={
-                        current.status === "running" ||
-                        current.status === "waiting"
-                      }
-                      onAction={onRename}
-                    >
-                      <Label>{t("Umbenennen")}</Label>
-                    </Dropdown.Item>
-                  )}
-                  <Dropdown.Item
-                    id="settings"
-                    className="min-h-11"
-                    onAction={() => onProjectDialog("settings")}
-                  >
-                    <Label>{t("Projekteinstellungen")}</Label>
-                  </Dropdown.Item>
-                  <Dropdown.Item
                     id="sources"
                     className="min-h-11"
                     onAction={() => onProjectDialog("sources")}
                   >
                     <Label>{t("Quellen verwalten")}</Label>
                   </Dropdown.Item>
-                  <Dropdown.Item
-                    id="editor"
-                    className="min-h-11"
-                    onAction={() => onProjectDialog("editor")}
-                  >
-                    <Label>{t("Editorverbindung")}</Label>
-                  </Dropdown.Item>
-                  {current?.role !== "approver" && current?.approverId && (
-                    <Dropdown.Item
-                      id="approver"
-                      className="min-h-11"
-                      onAction={() => onSelect(current.approverId)}
-                    >
-                      <Label>Auto-Approver ↗</Label>
-                    </Dropdown.Item>
-                  )}
-                  {parent && (
-                    <Dropdown.Item
-                      id="parent"
-                      className="min-h-11"
-                      onAction={() => onSelect(parent.id)}
-                    >
-                      <Label>← {parent.name}</Label>
-                    </Dropdown.Item>
-                  )}
-                  {children.map((child) => (
-                    <Dropdown.Item
-                      id={child.id}
-                      key={child.id}
-                      className="min-h-11"
-                      onAction={() => onSelect(child.id)}
-                    >
-                      <Label>{child.name} ↗</Label>
-                    </Dropdown.Item>
-                  ))}
                   {canRemove && (
                     <Dropdown.Item
                       id="delete"

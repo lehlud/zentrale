@@ -809,11 +809,7 @@ for (const variant of variants) {
       name: label("Aufgabe oder neue Instruktion", "Task or new instruction"),
     });
     await prompt.fill("Erstelle ein Python-Quicksort-Beispiel.");
-    await page
-      .getByRole("button", {
-        name: new RegExp("^" + label("Starten", "Start")),
-      })
-      .click();
+    await prompt.press("Enter");
 
     await expect(
       page.getByText(label("Host-Schlüssel prüfen", "Review host key"), {
@@ -863,13 +859,10 @@ for (const variant of variants) {
     await close();
     await page
       .getByRole("button", {
-        name: label("Projektaktionen", "Project actions"),
-        exact: true,
+        name: /^(Agent wechseln|Switch agent):/,
       })
       .click();
-    await page
-      .getByRole("menuitem", { name: "Recherche ↗", exact: true })
-      .click();
+    await page.getByRole("menuitemradio", { name: /^Recherche/ }).click();
     await capture("subagent");
     await go("projects/forecast");
     emptyTranscript = true;
@@ -884,15 +877,7 @@ for (const variant of variants) {
     await close();
     emptyTranscript = false;
     await go("projects/forecast");
-    await page
-      .getByRole("button", {
-        name: label("Projektaktionen", "Project actions"),
-        exact: true,
-      })
-      .click();
-    await page
-      .getByRole("menuitem", { name: "Auto-Approver ↗", exact: true })
-      .click();
+    await go("projects/forecast?agent=" + agent.approverId);
 
     await expect(
       page.getByRole("textbox", {

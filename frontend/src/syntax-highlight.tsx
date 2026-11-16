@@ -1,54 +1,9 @@
 import { Fragment, useMemo, type ReactNode } from "react";
-import type { Element, Root, RootContent } from "hast";
 
 import { SyntaxTokens, type DiffSourceLine, type SyntaxToken } from "./syntax";
-import { highlighter, languageFor } from "./syntax-language";
+import { languageFor } from "./syntax-language";
+import { sourceLines } from "./syntax-tokens";
 import "./syntax.css";
-
-// Split the token tree into lines without losing multiline strings or comments.
-// React renders text nodes, so source code is never inserted as HTML.
-function sourceLines(
-  text: string,
-  language: string | undefined,
-): SyntaxToken[][] {
-  const plain = () => text.split("\n").map((line) => [{ text: line }]);
-  if (!language || text.length > 200_000) {
-    return plain();
-  }
-
-  let tree: Root;
-
-  try {
-    tree = highlighter.highlight(language, text);
-  } catch {
-    return plain();
-  }
-
-  const lines: SyntaxToken[][] = [[]];
-
-  function visit(node: RootContent, classes: string[] = []) {
-    if (node.type === "text") {
-      node.value.split("\n").forEach((part, index) => {
-        if (index) lines.push([]);
-        if (part)
-          lines
-            .at(-1)!
-            .push({ text: part, className: classes.join(" ") || undefined });
-      });
-    } else if (node.type === "element") {
-      const element = node as Element;
-      const ownClasses = Array.isArray(element.properties.className)
-        ? element.properties.className.map(String)
-        : [];
-      element.children.forEach((child) =>
-        visit(child, [...classes, ...ownClasses]),
-      );
-    }
-  }
-  tree.children.forEach((node) => visit(node));
-
-  return lines;
-}
 
 export function HighlightedSource({
   text,

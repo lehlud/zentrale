@@ -160,12 +160,18 @@ for (const english of [false, true]) {
         exact: true,
       });
 
+      const actions = page.getByRole("button", {
+        name: label("Projektaktionen", "Project actions"),
+        exact: true,
+      });
+      await actions.click();
       await expect(
-        page.getByRole("button", {
+        page.getByRole("menuitem", {
           name: label("Agent stoppen", "Stop agent"),
           exact: true,
         }),
       ).toBeVisible();
+      await page.keyboard.press("Escape");
       await expect(output.locator(".working-indicator")).toBeVisible();
 
       phase = "recovering_sandbox";
@@ -400,17 +406,13 @@ for (const english of [false, true]) {
       });
       await prompt.fill("A follow-up instruction");
 
-      await expect(
-        page.getByRole("button", {
-          name: new RegExp(
-            "^" + label("Instruktion senden", "Send instruction"),
-          ),
-        }),
-      ).toBeEnabled();
+      await expect(prompt).toBeEnabled();
+      await expect(prompt).toHaveValue("A follow-up instruction");
 
       await prompt.fill("");
+      await actions.click();
       await page
-        .getByRole("button", {
+        .getByRole("menuitem", {
           name: label("Agent stoppen", "Stop agent"),
           exact: true,
         })
@@ -429,12 +431,14 @@ for (const english of [false, true]) {
         label("Antwort unterbrochen", "Response interrupted"),
       );
       await expect(prompt).toHaveValue("");
+      await actions.click();
       await expect(
-        page.getByRole("button", {
+        page.getByRole("menuitem", {
           name: label("Agent stoppen", "Stop agent"),
           exact: true,
         }),
       ).toHaveCount(0);
+      await page.keyboard.press("Escape");
       expect(errors).toEqual([]);
     },
   );

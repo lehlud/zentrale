@@ -24,7 +24,6 @@ import { ApproverLog } from "./approver-log";
 import { useTranscriptViewport } from "./transcript-viewport";
 import { SandboxBadge } from "./sandbox-badge";
 import { useRoute } from "./navigation";
-import { RenameConversation } from "./rename-conversation";
 import { LiveAssistantResponse } from "./live-assistant-response";
 import { AgentComposer } from "./agent-composer";
 import { useStableValue } from "./stable-data";
@@ -40,8 +39,6 @@ export function AgentView({
   sandboxStatus,
   sandboxMode,
   machineName,
-  onCreateAgent,
-  canCreateAgent,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
   initialTranscript,
@@ -55,8 +52,6 @@ export function AgentView({
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
   machineName?: string;
-  onCreateAgent: () => void;
-  canCreateAgent: boolean;
   focusAgentSwitcher: boolean;
   onAgentSwitcherFocus: () => void;
   initialTranscript?: Transcript;
@@ -66,7 +61,6 @@ export function AgentView({
 
   const api = useAPI();
   const { params } = useRoute();
-  const [renaming, setRenaming] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const {
     data: core,
@@ -113,7 +107,7 @@ export function AgentView({
   );
   const inputs = useStableValue(data?.agentInputs ?? []);
   const viewport = useTranscriptViewport(
-    detailsOpen || renaming || Boolean(inspection),
+    detailsOpen || Boolean(inspection),
     Boolean(data),
   );
   const incoming = useMemo(
@@ -172,16 +166,12 @@ export function AgentView({
         project={project}
         onProjectDialog={onProjectDialog}
         headerRef={viewport.header}
-        onCreateAgent={onCreateAgent}
-        canCreateAgent={canCreateAgent}
         focusAgentSwitcher={focusAgentSwitcher}
         onAgentSwitcherFocus={onAgentSwitcherFocus}
         current={current}
         agents={agents}
         onSelect={onSelect}
         action={action}
-        onDetails={() => setDetailsOpen(true)}
-        onRename={() => setRenaming(true)}
       >
         {data?.goal &&
           !["complete", "cancelled", "superseded"].includes(data.goal.status) &&
@@ -340,12 +330,6 @@ export function AgentView({
           )}
           {data && details.data && <CostSummary totals={data.usageSummary} />}
         </footer>
-      )}
-      {renaming && current && (
-        <RenameConversation
-          agent={current}
-          onClose={() => setRenaming(false)}
-        />
       )}
       {detailsOpen && (
         <Inspect

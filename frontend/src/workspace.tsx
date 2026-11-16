@@ -58,10 +58,7 @@ export function Workspace({
             agents={agents}
             onSelect={setSelected}
             action={action}
-            onDetails={() => {}}
             headerRef={header}
-            onCreateAgent={() => sidebar?.newConversation(project.id)}
-            canCreateAgent={defaultsReady}
             focusAgentSwitcher={false}
             onAgentSwitcherFocus={() => {}}
           />
@@ -105,8 +102,6 @@ export function Workspace({
             onProjectDialog={onProjectDialog}
             agents={agents}
             onSelect={setSelected}
-            onCreateAgent={() => sidebar?.newConversation(project.id)}
-            canCreateAgent={defaultsReady}
             focusAgentSwitcher={focusAgentId === activeId}
             onAgentSwitcherFocus={() => onFocusAgent("")}
             initialTranscript={bootstrapTranscript(bootstrap)}

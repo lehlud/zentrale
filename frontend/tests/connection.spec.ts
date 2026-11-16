@@ -305,19 +305,13 @@ for (const variant of [
     await expect(message).toBeVisible();
     await expect(input).toHaveValue(/noch nicht gesendete Aufgabe/);
     await expect(input).toBeFocused();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      project.name,
-    );
+    await expect(
+      page.getByRole("heading", { name: project.name, exact: true }),
+    ).toHaveCount(0);
 
     // Durable messages are retried with their original receipt ID; other
     // mutations are never replayed by the reconnection monitor.
-    await page
-      .getByRole("button", {
-        name: english ? "Start ↑" : "Starten ↑",
-        exact: true,
-      })
-      // The outage toast can overlap the composer; exercise keyboard submit.
-      .press("Enter");
+    await input.press("Enter");
 
     await expect.poll(() => fixture.state.mutations).toBe(1);
 

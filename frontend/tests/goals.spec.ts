@@ -407,15 +407,7 @@ for (const english of [false, true])
       await expect(panel).not.toContainText("PRIVATE_");
 
       await capture("complete");
-      await page
-        .getByRole("button", {
-          name: label("Projektaktionen", "Project actions"),
-          exact: true,
-        })
-        .click();
-      await page
-        .getByRole("menuitem", { name: "Auto-Approver ↗", exact: true })
-        .click();
+      await page.goto(`/#/projects/${project.id}?agent=${agent.approverId}`);
       const log = page.getByRole("list", {
         name: label("Freigabeprüfungen", "Approval reviews"),
         exact: true,
