@@ -627,11 +627,34 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   await page
     .getByRole("menuitem", { name: "Remove agent", exact: true })
     .click();
+  // Deliver the authoritative snapshot before the HTTP acknowledgement, as
+  // parallel live queries can do. The empty view alone does not mean the
+  // mutation's selection/navigation callback has finished.
+  await page.route("**/graphql", async (route) => {
+    const { query, variables } = route.request().postDataJSON();
+    if (query.includes("deleteResource") && variables?.kind === "agent") {
+      const response = await route.fetch();
+      await expect(
+        page.getByText("No agents yet", { exact: true }),
+      ).toBeVisible();
+      await route.fulfill({ response });
+    } else {
+      await route.continue();
+    }
+  });
+  const removedAgent = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/graphql") &&
+      response.request().method() === "POST" &&
+      response.request().postDataJSON().query.includes("deleteResource"),
+  );
   await page
     .locator('[data-slot="modal-dialog"]')
     .getByRole("button", { name: "Remove", exact: true })
     .click();
 
+  expect((await (await removedAgent).json()).errors).toBeUndefined();
+  await expect(page).toHaveURL(/[?&]agent=(?:&|$)/);
   await expect(page.getByText("No agents yet", { exact: true })).toBeVisible();
 
   await openNavigation(page);
