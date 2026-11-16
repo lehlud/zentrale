@@ -19,11 +19,13 @@ export function MachineCard({
   sandboxStatus,
   onEdit,
   onRemove,
+  removing = false,
 }: {
   machine: Machine;
   sandboxStatus?: SandboxStatus;
   onEdit: () => void;
   onRemove: () => void;
+  removing?: boolean;
 }) {
   const api = useAPI();
   const { t } = useI18n();
@@ -103,6 +105,7 @@ export function MachineCard({
             </Button>
             <ActionsMenu
               label={t("Aktionen für {name}", { name: machine.name })}
+              isDisabled={removing}
               actions={[
                 { id: "edit", label: t("Bearbeiten"), onAction: onEdit },
                 {

@@ -170,7 +170,7 @@ func TestMixedDevelopmentPoolDoesNotSilentlyReplaceMemberKeys(t *testing.T) {
 func TestFailedPoolWriteRollsBackGeneratedKey(t *testing.T) {
 	store := newKeyTestInstance(t)
 	// Reads still succeed, but the final resource write fails after allocation.
-	if _, err := store.db.Exec(`DROP TABLE resources CASCADE; CREATE VIEW resources AS SELECT ''::VARCHAR AS kind, ''::VARCHAR AS id, '{}'::JSON AS data WHERE false`); err != nil {
+	if _, err := store.db.Exec(`DROP TABLE resources; CREATE VIEW resources AS SELECT '' AS kind, '' AS id, '{}' AS data WHERE false`); err != nil {
 		t.Fatal(err)
 	}
 

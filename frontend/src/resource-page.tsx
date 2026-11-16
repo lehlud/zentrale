@@ -5,25 +5,37 @@ import { MoreButton, type Batch } from "./batches";
 import type { Config } from "./config";
 import { Empty, Loading, useAction } from "./ui";
 
-/** Page actions share one pending/error channel; editor saves still reject. */
+/** Deduplicate actions on the same resource; unrelated rows remain usable. */
 export function useResourcePage<T = Config>(query = CONFIG) {
   const api = useAPI();
   const result = useQuery<T>(query);
   const action = useAction();
   const mutate = (query: string, variables: Record<string, unknown> = {}) =>
-    action.run(() => api.mutate(query, variables));
+    action.run(
+      () => api.mutate(query, variables),
+      variables.providerId
+        ? `provider:${variables.providerId}`
+        : variables.projectId
+          ? `project:${variables.projectId}`
+          : JSON.stringify([query, variables]),
+    );
 
   return {
     ...result,
     api,
     error: result.error || action.error,
     busy: action.busy,
+    isBusy: (kind: string, id: string) => action.isPending(`${kind}:${id}`),
     run: action.run,
     mutate,
     remove: (kind: string, id: string) =>
-      mutate(
-        "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-        { kind, id },
+      action.run(
+        () =>
+          api.mutate(
+            "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
+            { kind, id },
+          ),
+        `${kind}:${id}`,
       ),
     retry: () => api.refresh(),
   };

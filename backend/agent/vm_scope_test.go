@@ -366,6 +366,10 @@ func TestDeletingFamilyRemovesDescendantsButChildKeepsSharedDisk(t *testing.T) {
 	if err := engine.Delete("agent", main.ID); err != nil {
 		t.Fatal(err)
 	}
+	deadline := time.Now().Add(5 * time.Second)
+	for removals.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if removals.Load() != 1 {
 		t.Fatalf("disk removals: %d", removals.Load())
 	}

@@ -19,6 +19,7 @@ const (
 	socketQueryLimit       = 32
 	socketQueryTimeout     = 15 * time.Second
 	socketQueryResultLimit = 8 * 1024 * 1024
+	socketQueryConcurrency = 2
 )
 
 type socketQueryRequest struct {
@@ -39,6 +40,8 @@ type socketQuerySubscription struct {
 	request    socketQueryRequest
 	generation uint64
 	dirty      bool
+	running    bool
+	paused     bool
 	hasResult  bool
 	hash       [sha256.Size]byte
 }
@@ -60,11 +63,11 @@ type socketQueries struct {
 	subscriptions  map[string]*socketQuerySubscription
 	order          []string
 	nextGeneration uint64
-	busy           bool
+	active         map[uint64]bool
 }
 
 func newSocketQueries() *socketQueries {
-	return &socketQueries{subscriptions: map[string]*socketQuerySubscription{}}
+	return &socketQueries{subscriptions: map[string]*socketQuerySubscription{}, active: map[uint64]bool{}}
 }
 
 func validateSocketQuery(request socketQueryRequest) error {
@@ -102,6 +105,9 @@ func (queries *socketQueries) command(request socketQueryRequest) *socketQueryRe
 		return fail("requestId must contain 1..128 bytes")
 	}
 	if request.Type == "unsubscribe" {
+		if subscription := queries.subscriptions[request.RequestID]; subscription != nil {
+			delete(queries.active, subscription.generation)
+		}
 		delete(queries.subscriptions, request.RequestID)
 		for index, id := range queries.order {
 			if id == request.RequestID {
@@ -138,16 +144,17 @@ func (queries *socketQueries) invalidate() {
 }
 
 func (queries *socketQueries) schedule() *socketQueryWork {
-	if queries.busy {
+	if len(queries.active) >= socketQueryConcurrency {
 		return nil
 	}
 	for index, id := range queries.order {
 		subscription := queries.subscriptions[id]
-		if !subscription.dirty {
+		if !subscription.dirty || subscription.running || subscription.paused {
 			continue
 		}
 		subscription.dirty = false
-		queries.busy = true
+		subscription.running = true
+		queries.active[subscription.generation] = true
 		// Round-robin fairness: a hot subscription cannot starve others.
 		queries.order = append(queries.order[index+1:], queries.order[:index+1]...)
 		return &socketQueryWork{request: subscription.request, generation: subscription.generation}
@@ -156,17 +163,26 @@ func (queries *socketQueries) schedule() *socketQueryWork {
 }
 
 func (queries *socketQueries) receive(result socketQueryResult) *socketQueryResponse {
-	queries.busy = false
+	delete(queries.active, result.work.generation)
 	subscription := queries.subscriptions[result.work.request.RequestID]
 	if subscription == nil || subscription.generation != result.work.generation {
 		return nil
 	}
+	subscription.running = false
 	hash := sha256.Sum256(result.encoded)
 	if subscription.hasResult && subscription.hash == hash {
 		return nil
 	}
 	subscription.hash, subscription.hasResult = hash, true
 	return &socketQueryResponse{Type: "query_result", RequestID: result.work.request.RequestID, Result: result.encoded}
+}
+
+func (queries *socketQueries) fail(work socketQueryWork) {
+	delete(queries.active, work.generation)
+	if subscription := queries.subscriptions[work.request.RequestID]; subscription != nil && subscription.generation == work.generation {
+		subscription.running = false
+		subscription.paused = true
+	}
 }
 
 type socketQueryTask struct {
@@ -213,7 +229,7 @@ var sharedSocketQueryPool *socketQueryPool
 // multiple handlers. A resolver ignoring cancellation can occupy a slot until
 // it returns, but cannot cause unlimited replacement workers or executions.
 func eventSocketQueryPool() *socketQueryPool {
-	socketQueryPoolOnce.Do(func() { sharedSocketQueryPool = newSocketQueryPool(context.Background(), 4, 16) })
+	socketQueryPoolOnce.Do(func() { sharedSocketQueryPool = newSocketQueryPool(context.Background(), 16, 64) })
 	return sharedSocketQueryPool
 }
 
@@ -238,7 +254,8 @@ func newSocketQueryPool(ctx context.Context, workers, queueSize int) *socketQuer
 					// graphql-go Execute starts an inner execution goroutine and
 					// otherwise returns early on ctx.Done. Mask cancellation for
 					// the executor so this fixed slot tracks actual resolver end.
-					value := task.execute(context.WithoutCancel(task.ctx), task.work.request)
+					executorContext := context.WithValue(context.WithoutCancel(task.ctx), resolverContextKey{}, task.ctx)
+					value := task.execute(executorContext, task.work.request)
 					if task.ctx.Err() != nil {
 						continue
 					}

@@ -11,15 +11,13 @@ import (
 )
 
 func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provider, error) {
-	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
-
-	engine.accountMu.Lock()
-	defer engine.accountMu.Unlock()
-
 	if configuration.ID == "" {
 		configuration.ID = NewID()
 	}
+	accountUnlock := engine.accountGates.Lock(configuration.ID)
+	defer accountUnlock()
+	engine.configMu.Lock()
+	defer engine.configMu.Unlock()
 
 	if !remote.ValidID(configuration.ID) || strings.TrimSpace(configuration.Name) == "" {
 		return configuration, errors.New("provider id and name are required")

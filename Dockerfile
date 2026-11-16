@@ -15,10 +15,11 @@ WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY backend/ ./
-# DuckDB uses CGO and links against the system C++ runtime.
+# SQLite uses CGO; DuckDB is only linked into the separate import command.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/zentrale .
+    CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/zentrale . \
+    && CGO_ENABLED=1 go build -tags duckdb_import -trimpath -ldflags="-s -w" -o /out/import-duckdb ./cmd/import-duckdb
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
@@ -30,9 +31,10 @@ RUN apt-get update \
     && install -d -o zentrale -g zentrale -m 0700 /data
 WORKDIR /app
 COPY --from=backend /out/zentrale /usr/local/bin/zentrale
+COPY --from=backend /out/import-duckdb /usr/local/bin/import-duckdb
 COPY --from=frontend /src/frontend/dist/ ./frontend/
 ENV ZENTRALE_VSCODE_CACHE=/data/cache/vscode
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/zentrale", "-addr", ":8080", "-db", "/data/zentrale.duckdb", "-frontend", "/app/frontend"]
+ENTRYPOINT ["/usr/local/bin/zentrale", "-addr", ":8080", "-db", "/data/zentrale.sqlite", "-frontend", "/app/frontend"]

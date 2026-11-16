@@ -12,8 +12,11 @@ import (
 )
 
 func (engine *Engine) RefreshProviderModels(ctx context.Context, providerID string) error {
-	engine.catalogMu.Lock()
-	defer engine.catalogMu.Unlock()
+	catalogUnlock, err := engine.catalogGates.LockContext(ctx, providerID)
+	if err != nil {
+		return err
+	}
+	defer catalogUnlock()
 
 	engine.configMu.Lock()
 	revision := engine.catalogRevisions[providerID]
@@ -114,8 +117,11 @@ func (engine *Engine) startProviderLogin(login domain.ProviderLogin) error {
 }
 
 func (engine *Engine) beginProviderLogin(ctx context.Context, providerID string) (domain.ProviderLogin, error) {
-	engine.accountMu.Lock()
-	defer engine.accountMu.Unlock()
+	accountUnlock, err := engine.accountGates.LockContext(ctx, providerID)
+	if err != nil {
+		return domain.ProviderLogin{}, err
+	}
+	defer accountUnlock()
 
 	var provider domain.Provider
 	if err := engine.loadProvider(providerID, &provider); err != nil {
@@ -156,19 +162,19 @@ func (engine *Engine) ProviderLogin(loginID string) (*domain.ProviderLogin, erro
 }
 
 func (engine *Engine) endProviderLogin(loginID, status string) error {
-	engine.accountMu.Lock()
+	accountUnlock := engine.accountGates.Lock(engine.loginProviderID(loginID))
 	var transaction providerlogin.Transaction
 	err := engine.loadProviderLogin(loginID, &transaction)
 	if errors.Is(err, sql.ErrNoRows) {
-		engine.accountMu.Unlock()
+		accountUnlock()
 		return nil
 	}
 	if err != nil {
-		engine.accountMu.Unlock()
+		accountUnlock()
 		return err
 	}
 	if transaction.Session.Status != "pending" {
-		engine.accountMu.Unlock()
+		accountUnlock()
 		return nil
 	}
 	transaction.Session.Status = status
@@ -181,7 +187,7 @@ func (engine *Engine) endProviderLogin(loginID, status string) error {
 	transaction.CodeVerifier, transaction.DeviceAuthorizationID = "", ""
 	transaction.BrowserFlow = nil
 	err = engine.saveProviderLogin(transaction)
-	engine.accountMu.Unlock()
+	accountUnlock()
 	if err == nil {
 		engine.Emit("provider_login", "", map[string]string{"id": loginID})
 	}
@@ -190,10 +196,13 @@ func (engine *Engine) endProviderLogin(loginID, status string) error {
 
 func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizationCode string) (domain.ProviderLogin, error) {
 	// Serialize exchanges: a device grant and an authorization code are single-use.
-	engine.accountMu.Lock()
+	accountUnlock, err := engine.accountGates.LockContext(ctx, engine.loginProviderID(loginID))
+	if err != nil {
+		return domain.ProviderLogin{}, err
+	}
 	var transaction providerlogin.Transaction
 	if err := engine.loadProviderLogin(loginID, &transaction); err != nil {
-		engine.accountMu.Unlock()
+		accountUnlock()
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ProviderLogin{Status: "cancelled"}, nil
 		}
@@ -201,7 +210,7 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 	}
 
 	if transaction.Session.Status != "pending" {
-		engine.accountMu.Unlock()
+		accountUnlock()
 		return transaction.Session, nil
 	}
 	before := transaction.Session
@@ -211,14 +220,14 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 		transaction.Session.Error = "provider login expired"
 	} else if transaction.Session.Method == "device" {
 		if time.Now().Before(transaction.NextPollAt) {
-			engine.accountMu.Unlock()
+			accountUnlock()
 			return transaction.Session, nil
 		}
 
 		transaction.NextPollAt = time.Now().Add(time.Duration(max(5, transaction.Session.Interval)) * time.Second)
 		tokens, pending, err := engine.AccountLogin.Poll(ctx, transaction)
 		if ctx.Err() != nil {
-			engine.accountMu.Unlock()
+			accountUnlock()
 			return transaction.Session, ctx.Err()
 		}
 		var retryable *providerlogin.RetryablePollError
@@ -231,10 +240,10 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 		case errors.As(err, &retryable):
 			transaction.Session.Error = "provider login temporarily unavailable; retrying"
 			if saveErr := engine.saveProviderLogin(transaction); saveErr != nil {
-				engine.accountMu.Unlock()
+				accountUnlock()
 				return transaction.Session, saveErr
 			}
-			engine.accountMu.Unlock()
+			accountUnlock()
 			if before != transaction.Session {
 				engine.Emit("provider_login", "", map[string]string{"id": loginID})
 			}
@@ -258,7 +267,7 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 	} else if transaction.Session.Method == "browser" && authorizationCode != "" {
 		credential, err := engine.AccountLogin.CompleteBrowser(ctx, transaction, authorizationCode)
 		if ctx.Err() != nil {
-			engine.accountMu.Unlock()
+			accountUnlock()
 			return transaction.Session, ctx.Err()
 		}
 		if err == nil {
@@ -281,8 +290,8 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 		transaction.BrowserFlow = nil
 	}
 
-	err := engine.saveProviderLogin(transaction)
-	engine.accountMu.Unlock()
+	err = engine.saveProviderLogin(transaction)
+	accountUnlock()
 
 	if err != nil {
 		return transaction.Session, err
@@ -304,12 +313,12 @@ func (engine *Engine) PollProviderLogin(ctx context.Context, loginID, authorizat
 
 func (engine *Engine) CancelProviderLogin(loginID string) error {
 	engine.stopLoginPolling("", loginID)
-	engine.accountMu.Lock()
+	accountUnlock := engine.accountGates.Lock(engine.loginProviderID(loginID))
 	err := engine.Store.DeleteCredential("google_login/" + loginID)
 	if err == nil {
 		err = engine.Store.Remove("provider_login", loginID)
 	}
-	engine.accountMu.Unlock()
+	accountUnlock()
 	if err == nil {
 		engine.Emit("provider_login", "", map[string]string{"id": loginID})
 	}
@@ -318,11 +327,10 @@ func (engine *Engine) CancelProviderLogin(loginID string) error {
 
 func (engine *Engine) DisconnectProvider(providerID string) error {
 	engine.stopLoginPolling("provider:"+providerID, "")
+	accountUnlock := engine.accountGates.Lock(providerID)
+	defer accountUnlock()
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
-
-	engine.accountMu.Lock()
-	defer engine.accountMu.Unlock()
 
 	engine.catalogRevisions[providerID]++
 
@@ -394,4 +402,14 @@ func (engine *Engine) TestProvider(ctx context.Context, providerID, modelID stri
 	}
 
 	return result.Text != "", nil
+}
+
+// Routing uses only public session data. Always reload the transaction under
+// the provider gate before exchanging a single-use code or rotating tokens.
+func (engine *Engine) loginProviderID(loginID string) string {
+	var transaction providerlogin.Transaction
+	if engine.Store.Load("provider_login", loginID, &transaction) == nil {
+		return transaction.Session.ProviderID
+	}
+	return "missing-login:" + loginID
 }

@@ -17,10 +17,8 @@ func poolConnectionSampleSize(total int) int {
 }
 
 func (engine *Engine) CheckPoolConnection(ctx context.Context, poolID string) (domain.PoolConnectionCheck, error) {
-	engine.configMu.Lock()
 	var pool domain.Pool
 	err := engine.Store.Load("pool", poolID, &pool)
-	engine.configMu.Unlock()
 	if err != nil {
 		return domain.PoolConnectionCheck{}, err
 	}

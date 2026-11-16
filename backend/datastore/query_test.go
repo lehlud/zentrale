@@ -13,7 +13,7 @@ func newQueryTestInstance(t *testing.T) *Instance {
 	t.Helper()
 
 	// Query tests own an independent schema rather than application tables.
-	db, err := sql.Open("duckdb", "")
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,9 +27,9 @@ func newQueryTestInstance(t *testing.T) *Instance {
 	})
 
 	_, err = db.Exec(`
-		CREATE SEQUENCE item_ids START 1;
+
 		CREATE TABLE items (
-			id BIGINT PRIMARY KEY DEFAULT nextval('item_ids'),
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label VARCHAR DEFAULT 'default label',
 			note VARCHAR,
 			payload BLOB,
@@ -278,7 +278,7 @@ func TestUpdateAndDelete(t *testing.T) {
 
 func TestQuotedIdentifiersAndDriverValues(t *testing.T) {
 	i := newQueryTestInstance(t)
-	_, err := i.db.Exec(`CREATE TABLE "odd"" table" ("select" VARCHAR, "co""lumn" TIMESTAMPTZ)`)
+	_, err := i.db.Exec(`CREATE TABLE "odd"" table" ("select" VARCHAR, "co""lumn" TIMESTAMP)`)
 	if err != nil {
 		t.Fatal(err)
 	}

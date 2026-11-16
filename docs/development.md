@@ -30,14 +30,14 @@ types rather than generated files.
 | `backend/agent`     | Conversations, goals, review, context, tools, and jobs  |
 | `backend/remote`    | SSH, workspaces, pools, storage, and VMs                |
 | `backend/providers` | Provider protocols, streaming, native replay, and usage |
-| `backend/datastore` | DuckDB resources, key ownership, and current schema     |
+| `backend/datastore` | SQLite resources, key ownership, and current schema     |
 | `backend/gitforge`  | Git accounts and repository bindings                    |
 | `backend/webapi`    | Authenticated API, events, and editor routes            |
 | `backend/vscode`    | Pinned browser workbench distribution                   |
 | `frontend/src`      | React interface and generated API types                 |
 | `frontend/tests`    | Browser workflows and isolated UI fixtures              |
 
-Configuration and agent state live in DuckDB; project files and commands belong
+Configuration and agent state live in SQLite; project files and commands belong
 to SSH execution environments. The tool JavaScript runtime cannot start local
 Zentrale processes or access its filesystem.
 
@@ -45,6 +45,8 @@ The unreleased application uses one transactional
 [current schema](../backend/datastore/schema.go). Compatible databases reopen;
 incompatible development schemas fail without being rewritten or deleted.
 Historical migration and downgrade chains are intentionally absent.
+The storage-engine change has an explicit, read-only DuckDB import command;
+see [database operation and concurrency](database-latency.md).
 
 ## Execution environment
 

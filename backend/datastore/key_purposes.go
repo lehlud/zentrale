@@ -26,7 +26,7 @@ type SSHKeyUsage struct {
 // Collect references in one snapshot, including pending deploy-key registrations.
 // A binding remains a use until the remote deploy key has actually been revoked.
 func keyUsages(tx *sql.Tx) (map[int][]SSHKeyUsage, error) {
-	rows, err := tx.Query(`SELECT kind, id, data::VARCHAR FROM resources WHERE kind IN ('machine','pool','source','repository_binding') ORDER BY kind,id`)
+	rows, err := tx.Query(`SELECT kind, id, data FROM resources WHERE kind IN ('machine','pool','source','repository_binding') ORDER BY kind,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -222,11 +222,12 @@ func (instance *Instance) SaveWithSSHKeys(kind, id, parent string, value any, cl
 	}
 
 	if _, err := tx.Exec(
-		`INSERT INTO resources(kind,id,parent_id,data) VALUES (?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
+		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
 		kind,
 		id,
 		parent,
 		string(data),
+		resourceCreatedAt(),
 	); err != nil {
 		return err
 	}

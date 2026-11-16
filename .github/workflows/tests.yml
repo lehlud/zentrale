@@ -70,6 +70,8 @@ jobs:
         id: go_tests
         shell: bash
         run: go test -race -json -count=1 -timeout=15m ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
+      - name: Verify explicit DuckDB to SQLite importer
+        run: go test -tags duckdb_import ./datastore ./cmd/import-duckdb -run '^TestImport' -count=1 -timeout=2m
       - name: Annotate Go test failures
         if: ${{ !cancelled() && steps.go_tests.outcome == 'failure' }}
         run: python3 ../.github/scripts/report_go_tests.py "$RUNNER_TEMP/go-tests.jsonl"

@@ -375,10 +375,15 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
 	queries := newSocketQueries()
-	results := make(chan socketQueryResult, 1)
-	var execution *socketQueryExecution
+	results := make(chan socketQueryResult, socketQueryConcurrency)
+	executions := map[uint64]*socketQueryExecution{}
+	works := map[uint64]socketQueryWork{}
+	timeout := time.NewTimer(time.Hour)
+	defer timeout.Stop()
 	defer func() {
-		execution.stop()
+		for _, execution := range executions {
+			execution.stop()
+		}
 	}()
 	writeSnapshot := func(response socketQueryResponse) error {
 		if ctx.Err() != nil || !server.Auth.Valid(token) {
@@ -389,30 +394,67 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 	}
 
 	for {
-		if work := queries.schedule(); work != nil {
+		for work := queries.schedule(); work != nil; work = queries.schedule() {
 			if !server.Auth.Valid(token) {
 				return nil
 			}
-			execution = startSocketQueryExecution(ctx)
+			execution := startSocketQueryExecution(ctx)
+			executions[work.generation] = execution
+			works[work.generation] = *work
 			task := socketQueryTask{ctx: execution.ctx, work: *work, results: results,
 				execute: func(ctx context.Context, request socketQueryRequest) any {
 					return server.executeSocketQuery(ctx, schema, token, client, request)
 				}}
 			if !eventSocketQueryPool().submit(task) {
-				_ = writeSnapshot(socketQueryError(work.request.RequestID, "snapshot executor saturated"))
-				return nil
+				execution.stop()
+				delete(executions, work.generation)
+				delete(works, work.generation)
+				queries.fail(*work)
+				if err := writeSnapshot(socketQueryError(work.request.RequestID, "snapshot executor saturated; resubscribe to retry")); err != nil {
+					return nil
+				}
 			}
 		}
+		if !timeout.Stop() {
+			select {
+			case <-timeout.C:
+			default:
+			}
+		}
+		wait := time.Hour
+		for _, execution := range executions {
+			deadline, _ := execution.ctx.Deadline()
+			wait = min(wait, max(time.Nanosecond, time.Until(deadline)))
+		}
+		timeout.Reset(wait)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-execution.done():
-			// Stop waiting/close the socket. The fixed pool retains any
-			// uncooperative resolver's slot until actual execution completes.
-			return nil
+		case <-timeout.C:
+			for generation, execution := range executions {
+				if execution.ctx.Err() == nil {
+					continue
+				}
+				work := works[generation]
+				execution.stop()
+				delete(executions, generation)
+				delete(works, generation)
+				queries.fail(work)
+				if err := writeSnapshot(socketQueryError(work.request.RequestID, "snapshot timed out; resubscribe to retry")); err != nil {
+					return nil
+				}
+			}
 		case command := <-commands:
 			if !server.Auth.Valid(token) || len(command.RequestID) == 0 || len(command.RequestID) > 128 {
 				return nil
+			}
+			if command.Type == "unsubscribe" {
+				if subscription := queries.subscriptions[command.RequestID]; subscription != nil {
+					generation := subscription.generation
+					executions[generation].stop()
+					delete(executions, generation)
+					delete(works, generation)
+				}
 			}
 			if failure := queries.command(command); failure != nil {
 				if err := writeSnapshot(*failure); err != nil {
@@ -420,11 +462,21 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 				}
 			}
 		case result := <-results:
-			if execution == nil || execution.ctx.Err() != nil {
-				return nil
+			execution := executions[result.work.generation]
+			if execution == nil {
+				continue
 			}
+			expired := execution.ctx.Err() != nil
 			execution.stop()
-			execution = nil
+			delete(executions, result.work.generation)
+			delete(works, result.work.generation)
+			if expired {
+				queries.fail(result.work)
+				if err := writeSnapshot(socketQueryError(result.work.request.RequestID, "snapshot timed out; resubscribe to retry")); err != nil {
+					return nil
+				}
+				continue
+			}
 			if response := queries.receive(result); response != nil {
 				if err := writeSnapshot(*response); err != nil {
 					return nil

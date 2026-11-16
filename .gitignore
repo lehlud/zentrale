@@ -5,6 +5,10 @@ backend/zentrale
 *.duckdb
 *.duckdb.wal
 *.duckdb.tmp/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.credentials.key
 coverage.out
 .DS_Store
 frontend/test-results/

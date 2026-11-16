@@ -45,6 +45,13 @@ export function mutationConfirmation(
   }
 
   if (/\b(deleteResource|deleteSSHKey)\b/.test(query)) {
+    if (variables.kind === "machine" || variables.kind === "pool") {
+      return {
+        message:
+          "Fernzugang und davon abhängige Verbindungen entfernen? Projektzuordnungen werden gelöst und betroffene Editoren geschlossen. Projekte, Konversationen und Dateien bleiben erhalten.",
+        actionLabel: "Entfernen",
+      };
+    }
     if (variables.kind === "agent") {
       return {
         message: "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?",

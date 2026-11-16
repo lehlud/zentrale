@@ -120,7 +120,7 @@ export function Providers() {
       kind={kindName(provider)}
       selected={selected?.id === provider.id}
       actions={accountActions(provider)}
-      busy={resource.busy}
+      busy={resource.isBusy("provider", provider.id)}
       compact={compact}
       onSelect={() => selectAccount(provider)}
     />

@@ -15,11 +15,11 @@ func (instance *Instance) MessageExcerpts(agentID, beforeID, search string, limi
 
 	statement := `SELECT json_object(
 		'id', id, 'agentId', parent_id, 'role', data->>'role',
-		'content', left(coalesce(data->>'content',''), ?),
+		'content', substr(coalesce(data->>'content',''),1, ?),
 		'contentCharacters', length(coalesce(data->>'content','')),
-		'hasCalls', length(coalesce(data->>'wire','')) > 0,
+		'hasCalls', json(CASE WHEN length(coalesce(data->>'wire','')) > 0 THEN 'true' ELSE 'false' END),
 		'callId', data->>'callId', 'toolName', data->>'toolName',
-		'createdAt', created_at)::VARCHAR
+		'createdAt', created_at)
 		FROM resources WHERE kind='message' AND parent_id=?`
 	arguments := []any{characters, agentID}
 
@@ -35,7 +35,7 @@ func (instance *Instance) MessageExcerpts(agentID, beforeID, search string, limi
 	if strings.TrimSpace(search) != "" {
 		// Provider wire may contain private reasoning. Even a match/no-match
 		// oracle would expose it; search only visible content and tool names.
-		statement += ` AND strpos(lower(coalesce(data->>'content','') || coalesce(data->>'toolName','')), lower(?)) > 0`
+		statement += ` AND instr(lower(coalesce(data->>'content','') || coalesce(data->>'toolName','')), lower(?)) > 0`
 		arguments = append(arguments, search)
 	}
 

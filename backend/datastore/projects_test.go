@@ -54,6 +54,9 @@ func TestRemoveProjectCascadesAndPreservesOtherResources(t *testing.T) {
 		if err := rows.Scan(&kind, &id); err != nil {
 			t.Fatal(err)
 		}
+		if kind == "vm_cleanup" && id == "vm" {
+			continue
+		} // Durable remote cleanup outlives logical deletion.
 		if id != "other" && id != "other-agent" && id != "other-source" && id != "shared-provider" && id != "shared-machine" {
 			t.Fatal("orphaned resource", kind, id)
 		}

@@ -53,8 +53,11 @@ func (service *Service) beginBrowser(ctx context.Context, value account) (domain
 // Lost responses are not replayed. Once a token is stored, an interrupted
 // profile read can be retried without resubmitting the authorization code.
 func (service *Service) CompleteBrowser(ctx context.Context, connectionID, loginID, state, code, owner string) (domain.GitLogin, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, connectionID)
+	if err != nil {
+		return domain.GitLogin{}, err
+	}
+	defer unlock()
 
 	value, err := service.account(connectionID)
 	if err != nil {

@@ -25,7 +25,7 @@ func run() error {
 	syscall.Umask(0077)
 
 	address := flag.String("addr", "127.0.0.1:8080", "listen address")
-	dbPath := flag.String("db", "zentrale.duckdb", "DuckDB database path")
+	dbPath := flag.String("db", "zentrale.sqlite", "SQLite database path (local filesystem)")
 	frontend := flag.String("frontend", "frontend/dist", "built frontend directory")
 
 	public, err := publicServerFlags(flag.CommandLine)

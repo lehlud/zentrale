@@ -17,7 +17,18 @@ test("destructive actions keep their explanation and label together", () => {
       "Repository-Dateien bleiben erhalten",
       "Entfernen",
     ],
-    ["deleteResource", { kind: "machine" }, "Dieses Element", "Entfernen"],
+    [
+      "deleteResource",
+      { kind: "machine" },
+      "abhängige Verbindungen",
+      "Entfernen",
+    ],
+    [
+      "deleteResource",
+      { kind: "pool" },
+      "Konversationen und Dateien bleiben erhalten",
+      "Entfernen",
+    ],
     ["deleteSSHKey", {}, "Dieses Element", "Entfernen"],
   ] as const) {
     const confirmation = mutationConfirmation(`mutation{${field}}`, variables);

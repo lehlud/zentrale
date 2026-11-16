@@ -2,134 +2,136 @@ package datastore
 
 import (
 	"database/sql"
-	"database/sql/driver"
-	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
-	"strings"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 
-	"github.com/duckdb/duckdb-go/v2"
+	_ "github.com/mattn/go-sqlite3"
 )
 
+// One database and one ordinary connection pool. SQLite WAL coordinates short
+// write transactions and concurrent readers without application-wide DB locks.
 type Instance struct {
-	path        string
-	db          *sql.DB
-	reads       *sql.DB
-	readQueries atomic.Uint64
-
-	closeOnce sync.Once
-	closeErr  error
-	closed    atomic.Bool
-
+	path          string
+	db            *sql.DB
+	temporary     string
+	readQueries   atomic.Uint64
+	closeOnce     sync.Once
+	closeErr      error
+	closed        atomic.Bool
 	credentialMu  sync.Mutex
 	credentialKey []byte
 }
 
-// Sharing the connector, rather than opening another DSN, also shares in-memory
-// databases. Only the writer pool owns/closes the native database handle.
-type borrowedConnector struct{ driver.Connector }
-
-func (i *Instance) readDB() *sql.DB {
-	i.readQueries.Add(1)
-	if i.reads != nil {
-		return i.reads
-	}
-	return i.db // Test fixtures with their own schema retain their existing pool.
-}
-
-// ReadQueryCount is a process-local diagnostic counter of attempted read
-// statements (not a per-request metric when requests run concurrently).
+func (i *Instance) readDB() *sql.DB        { i.readQueries.Add(1); return i.db }
 func (i *Instance) ReadQueryCount() uint64 { return i.readQueries.Load() }
 
 func Open(path string) (*Instance, error) {
-	if path != "" && path != ":memory:" {
-		if _, err := os.Stat(path); err == nil {
-			if err = os.Chmod(path, 0600); err != nil {
+	requested := path
+	temporary := ""
+	if path == "" || path == ":memory:" {
+		// Disposable WAL files give tests production concurrency semantics,
+		// avoiding the different locking rules of shared-cache in-memory SQLite.
+		file, err := os.CreateTemp("", "zentrale-*.sqlite")
+		if err != nil {
+			return nil, err
+		}
+		path, temporary = file.Name(), file.Name()
+		_ = file.Close()
+	}
+	cleanup := func() {
+		if temporary != "" {
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				_ = os.Remove(temporary + suffix)
+			}
+		}
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	if info, err := os.Stat(abs); err == nil {
+		if info.Size() > 0 {
+			file, err := os.Open(abs)
+			if err != nil {
+				cleanup()
 				return nil, err
 			}
-		} else if !os.IsNotExist(err) {
+			header := make([]byte, 16)
+			_, readErr := io.ReadFull(file, header)
+			_ = file.Close()
+			if readErr != nil || string(header) != "SQLite format 3\x00" {
+				cleanup()
+				return nil, fmt.Errorf("database %q is not SQLite; import the existing DuckDB into a new SQLite file before starting Zentrale (the original was not changed)", abs)
+			}
+		}
+		if err := os.Chmod(abs, 0600); err != nil {
+			cleanup()
 			return nil, err
 		}
+	} else if !os.IsNotExist(err) {
+		cleanup()
+		return nil, err
+	} else if filepath.Base(abs) == "zentrale.sqlite" {
+		if _, err := os.Stat(filepath.Join(filepath.Dir(abs), "zentrale.duckdb")); err == nil {
+			cleanup()
+			return nil, fmt.Errorf("existing zentrale.duckdb found; import it into %s first instead of starting with an empty database", abs)
+		}
 	}
-
-	connector, err := duckdb.NewConnector(path, nil)
+	// Create with restrictive permissions before SQLite creates its WAL/SHM
+	// sidecars, whose initial permissions derive from the database file.
+	file, createErr := os.OpenFile(abs, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if createErr == nil {
+		_ = file.Close()
+	} else if !os.IsExist(createErr) {
+		cleanup()
+		return nil, createErr
+	}
+	address := url.URL{Scheme: "file", Path: abs}
+	options := url.Values{"_busy_timeout": {"5000"}, "_journal_mode": {"WAL"}, "_foreign_keys": {"on"}, "_txlock": {"immediate"}, "_synchronous": {"FULL"}, "_loc": {"UTC"}}
+	db, err := sql.Open("sqlite3", address.String()+"?"+options.Encode())
 	if err != nil {
-		return nil, openError(path, err)
+		cleanup()
+		return nil, err
 	}
-	db := sql.OpenDB(connector)
-	db.SetMaxOpenConns(1)
-
-	if path != "" && path != ":memory:" {
-		if err := db.Ping(); err != nil {
-			_ = db.Close()
-
-			return nil, openError(path, err)
-		}
-
-		if err := os.Chmod(path, 0600); err != nil {
-			_ = db.Close()
-
-			return nil, err
-		}
-	}
-
-	i := &Instance{
-		path: path,
-		db:   db,
-	}
-
-	if err = initializeSchema(db); err != nil {
+	db.SetMaxOpenConns(16)
+	db.SetMaxIdleConns(8)
+	if err := initializeSchema(db); err != nil {
 		_ = db.Close()
-
-		return nil, openError(path, err)
+		cleanup()
+		return nil, err
 	}
-	// Keep mutations serialized: DuckDB does not retry concurrent write
-	// conflicts. Reads use independent MVCC snapshots instead of queueing behind
-	// agent writes or another large transcript read on the sole writer connection.
-	i.reads = sql.OpenDB(borrowedConnector{connector})
-	i.reads.SetMaxOpenConns(4)
-	i.reads.SetMaxIdleConns(4)
-
-	return i, nil
-}
-
-func openError(path string, err error) error {
-	if strings.Contains(err.Error(), "Could not set lock on file") && strings.Contains(err.Error(), "Conflicting lock") {
-		detail := "another process holds the database lock; run only one Zentrale instance per data volume " +
-			"and stop the old container before starting its replacement"
-		return fmt.Errorf("open datastore %q: %s: %w", path, detail, err)
+	if err := os.Chmod(abs, 0600); err != nil {
+		_ = db.Close()
+		cleanup()
+		return nil, err
 	}
-
-	return fmt.Errorf("open datastore %q: %w", path, err)
+	if temporary == "" {
+		requested = abs
+	}
+	return &Instance{path: requested, db: db, temporary: temporary}, nil
 }
 
 func (i *Instance) Close() error {
 	if i == nil {
 		return nil
 	}
-
 	i.closeOnce.Do(func() {
 		i.closed.Store(true)
-
-		// Keep pool pointers immutable: in-flight readers may have passed
-		// Closed already. database/sql synchronizes those queries with Close.
-		var readErr, writeErr error
-		if i.reads != nil {
-			readErr = i.reads.Close()
-		}
-
 		if i.db != nil {
-			writeErr = i.db.Close()
+			i.closeErr = i.db.Close()
 		}
-
-		i.closeErr = errors.Join(readErr, writeErr)
+		if i.temporary != "" {
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				_ = os.Remove(i.temporary + suffix)
+			}
+		}
 	})
-
 	return i.closeErr
 }
-
-func (i *Instance) Closed() bool {
-	return i == nil || i.closed.Load() || i.db == nil
-}
+func (i *Instance) Closed() bool { return i == nil || i.closed.Load() || i.db == nil }

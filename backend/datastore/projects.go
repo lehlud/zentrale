@@ -17,8 +17,11 @@ func (instance *Instance) RemoveProject(id string) error {
 		return err
 	}
 	defer transaction.Rollback()
+	if err := queueVMRemovals(transaction, "json_extract(data,'$.projectId')=?", id); err != nil {
+		return err
+	}
 	rows, err := transaction.Query(`SELECT id FROM resources WHERE kind='agent'
-		AND (parent_id=? OR json_extract_string(data,'$.projectId')=?)`, id, id)
+		AND (parent_id=? OR json_extract(data,'$.projectId')=?)`, id, id)
 	if err != nil {
 		return err
 	}
@@ -45,7 +48,7 @@ func (instance *Instance) RemoveProject(id string) error {
 		return err
 	}
 	if _, err := transaction.Exec(`DELETE FROM resources WHERE
-		(kind='project' AND id=?) OR parent_id=? OR json_extract_string(data,'$.projectId')=?`, id, id, id); err != nil {
+		(kind='project' AND id=?) OR parent_id=? OR json_extract(data,'$.projectId')=?`, id, id, id); err != nil {
 		return err
 	}
 	return transaction.Commit()

@@ -113,8 +113,21 @@ func (engine *Engine) SaveProject(project domain.Project) (domain.Project, error
 }
 
 func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Project) (domain.Project, error) {
+	if project.ID == "" {
+		project.ID = NewID()
+	}
+	unlock, gateErr := engine.projectGates.LockContext(ctx, project.ID)
+	if gateErr != nil {
+		return project, gateErr
+	}
+	defer unlock()
 	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			engine.configMu.Unlock()
+		}
+	}()
 
 	project.CommitName, project.CommitEmail = strings.TrimSpace(project.CommitName), strings.TrimSpace(project.CommitEmail)
 
@@ -185,7 +198,18 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 		}
 	}
 
-	project, err := engine.GitForge.SaveProject(ctx, project)
+	release, err := engine.reserveProject(project)
+	if err != nil {
+		return project, err
+	}
+	engine.configMu.Unlock()
+	locked = false
+	defer release()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(engine.ctx, cancel)
+	defer stop()
+	project, err = engine.GitForge.SaveProject(ctx, project)
 	if err == nil {
 		engine.Emit("resources", "", nil)
 	}
@@ -196,6 +220,9 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
+	if err := engine.projectAvailable(source.ProjectID); err != nil {
+		return source, err
+	}
 
 	var existing domain.Source
 
@@ -206,6 +233,9 @@ func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 	}
 
 	if existing.BindingID != "" {
+		if err := engine.projectAvailable(existing.ProjectID); err != nil {
+			return source, err
+		}
 		if source.URL != existing.URL ||
 			source.KeyID != existing.KeyID ||
 			source.ProjectID != existing.ProjectID {

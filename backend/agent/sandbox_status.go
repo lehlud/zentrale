@@ -123,9 +123,6 @@ func (engine *Engine) SandboxStatus(machineID string) *domain.SandboxStatus {
 // SandboxStatuses reads configuration in batches and does no SSH work. Changed
 // or removed machines have no current observation until their next real check.
 func (engine *Engine) SandboxStatuses() ([]domain.SandboxStatus, error) {
-	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
-
 	machines, err := loadResources[domain.Machine](engine, "machine")
 	if err != nil {
 		return nil, err

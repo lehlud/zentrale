@@ -17,7 +17,7 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(
-		`DELETE FROM resources WHERE kind='source' AND parent_id=? AND json_extract_string(data,'$.projectRoot')='true'`,
+		`DELETE FROM resources WHERE kind='source' AND parent_id=? AND json_extract(data,'$.projectRoot')=1`,
 		project.ID,
 	); err != nil {
 		return err
@@ -26,7 +26,7 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 	if source != nil {
 		var keyID int
 		if err := tx.QueryRow(
-			`SELECT CAST(json_extract_string(data,'$.keyId') AS INTEGER) FROM resources WHERE kind='repository_binding' AND id=?`,
+			`SELECT CAST(json_extract(data,'$.keyId') AS INTEGER) FROM resources WHERE kind='repository_binding' AND id=?`,
 			source.BindingID,
 		).Scan(&keyID); err != nil {
 			return err
@@ -42,10 +42,11 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 		}
 
 		if _, err := tx.Exec(
-			`INSERT INTO resources(kind,id,parent_id,data) VALUES ('source',?,?,?)`,
+			`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES ('source',?,?,?,?)`,
 			source.ID,
 			project.ID,
 			string(encoded),
+			resourceCreatedAt(),
 		); err != nil {
 			return err
 		}
@@ -57,9 +58,10 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 	}
 
 	if _, err := tx.Exec(
-		`INSERT INTO resources(kind,id,parent_id,data) VALUES ('project',?,'',?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
+		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES ('project',?,'',?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
 		project.ID,
 		string(encoded),
+		resourceCreatedAt(),
 	); err != nil {
 		return err
 	}

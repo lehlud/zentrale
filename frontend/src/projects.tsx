@@ -162,7 +162,7 @@ export function Projects() {
             <div className="flex shrink-0 items-center gap-1">
               <ActionsMenu
                 label={t("Aktionen für {name}", { name: project.name })}
-                isDisabled={resource.busy}
+                isDisabled={resource.isBusy("project", project.id)}
                 actions={[
                   {
                     id: "edit",

@@ -622,16 +622,16 @@ export function Inspect({
 
 export function useAction() {
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const pending = useRef(new Set<string>());
 
-  async function run(action: () => Promise<unknown>) {
-    if (pending.current) {
+  async function run(action: () => Promise<unknown>, key = "default") {
+    if (pending.current.has(key)) {
       return;
     }
 
-    pending.current = true;
-    setBusy(true);
+    pending.current.add(key);
+    setPendingCount(pending.current.size);
     setError("");
 
     try {
@@ -643,10 +643,16 @@ export function useAction() {
       if ((error as Error).name !== "CancelledMutation")
         setError((error as Error).message);
     } finally {
-      pending.current = false;
-      setBusy(false);
+      pending.current.delete(key);
+      setPendingCount(pending.current.size);
     }
   }
 
-  return { error, busy, run, clearError: () => setError("") };
+  return {
+    error,
+    busy: pendingCount > 0,
+    isPending: (key: string) => pending.current.has(key),
+    run,
+    clearError: () => setError(""),
+  };
 }

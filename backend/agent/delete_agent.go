@@ -27,43 +27,57 @@ func (engine *Engine) deleteAgent(agentID string) error {
 		return errors.New("stop the agent and its jobs before removing it")
 	}
 
-	ids, err := engine.prepareAgentRemoval(selected)
-	if err != nil {
-		return err
+	ids := make([]string, 0, len(selected))
+	for id := range selected {
+		ids = append(ids, id)
 	}
 	if err := engine.Store.RemoveAgents(ids); err != nil {
 		return err
 	}
+	engine.scheduleRemovalCleanup(selected, "")
 
 	engine.Emit("resources", "", map[string]string{"removedAgent": agentID})
 	return nil
 }
 
-// Release runtime resources before committing any database deletions. The caller
-// holds configMu and has checked the complete set for active work.
-func (engine *Engine) prepareAgentRemoval(selected map[string]bool) ([]string, error) {
-	ids := make([]string, 0, len(selected))
-
-	for id := range selected {
-		engine.closeMCPServers(id)
-
-		if err := engine.Editors.StopAgent(id); err != nil {
-			return nil, err
-		}
-
-		if err := engine.removeAgentMicroVMs(id); err != nil {
-			return nil, err
-		}
-
-		engine.invalidate(id)
-		engine.releaseConnection(id)
-		engine.mu.Lock()
-		delete(engine.connections, id)
-		engine.mu.Unlock()
-		ids = append(ids, id)
+// Register while configMu protects shutdown, then close only the removed
+// resources outside that mutex. Logical deletion never waits for a remote host.
+func (engine *Engine) scheduleRemovalCleanup(selected map[string]bool, projectID string) {
+	previous := map[string]<-chan struct{}{}
+	completed := map[string]chan struct{}{}
+	engine.mu.Lock()
+	if engine.connectionCleanup == nil {
+		engine.connectionCleanup = map[string]<-chan struct{}{}
 	}
-
-	return ids, nil
+	for id := range selected {
+		previous[id] = engine.connectionCleanup[id]
+		completed[id] = make(chan struct{})
+		engine.connectionCleanup[id] = completed[id]
+	}
+	engine.mu.Unlock()
+	engine.workers.Add(1)
+	go func() {
+		defer engine.workers.Done()
+		if projectID != "" {
+			_ = engine.Editors.StopProject(projectID)
+		}
+		for id := range selected {
+			if wait := previous[id]; wait != nil {
+				<-wait
+			}
+			engine.closeMCPServers(id)
+			_ = engine.Editors.StopAgent(id)
+			engine.invalidate(id)
+			engine.releaseConnection(id)
+			engine.mu.Lock()
+			delete(engine.connections, id)
+			if engine.connectionCleanup[id] == completed[id] {
+				delete(engine.connectionCleanup, id)
+			}
+			close(completed[id])
+			engine.mu.Unlock()
+		}
+	}()
 }
 
 func (engine *Engine) agentsAreBusy(selected map[string]bool) bool {

@@ -289,11 +289,15 @@ func (engine *Engine) runAgent(ctx context.Context, agentID string, cancel conte
 		}
 
 		engine.invalidate(agentID)
-		engine.removeWorker(agentID)
+		// Keep the running pin while remote teardown runs, but let unrelated
+		// configuration and lifecycle requests continue in the meantime.
+		engine.configMu.Unlock()
 		engine.releaseConnection(agentID)
+		engine.configMu.Lock()
+		engine.removeWorker(agentID)
 		engine.finishAgent(agentID, runError)
 		engine.mu.Lock()
-		restart := hasNewInput && !engine.stopRequested[agentID] && engine.ctx.Err() == nil
+		restart := engine.inputRevisions[agentID] > processedRevision && !engine.stopRequested[agentID] && engine.ctx.Err() == nil
 		engine.mu.Unlock()
 
 		if restart {

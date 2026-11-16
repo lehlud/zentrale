@@ -19,9 +19,6 @@ func (i *Instance) SetCredential(name string, plaintext []byte) error {
 		return errClosed
 	}
 
-	i.credentialMu.Lock()
-	defer i.credentialMu.Unlock()
-
 	box, err := i.credentialCipher()
 	if err != nil {
 		return err
@@ -50,9 +47,6 @@ func (i *Instance) SaveCredentialResource(name string, plaintext []byte, kind, i
 		return err
 	}
 
-	i.credentialMu.Lock()
-	defer i.credentialMu.Unlock()
-
 	box, err := i.credentialCipher()
 	if err != nil {
 		return err
@@ -70,9 +64,9 @@ func (i *Instance) SaveCredentialResource(name string, plaintext []byte, kind, i
 		return err
 	}
 
-	if _, err := tx.Exec(`INSERT INTO resources(kind,id,parent_id,data) VALUES (?,?,?,?)
+	if _, err := tx.Exec(`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?)
 		ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
-		kind, id, parent, string(data)); err != nil {
+		kind, id, parent, string(data), resourceCreatedAt()); err != nil {
 		return err
 	}
 
@@ -83,9 +77,6 @@ func (i *Instance) Credential(name string) ([]byte, error) {
 	if i == nil || i.Closed() {
 		return nil, errClosed
 	}
-
-	i.credentialMu.Lock()
-	defer i.credentialMu.Unlock()
 
 	var ciphertext []byte
 	if err := i.readDB().QueryRow("SELECT ciphertext FROM credential_records WHERE name=?", name).Scan(&ciphertext); err != nil {
@@ -110,16 +101,16 @@ func (i *Instance) DeleteCredential(name string) error {
 		return errClosed
 	}
 
-	i.credentialMu.Lock()
-	defer i.credentialMu.Unlock()
-
 	_, err := i.db.Exec("DELETE FROM credential_records WHERE name=?", name)
 	return err
 }
 
-// The caller holds credentialMu. A random-nonce AEAD authenticates the record
+// Only key initialization is serialized. Database reads/writes and encryption
+// do not hold a process-wide credential lock. A random-nonce AEAD authenticates the record
 // name as well as its bytes, so moving ciphertext between names cannot work.
 func (i *Instance) credentialCipher() (cipher.AEAD, error) {
+	i.credentialMu.Lock()
+	defer i.credentialMu.Unlock()
 	if i.credentialKey == nil {
 		key, err := i.loadCredentialKey()
 		if err != nil {

@@ -74,18 +74,17 @@ func (i *Instance) DropPrivSSHKey(keyId int) error {
 // An unknown key returns false and nil. A database failure returns false and a
 // wrapped error, keeping an untrusted key distinct from a failed lookup.
 func (i *Instance) IsTrustedSSHKey(data []byte) (bool, error) {
-	result, err := i.query[struct {
-		Trusted bool `db:"trusted"`
-	}](
-		"SELECT EXISTS (SELECT 1 FROM known_ssh_keys WHERE x509_data = ?) AS trusted",
-		data,
-	)
+	if i.Closed() {
+		return false, fmt.Errorf("IsTrustedSSHKey(): %w", errClosed)
+	}
+	var trusted bool
+	err := i.readDB().QueryRow("SELECT EXISTS (SELECT 1 FROM known_ssh_keys WHERE x509_data = ?)", data).Scan(&trusted)
 
 	if err != nil {
 		return false, fmt.Errorf("IsTrustedSSHKey(): db retrieval failed: %w", err)
 	}
 
-	return result.Trusted, nil
+	return trusted, nil
 }
 
 // TrustSSHKey stores these encoded key bytes as trusted. Repeated calls for the

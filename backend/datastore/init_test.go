@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -74,22 +73,23 @@ func TestNilAndZeroStoresAreClosed(t *testing.T) {
 	}
 }
 
-func TestDatabaseLockRejectsAnotherProcessWithoutChangingData(t *testing.T) {
-	const variable = "ZENTRALE_TEST_LOCK_DATABASE"
+func TestConcurrentProcessesShareSQLiteWithoutExclusiveFileLock(t *testing.T) {
+	const variable = "ZENTRALE_TEST_SQLITE_DATABASE"
 	if path := os.Getenv(variable); path != "" {
 		store, err := Open(path)
-		if err == nil {
-			store.Close()
-			t.Fatal("another process opened the locked database")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(err.Error(), "another process holds the database lock") ||
-			!strings.Contains(err.Error(), "stop the old container") {
-			t.Fatal("database lock did not explain the deployment conflict", err)
+		defer store.Close()
+		if value, err := store.Setting("work"); err != nil || value != "preserved" {
+			t.Fatal(value, err)
+		}
+		if err := store.SetSetting("child", "written"); err != nil {
+			t.Fatal(err)
 		}
 		return
 	}
-
-	path := filepath.Join(t.TempDir(), "zentrale.duckdb")
+	path := filepath.Join(t.TempDir(), "shared.sqlite")
 	store, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -98,26 +98,14 @@ func TestDatabaseLockRejectsAnotherProcessWithoutChangingData(t *testing.T) {
 	if err := store.SetSetting("work", "preserved"); err != nil {
 		t.Fatal(err)
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDatabaseLockRejectsAnotherProcessWithoutChangingData$")
+	process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestConcurrentProcessesShareSQLiteWithoutExclusiveFileLock$")
 	process.Env = append(os.Environ(), variable+"="+path)
 	if output, err := process.CombinedOutput(); err != nil {
-		t.Fatalf("lock conflict subprocess: %v\n%s", err, output)
+		t.Fatalf("SQLite child process: %v\n%s", err, output)
 	}
-	if value, err := store.Setting("work"); err != nil || value != "preserved" {
-		t.Fatal("failed startup changed the running database", value, err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = Open(path)
-	if err != nil {
-		t.Fatal("database did not reopen after its owner exited", err)
-	}
-	defer store.Close()
-	if value, err := store.Setting("work"); err != nil || value != "preserved" {
-		t.Fatal("reopening lost existing data", value, err)
+	if value, err := store.Setting("child"); err != nil || value != "written" {
+		t.Fatal(value, err)
 	}
 }

@@ -87,6 +87,21 @@ func (engine *Engine) connect(ctx context.Context, agentRecord domain.Agent) (*r
 // readiness receipt exists. withEditorEnvironment must immediately validate its
 // fingerprint and live VM generation, or discard/reconnect it before use.
 func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecord domain.Agent, editorCandidate bool) (*remote.Connection, domain.Machine, domain.Project, error) {
+	// A cascade can detach an old connection asynchronously. Wait only for
+	// this agent's teardown before allocating another lease with its owner ID.
+	for {
+		engine.mu.Lock()
+		cleanup := engine.connectionCleanup[agentRecord.ID]
+		engine.mu.Unlock()
+		if cleanup == nil {
+			break
+		}
+		select {
+		case <-cleanup:
+		case <-ctx.Done():
+			return nil, domain.Machine{}, domain.Project{}, ctx.Err()
+		}
+	}
 	if err := engine.Store.Load("agent", agentRecord.ID, &agentRecord); err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
 	}

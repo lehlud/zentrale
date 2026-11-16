@@ -13,6 +13,12 @@ import (
 
 var ErrClosed = errClosed
 
+// SQLite's built-in clock has millisecond precision; retain insertion ordering
+// for fast consecutive history writes and cursor pagination.
+func resourceCreatedAt() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05.000000000+00:00")
+}
+
 // Resource queries select only the requested collection, are bounded, and never
 // perform a query per nested GraphQL field. Parent indexes serve agent histories.
 func (i *Instance) Save(kind, id, parent string, value any) error {
@@ -30,11 +36,12 @@ func (i *Instance) Save(kind, id, parent string, value any) error {
 	}
 
 	_, err = i.db.Exec(
-		`INSERT INTO resources(kind,id,parent_id,data) VALUES (?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
+		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
 		kind,
 		id,
 		parent,
 		string(data),
+		resourceCreatedAt(),
 	)
 
 	return err
@@ -54,7 +61,7 @@ func (i *Instance) LoadFields(kind, id string, value any, fields []string) error
 	projection, args := resourceProjection(fields)
 	args = append(args, kind, id)
 	var data string
-	if err := i.readDB().QueryRow(`SELECT `+projection+`::VARCHAR FROM resources WHERE kind=? AND id=?`, args...).Scan(&data); err != nil {
+	if err := i.readDB().QueryRow(`SELECT `+projection+` FROM resources WHERE kind=? AND id=?`, args...).Scan(&data); err != nil {
 		return err
 	}
 
@@ -84,7 +91,7 @@ func (i *Instance) ListFields(
 	}
 
 	projection, args := resourceProjection(fields)
-	q := `SELECT ` + projection + `::VARCHAR FROM resources WHERE kind=?`
+	q := `SELECT ` + projection + ` FROM resources WHERE kind=?`
 	args = append(args, kind)
 
 	if parent != nil {
@@ -186,7 +193,7 @@ func (i *Instance) CreateSession(hash string, expires time.Time) error {
 		return errClosed
 	}
 
-	if _, err := i.db.Exec(`DELETE FROM sessions WHERE expires_at < now()`); err != nil {
+	if _, err := i.db.Exec(`DELETE FROM sessions WHERE julianday(expires_at) < julianday('now')`); err != nil {
 		return err
 	}
 
@@ -201,7 +208,7 @@ func (i *Instance) SessionValid(hash string) (bool, error) {
 	}
 
 	var ok bool
-	err := i.readDB().QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>now())`, hash).Scan(&ok)
+	err := i.readDB().QueryRow(`SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND julianday(expires_at)>julianday('now'))`, hash).Scan(&ok)
 
 	return ok, err
 }
@@ -338,11 +345,12 @@ func (i *Instance) ReplaceCollection(kind, parent string, values map[string]any)
 		}
 
 		if _, err := transaction.Exec(
-			`INSERT INTO resources(kind,id,parent_id,data) VALUES (?,?,?,?)`,
+			`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?)`,
 			kind,
 			id,
 			parent,
 			string(encoded),
+			resourceCreatedAt(),
 		); err != nil {
 			return err
 		}
@@ -363,7 +371,7 @@ func (i *Instance) Patch(kind, id string, fields map[string]any) error {
 	}
 
 	result, err := i.db.Exec(
-		`UPDATE resources SET data=json_merge_patch(data,?::JSON) WHERE kind=? AND id=?`,
+		`UPDATE resources SET data=json_patch(data,json(?)) WHERE kind=? AND id=?`,
 		string(encoded),
 		kind,
 		id,
@@ -398,10 +406,10 @@ func (i *Instance) SearchModels(providerID, search string, limit, offset int) ([
 	}
 
 	pattern := "%" + strings.ToLower(search) + "%"
-	return i.queryResources(`SELECT data::VARCHAR FROM resources
+	return i.queryResources(`SELECT data FROM resources
   WHERE kind='model' AND parent_id=?
-  AND (lower(json_extract_string(data,'$.name')) LIKE ? OR lower(json_extract_string(data,'$.id')) LIKE ?)
-  ORDER BY json_extract_string(data,'$.name'),id LIMIT ? OFFSET ?`, providerID, pattern, pattern, limit, offset)
+  AND (lower(json_extract(data,'$.name')) LIKE ? OR lower(json_extract(data,'$.id')) LIKE ?)
+  ORDER BY json_extract(data,'$.name'),id LIMIT ? OFFSET ?`, providerID, pattern, pattern, limit, offset)
 }
 
 // Both JSON keys and paths are bound parameters, even though GraphQL validates
@@ -410,34 +418,18 @@ func resourceProjection(fields []string) (string, []any) {
 	if fields == nil {
 		return "data", nil
 	}
-
-	if len(fields) == 0 {
-		return "json_object()", nil
-	}
-
-	keys := make([]string, 0, len(fields))
-	paths := make([]string, 0, len(fields))
-	arguments := make([]any, 0, len(fields)*2)
+	parts := []string{}
+	arguments := []any{}
 	seen := map[string]bool{}
-
 	for _, field := range fields {
 		if seen[field] {
 			continue
 		}
 		seen[field] = true
-		keys = append(keys, "?")
-		paths = append(paths, "?")
-		arguments = append(arguments, field)
+		// -> returns JSON text, preserving booleans/nested values. json() marks
+		// that value as JSON rather than quoting it inside json_object.
+		parts = append(parts, "?,json(data -> ?)")
+		arguments = append(arguments, field, "$."+field)
 	}
-	for _, field := range fields {
-		if seen[field] {
-			arguments = append(arguments, "$."+field)
-			delete(seen, field)
-		}
-	}
-
-	// A list of paths parses the JSON document once. Separate json_extract
-	// calls per selected field repeatedly parse even unselected summary/wire
-	// blobs; a tiny GraphQL response can therefore still be expensive to build.
-	return "to_json(map(list_value(" + strings.Join(keys, ",") + "),json_extract(data,list_value(" + strings.Join(paths, ",") + "))))", arguments
+	return "json_object(" + strings.Join(parts, ",") + ")", arguments
 }

@@ -35,7 +35,7 @@ func (instance *Instance) SaveManagedPool(pool domain.Pool) (domain.Pool, error)
 
 	var previous domain.Pool
 	var data string
-	err = tx.QueryRow(`SELECT data::VARCHAR FROM resources WHERE kind='pool' AND id=?`, pool.ID).Scan(&data)
+	err = tx.QueryRow(`SELECT data FROM resources WHERE kind='pool' AND id=?`, pool.ID).Scan(&data)
 	if err == nil {
 		if err := json.Unmarshal([]byte(data), &previous); err != nil {
 			return pool, err
@@ -102,9 +102,10 @@ func (instance *Instance) SaveManagedPool(pool domain.Pool) (domain.Pool, error)
 	}
 
 	if _, err := tx.Exec(
-		`INSERT INTO resources(kind,id,parent_id,data) VALUES ('pool',?,'',?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
+		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES ('pool',?,'',?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
 		pool.ID,
 		string(encoded),
+		resourceCreatedAt(),
 	); err != nil {
 		return pool, err
 	}

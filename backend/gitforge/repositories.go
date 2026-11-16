@@ -14,14 +14,14 @@ import (
 var repositoryName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 func (service *Service) RefreshRepositories(connectionID string) error {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock := service.gates.Lock(connectionID)
+	defer unlock()
 
 	if _, err := service.account(connectionID); err != nil {
 		return err
 	}
 
-	delete(service.cache, connectionID)
+	service.cache.Delete(connectionID)
 
 	return nil
 }
@@ -31,8 +31,8 @@ func (service *Service) Repositories(
 	connectionID, search string,
 	offset int,
 ) (domain.GitRepositoryPage, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock := service.gates.Lock(connectionID)
+	defer unlock()
 
 	value, err := service.authenticated(ctx, connectionID)
 	if err != nil {
@@ -43,7 +43,8 @@ func (service *Service) Repositories(
 		return domain.GitRepositoryPage{}, errors.New("negative repository offset")
 	}
 
-	cache, found := service.cache[connectionID]
+	rawCache, found := service.cache.Load(connectionID)
+	cache, _ := rawCache.(repositoryCache)
 	if !found || service.Now().Sub(cache.At) > 5*time.Minute {
 		items, err := service.Client.repositories(ctx, value)
 		if err != nil {
@@ -51,7 +52,7 @@ func (service *Service) Repositories(
 		}
 
 		cache = repositoryCache{At: service.Now(), Repositories: items}
-		service.cache[connectionID] = cache
+		service.cache.Store(connectionID, cache)
 	}
 
 	items := []domain.GitRepository{}
@@ -70,8 +71,11 @@ func (service *Service) Repositories(
 }
 
 func (service *Service) Namespaces(ctx context.Context, connectionID string) ([]domain.GitNamespace, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	value, err := service.authenticated(ctx, connectionID)
 	if err != nil {
@@ -82,8 +86,11 @@ func (service *Service) Namespaces(ctx context.Context, connectionID string) ([]
 }
 
 func (service *Service) CreateRepository(ctx context.Context, input domain.GitRepositoryInput) (domain.GitRepository, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, input.ConnectionID)
+	if err != nil {
+		return domain.GitRepository{}, err
+	}
+	defer unlock()
 
 	input.Name = strings.TrimSpace(input.Name)
 
@@ -122,7 +129,7 @@ func (service *Service) CreateRepository(ctx context.Context, input domain.GitRe
 
 	repository, err := service.Client.createRepository(ctx, value, input)
 	if err == nil {
-		delete(service.cache, input.ConnectionID)
+		service.cache.Delete(input.ConnectionID)
 	}
 
 	return repository, err

@@ -581,6 +581,8 @@ export const english: Record<string, string> = {
   Englisch: "English",
   "Entfernen bestätigen": "Confirm removal",
   "Dieses Element dauerhaft entfernen?": "Permanently remove this item?",
+  "Fernzugang und davon abhängige Verbindungen entfernen? Projektzuordnungen werden gelöst und betroffene Editoren geschlossen. Projekte, Konversationen und Dateien bleiben erhalten.":
+    "Remove this remote connection and dependent connections? Project assignments will be detached and affected editors closed. Projects, conversations and files will be preserved.",
   "Vertrauen wirklich entziehen?": "Revoke trust for this host key?",
   Gespeichert: "Saved",
   Erfolgreich: "Success",

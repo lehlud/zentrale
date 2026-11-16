@@ -168,6 +168,7 @@ export function Machines() {
                   })
                 }
                 onRemove={() => void remove("machine", machine.id)}
+                removing={resource.isBusy("machine", machine.id)}
               />
             )}
           </ResourceList>
@@ -192,7 +193,7 @@ export function Machines() {
                   key={JSON.stringify(pool)}
                   pool={pool}
                   keys={data?.sshKeys ?? []}
-                  busy={resource.busy}
+                  busy={resource.isBusy("pool", pool.id)}
                   onRemove={() => void remove("pool", pool.id)}
                 />
               )}

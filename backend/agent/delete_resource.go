@@ -9,14 +9,24 @@ import (
 )
 
 func (engine *Engine) Delete(kind, id string) error {
+	if kind == "provider" {
+		unlock := engine.accountGates.Lock(id)
+		defer unlock()
+	}
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
+	if err := engine.ctx.Err(); err != nil {
+		return err
+	}
 
 	if kind == "agent" {
 		return engine.deleteAgent(id)
 	}
 	if kind == "project" {
 		return engine.deleteProject(id)
+	}
+	if kind == "machine" || kind == "pool" {
+		return engine.deleteMachineCascade(kind, id)
 	}
 
 	switch kind {
@@ -32,6 +42,9 @@ func (engine *Engine) Delete(kind, id string) error {
 	if kind == "source" {
 		var source domain.Source
 		if err := engine.Store.Load("source", id, &source); err != nil {
+			return err
+		}
+		if err := engine.projectAvailable(source.ProjectID); err != nil {
 			return err
 		}
 
@@ -50,8 +63,6 @@ func (engine *Engine) Delete(kind, id string) error {
 	}
 
 	if kind == "provider" {
-		engine.accountMu.Lock()
-		defer engine.accountMu.Unlock()
 
 		engine.catalogRevisions[id]++
 		engine.stopLoginPolling("provider:"+id, "")

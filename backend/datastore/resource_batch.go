@@ -45,12 +45,12 @@ func (instance *Instance) resourceBatch(
 	condition := "id IN (" + placeholders + ")"
 
 	if byMessage {
-		condition = "(" + condition + " OR json_extract_string(data,'$.messageId') IN (" + placeholders + "))"
+		condition = "(" + condition + " OR json_extract(data,'$.messageId') IN (" + placeholders + "))"
 
 		for _, id := range ids {
 			arguments = append(arguments, id)
 		}
 	}
 
-	return instance.queryResources("SELECT "+projection+"::VARCHAR FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
+	return instance.queryResources("SELECT "+projection+" FROM resources WHERE kind=? AND "+condition+" ORDER BY id", arguments...)
 }

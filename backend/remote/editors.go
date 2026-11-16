@@ -548,6 +548,24 @@ func (editors *Editors) StopAgent(agentID string) error {
 	})
 }
 
+func (editors *Editors) StopMachines(machines, pools map[string]bool) error {
+	return editors.stopMatching(func(session *editorSession) bool {
+		id := session.info.MachineID
+		if id == "" {
+			id = session.target.MachineID
+		}
+		if machines[id] {
+			return true
+		}
+		for pool := range pools {
+			if id == pool || strings.HasPrefix(id, pool+"/") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // Recovery can close every old editor while allowing the session currently
 // being prepared to retry its own startup in the recovered environment.
 func (editors *Editors) StopEnvironment(agents map[string]bool, machineID, exceptSessionID string) error {

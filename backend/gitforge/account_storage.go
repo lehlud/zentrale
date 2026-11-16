@@ -26,6 +26,10 @@ func isForge(kind string) bool {
 }
 
 func (service *Service) loadAccount(id string, value *account) error {
+	return service.loadAccountMode(id, value, false)
+}
+
+func (service *Service) loadAccountMode(id string, value *account, readOnly bool) error {
 	data, err := service.Store.Credential("git_account/" + id)
 	if err == nil {
 		return json.Unmarshal(data, value)
@@ -48,6 +52,9 @@ func (service *Service) loadAccount(id string, value *account) error {
 		return err
 	}
 
+	if readOnly {
+		return nil
+	}
 	return service.save(*value)
 }
 

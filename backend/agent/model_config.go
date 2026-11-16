@@ -178,8 +178,11 @@ func (engine *Engine) inferenceConfiguration(ctx context.Context, agentRecord do
 }
 
 func (engine *Engine) providerWithCredentials(ctx context.Context, providerID string) (domain.Provider, error) {
-	engine.accountMu.Lock()
-	defer engine.accountMu.Unlock()
+	accountUnlock, err := engine.accountGates.LockContext(ctx, providerID)
+	if err != nil {
+		return domain.Provider{}, err
+	}
+	defer accountUnlock()
 
 	var provider domain.Provider
 	if err := engine.loadProvider(providerID, &provider); err != nil {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/internal/keylock"
 	"github.com/lehlud/zentrale/netguard"
 	"github.com/lehlud/zentrale/oauthflow"
 )
@@ -48,17 +49,20 @@ type Service struct {
 	Client *Client
 	Now    func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]repositoryCache
+	configureMu sync.Mutex
+	gates       keylock.Group
+	cache       sync.Map
 }
 
 func New(store *datastore.Instance) *Service {
-	return &Service{Store: store, Client: NewClient(), Now: time.Now, cache: map[string]repositoryCache{}}
+	return &Service{Store: store, Client: NewClient(), Now: time.Now}
 }
 
-func (service *Service) account(id string) (account, error) {
+func (service *Service) account(id string) (account, error) { return service.accountMode(id, false) }
+
+func (service *Service) accountMode(id string, readOnly bool) (account, error) {
 	value := account{Public: domain.GitConnection{ID: id, Kind: id, BaseURL: "https://" + id + ".com"}}
-	err := service.loadAccount(id, &value)
+	err := service.loadAccountMode(id, &value, readOnly)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
@@ -94,9 +98,6 @@ func (service *Service) account(id string) (account, error) {
 }
 
 func (service *Service) Connections() ([]domain.GitConnection, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-
 	ids, err := service.connectionIDs()
 	if err != nil {
 		return nil, err
@@ -104,7 +105,7 @@ func (service *Service) Connections() ([]domain.GitConnection, error) {
 
 	result := []domain.GitConnection{}
 	for _, id := range ids {
-		value, err := service.account(id)
+		value, err := service.accountMode(id, true)
 		if err != nil {
 			return nil, err
 		}
@@ -116,8 +117,14 @@ func (service *Service) Connections() ([]domain.GitConnection, error) {
 }
 
 func (service *Service) Configure(input domain.GitConnectionConfig) (domain.GitConnection, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	gateID := input.ID
+	if gateID == "" {
+		gateID = input.Kind
+	}
+	unlock := service.gates.Lock(gateID)
+	defer unlock()
+	service.configureMu.Lock()
+	defer service.configureMu.Unlock()
 
 	value, err := service.accountForConfiguration(input)
 	if err != nil {
@@ -185,14 +192,17 @@ func (service *Service) Configure(input domain.GitConnectionConfig) (domain.GitC
 	}
 
 	value.Public.Configured = true
-	delete(service.cache, value.Public.ID)
+	service.cache.Delete(value.Public.ID)
 
 	return value.Public, service.save(value)
 }
 
 func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, id)
+	if err != nil {
+		return domain.GitLogin{}, err
+	}
+	defer unlock()
 
 	value, err := service.account(id)
 	if err != nil {
@@ -276,8 +286,11 @@ func (service *Service) Begin(ctx context.Context, id string) (domain.GitLogin, 
 }
 
 func (service *Service) Poll(ctx context.Context, id, loginID string) (domain.GitLogin, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, id)
+	if err != nil {
+		return domain.GitLogin{}, err
+	}
+	defer unlock()
 
 	value, err := service.account(id)
 	if err != nil {
@@ -436,7 +449,7 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 	value.Public.Connected, value.Login.Public.Status = true, "connected"
 	value.Login.Public.Error = ""
 	value.Login.BrowserFlow = nil
-	delete(service.cache, value.Public.ID)
+	service.cache.Delete(value.Public.ID)
 
 	return value.Login.Public, service.save(*value)
 }
@@ -474,8 +487,8 @@ func (service *Service) EndLogin(id, loginID, status string) error {
 	if status != "cancelled" && status != "expired" {
 		return errors.New("invalid login final state")
 	}
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock := service.gates.Lock(id)
+	defer unlock()
 	value, err := service.account(id)
 	if err != nil {
 		return err
@@ -566,7 +579,7 @@ func (service *Service) authenticated(ctx context.Context, id string) (account, 
 			value.AccessToken = ""
 			value.RefreshToken = ""
 			value.Public.Connected = false
-			delete(service.cache, id)
+			service.cache.Delete(id)
 			if err := service.save(value); err != nil {
 				return value, err
 			}
@@ -583,8 +596,11 @@ func (service *Service) authenticated(ctx context.Context, id string) (account, 
 }
 
 func (service *Service) Token(ctx context.Context, id string) (string, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 
 	value, err := service.authenticated(ctx, id)
 
@@ -592,8 +608,8 @@ func (service *Service) Token(ctx context.Context, id string) (string, error) {
 }
 
 func (service *Service) Disconnect(id string) error {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock := service.gates.Lock(id)
+	defer unlock()
 
 	value, err := service.account(id)
 	if err != nil {
@@ -604,7 +620,7 @@ func (service *Service) Disconnect(id string) error {
 	value.Scopes = nil
 	value.Public.Connected, value.Login = false, nil
 	value.TokenExpiry = time.Time{}
-	delete(service.cache, id)
+	service.cache.Delete(id)
 
 	return service.save(value)
 }

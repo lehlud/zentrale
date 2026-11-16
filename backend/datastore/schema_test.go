@@ -24,7 +24,7 @@ func TestCurrentSchemaReopensWithoutMigrationsOrDataChanges(t *testing.T) {
 	}
 
 	var migrations int
-	if err := store.db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name='__migrations'").Scan(&migrations); err != nil ||
+	if err := store.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='__migrations'").Scan(&migrations); err != nil ||
 		migrations != 0 {
 		t.Fatal("historical migrations were initialized", migrations, err)
 	}
@@ -54,7 +54,7 @@ func TestCurrentSchemaReopensWithoutMigrationsOrDataChanges(t *testing.T) {
 }
 
 func TestIncompatibleDevelopmentSchemaFailsAtomically(t *testing.T) {
-	db, err := sql.Open("duckdb", "")
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestIncompatibleDevelopmentSchemaFailsAtomically(t *testing.T) {
 		t.Fatal("failed initialization changed data", retained, err)
 	}
 
-	if err := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name='resources'").Scan(&created); err != nil ||
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='resources'").Scan(&created); err != nil ||
 		created != 0 {
 		t.Fatal("failed initialization left partial tables", created, err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/gitforge"
 	"github.com/lehlud/zentrale/huggingface"
+	"github.com/lehlud/zentrale/internal/keylock"
 	"github.com/lehlud/zentrale/modelcatalog"
 	"github.com/lehlud/zentrale/providerlogin"
 	"github.com/lehlud/zentrale/providers"
@@ -76,10 +77,10 @@ type Engine struct {
 	GitForge     *gitforge.Service
 	HuggingFace  *huggingface.Service
 
-	accountMu        sync.Mutex
+	accountGates     keylock.Group
 	loginPollMu      sync.Mutex
 	loginPollers     map[string]*loginPoller
-	catalogMu        sync.Mutex
+	catalogGates     keylock.Group
 	catalogRevisions map[string]uint64
 
 	ctx     context.Context
@@ -101,6 +102,8 @@ type Engine struct {
 	liveResponses map[string]domain.LiveResponse
 
 	configMu          sync.Mutex
+	projectGates      keylock.Group
+	projectOperations map[string]domain.Project // Protected by configMu; remote Git operations release the global mutex.
 	attachmentGate    chan struct{}
 	sideSlots         chan struct{}
 	questionMu        sync.Mutex
@@ -114,9 +117,10 @@ type Engine struct {
 	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
 	vmOperations       sync.Map // Main agent and machine -> environment lifecycle.
 
-	connections     map[string]*agentConnection
-	preparing       map[string]int
-	editorPreparing map[string]int
+	connections       map[string]*agentConnection
+	connectionCleanup map[string]<-chan struct{} // Protected by mu; scoped runtime teardown barriers.
+	preparing         map[string]int
+	editorPreparing   map[string]int
 }
 
 func New(store *datastore.Instance, providerClient providers.Client) (*Engine, error) {
@@ -170,6 +174,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		return nil, err
 	}
 	engine.workers.Go(engine.superviseVMs)
+	engine.workers.Go(engine.cleanupDeletedVMs)
 
 	return engine, nil
 }

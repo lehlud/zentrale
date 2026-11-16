@@ -17,10 +17,16 @@ func (service *Service) RefreshRepositoryAuthorization(ctx context.Context, bind
 	if bindingID == "" {
 		return nil
 	}
-	service.mu.Lock()
-	defer service.mu.Unlock()
 
 	var binding repositoryBinding
+	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
+		return err
+	}
+	unlock, err := service.gates.LockContext(ctx, binding.ConnectionID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/graphql-go/graphql v0.8.1
 	github.com/labstack/echo/v4 v4.16.3
+	github.com/mattn/go-sqlite3 v1.14.53
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.62.0

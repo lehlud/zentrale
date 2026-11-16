@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestReadsDoNotQueueBehindWriterAndShareDatabase(t *testing.T) {
+func TestConcurrentReadsAndWriterShareOneWALPool(t *testing.T) {
 	for _, disk := range []bool{false, true} {
 		t.Run(fmt.Sprint("disk=", disk), func(t *testing.T) {
 			path := ""
@@ -27,15 +27,14 @@ func TestReadsDoNotQueueBehindWriterAndShareDatabase(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			// Retain the sole writer connection, just as an active agent's
-			// transaction does. A read through the old pool times out here.
+			// Retain one connection, just as an active transaction does.
 			writer, err := store.db.Conn(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer writer.Close()
-			if store.db.Stats().MaxOpenConnections != 1 {
-				t.Fatal("writes must remain serialized")
+			if store.readDB() != store.db || store.db.Stats().MaxOpenConnections != 16 {
+				t.Fatal("the application must use a normal multi-connection pool")
 			}
 			var name string
 			if err := store.readDB().QueryRowContext(ctx, `SELECT data->>'name' FROM resources WHERE kind='project' AND id='one'`).Scan(&name); err != nil || name != "Project" {
@@ -85,8 +84,7 @@ func TestReadsDoNotQueueBehindWriterAndShareDatabase(t *testing.T) {
 			if err := store.Load("project", "one", &snapshot); err != nil || snapshot["name"] != "Committed" {
 				t.Fatalf("reader missed committed data: %v %v", snapshot, err)
 			}
-			// Exhaust the read pool independently; the writer must still make
-			// progress (there must not be one shared four-connection pool).
+			// Several readers can retain connections while a writer progresses.
 			for range 4 {
 				connection, err := store.readDB().Conn(ctx)
 				if err != nil {
@@ -153,7 +151,7 @@ func BenchmarkResourceProjection(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				rows, err := store.readDB().Query("SELECT "+projection+"::VARCHAR FROM resources WHERE kind='agent' AND parent_id='p' ORDER BY created_at,id LIMIT 500", args...)
+				rows, err := store.readDB().Query("SELECT "+projection+" FROM resources WHERE kind='agent' AND parent_id='p' ORDER BY created_at,id LIMIT 500", args...)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -175,15 +173,14 @@ func BenchmarkResourceProjection(b *testing.B) {
 	}
 }
 
-// DuckDB ART indexes differ from B-tree indexes in OLTP databases. Measure the
-// actual plans for selective ID/parent lookups before adding permanent indexes.
+// Measure selective ID/parent lookup plans and the effect of additional indexes.
 func BenchmarkResourceLookupIndexes(b *testing.B) {
 	store, err := Open("")
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.db.Exec(`INSERT INTO resources SELECT 'message', 'm'||n, 'agent-'||(n%1000), json_object('id','m'||n,'content','x'), now() FROM range(100000) t(n)`); err != nil {
+	if _, err := store.db.Exec(`INSERT INTO resources SELECT 'message', 'm'||n, 'agent-'||(n%1000), json_object('id','m'||n,'content','x'), CURRENT_TIMESTAMP FROM (WITH RECURSIVE numbers(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM numbers WHERE n<99999) SELECT n FROM numbers) t`); err != nil {
 		b.Fatal(err)
 	}
 	for _, indexed := range []bool{false, true} {
@@ -193,12 +190,14 @@ func BenchmarkResourceLookupIndexes(b *testing.B) {
 			}
 		}
 		for _, item := range []struct{ name, query string }{
-			{"id", `SELECT data::VARCHAR FROM resources WHERE kind='message' AND id='m4242'`},
+			{"id", `SELECT data FROM resources WHERE kind='message' AND id='m4242'`},
 			{"parent", `SELECT id FROM resources WHERE kind='message' AND parent_id='agent-242' ORDER BY created_at,id LIMIT 100`},
 		} {
 			b.Run(fmt.Sprintf("%s/indexed=%v", item.name, indexed), func(b *testing.B) {
-				var key, plan string
-				if err := store.readDB().QueryRow("EXPLAIN "+item.query).Scan(&key, &plan); err != nil {
+				var key int
+				var parent, unused int
+				var plan string
+				if err := store.readDB().QueryRow("EXPLAIN QUERY PLAN "+item.query).Scan(&key, &parent, &unused, &plan); err != nil {
 					b.Fatal(err)
 				}
 				b.Logf("EXPLAIN %s: %s", item.name, plan)

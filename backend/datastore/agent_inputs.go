@@ -17,6 +17,13 @@ type ResourceWrite struct {
 // SaveResources commits a receipt, its message and instruction together. A
 // crash must never acknowledge an input without preserving its exact contents.
 func (instance *Instance) SaveResources(writes []ResourceWrite) error {
+	return instance.ChangeResources(writes, nil)
+}
+
+type ResourceDelete struct{ Kind, ID string }
+
+// ChangeResources publishes cascading configuration changes as one transaction.
+func (instance *Instance) ChangeResources(writes []ResourceWrite, removals []ResourceDelete) error {
 	if instance == nil || instance.Closed() {
 		return errClosed
 	}
@@ -34,16 +41,27 @@ func (instance *Instance) SaveResources(writes []ResourceWrite) error {
 		}
 
 		if _, err := tx.Exec(
-			`INSERT INTO resources(kind,id,parent_id,data) VALUES (?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
+			`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
 			write.Kind,
 			write.ID,
 			write.Parent,
 			string(data),
+			resourceCreatedAt(),
 		); err != nil {
 			return err
 		}
 	}
 
+	for _, removal := range removals {
+		if removal.Kind == "microvm" {
+			if err := queueVMRemovals(tx, "id=?", removal.ID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec("DELETE FROM resources WHERE kind=? AND id=?", removal.Kind, removal.ID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -53,7 +71,7 @@ func (instance *Instance) AgentInputs(agentID string) ([]domain.AgentInput, erro
 	}
 
 	rows, err := instance.readDB().Query(
-		`SELECT data::VARCHAR FROM resources WHERE kind='agent_input' AND parent_id=? AND json_extract_string(data,'$.status') NOT IN ('completed','cancelled') ORDER BY created_at,id`,
+		`SELECT data FROM resources WHERE kind='agent_input' AND parent_id=? AND json_extract(data,'$.status') NOT IN ('completed','cancelled') ORDER BY created_at,id`,
 		agentID,
 	)
 	if err != nil {

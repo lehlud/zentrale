@@ -1,13 +1,81 @@
 package webapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/graphql-go/graphql"
 )
+
+func TestSlowSnapshotDoesNotBlockAnotherQueryAndUnsubscribeCancelsResolver(t *testing.T) {
+	fixture := newAPIFixture(t)
+	requireData(t, fixture.query(t, `mutation{setup(password:"correct test password",commitIdentity:{name:"Test",email:"test@example.org"})}`, nil))
+	if err := fixture.engine.Store.SetCredential("git_account/github", []byte(`{"public":{"id":"github","kind":"github","clientId":"test","userName":"user","baseUrl":"https://github.com"},"accessToken":"test"}`)); err != nil {
+		t.Fatal(err)
+	}
+	entered, canceled := make(chan struct{}, 1), make(chan struct{}, 1)
+	fixture.engine.GitForge.Client.HTTP = &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-request.Context().Done()
+		canceled <- struct{}{}
+		return nil, request.Context().Err()
+	})}
+	connection := openReadOnlyPushProtocolV1(t, fixture)
+	if err := connection.WriteJSON(socketQueryRequest{Type: "subscribe", RequestID: "slow", Query: `{gitNamespaces(connectionId:"github"){id name}}`}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("slow resolver never started")
+	}
+	if err := connection.WriteJSON(socketQueryRequest{Type: "subscribe", RequestID: "fast", Query: `{projects{id name}}`}); err != nil {
+		t.Fatal(err)
+	}
+	requireData(t, readReadOnlyPushProtocolV1(t, connection, "fast"))
+	if err := connection.WriteJSON(socketQueryRequest{Type: "unsubscribe", RequestID: "slow"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe did not cancel remote resolver")
+	}
+	if err := connection.WriteJSON(socketQueryRequest{Type: "subscribe", RequestID: "slow", Query: `{status{authenticated}}`}); err != nil {
+		t.Fatal(err)
+	}
+	requireData(t, readReadOnlyPushProtocolV1(t, connection, "slow"))
+}
+
+// A canceled resolver is still counted by the fixed executor until it returns.
+func TestSocketResolverReceivesOriginalCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	executor := context.WithValue(context.WithoutCancel(ctx), resolverContextKey{}, ctx)
+	executor = context.WithValue(executor, requestKey{}, &requestState{authenticated: true})
+	called := make(chan struct{}, 1)
+	resolve := authenticated(func(params graphql.ResolveParams) (any, error) {
+		if params.Context.Done() != ctx.Done() {
+			t.Fatal("resolver cancellation detached")
+		}
+		called <- struct{}{}
+		return true, nil
+	})
+	if _, err := resolve(graphql.ResolveParams{Context: executor}); err != nil {
+		t.Fatal(err)
+	}
+	<-called
+	cancel()
+	if _, err := resolve(graphql.ResolveParams{Context: executor}); err == nil {
+		t.Fatal("canceled snapshot started another resolver")
+	}
+}
 
 func openReadOnlyPushProtocolV1(t *testing.T, fixture *apiFixture) *websocket.Conn {
 	t.Helper()

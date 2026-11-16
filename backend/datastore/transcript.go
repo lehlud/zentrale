@@ -19,13 +19,22 @@ func (instance *Instance) TranscriptBeforeFields(agentID string, limit int, befo
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
-	query := `WITH transcript AS (
-		SELECT id, id AS resource_id, 'message' AS kind, created_at AS position, false AS goal
+	query := `WITH entries AS (
+		SELECT id, id AS resource_id, 'message' AS kind, created_at AS instant, false AS goal
 		FROM resources WHERE kind='message' AND parent_id=?
 		UNION ALL
-		SELECT 'goal:' || id, id AS resource_id, 'goal_history' AS kind, (data->>'updatedAt')::TIMESTAMPTZ AS position, true AS goal
+		SELECT 'goal:' || id, id AS resource_id, 'goal_history' AS kind, data->>'updatedAt' AS instant, true AS goal
 		FROM resources WHERE kind='goal_history' AND parent_id=?
 		AND (data->>'status') IN ('complete','cancelled','superseded')
+	), fractions AS (
+		SELECT *, CASE WHEN substr(instant,20,1)='.' THEN substr(instant,21) ELSE substr(instant,20) END AS fraction_zone FROM entries
+	), parts AS (
+		SELECT *, ltrim(fraction_zone,'0123456789') AS zone,
+		 substr(fraction_zone,1,length(fraction_zone)-length(ltrim(fraction_zone,'0123456789'))) AS fraction FROM fractions
+	), transcript AS (
+		SELECT id,resource_id,kind,goal,
+		 strftime('%Y-%m-%dT%H:%M:%S',substr(instant,1,19)||zone) || '.' || substr(fraction||'000000000',1,9) AS position
+		 FROM parts
 	)`
 	args := []any{agentID, agentID}
 	if beforeID == "" {
@@ -40,7 +49,7 @@ func (instance *Instance) TranscriptBeforeFields(agentID string, limit int, befo
 	args = append(args, limit)
 	projection, projectionArgs := resourceProjection(fields)
 	// Goal snapshots retain their full serialized content as a synthetic message.
-	query += ` SELECT p.id, CASE WHEN p.goal THEN r.data::VARCHAR ELSE (` + projection + `)::VARCHAR END, p.goal
+	query += ` SELECT p.id, CASE WHEN p.goal THEN r.data ELSE (` + projection + `) END, p.goal
 		FROM page p JOIN resources r ON r.kind=p.kind AND r.id=p.resource_id
 		ORDER BY p.position DESC,p.id DESC`
 	args = append(args, projectionArgs...)

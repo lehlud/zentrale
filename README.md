@@ -46,4 +46,4 @@ for remote prerequisites and server configuration.
 [Model & Git connections](docs/integrations.md) ·
 [Development](docs/development.md)
 
-Built with Go, React, and DuckDB. The interface speaks English and German.
+Built with Go, React, and SQLite. The interface speaks English and German.

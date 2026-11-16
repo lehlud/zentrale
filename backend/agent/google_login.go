@@ -10,9 +10,12 @@ import (
 )
 
 func (engine *Engine) CompleteGoogleLogin(ctx context.Context, loginID, stateValue, code, owner string) (domain.ProviderLogin, error) {
-	engine.accountMu.Lock()
+	accountUnlock, err := engine.accountGates.LockContext(ctx, engine.loginProviderID(loginID))
+	if err != nil {
+		return domain.ProviderLogin{}, err
+	}
 	login, err := engine.completeGoogleLogin(ctx, loginID, stateValue, code, owner)
-	engine.accountMu.Unlock()
+	accountUnlock()
 
 	if login.ID != "" {
 		engine.Emit("provider_login", "", map[string]string{"id": login.ID})

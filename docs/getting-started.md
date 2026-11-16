@@ -22,11 +22,12 @@ editor cache live under `/data`; the named volume preserves them when the
 container is replaced. For a bind mount, make the directory writable by that UID.
 Treat the volume as private: it contains account credentials and SSH keys.
 
-Run **one Zentrale instance per data volume**. Deployments must stop the old
-container before starting its replacement; two processes cannot write to the
-same DuckDB file. In Coolify, select **Consistent name (no rolling updates)**
-under the application's container naming settings. This causes a brief service
-interruption while the replacement starts. Keep the data volume on local storage.
+Run **one Zentrale server per data volume**: agents, jobs and event delivery have
+one application owner. SQLite itself supports concurrent connections; Zentrale
+uses a normal pool with WAL so reads can run alongside writes. Stop the old
+server before starting its replacement. In Coolify, select **Consistent name
+(no rolling updates)**. Keep the data volume on local storage. Existing DuckDB
+installations must run the [one-time import](#import-an-existing-duckdb) first.
 
 Agent commands and VMs still run on your configured SSH machines. The Zentrale
 container needs neither privileged mode nor the Docker socket. Additional server
@@ -66,7 +67,7 @@ Open [localhost:8080](http://localhost:8080). The first visit sets up your login
 password and default Git commit name and email.
 
 Zentrale stores configuration, conversations, account credentials, and SSH keys
-in DuckDB. Files and commands live on your SSH machines. The Zentrale server
+in SQLite (`zentrale.sqlite`). Files and commands live on your SSH machines. The Zentrale server
 needs to stay available for agents to keep working; your browser can disconnect
 after a task has been accepted.
 
@@ -93,7 +94,7 @@ Build with `make build`, then run behind your reverse proxy:
 ```sh
 ./backend/zentrale \
   -addr 127.0.0.1:8080 \
-  -db /var/lib/zentrale/zentrale.duckdb \
+  -db /var/lib/zentrale/zentrale.sqlite \
   -frontend frontend/dist \
   -origin https://zentrale.example \
   -secure-cookie
@@ -112,15 +113,39 @@ Reconnecting reloads their state. Agent input receipt IDs prevent duplicate
 delivery when a response is lost and the same submission is retried. Failed
 ordinary configuration writes are not automatically replayed.
 
-## Database lock at startup
+## Import an existing DuckDB
 
-`Could not set lock on file ... Conflicting lock is held in PID 0` means another
-process holds the database lock. In Docker, its PID may not be visible inside the
-new container. Check for overlapping deployments or another container mounting
-the same volume. On the host, `lslocks` can identify the owner.
+Stop the old Zentrale server and back up the database and its adjacent
+`.credentials.key` file. Keep the original key alongside the source database;
+encrypted credentials cannot be recovered without it. The importer never
+changes the source or overwrites an existing destination.
 
-A complete host reboot releases local process locks. A lock failure after reboot
-therefore needs a current owner investigated; deleting the database or WAL is not
-a repair. Stop the duplicate instance and let the remaining instance open the
-existing database. [DuckDB's concurrency rules](https://duckdb.org/docs/stable/connect/concurrency)
-explain the single writer process requirement.
+From a checkout, with CGO and the C/C++ toolchain installed:
+
+```sh
+cd backend
+go run -tags duckdb_import ./cmd/import-duckdb \
+  -source ../zentrale.duckdb -target ../zentrale.sqlite
+```
+
+For Docker, build the new image, stop the old container, then run its included
+import tool against the same volume:
+
+```sh
+docker stop zentrale
+docker run --rm -v zentrale-data:/data \
+  --entrypoint /usr/local/bin/import-duckdb zentrale \
+  -source /data/zentrale.duckdb -target /data/zentrale.sqlite
+```
+
+Start Zentrale with `-db` pointing at the new file (the new image already defaults
+to `/data/zentrale.sqlite`). The import copies resources, histories, attachments,
+settings, sessions, SSH identities, encrypted credentials and sequence counters.
+It prints per-table row counts after success. The old DuckDB remains a backup;
+subsequent SQLite writes are not copied back to it.
+
+Startup refuses an old DuckDB passed as `-db`, and refuses to create the default
+empty SQLite database alongside an existing `zentrale.duckdb`. A DuckDB lock
+error during import means its writer must be stopped first. Do not delete a WAL
+to work around it. See [database architecture and operation](database-latency.md)
+for concurrency and backup details.

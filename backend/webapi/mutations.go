@@ -111,7 +111,8 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	}
 
 	simple("deleteResource", strArg("kind", "id"), func(params graphql.ResolveParams) (any, error) {
-		return true, server.Engine.Delete(params.Args["kind"].(string), params.Args["id"].(string))
+		err := server.Engine.Delete(params.Args["kind"].(string), params.Args["id"].(string))
+		return err == nil, err
 	})
 
 	simple("prompt", strArg("agentId", "text"), func(params graphql.ResolveParams) (any, error) {

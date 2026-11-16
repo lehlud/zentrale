@@ -9,9 +9,8 @@ import (
 // upgrade or downgrade paths. Opening an existing current database is idempotent;
 // an incompatible development schema fails without changing or deleting data.
 const schemaSQL = `
-CREATE SEQUENCE IF NOT EXISTS private_ssh_key_ids START 1;
 CREATE TABLE IF NOT EXISTS private_ssh_keys (
-    id INTEGER PRIMARY KEY DEFAULT nextval('private_ssh_key_ids'),
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     x509_data BLOB,
     purpose VARCHAR NOT NULL DEFAULT '',
     purpose_id VARCHAR NOT NULL DEFAULT ''
@@ -19,29 +18,32 @@ CREATE TABLE IF NOT EXISTS private_ssh_keys (
 CREATE TABLE IF NOT EXISTS known_ssh_keys (x509_data BLOB PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS settings (name VARCHAR PRIMARY KEY, value VARCHAR NOT NULL);
 CREATE TABLE IF NOT EXISTS credential_records (name VARCHAR PRIMARY KEY, ciphertext BLOB NOT NULL);
-CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR PRIMARY KEY, expires_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     agent_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, id VARCHAR NOT NULL,
-    metadata JSON NOT NULL, bytes BLOB NOT NULL,
+    metadata TEXT NOT NULL CHECK(json_valid(metadata)), bytes BLOB NOT NULL,
     PRIMARY KEY(agent_id,id)
 );
 CREATE TABLE IF NOT EXISTS resources (
     kind VARCHAR NOT NULL,
     id VARCHAR NOT NULL,
     parent_id VARCHAR NOT NULL DEFAULT '',
-    data JSON NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    data TEXT NOT NULL CHECK(json_valid(data)),
+    created_at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f+00:00','now')),
     PRIMARY KEY(kind, id)
 );
-CREATE INDEX IF NOT EXISTS resource_parent ON resources(kind, parent_id);
-CREATE SEQUENCE IF NOT EXISTS event_ids START 1;
+CREATE INDEX IF NOT EXISTS resource_parent ON resources(kind,parent_id,created_at,id);
+CREATE INDEX IF NOT EXISTS resource_owner ON resources(parent_id,kind);
+CREATE INDEX IF NOT EXISTS resource_agent ON resources(json_extract(data,'$.agentId'));
+CREATE INDEX IF NOT EXISTS resource_project ON resources(json_extract(data,'$.projectId'));
 CREATE TABLE IF NOT EXISTS events (
-    id BIGINT PRIMARY KEY DEFAULT nextval('event_ids'),
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     type VARCHAR NOT NULL,
     agent_id VARCHAR NOT NULL DEFAULT '',
     data VARCHAR NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f+00:00','now'))
 );
+CREATE INDEX IF NOT EXISTS event_owner ON events(agent_id,id);
 `
 
 func initializeSchema(db *sql.DB) error {

@@ -11,6 +11,7 @@ import (
 )
 
 type requestKey struct{}
+type resolverContextKey struct{}
 
 type requestState struct {
 	authenticated bool
@@ -32,6 +33,14 @@ func state(ctx context.Context) *requestState {
 
 func authenticated(fn graphql.FieldResolveFn) graphql.FieldResolveFn {
 	return func(params graphql.ResolveParams) (any, error) {
+		// graphql-go's executor waits for actual completion to retain the bounded
+		// worker slot; resolvers still receive the original cancellable context.
+		if original, ok := params.Context.Value(resolverContextKey{}).(context.Context); ok {
+			params.Context = context.WithValue(original, requestKey{}, state(params.Context))
+			if err := params.Context.Err(); err != nil {
+				return nil, err
+			}
+		}
 		if !state(params.Context).authenticated {
 			return nil, errAuthenticationRequired
 		}

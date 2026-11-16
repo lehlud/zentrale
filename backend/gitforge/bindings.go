@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -198,9 +199,6 @@ func (service *Service) ensureBinding(
 }
 
 func (service *Service) SaveProject(ctx context.Context, project domain.Project) (domain.Project, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-
 	if project.RepositoryID == "" && project.GitConnectionID == "" {
 		project.RepositoryName = ""
 		return project, service.Store.SaveProjectRepository(project, nil)
@@ -224,6 +222,13 @@ func (service *Service) SaveProject(ctx context.Context, project domain.Project)
 		return project, err
 	}
 
+	// Local metadata edits above do not exchange credentials or register keys.
+	// Only remote account transitions need to wait for the connection gate.
+	unlock, err := service.gates.LockContext(ctx, project.GitConnectionID)
+	if err != nil {
+		return project, err
+	}
+	defer unlock()
 	account, err := service.authenticated(ctx, project.GitConnectionID)
 	if err != nil {
 		return project, err
@@ -250,8 +255,11 @@ func (service *Service) SaveProject(ctx context.Context, project domain.Project)
 }
 
 func (service *Service) AttachSource(ctx context.Context, projectID, connectionID, repositoryID string) (domain.Source, error) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	unlock, err := service.gates.LockContext(ctx, connectionID)
+	if err != nil {
+		return domain.Source{}, err
+	}
+	defer unlock()
 
 	var project domain.Project
 	if err := service.Store.Load("project", projectID, &project); err != nil {
@@ -308,8 +316,11 @@ func (service *Service) AttachSource(ctx context.Context, projectID, connectionI
 }
 
 func (service *Service) RevokeKey(ctx context.Context, keyID int) error {
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	keyUnlock, err := service.gates.LockContext(ctx, "key:"+strconv.Itoa(keyID))
+	if err != nil {
+		return err
+	}
+	defer keyUnlock()
 
 	usages, err := service.Store.SSHKeyUsages()
 	if err != nil {
@@ -335,6 +346,21 @@ func (service *Service) RevokeKey(ctx context.Context, keyID int) error {
 		return err
 	}
 
+	unlock, err := service.gates.LockContext(ctx, binding.ConnectionID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	// A repository can have become attached while the account gate was busy.
+	usages, err = service.Store.SSHKeyUsages()
+	if err != nil {
+		return err
+	}
+	for _, usage := range usages[keyID] {
+		if usage.Kind != "repository" || usage.ProjectID != "" {
+			return errors.New("SSH key is still used by a project or machine")
+		}
+	}
 	account, err := service.authenticated(ctx, binding.ConnectionID)
 	if err != nil {
 		return err
