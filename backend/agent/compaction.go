@@ -22,6 +22,8 @@ func (engine *Engine) summarizeContext(
 	configuration inferenceConfig,
 	messages []domain.Message,
 ) (string, error) {
+	ctx = providers.WithResponsesTurn(ctx)
+	defer providers.CloseResponsesTurn(ctx)
 	remaining := compactionTranscript(agentRecord.Summary, messages)
 	summary := ""
 	summaryLimit := max(128, min(32000, configuration.Model.ContextWindow/2))
@@ -89,7 +91,7 @@ func (engine *Engine) summarizeFragment(
 			CacheKey:       agentRecord.ID + "-compact",
 		}
 
-		result, err := engine.Provider.Complete(ctx, request)
+		result, err := engine.completeModel(ctx, agentRecord.ID, "summary", request)
 		if err != nil {
 			return "", err
 		}

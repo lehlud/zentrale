@@ -161,19 +161,20 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 	}
 
 	collections := map[string]string{
-		"machines":    "machine",
-		"pools":       "pool",
-		"projects":    "project",
-		"sources":     "source",
-		"providers":   "provider",
-		"agents":      "agent",
-		"messages":    "message",
-		"notes":       "note",
-		"questions":   "question",
-		"approvals":   "approval",
-		"usage":       "usage",
-		"jobs":        "job",
-		"goalReviews": "goal_review",
+		"machines":        "machine",
+		"pools":           "pool",
+		"projects":        "project",
+		"sources":         "source",
+		"providers":       "provider",
+		"agents":          "agent",
+		"messages":        "message",
+		"notes":           "note",
+		"questions":       "question",
+		"approvals":       "approval",
+		"usage":           "usage",
+		"inferenceTraces": "inference_trace",
+		"jobs":            "job",
+		"goalReviews":     "goal_review",
 	}
 
 	for field, kind := range collections {
@@ -182,7 +183,7 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 		switch kind {
 		case "source", "agent":
 			parentName = "projectId"
-		case "message", "note", "question", "approval", "usage", "job", "goal_review":
+		case "message", "note", "question", "approval", "usage", "job", "goal_review", "inference_trace":
 			parentName = "agentId"
 		}
 
@@ -206,6 +207,9 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 					parent = &value
 				}
 
+				if kind == "inference_trace" {
+					return server.Store.RecentInferenceTraces(*parent, params.Args["limit"].(int), params.Args["offset"].(int))
+				}
 				rows, err := server.Store.ListFields(
 					kind,
 					parent,

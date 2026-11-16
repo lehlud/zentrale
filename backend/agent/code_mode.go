@@ -51,6 +51,17 @@ func codeModeCall(name string, arguments map[string]any) providers.Call {
 	}
 }
 
+type codeModeReceipt struct {
+	Call         int    `json:"call"`
+	Activity     int    `json:"activity,omitempty"`
+	Tool         string `json:"tool"`
+	Status       string `json:"status"`
+	JobID        string `json:"jobId,omitempty"`
+	ChangedFiles int    `json:"changedFiles,omitempty"`
+}
+
+type toolMessageIDKey struct{}
+
 func (engine *Engine) runCodeMode(
 	ctx context.Context,
 	agent domain.Agent,
@@ -59,24 +70,36 @@ func (engine *Engine) runCodeMode(
 	activities := []domain.ToolActivity{}
 	changes := []domain.FileChange{}
 	failures := []string{}
+	receipts := []codeModeReceipt{}
 	var connectionFailure *ProjectConnectionError
-	result, err := codemode.Run(ctx, stringArg(arguments, "code"), codeModeTools(), func(name string, args map[string]any) (any, error) {
+	result, err := codemode.Run(ctx, stringArg(arguments, "code"), codeModeTools(), func(ctx context.Context, name string, args map[string]any) (any, error) {
 		if connectionFailure != nil {
 			return nil, connectionFailure
 		}
 
 		call := codeModeCall(name, args)
+		receipts = append(receipts, codeModeReceipt{Call: len(receipts) + 1, Tool: name, Status: "started"})
+		receipt := &receipts[len(receipts)-1]
 		value, failure := engine.dispatch(ctx, agent, call)
+		receipt.Status = "ok"
+		if failure != nil {
+			receipt.Status = "error"
+		}
+
 		fileChanges, extractionError := extractFileChanges(value)
 		if extractionError != nil {
+			receipt.Status = "result_error"
+			preview, _ := outputPreview(extractionError.Error(), 500)
+			failures = append(failures, name+": "+preview)
 			return nil, extractionError
 		}
 
+		receipt.ChangedFiles = len(fileChanges)
 		changes = append(changes, fileChanges...)
 		content := JSON(map[string]any{"result": value})
 
 		if failure != nil {
-			content = JSON(map[string]any{"error": failure.Error()})
+			content = JSON(map[string]any{"error": failure.Error(), "result": value})
 			preview, _ := outputPreview(failure.Error(), 500)
 			failures = append(failures, name+": "+preview)
 			_ = errors.As(failure, &connectionFailure)
@@ -88,6 +111,19 @@ func (engine *Engine) runCodeMode(
 			name, args = request.Action, request.Arguments
 		}
 
+		switch value := value.(type) {
+		case domain.Job:
+			receipt.JobID = value.ID
+		case jobOutputResult:
+			receipt.JobID = value.ID
+		case map[string]any:
+			if job, ok := value["job"].(domain.Job); ok {
+				receipt.JobID = job.ID
+			} else if request.Action == "exec" {
+				receipt.JobID = stringArg(value, "jobId")
+			}
+		}
+
 		activities = append(activities, domain.ToolActivity{
 			Name:      name,
 			Arguments: JSON(args),
@@ -96,6 +132,7 @@ func (engine *Engine) runCodeMode(
 			Network:       request.Network,
 			Justification: request.Justification,
 		})
+		receipt.Activity = len(activities)
 
 		return value, failure
 	})
@@ -103,8 +140,11 @@ func (engine *Engine) runCodeMode(
 	if connectionFailure != nil {
 		err = connectionFailure
 	}
+	if err != nil && result.Calls == 0 && len(receipts) == 0 && strings.Contains(err.Error(), "SyntaxError") {
+		err = structuralToolFeedback(ctx, interaction{Action: "code_mode", Arguments: arguments}, err)
+	}
 
-	return map[string]any{
+	response := map[string]any{
 		"output":    result.Output,
 		"calls":     result.Calls,
 		"truncated": result.Truncated,
@@ -113,7 +153,21 @@ func (engine *Engine) runCodeMode(
 
 		"_activities": activities,
 		"_changes":    changes,
-	}, err
+	}
+	if messageID, _ := ctx.Value(toolMessageIDKey{}).(string); messageID != "" {
+		response["messageId"] = messageID
+	}
+	if err != nil || len(failures) > 0 {
+		response["receipts"] = receipts
+		response["execution"] = "tool_calls_attempted"
+		response["recovery"] = "Inspect receipts before retrying; tool_output {messageId,activity} reads a recorded inner result. Errors or missing receipts may still have effects; ok confirms a tool return, not completion of a background job."
+		if result.Calls == 0 && len(receipts) == 0 {
+			response["execution"] = "no_tool_calls_started"
+			response["recovery"] = "No tool calls started; resolve the reported error before retrying."
+		}
+	}
+
+	return response, err
 }
 
 func searchToolCatalog(query string) []string {

@@ -19,5 +19,8 @@ come later.
 
 - [Token and cache audit, November 2026](token-cache-audit.md) (German): recorded
   usage, comparison with Codex, changes, and remaining measurement gaps.
+- [Codex efficiency follow-up, November 16](codex-efficiency.md#nachprüfung-vom-16-november-2026)
+  (German): a real agent's consumption, bounded reviewer history, runtime state
+  updates, checkpoint estimates and Code Mode deadlines.
 
 The project README shows the real interface with local demo data.

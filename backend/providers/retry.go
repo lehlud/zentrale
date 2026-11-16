@@ -40,8 +40,10 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		}
 
 		ctx, activity := watchProviderActivity(original.Context(), client.idleTimeout)
+		started := time.Now()
 		request := original.Clone(ctx)
 		request.Body = body
+		applyResponsesRoute(request)
 		response, err := client.HTTP.Do(request)
 		received := time.Now()
 		published := false
@@ -63,6 +65,7 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		if err != nil {
 			failure = fmt.Errorf("provider request failed: %w", err)
 		} else {
+			captureResponsesRoute(request, response)
 			activity.touch()
 			response.Body = &activeProviderBody{ReadCloser: response.Body, activity: activity}
 			result, failure = decodeProviderResponse(response, attemptStreams...)
@@ -77,6 +80,17 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		}
 		cause := context.Cause(ctx)
 		activity.close()
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		observedFailure := failure
+		if original.Context().Err() != nil {
+			observedFailure = original.Context().Err()
+		} else if errors.Is(cause, errProviderIdle) {
+			observedFailure = errProviderIdle
+		}
+		observeAttempt(original.Context(), "http", started, int(original.ContentLength), status, result, observedFailure)
 
 		if err := original.Context().Err(); err != nil {
 			return nil, err

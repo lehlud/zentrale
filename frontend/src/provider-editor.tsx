@@ -97,6 +97,10 @@ export function ProviderEditor({
             kind: value.kind,
             authMode: value.authMode,
             billingMode: value.billingMode,
+            responsesTransport:
+              value.kind === "openai" ? value.responsesTransport || "auto" : "",
+            promptCacheMode:
+              value.kind === "openai" ? value.promptCacheMode || "auto" : "",
             baseUrl: value.authMode === "api" ? (value.baseUrl ?? "") : "",
             credential:
               value.authMode === "api" ? (value.credential ?? "") : "",
@@ -396,6 +400,63 @@ export function ProviderEditor({
                   )}
                 </TextField>
               ))}
+            </div>
+          )}
+          {value.kind === "openai" && (
+            <div className="grid gap-5 sm:grid-cols-2">
+              {[
+                {
+                  key: "responsesTransport",
+                  label: t("Antwortübertragung"),
+                  choices: [
+                    { id: "auto", label: t("Automatisch") },
+                    { id: "http", label: "HTTP / SSE" },
+                    { id: "websocket", label: "WebSocket" },
+                  ],
+                },
+                {
+                  key: "promptCacheMode",
+                  label: t("Zusätzliche Cache-Grenzen"),
+                  choices: [
+                    { id: "auto", label: t("Automatisch") },
+                    { id: "off", label: t("Aus") },
+                    { id: "explicit", label: t("Aktivieren") },
+                  ],
+                },
+              ].map((field) => (
+                <Select
+                  key={field.key}
+                  value={String(value[field.key] || "auto")}
+                  onChange={(next) => update(field.key, String(next))}
+                  isDisabled={busy}
+                  className="gap-2"
+                >
+                  <Label>{field.label}</Label>
+                  <Select.Trigger className="min-h-11">
+                    <Select.Value />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      {field.choices.map((choice) => (
+                        <ListBox.Item
+                          key={choice.id}
+                          id={choice.id}
+                          textValue={choice.label}
+                        >
+                          <Label>{choice.label}</Label>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+              ))}
+              <p className="text-xs text-muted sm:col-span-2">
+                {t(
+                  "Automatisch nutzt WebSocket an offiziellen OpenAI-Adressen und zusätzliche Cache-Grenzen bei unterstützten API-Modellen. Für ChatGPT-Konten lassen sich die Cache-Grenzen separat aktivieren. Nicht unterstützte Funktionen fallen auf den bisherigen Weg zurück.",
+                )}
+              </p>
             </div>
           )}
           <Failure message={error} />

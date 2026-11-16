@@ -10,13 +10,17 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const maximumJSONResponseBytes = 16 * 1024 * 1024
 
 type HTTPError struct {
-	Status int
-	Code   string
+	Status     int
+	Code       string
+	Param      string
+	RetryAfter string
+	ReceivedAt time.Time
 }
 
 func (failure *HTTPError) Error() string {
@@ -27,8 +31,9 @@ func decodeProviderResponse(response *http.Response, streaming ...streamRequest)
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var envelope struct {
 			Error struct {
-				Code string `json:"code"`
-				Type string `json:"type"`
+				Code  string `json:"code"`
+				Type  string `json:"type"`
+				Param string `json:"param"`
 			} `json:"error"`
 		}
 
@@ -38,7 +43,7 @@ func decodeProviderResponse(response *http.Response, streaming ...streamRequest)
 			envelope.Error.Code = envelope.Error.Type
 		}
 
-		return nil, &HTTPError{Status: response.StatusCode, Code: envelope.Error.Code}
+		return nil, &HTTPError{Status: response.StatusCode, Code: envelope.Error.Code, Param: envelope.Error.Param}
 	}
 
 	body := bufio.NewReader(response.Body)

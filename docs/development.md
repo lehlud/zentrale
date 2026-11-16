@@ -164,7 +164,10 @@ approval checks keep their existing behavior.
 ## Context and usage
 
 System instructions and core tools are stable. Runtime state is appended as
-deduplicated snapshots. Normal replay preserves native messages, reasoning,
+deduplicated snapshots. Model windows start with a complete state and then
+receive replacements of changed top-level fields, preserving earlier prefixes.
+Rotation and compaction establish a new complete baseline; stored snapshots
+remain complete. Normal replay preserves native messages, reasoning,
 signatures, and phases; interrupted tool batches get explicit missing-result
 messages before steering is applied.
 
@@ -174,17 +177,85 @@ Compaction starts around 85% of the configured window. Supported OpenAI routes
 use native `/responses/compact`; opaque checkpoints stay tied to their model
 and account. Other routes use semantic summaries with protected user instructions
 and complete recent tool groups. Summaries never become permission.
+Responses estimates count content rather than JSON envelopes and use Codex's
+coarse heuristics for encrypted reasoning/checkpoints. They remain estimates;
+reported high context usage still triggers compaction.
+Runtime state starts with a full baseline. Later updates replace changed fields
+or, when smaller, update notes and job lists by ID. Item updates carry changed
+records and the complete current ID order, removing stale entries without
+resending unchanged contents. Ambiguous collections use full field replacements;
+rotated windows begin with a complete baseline and stored snapshots stay intact.
 
 The approver gets one complete current context snapshot before its history.
 Events reference their snapshot instead of rewriting previously sent messages.
 Budgeting happens after projection, with current instructions and inspections
-mandatory. Stored audit records remain complete.
+mandatory. Optional older review groups are capped at 8,192 estimated tokens,
+even on large-context models. Completed reviews fill fixed bounded sections,
+preserving earlier prefixes between section rollovers instead of shifting a
+sliding history tail on each new review. Stored audit records remain complete.
+Reviewer history inspection uses the shared bounded message pages/exact slices,
+after its own project access check. It does not return opaque provider replay.
+Structural patch errors and invalid file-read bounds fail before model review;
+the remote helper still owns filesystem and complete patch validation.
+
+ChatGPT account Responses reuse the server's first routing token only within the
+current turn. Human input revisions, independent action/goal reviews and summary
+tasks establish separate routing lifetimes. Account, endpoint, model and thread
+changes invalidate state; it is neither persisted nor shared with other protocols.
+Thread/session headers identify Zentrale's own agent, keeping its client identity.
+
+Code Mode allows two minutes of JavaScript execution, excluding host-tool waits,
+and ten minutes for the complete batch. Parent cancellation and the batch deadline
+propagate to inner tool calls. Individual approval/file/command deadlines still
+apply; cancellation never replays actions already performed.
+Failed batches return small per-call receipts, including known job IDs and
+confirmed change counts. Zero tool calls are reported explicitly. A successful
+tool return does not mean a background job has finished; failed or interrupted
+calls may already have effects. Successful batches keep their selected output.
+Batch results identify their persisted message; failure receipts also identify
+the corresponding inner activity. `tool_output {messageId,activity,offset?,limit?}`
+reads that existing activity without another model review or remote execution.
+Both message and activity must belong to the caller. Output remains bounded;
+`recordingTruncated` identifies a saved preview, not a recoverable full original.
 
 Usage distinguishes reported counts from estimates and records cache reads and
 writes. Cache writes are part of total input tokens; pricing accounts for reported
 OpenAI write lifetimes. Unknown provider write costs remain marked incomplete.
 The [token/cache audit](token-cache-audit.md) documents the measured baseline,
 Codex comparison, and remaining gaps.
+The [November 16 follow-up](codex-efficiency.md#nachprüfung-vom-16-november-2026)
+records a real agent's consumption, bounded review history, runtime updates,
+checkpoint sizing and Code Mode deadline corrections. `xhigh` remains the
+main-agent default.
+
+Inference diagnostics persist one `inference_trace` per logical model round,
+including failed rounds, with separate purposes for work, approval, goal review,
+summaries, native compaction, side questions and connection tests. Attempts record
+HTTP/WebSocket status, duration, bytes and available reported usage; missing counts
+remain unknown. Prepared-prefix comparisons store hashes in bounded memory, never
+prompts, credentials or reasoning. `inferenceTraces(agentId,limit,offset)` returns
+up to 100 recent records; the usage details load the latest 30 on demand.
+
+OpenAI providers expose `responsesTransport` (`auto`, `http`, `websocket`) and
+`promptCacheMode` (`auto`, `off`, `explicit`). Automatic WebSockets target official
+OpenAI addresses; unsupported handshakes fall back to HTTP. Turn-local sockets
+chain only when options and the entire prior input/output prefix match. Account,
+token, model and thread changes reconnect; missing server state replays full
+prepared input. Native states and `store:false` are preserved. Optional features
+rejected by a route are remembered for 15 minutes per account/token/model.
+
+Automatic additional cache boundaries apply to known modern public API models.
+ChatGPT account routes can opt in explicitly. At most the first two eligible
+user/developer messages are marked; markers stay fixed when messages are appended,
+and implicit caching remains enabled for the tail. Only rejected cache parameters
+fall back to the unmarked request, before any visible output was published.
+
+Approvers can request `inspect batch` with 1–8 independent read-only actions and
+two concurrent readers. Private context mutations and recursive batches are
+excluded. Identical successful tool outputs may reference an earlier same-owner,
+same-tool result inside the current window; errors and explicit recovery reads
+stay visible. Local repeated argument/syntax failures get concrete repair advice
+without weakening approval, replaying actions or changing reasoning defaults.
 
 ## Checks
 

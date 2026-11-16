@@ -186,7 +186,7 @@ func (engine *Engine) completeVisible(
 		return result, message, err
 	}
 	request.Messages = engine.attachmentRequestMessages(request.Messages)
-	result, err = engine.Provider.Complete(ctx, request)
+	result, err = engine.completeModel(ctx, agentID, "main", request)
 	if err == nil {
 		message = domain.Message{
 			ID:      writer.state.ID,

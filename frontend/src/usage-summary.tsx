@@ -1,75 +1,96 @@
 import type { UsageSummary } from "./generated";
+import { useState } from "react";
+import { InferenceDiagnostics } from "./inference-diagnostics";
 import { useI18n } from "./preferences";
 
-export function CostSummary({ totals }: { totals: UsageSummary }) {
+export function CostSummary({
+  totals,
+  agentId,
+}: {
+  totals: UsageSummary;
+  agentId?: string;
+}) {
+  const [open, setOpen] = useState(false);
   const { t, numberLocale } = useI18n();
-  if (!totals.requestCount) {
+  if (!totals.requestCount && !agentId) {
     return null;
   }
 
   return (
-    <details className="font-mono text-[11px] text-muted">
+    <details
+      className="font-mono text-[11px] text-muted"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="min-h-6 cursor-pointer py-1">
-        {totals.unknownTokenCounts ? "≈ " : ""}
-        {(totals.inputTokens + totals.outputTokens).toLocaleString(
-          numberLocale,
-        )}{" "}
-        {t("Tokens")}
-        {" · "}
-        {totals.estimated ? "≈ " : ""}${totals.realCost.toFixed(4)}
-      </summary>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 py-2">
-        <span>
-          {totals.estimated ? "≈ " : ""}${totals.realCost.toFixed(4)}{" "}
-          {t("real")}
-        </span>
-        <span>
-          {totals.estimated ? "≈ " : ""}${totals.fictionalCost.toFixed(4)}{" "}
-          {t("fiktiv")}
-        </span>
-        <span>
-          {totals.unknownTokenCounts ? "≈ " : ""}
-          {(totals.inputTokens + totals.outputTokens).toLocaleString(
-            numberLocale,
-          )}{" "}
-          {t("Tokens")}
-        </span>
-        {totals.cacheInputTokens > 0 ? (
-          <span>
-            {Math.round(
-              (totals.cacheReadTokens / totals.cacheInputTokens) * 100,
-            )}
-            % {t("Cache gelesen (gemeldete Tokens)")}
-          </span>
+        {totals.requestCount ? (
+          <>
+            {totals.unknownTokenCounts ? "≈ " : ""}
+            {(totals.inputTokens + totals.outputTokens).toLocaleString(
+              numberLocale,
+            )}{" "}
+            {t("Tokens")}
+            {" · "}
+            {totals.estimated ? "≈ " : ""}${totals.realCost.toFixed(4)}
+          </>
         ) : (
-          <span>{t("Cache-Leseanteil nicht gemeldet")}</span>
+          t("Modellrunden und Diagnose")
         )}
-        <span>
-          {totals.cacheWriteTokens.toLocaleString(numberLocale)}{" "}
-          {t("Cache-Tokens geschrieben")}
-        </span>
-        {totals.unknownTokenCounts > 0 && (
+      </summary>
+      {totals.requestCount > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 py-2">
           <span>
-            {t("Tokenzahlen geschätzt oder unbekannt: {count} Anfragen", {
-              count: totals.unknownTokenCounts,
-            })}
+            {totals.estimated ? "≈ " : ""}${totals.realCost.toFixed(4)}{" "}
+            {t("real")}
           </span>
-        )}
-        {totals.unknownCacheWrites > 0 && (
           <span>
-            {t("Cache-Schreibdaten fehlen für {count} Anfragen", {
-              count: totals.unknownCacheWrites,
-            })}
+            {totals.estimated ? "≈ " : ""}${totals.fictionalCost.toFixed(4)}{" "}
+            {t("fiktiv")}
           </span>
-        )}
-        {totals.unknownPrices > 0 && (
           <span>
-            {t("Kosten unvollständig für {count} Anfragen", {
-              count: totals.unknownPrices,
-            })}
+            {totals.unknownTokenCounts ? "≈ " : ""}
+            {(totals.inputTokens + totals.outputTokens).toLocaleString(
+              numberLocale,
+            )}{" "}
+            {t("Tokens")}
           </span>
-        )}
-      </div>
+          {totals.cacheInputTokens > 0 ? (
+            <span>
+              {Math.round(
+                (totals.cacheReadTokens / totals.cacheInputTokens) * 100,
+              )}
+              % {t("Cache gelesen (gemeldete Tokens)")}
+            </span>
+          ) : (
+            <span>{t("Cache-Leseanteil nicht gemeldet")}</span>
+          )}
+          <span>
+            {totals.cacheWriteTokens.toLocaleString(numberLocale)}{" "}
+            {t("Cache-Tokens geschrieben")}
+          </span>
+          {totals.unknownTokenCounts > 0 && (
+            <span>
+              {t("Tokenzahlen geschätzt oder unbekannt: {count} Anfragen", {
+                count: totals.unknownTokenCounts,
+              })}
+            </span>
+          )}
+          {totals.unknownCacheWrites > 0 && (
+            <span>
+              {t("Cache-Schreibdaten fehlen für {count} Anfragen", {
+                count: totals.unknownCacheWrites,
+              })}
+            </span>
+          )}
+          {totals.unknownPrices > 0 && (
+            <span>
+              {t("Kosten unvollständig für {count} Anfragen", {
+                count: totals.unknownPrices,
+              })}
+            </span>
+          )}
+        </div>
+      )}
+      {open && agentId && <InferenceDiagnostics agentId={agentId} />}
     </details>
   );
 }

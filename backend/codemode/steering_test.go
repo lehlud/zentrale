@@ -10,7 +10,7 @@ func TestInterruptionStopsRemainingCallsEvenWhenScriptCatchesErrors(t *testing.T
 	calls := 0
 	_, err := Run(context.Background(), `try { tools.read({}); } catch {} tools.read({});`, []string{
 		"read",
-	}, func(string, map[string]any) (any, error) {
+	}, func(context.Context, string, map[string]any) (any, error) {
 		calls++
 		return nil, ErrInterrupted
 	})

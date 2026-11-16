@@ -218,6 +218,44 @@ export type HuggingFaceOAuthConfigInput = {
   clientSecret?: string | null;
   publicClient?: boolean | null;
 };
+export type InferenceAttempt = {
+  cachedTokens: number;
+  cacheReadKnown: boolean;
+  durationMillis: number;
+  inputTokens: number;
+  number: number;
+  outcome: string;
+  outputTokens: number;
+  sentBytes: number;
+  status: number;
+  tokensKnown: boolean;
+  transport: string;
+};
+export type InferenceTrace = {
+  agentId: string;
+  attempts: Array<InferenceAttempt>;
+  cachedTokens: number;
+  cacheReadKnown: boolean;
+  createdAt: string;
+  durationMillis: number;
+  estimatedConversationTokens: number;
+  estimatedRuntimeTokens: number;
+  estimatedSystemTokens: number;
+  estimatedToolTokens: number;
+  id: string;
+  inputTokens: number;
+  messageCount: number;
+  modelId: string;
+  outcome: string;
+  outputTokens: number;
+  prefixChange: string;
+  previousTraceId: string;
+  providerId: string;
+  purpose: string;
+  reasoningLevel: string;
+  sharedMessages: number;
+  tokensKnown: boolean;
+};
 export type Job = {
   agentId: string;
   command: string;
@@ -451,6 +489,8 @@ export type Provider = {
   name: string;
   oauthClientId: string;
   oauthProjectId: string;
+  promptCacheMode: string;
+  responsesTransport: string;
 };
 export type ProviderInput = {
   authMode?: string | null;
@@ -463,6 +503,8 @@ export type ProviderInput = {
   oauthClientId?: string | null;
   oauthClientSecret?: string | null;
   oauthProjectId?: string | null;
+  promptCacheMode?: string | null;
+  responsesTransport?: string | null;
 };
 export type ProviderKind = {
   authMethods: Array<string>;
@@ -497,6 +539,7 @@ export type Query = {
   goalHistory: Array<Goal | null> | null;
   goalReviews: Array<GoalReview | null> | null;
   huggingFaceConnection: HuggingFaceConnection | null;
+  inferenceTraces: Array<InferenceTrace | null> | null;
   job: Job | null;
   jobs: Array<Job | null> | null;
   machines: Array<Machine | null> | null;
@@ -646,8 +689,10 @@ export type Usage = {
   modelId: string;
   outputTokens: number;
   providerId: string;
+  purpose: string;
   realCost: number;
   tokensKnown: boolean;
+  traceId: string;
 };
 export type UsageSummary = {
   cachedTokens: number;

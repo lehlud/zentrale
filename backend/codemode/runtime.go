@@ -23,6 +23,9 @@ const MaximumCalls = 32
 
 const MaximumOutputBytes = 16000
 
+const maximumExecutionTime = 2 * time.Minute
+const maximumBatchTime = 10 * time.Minute
+
 var runtimeSlots = make(chan struct{}, 4)
 
 var ErrInterrupted = errors.New("tool batch interrupted by new user instructions; read the updated task before continuing")
@@ -34,7 +37,7 @@ var ErrInterrupted = errors.New("tool batch interrupted by new user instructions
 //go:embed qjs.wasm
 var sandboxModule []byte
 
-type Call func(name string, arguments map[string]any) (any, error)
+type Call func(context.Context, string, map[string]any) (any, error)
 
 type Result struct {
 	Output    string `json:"output"`
@@ -45,12 +48,18 @@ type Result struct {
 // Calls run in invocation order, including when wrapped in Promise.all. This
 // preserves the agent's single independent reviewer and mutation ordering.
 func Run(ctx context.Context, source string, names []string, call Call) (result Result, err error) {
+	return run(ctx, source, names, call, maximumExecutionTime, maximumBatchTime)
+}
+
+func run(ctx context.Context, source string, names []string, call Call, executionLimit, batchLimit time.Duration) (result Result, err error) {
 	if source == "" || len(source) > MaximumSourceBytes {
 		return result, errors.New("code_mode source must contain 1–65536 UTF-8 bytes")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, batchLimit)
 	defer cancel()
+	ctx, stopVM := context.WithCancelCause(ctx)
+	defer stopVM(nil)
 
 	var interrupted error
 
@@ -60,6 +69,14 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 	case <-ctx.Done():
 		return result, ctx.Err()
 	}
+
+	// Approval and remote I/O have their own deadlines. Pause the JavaScript
+	// budget while a host callback runs, but keep parent cancellation and the
+	// overall batch deadline connected to both the VM and every tool action.
+	remaining, resumed := executionLimit, time.Now()
+	timer := time.AfterFunc(remaining, func() { stopVM(context.DeadlineExceeded) })
+	defer timer.Stop()
+
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			message := strings.SplitN(fmt.Sprint(recovered), "\n", 2)[0]
@@ -69,7 +86,7 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 		if interrupted != nil {
 			err = interrupted
 		} else if ctx.Err() != nil {
-			err = ctx.Err()
+			err = context.Cause(ctx)
 		}
 	}()
 
@@ -86,7 +103,7 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 		MemoryLimit:  32 * 1024 * 1024,
 		MaxStackSize: 512 * 1024,
 
-		MaxExecutionTime: 120000,
+		MaxExecutionTime: int(batchLimit.Milliseconds()),
 
 		QuickJSWasmBytes: sandboxModule,
 	})
@@ -117,7 +134,7 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 
 	js.SetFunc("__call", func(this *qjs.This) (*qjs.Value, error) {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, context.Cause(ctx)
 		}
 
 		args := this.Args()
@@ -145,14 +162,32 @@ func Run(ctx context.Context, source string, names []string, call Call) (result 
 			return nil, errors.New("tool arguments must be a JSON object")
 		}
 
+		if !timer.Stop() {
+			stopVM(context.DeadlineExceeded)
+			return nil, context.Cause(ctx)
+		}
+
+		remaining -= time.Since(resumed)
+		if remaining <= 0 {
+			stopVM(context.DeadlineExceeded)
+			return nil, context.Cause(ctx)
+		}
+
 		result.Calls++
-		value, failure := call(args[0].String(), arguments)
+		value, failure := call(ctx, args[0].String(), arguments)
 		if errors.Is(failure, ErrInterrupted) {
 			interrupted = failure
-			cancel()
+			stopVM(failure)
 
 			return nil, failure
 		}
+
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+
+		resumed = time.Now()
+		timer.Reset(remaining)
 
 		if failure != nil {
 			value = map[string]any{"error": failure.Error()}

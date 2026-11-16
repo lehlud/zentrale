@@ -18,6 +18,10 @@ func estimatedMessageTokens(messages []domain.Message) int {
 
 		if message.Wire != "" {
 			payload = message.Wire
+			if tokens, ok := providers.EstimatedResponsesTokens(message.Wire); ok {
+				count += tokens
+				continue
+			}
 		}
 
 		count += (len(payload) + 3) / 4
@@ -82,6 +86,7 @@ func (engine *Engine) recordInferenceUsage(
 	}
 
 	usage := domain.Usage{
+		TraceID: result.TraceID, Purpose: result.Purpose,
 		ID:                   NewID(),
 		AgentID:              agentRecord.ID,
 		ProviderID:           configuration.Provider.ID,

@@ -1,12 +1,14 @@
 package agent
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"unicode/utf8"
 
+	"github.com/lehlud/zentrale/codemode"
 	"github.com/lehlud/zentrale/domain"
 )
 
@@ -17,10 +19,31 @@ const maximumModelToolOutputBytes = 16000
 func modelHistory(history []domain.Message, contextWindow int) []domain.Message {
 	result := append([]domain.Message(nil), history...)
 	budget := max(1024, min(maximumModelToolOutputBytes, contextWindow/2))
+	seen := map[string]string{}
 
 	for index, message := range result {
 		if message.Role != "tool" {
 			continue
+		}
+		// References depend only on earlier results in this window. Rotation
+		// starts with the actual result again; stored evidence stays complete.
+		if message.ID != "" && message.AgentID != "" && message.ToolName != "tool_output" &&
+			len(message.Content) >= 1024 && !toolOutputHasFailure(message.Content) && json.Valid([]byte(message.Content)) {
+			digest := fmt.Sprintf("%x", sha256.Sum256([]byte(message.Content)))
+			key := message.AgentID + ":" + message.ToolName + ":" + digest
+			if original, exists := seen[key]; exists {
+				reference := JSON(map[string]any{
+					"repeatedOutput": true, "originalMessageId": original,
+					"sha256": digest, "originalBytes": len(message.Content),
+					"readMore": map[string]any{"action": "tool_output", "arguments": map[string]any{"messageId": message.ID, "offset": 0, "limit": 4096}},
+				})
+				if len(reference) < len(message.Content) && len(reference) <= budget {
+					result[index].Content = reference
+					continue
+				}
+			} else {
+				seen[key] = message.ID
+			}
 		}
 
 		observation := compactJobObservation(message)
@@ -129,6 +152,14 @@ func compactJobObservation(message domain.Message) string {
 }
 
 func toolOutputError(content string) string {
+	// The result can be any JSON value. Preserve an explicit outer failure even
+	// when its partial result does not match the known job/result structures.
+	var outer struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(content), &outer) == nil && outer.Error != "" {
+		return outer.Error
+	}
 	var result struct {
 		Error  string `json:"error"`
 		Result struct {
@@ -167,6 +198,43 @@ func toolOutputError(content string) string {
 	return ""
 }
 
+// A repeated inspection batch must retain its individual errors. This is
+// deliberately conservative for arbitrary documents with error-like fields.
+func toolOutputHasFailure(content string) bool {
+	var value any
+	if json.Unmarshal([]byte(content), &value) != nil {
+		return true
+	}
+	var failed func(any, int) bool
+	failed = func(value any, depth int) bool {
+		if depth > 64 {
+			return true
+		}
+		switch value := value.(type) {
+		case map[string]any:
+			if message, ok := value["error"]; ok && message != nil && message != "" && message != false {
+				return true
+			}
+			if value["status"] == "failed" || value["status"] == "interrupted" {
+				return true
+			}
+			for _, child := range value {
+				if failed(child, depth+1) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range value {
+				if failed(child, depth+1) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return failed(value, 0)
+}
+
 func outputPreview(content string, budget int) (string, int) {
 	if len(content) <= budget {
 		return content, len(content)
@@ -197,7 +265,41 @@ func (engine *Engine) toolOutput(agentRecord domain.Agent, arguments map[string]
 		return nil, errors.New("tool output belongs to another agent or is not a tool result")
 	}
 
-	offset, err := outputInteger(arguments, "offset", 0, 0, len(message.Content))
+	content := message.Content
+	metadata := map[string]any{}
+	if _, requested := arguments["activity"]; requested {
+		activity, err := outputInteger(arguments, "activity", 0, 1, codemode.MaximumCalls)
+		if err != nil {
+			return nil, err
+		}
+
+		var audit struct {
+			AgentID    string                `json:"agentId"`
+			Activities []domain.ToolActivity `json:"activities"`
+		}
+		if err := engine.Store.Load("tool_activity", message.ID, &audit); err != nil {
+			return nil, err
+		}
+		if audit.AgentID != agentRecord.ID || activity > len(audit.Activities) {
+			return nil, errors.New("inner tool result is unavailable or belongs to another agent")
+		}
+
+		recorded := audit.Activities[activity-1]
+		content = recorded.Content
+		metadata["activity"], metadata["toolName"] = activity, recorded.Name
+		var preview struct {
+			Truncated     bool `json:"truncated"`
+			OriginalBytes int  `json:"originalBytes"`
+		}
+		_ = json.Unmarshal([]byte(content), &preview)
+		metadata["recordingTruncated"] = preview.Truncated && preview.OriginalBytes > 0
+		if metadata["recordingTruncated"] == true {
+			metadata["originalBytes"] = preview.OriginalBytes
+			metadata["recovery"] = "Only the stored preview is available here; use source file/job tools for omitted original data."
+		}
+	}
+
+	offset, err := outputInteger(arguments, "offset", 0, 0, len(content))
 	if err != nil {
 		return nil, err
 	}
@@ -207,25 +309,30 @@ func (engine *Engine) toolOutput(agentRecord domain.Agent, arguments map[string]
 		return nil, err
 	}
 
-	for offset < len(message.Content) && !utf8.RuneStart(message.Content[offset]) {
+	for offset < len(content) && !utf8.RuneStart(content[offset]) {
 		offset++
 	}
 
-	end := min(len(message.Content), offset+limit)
+	end := min(len(content), offset+limit)
 
-	for end < len(message.Content) && !utf8.RuneStart(message.Content[end]) {
+	for end < len(content) && !utf8.RuneStart(content[end]) {
 		end--
 	}
 
-	return map[string]any{
+	response := map[string]any{
 		"messageId":  message.ID,
-		"content":    message.Content[offset:end],
+		"content":    content[offset:end],
 		"offset":     offset,
 		"nextOffset": end,
-		"totalBytes": len(message.Content),
-		"hasMore":    end < len(message.Content),
+		"totalBytes": len(content),
+		"hasMore":    end < len(content),
 		"unit":       "UTF-8 bytes",
-	}, nil
+	}
+	for key, value := range metadata {
+		response[key] = value
+	}
+
+	return response, nil
 }
 
 func outputInteger(arguments map[string]any, name string, fallback, minimum, maximum int) (int, error) {

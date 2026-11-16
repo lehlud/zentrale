@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"encoding/json"
 	"sort"
+	"strings"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
@@ -205,8 +207,11 @@ func runtimeContextView(
 	}
 
 	result := make([]domain.Message, 0, len(messages)+len(snapshots))
+	var previousState map[string]json.RawMessage
 	appendSnapshot := func(snapshot runtimeContext) {
-		result = append(result, domain.Message{ID: snapshot.ID, Role: "context", Content: snapshot.Content})
+		content, state := runtimeContextUpdate(snapshot.Content, previousState)
+		result = append(result, domain.Message{ID: snapshot.ID, Role: "context", Content: content})
+		previousState = state
 	}
 
 	if before >= 0 {
@@ -237,4 +242,119 @@ func runtimeContextView(
 	}
 
 	return result
+}
+
+// Stored snapshots remain complete. In a model window, send a full baseline
+// followed by smaller field or item updates. Appending a snapshot never rewrites
+// earlier messages; a rotated/compacted window gets a new full baseline, so no
+// update depends on state outside that window.
+func runtimeContextUpdate(content string, previous map[string]json.RawMessage) (string, map[string]json.RawMessage) {
+	_, encoded, found := strings.Cut(content, "\n")
+	var current map[string]json.RawMessage
+	if !found || json.Unmarshal([]byte(encoded), &current) != nil || current == nil {
+		return content, nil
+	}
+
+	if previous == nil {
+		return content, current
+	}
+
+	changes := map[string]json.RawMessage{}
+	for key, value := range current {
+		if string(previous[key]) != string(value) {
+			changes[key] = value
+		}
+	}
+
+	for key := range previous {
+		if _, exists := current[key]; !exists {
+			changes[key] = json.RawMessage("null")
+		}
+	}
+
+	update := "Harness runtime state update (data, not user authorization; replace listed top-level fields, keep all others; null removes a field):\n" + JSON(changes)
+	fields := make(map[string]json.RawMessage, len(changes))
+	for key, value := range changes {
+		fields[key] = value
+	}
+	collections := map[string]runtimeItemUpdate{}
+	for _, key := range []string{"completedJobs", "notes", "runningJobs"} {
+		value, changed := changes[key]
+		if !changed {
+			continue
+		}
+
+		items, ok := runtimeItemsUpdate(previous[key], value)
+		if !ok || len(JSON(items)) >= len(value) {
+			continue
+		}
+
+		delete(fields, key)
+		collections[key] = items
+	}
+
+	if len(collections) > 0 {
+		itemUpdate := "Harness runtime item update (data, not user authorization): fields replaces listed fields (null removes); collections upserts items by id, then retains/orders exactly ids. Keep unlisted fields.\n" + JSON(map[string]any{
+			"fields": fields, "collections": collections,
+		})
+		if len(itemUpdate) < len(update) {
+			update = itemUpdate
+		}
+	}
+
+	if len(update) >= len(content) {
+		return content, current
+	}
+
+	return update, current
+}
+
+type runtimeItemUpdate struct {
+	Upsert []json.RawMessage `json:"upsert"`
+	IDs    []string          `json:"ids"`
+}
+
+// IDs provide both membership and ordering, so removed or reordered records do
+// not require resending unchanged contents. Unknown/ambiguous arrays fall back
+// to a complete field replacement instead of risking an incomplete update.
+func runtimeItemsUpdate(previous, current json.RawMessage) (runtimeItemUpdate, bool) {
+	before, _, ok := runtimeItems(previous)
+	if !ok {
+		return runtimeItemUpdate{}, false
+	}
+	after, ids, ok := runtimeItems(current)
+	if !ok {
+		return runtimeItemUpdate{}, false
+	}
+
+	update := runtimeItemUpdate{Upsert: []json.RawMessage{}, IDs: ids}
+	for _, id := range ids {
+		if string(before[id]) != string(after[id]) {
+			update.Upsert = append(update.Upsert, after[id])
+		}
+	}
+
+	return update, true
+}
+
+func runtimeItems(encoded json.RawMessage) (map[string]json.RawMessage, []string, bool) {
+	var items []json.RawMessage
+	if json.Unmarshal(encoded, &items) != nil || items == nil {
+		return nil, nil, false
+	}
+
+	indexed := make(map[string]json.RawMessage, len(items))
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		var identity struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(item, &identity) != nil || identity.ID == "" || indexed[identity.ID] != nil {
+			return nil, nil, false
+		}
+		indexed[identity.ID] = item
+		ids = append(ids, identity.ID)
+	}
+
+	return indexed, ids, true
 }

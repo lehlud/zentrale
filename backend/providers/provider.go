@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
@@ -29,10 +30,12 @@ type Call struct {
 }
 
 type Result struct {
-	Text  string
-	Wire  string
-	Phase string
-	Calls []Call
+	TraceID string
+	Purpose string
+	Text    string
+	Wire    string
+	Phase   string
+	Calls   []Call
 
 	InputTokens          int
 	OutputTokens         int
@@ -72,9 +75,11 @@ type Client interface {
 }
 
 type HTTPClient struct {
-	HTTP        *http.Client
-	waitRetry   func(context.Context, time.Duration) error
-	idleTimeout time.Duration
+	HTTP             *http.Client
+	waitRetry        func(context.Context, time.Duration) error
+	idleTimeout      time.Duration
+	featureMu        sync.Mutex
+	disabledFeatures map[[32]byte]map[string]time.Time
 }
 
 func New() *HTTPClient {
@@ -93,6 +98,12 @@ var defaults = map[string]string{
 }
 
 func Validate(configuration *domain.Provider) error {
+	if configuration.ResponsesTransport != "" && configuration.ResponsesTransport != "auto" && configuration.ResponsesTransport != "http" && configuration.ResponsesTransport != "websocket" {
+		return errors.New("responses transport must be auto, http or websocket")
+	}
+	if configuration.PromptCacheMode != "" && configuration.PromptCacheMode != "auto" && configuration.PromptCacheMode != "off" && configuration.PromptCacheMode != "explicit" {
+		return errors.New("prompt cache mode must be auto, off or explicit")
+	}
 	switch configuration.Kind {
 	case "openai", "anthropic", "openrouter", "opencode", "mistral", "litellm", "gemini":
 	default:
@@ -227,6 +238,8 @@ func (client *HTTPClient) post(
 			req.Header.Set("ChatGPT-Account-Id", configuration.OAuth.AccountID)
 		}
 	}
+
+	req = bindResponsesRoute(req, configuration, object)
 	defer req.Body.Close()
 
 	stream := streamRequest{kind: configuration.Kind}

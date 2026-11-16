@@ -111,11 +111,13 @@ type Provider struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
 
-	BaseURL     string       `json:"baseUrl"`
-	Credential  string       `json:"credential,omitempty"`
-	AuthMode    string       `json:"authMode"`
-	BillingMode string       `json:"billingMode"`
-	OAuth       *OAuthTokens `json:"oauth,omitempty"`
+	BaseURL            string       `json:"baseUrl"`
+	Credential         string       `json:"credential,omitempty"`
+	AuthMode           string       `json:"authMode"`
+	BillingMode        string       `json:"billingMode"`
+	ResponsesTransport string       `json:"responsesTransport"`
+	PromptCacheMode    string       `json:"promptCacheMode"`
+	OAuth              *OAuthTokens `json:"oauth,omitempty"`
 
 	OAuthClientID     string `json:"oauthClientId"`
 	OAuthProjectID    string `json:"oauthProjectId"`
@@ -278,6 +280,8 @@ type Approval struct {
 }
 
 type Usage struct {
+	TraceID    string `json:"traceId,omitempty"`
+	Purpose    string `json:"purpose,omitempty"`
 	ID         string `json:"id"`
 	AgentID    string `json:"agentId"`
 	ProviderID string `json:"providerId"`

@@ -100,14 +100,16 @@ type Engine struct {
 	subscribers   map[chan domain.Event]bool
 	liveResponses map[string]domain.LiveResponse
 
-	configMu        sync.Mutex
-	attachmentGate  chan struct{}
-	sideSlots       chan struct{}
-	questionMu      sync.Mutex
-	teamworkMu      sync.Mutex // Short atomic board transitions, never inference or remote work.
-	reviewGates     sync.Map   // Shared approver ID -> cancellable review semaphore.
-	clarificationMu sync.Mutex
-	sandboxMu       sync.Mutex
+	configMu          sync.Mutex
+	attachmentGate    chan struct{}
+	sideSlots         chan struct{}
+	questionMu        sync.Mutex
+	teamworkMu        sync.Mutex // Short atomic board transitions, never inference or remote work.
+	reviewGates       sync.Map   // Shared approver ID -> cancellable review semaphore.
+	inferenceMu       sync.Mutex
+	inferencePrefixes map[string]inferencePrefix
+	clarificationMu   sync.Mutex
+	sandboxMu         sync.Mutex
 
 	sourcePreparations sync.Map // Workspace directory -> checkout semaphore.
 	vmOperations       sync.Map // Main agent and machine -> environment lifecycle.

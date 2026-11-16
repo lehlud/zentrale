@@ -328,7 +328,9 @@ export function AgentView({
               )}
             </Button>
           )}
-          {data && details.data && <CostSummary totals={data.usageSummary} />}
+          {data && details.data && (
+            <CostSummary totals={data.usageSummary} agentId={agentId} />
+          )}
         </footer>
       )}
       {detailsOpen && (
@@ -360,7 +362,7 @@ export function AgentView({
                 }
               />
               {data && details.data && (
-                <CostSummary totals={data.usageSummary} />
+                <CostSummary totals={data.usageSummary} agentId={agentId} />
               )}
             </section>
             <section>

@@ -195,6 +195,8 @@ func (engine *Engine) reviewGoal(
 	goal domain.Goal,
 	candidate domain.Message,
 ) (goalDecision, string, error) {
+	ctx = providers.WithResponsesTurn(ctx)
+	defer providers.CloseResponsesTurn(ctx)
 	approver, err := engine.familyApprover(record)
 	if err != nil {
 		return goalDecision{}, "", err
@@ -256,7 +258,7 @@ func (engine *Engine) reviewGoal(
 			return goalDecision{}, event.ID, err
 		}
 
-		result, err := engine.Provider.Complete(ctx, providers.Request{
+		result, err := engine.completeModel(ctx, approver.ID, "goal_review", providers.Request{
 			Config:         configuration.Provider,
 			Model:          configuration.Model,
 			ReasoningLevel: configuration.ReasoningLevel,

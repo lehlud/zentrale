@@ -54,7 +54,7 @@ func mainTools() []providers.Tool {
 				"tools.update_plan({...}) and other tool actions as tools.<action>({arguments,network?,justification?}). " +
 				"Use print(value) or text(value) for model-visible output. Tool results are objects; failures contain error. " +
 				"Calls run in invocation order, including Promise.all. No filesystem/network/process access in JavaScript. " +
-				"32 calls, 64 KiB code, 16 KB output, 2 minutes. Context changes and recursive code_mode are unavailable.",
+				"32 calls, 64 KiB code, 16 KB output, 2 minutes of JavaScript excluding tool waits, 10 minutes total. Context changes and recursive code_mode are unavailable.",
 			Schema: objectSchema(map[string]any{
 				"code": textProperty("JavaScript body; top-level await is supported."),
 			}, "code"),
@@ -215,6 +215,7 @@ func patchTool() providers.Tool {
 			"Format: *** Begin Patch; *** Add File: path with +lines; " +
 			"*** Update File: path with @@ context, space context lines, -old and +new lines; " +
 			"optional *** Move to: path; *** Delete File: path; *** End Patch. " +
+			"Use one file marker per path with multiple @@ chunks for separate changes. " +
 			"Each marker is on its own line. A failed context or invalid path leaves files unchanged.",
 		Schema: objectSchema(map[string]any{
 			"input":         textProperty("The complete patch in the *** Begin Patch / *** End Patch format."),
@@ -249,9 +250,9 @@ func planTool() providers.Tool {
 func inspectTool() providers.Tool {
 	return providers.Tool{
 		Name: "inspect",
-		Description: `Read-only inspection: read_file {path,machineId?,offset?:1-based line,limit?:lines}, list_files {path,machineId?}, history {search,agentId}, instructions {}, grants {}, goal {}, job_status {id}, job_logs {id}, storage_quota {machineId?} (fixed configured host query), resource_list {}.
-Private context tools: tool_output {messageId,offset,limit} for exact slices of your own abbreviated tool results, note_save {id?,title,content}, note_list {}, note_read {id}, note_delete {id}, context_clear {}, context_rotate {start}, context_compact {}.
-The arguments field contains a JSON object string. Commands and project mutations are unavailable.`,
+		Description: `Read-only inspection: read_file {path,machineId?,offset?:1-based line,limit?:lines}, list_files {path,machineId?}, history {agentId?,search?,before?,limit?:1..50} returns bounded recent excerpts and nextCursor (pass as before). Read exact content/calls via history {agentId?,messageId,field?:content|calls,offset?:UTF8Bytes,bytes?:4..16000}. instructions {}, grants {}, goal {}, job_status {id}, job_logs {id}, storage_quota {machineId?} (fixed configured host query), resource_list {}.
+Private context tools: tool_output {messageId,activity?:1-based inner Code Mode activity,offset?,limit?} reads your own saved results. recordingTruncated marks an inner result stored only as a preview. note_save {id?,title,content} (title 1..30, content 0..350 Unicode code points; max 10 notes), note_list {}, note_read {id}, note_delete {id}, context_clear {}, context_rotate {start}, context_compact {}.
+Batch independent inspections with action=batch, arguments={"items":[{"action":"read_file","arguments":{"path":"a"}}]} (1..8 read-only inspections; no nesting/private context mutations). Results retain individual errors and positions. The arguments field contains a JSON object string. Commands and project mutations are unavailable.`,
 		Schema: objectSchema(map[string]any{
 			"action":    map[string]any{"type": "string"},
 			"arguments": map[string]any{"type": "string"},

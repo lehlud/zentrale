@@ -133,6 +133,8 @@ func (session *SideSession) Ask(question string, emit func(SideUpdate)) (string,
 	defer session.mu.Unlock()
 	ctx, cancel := context.WithTimeout(session.ctx, 2*time.Minute)
 	defer cancel()
+	ctx = providers.WithResponsesTurn(ctx)
+	defer providers.CloseResponsesTurn(ctx)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -175,7 +177,7 @@ func (session *SideSession) Ask(question string, emit func(SideUpdate)) (string,
 		}
 
 		visibleBytes := 0
-		result, err := session.engine.Provider.Complete(ctx, providers.Request{
+		result, err := session.engine.completeModel(ctx, root.ID, "side", providers.Request{
 			Config: configuration.Provider, Model: configuration.Model, ReasoningLevel: configuration.ReasoningLevel,
 			System: sideInstructions, Tools: tools, Messages: session.history, CacheKey: "side:" + root.ID,
 			OnText: func(text string) {

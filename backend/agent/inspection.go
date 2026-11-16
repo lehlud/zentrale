@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/lehlud/zentrale/domain"
 )
@@ -82,24 +81,7 @@ func (engine *Engine) Inspect(
 			return nil, errors.New("history is outside project")
 		}
 
-		messages, err := engine.loadHistory(id)
-		if err != nil {
-			return nil, err
-		}
-
-		query := stringArg(args, "search")
-		if query == "" {
-			return messages, nil
-		}
-
-		result := []domain.Message{}
-		for _, m := range messages {
-			if strings.Contains(strings.ToLower(m.Content+m.Wire), strings.ToLower(query)) {
-				result = append(result, m)
-			}
-		}
-
-		return result, nil
+		return engine.messageHistoryPage(target, args)
 	case "grants":
 		return engine.activeGrants(ctx, agentRecord)
 	case "read_file", "list_files":

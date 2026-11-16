@@ -112,6 +112,14 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 	if !exists {
 		return nil, errors.New("unknown action")
 	}
+
+	if err := validateToolArguments(request); err != nil {
+		return nil, structuralToolFeedback(ctx, request, err)
+	}
+	if request.Action != "code_mode" {
+		structuralToolFeedback(ctx, request, nil)
+	}
+
 	// Reject malformed requests before consulting persisted state or review.
 	if policy.Review == reviewRequired || policy.Review == reviewReadSnapshot {
 		if policy.RequiresNetwork && !request.Network {

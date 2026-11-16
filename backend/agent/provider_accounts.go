@@ -377,7 +377,7 @@ func (engine *Engine) TestProvider(ctx context.Context, providerID, modelID stri
 		return false, err
 	}
 
-	result, err := engine.Provider.Complete(ctx, providers.Request{
+	result, err := engine.completeModel(ctx, "", "connection_test", providers.Request{
 		Config:         configuration.Provider,
 		Model:          configuration.Model,
 		ReasoningLevel: configuration.ReasoningLevel,

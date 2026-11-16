@@ -76,11 +76,17 @@ Frequent tools have direct JSON arguments: `exec_command`, `read_file`,
 `list_files`, `apply_patch`, and `update_plan`. File reads default to 200 lines.
 Patches preserve unrelated content and record real diffs for the UI. Long model
 outputs have bounded previews; `tool_output` retrieves exact omitted sections.
+With `activity`, it also reads the agent's own saved inner Code Mode results.
+`recordingTruncated` marks a stored preview whose omitted original data cannot
+be recovered from that activity record.
 
 `tool_search` discovers less common actions. `code_mode` combines tool calls in
 JavaScript and returns selected findings in one model round. It has no direct
 filesystem, network, or process API. Calls execute in invocation order, including
 calls inside `Promise.all`; environmental calls remain independently reviewed.
+The batch allows two minutes of JavaScript execution excluding tool waits, with
+a ten-minute overall limit. Each tool retains its own deadline. Stopping the
+agent cancels the batch and its inner calls; completed actions are never replayed.
 
 ## Background and interactive jobs
 

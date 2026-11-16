@@ -36,6 +36,13 @@ func responsesInput(messages []domain.Message) []any {
 }
 
 func (client *HTTPClient) responses(ctx context.Context, request Request) (Result, error) {
+	published := false
+	if onText := request.OnText; onText != nil {
+		request.OnText = func(text string) { published = published || text != ""; onText(text) }
+	}
+	if onRetry := request.OnRetry; onRetry != nil {
+		request.OnRetry = func(retry Retry) { published = false; onRetry(retry) }
+	}
 	input := responsesInput(request.Messages)
 	tools := []any{}
 	for _, tool := range request.Tools {
@@ -68,7 +75,19 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 			"type": "json_schema", "name": "zentrale_approval", "strict": true, "schema": request.OutputSchema,
 		}}
 	}
-	data, err := client.post(ctx, request.Config, "/responses", body, request.stream())
+	// Keep the unmarked request for a narrowly scoped unsupported-parameter
+	// fallback. Do not retry unrelated model/authentication/quota errors.
+	unmarked, _ := json.Marshal(body)
+	if client.useResponsesBreakpoints(request) {
+		addResponsesBreakpoints(body)
+	}
+	data, err := client.responsesTransport(ctx, request, body)
+	if err != nil && !published && body["prompt_cache_options"] != nil && rejectedCacheOption(err) {
+		client.disableFeature(request, "cache")
+		body = nil
+		_ = json.Unmarshal(unmarked, &body)
+		data, err = client.responsesTransport(ctx, request, body)
+	}
 	if err != nil {
 		return Result{}, err
 	}

@@ -1,7 +1,8 @@
 package domain
 
-// ToolActivity is UI-only evidence for an inner Code Mode operation. Its output
-// never enters the model context unless the script explicitly prints it.
+// ToolActivity records an inner Code Mode operation with a bounded output.
+// It stays outside model context until printed by the script or explicitly
+// retrieved by its owner through tool_output.
 type ToolActivity struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`

@@ -14,7 +14,7 @@ func TestToolsFilteringAndInvocationOrder(t *testing.T) {
 	result, err := Run(context.Background(), `
 const entries = await Promise.all([tools.read({path:"a"}), tools.read({path:"b"})]);
 print(entries.map(item => item.name).join(","));
-`, []string{"read"}, func(_ string, args map[string]any) (any, error) {
+`, []string{"read"}, func(_ context.Context, _ string, args map[string]any) (any, error) {
 		name := args["path"].(string)
 		calls = append(calls, name)
 
@@ -40,7 +40,7 @@ func TestLimitsCancellationAndNoHostAccess(t *testing.T) {
 
 			result, err := Run(ctx, script, []string{
 				"read",
-			}, func(string, map[string]any) (any, error) { return true, nil })
+			}, func(context.Context, string, map[string]any) (any, error) { return true, nil })
 			if strings.Contains(result.Output, "root:") ||
 				len(result.Output) > MaximumOutputBytes ||
 				result.Calls > MaximumCalls {
@@ -85,7 +85,7 @@ func TestToolStringArgumentsRoundTrip(t *testing.T) {
 		for index := 0; index < 80; index++ {
 			names = append(names, fmt.Sprintf("fixture_tool_%d", index))
 		}
-		result, err := Run(context.Background(), source, names, func(_ string, args map[string]any) (any, error) {
+		result, err := Run(context.Background(), source, names, func(_ context.Context, _ string, args map[string]any) (any, error) {
 			if args["cmd"] != command {
 				t.Errorf("tool string changed: %q, expected %q", args["cmd"], command)
 			}
@@ -100,7 +100,7 @@ func TestToolStringArgumentsRoundTrip(t *testing.T) {
 func TestInvalidToolArgumentsNeverReachTheCallback(t *testing.T) {
 	for _, arguments := range []string{`[]`, `"text"`, `42`, `{text:"x".repeat(1024*1024)}`} {
 		calls := 0
-		result, err := Run(context.Background(), "tools.read("+arguments+");", []string{"read"}, func(string, map[string]any) (any, error) {
+		result, err := Run(context.Background(), "tools.read("+arguments+");", []string{"read"}, func(context.Context, string, map[string]any) (any, error) {
 			calls++
 			return nil, nil
 		})

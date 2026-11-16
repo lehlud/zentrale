@@ -95,7 +95,7 @@ func (engine *Engine) tryNativeCompaction(
 		system, tools = approverInstructions, []providers.Tool{inspectTool()}
 	}
 
-	result, err := compactor.Compact(ctx, providers.Request{
+	result, err := engine.traceInference(ctx, agent.ID, "native_compaction", providers.Request{
 		Config:         configuration.Provider,
 		Model:          configuration.Model,
 		ReasoningLevel: configuration.ReasoningLevel,
@@ -104,7 +104,7 @@ func (engine *Engine) tryNativeCompaction(
 		Tools:    tools,
 		Messages: messages,
 		CacheKey: agent.ID,
-	})
+	}, compactor.Compact)
 	if errors.Is(err, providers.ErrCompactionUnsupported) {
 		err = engine.disableNativeCompaction(agent.ID, owner)
 		return agent, "", false, err

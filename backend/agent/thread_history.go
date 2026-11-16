@@ -86,6 +86,12 @@ func (engine *Engine) threadHistory(root domain.Agent, arguments map[string]any)
 		return nil, err
 	}
 
+	return engine.messageHistoryPage(member, arguments)
+}
+
+// The caller establishes ownership before using the common bounded projection.
+// Public threads and independent reviewers keep their separate access policies.
+func (engine *Engine) messageHistoryPage(member domain.Agent, arguments map[string]any) (any, error) {
 	if messageID := stringArg(arguments, "messageId"); messageID != "" {
 		return engine.threadMessage(member, messageID, arguments)
 	}
