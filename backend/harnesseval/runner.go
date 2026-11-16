@@ -278,30 +278,9 @@ func runCase(
 		defer func() { result.CleanupMillis = time.Since(cleanupStarted).Milliseconds() }()
 
 		finish()
-
-		if record.ID != "" {
-			if err := engine.Delete("agent", record.ID); err != nil {
-				result.CleanupError = err.Error()
-			}
-		}
-
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-
-		cleanupConnection, err := connector.Dial(cleanup, machine.ID)
-		if err == nil {
-			defer cleanupConnection.Close()
-
-			cleanupCommand := "rm -rf -- " + remote.Quote(directory)
-
-			if record.ID != "" {
-				cleanupCommand += " " + remote.Quote("/tmp/zentrale-"+record.ID)
-			}
-
-			_, err = remote.Run(cleanup, cleanupConnection.Client, cleanupCommand)
-		}
-
-		if err != nil {
+		if err := cleanupCase(cleanup, store, connector, machine, project, record, result.Sandbox); err != nil {
 			result.CleanupError = err.Error()
 		}
 	}()

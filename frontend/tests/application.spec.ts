@@ -850,6 +850,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
   // Keep this a real-backend E2E: forward traffic and only inject the explicit
   // recovery error into matching server-generated configuration snapshots.
   let failConfiguration = false;
+  let recoverConfigurationOnRetry = false;
   const configurationFaults = new Set<() => void>();
   await page.routeWebSocket("**/events?*", (socket) => {
     const server = socket.connectToServer();
@@ -872,6 +873,12 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
         frame.type === "subscribe" &&
         frame.query.includes("machines(limit:500)")
       ) {
+        // Keep failures active until the user's retry actually restarts the
+        // subscription; an in-flight snapshot must not clear the alert first.
+        if (recoverConfigurationOnRetry) {
+          failConfiguration = false;
+          recoverConfigurationOnRetry = false;
+        }
         configurationSubscriptions.add(frame.requestId);
       } else if (frame.type === "unsubscribe") {
         configurationSubscriptions.delete(frame.requestId);
@@ -987,7 +994,7 @@ test("routes, themes, languages, keyboard and recovery at desktop and mobile wid
     page.getByRole("heading", { name: "Testmodell", exact: true }),
   ).toBeVisible();
 
-  failConfiguration = false;
+  recoverConfigurationOnRetry = true;
   await page.unroute("**/graphql");
   await page.getByRole("button", { name: "Try again" }).first().click();
 

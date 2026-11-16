@@ -2,7 +2,9 @@ package harnesseval
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -344,6 +346,12 @@ func TestEvaluationUsesAllProviderKindsAndIndependentVerifiers(t *testing.T) {
 			result.TotalUsage.RequestCount != result.ModelRequests ||
 			result.DurationMillis == 0 {
 			t.Errorf("%+v", result)
+		}
+		for _, resource := range []struct{ kind, id string }{{"project", result.ProjectID}, {"agent", result.AgentID}} {
+			var value map[string]any
+			if err := store.Load(resource.kind, resource.id, &value); !errors.Is(err, sql.ErrNoRows) {
+				t.Errorf("evaluation retained %s %s: %v", resource.kind, resource.id, err)
+			}
 		}
 	}
 }

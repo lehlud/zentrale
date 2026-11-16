@@ -69,9 +69,20 @@ test("commit identity settings preserve errors and project overrides can return 
   await expect(email).toHaveValue("global@example.test");
 
   await name.fill("  Globales Projektteam  ");
+  const savedIdentity = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/graphql") &&
+      response.request().method() === "POST" &&
+      response.request().postDataJSON().query.includes("setCommitIdentity"),
+  );
   await settings
     .getByRole("button", { name: "Commit-Identität speichern", exact: true })
     .click();
+
+  // Disabled also describes an in-flight save. Wait for the server's commit
+  // acknowledgement before asserting persisted state or making the next edit.
+  expect((await (await savedIdentity).json()).errors).toBeUndefined();
+  await expect(name).toHaveValue("Globales Projektteam");
 
   await expect(
     settings.getByRole("button", {
