@@ -71,16 +71,24 @@ export function MachineCard({
             <p className="mt-1 break-all font-mono text-xs leading-5 text-muted">
               {machine.user}@{machine.host}:{machine.port}
             </p>
-            <p className="mt-2 break-all text-xs leading-5 text-muted">
-              {t("Projektverzeichnis")}:{" "}
-              {machine.workspaceRoot || "~/.local/share/zentrale/projects"}
-            </p>
+            {!machine.jumpHostOnly && (
+              <p className="mt-2 break-all text-xs leading-5 text-muted">
+                {t("Projektverzeichnis")}:{" "}
+                {machine.workspaceRoot || "~/.local/share/zentrale/projects"}
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2 [&_[data-slot=chip]]:max-w-full [&_[data-slot=chip-label]]:whitespace-normal">
-              <SandboxBadge
-                mode={machine.sandbox}
-                status={observedSandbox}
-                showCheckedAt
-              />
+              {machine.jumpHostOnly ? (
+                <Chip size="sm" variant="soft">
+                  {t("Nur Jump-Host")}
+                </Chip>
+              ) : (
+                <SandboxBadge
+                  mode={machine.sandbox}
+                  status={observedSandbox}
+                  showCheckedAt
+                />
+              )}
               {machine.singleUser && (
                 <Chip size="sm" variant="soft">
                   Single-User

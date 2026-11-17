@@ -176,6 +176,9 @@ func (manager *Manager) projectCandidates(project domain.Project) ([]machineCand
 	candidates := make([]machineCandidate, 0, len(project.MachineIDs))
 
 	for _, machineID := range project.MachineIDs {
+		if err := manager.Connector.RequireWorkTarget(machineID); err != nil {
+			return nil, err
+		}
 		candidates = append(candidates, machineCandidate{id: machineID})
 	}
 
@@ -190,6 +193,9 @@ func (manager *Manager) projectCandidates(project domain.Project) ([]machineCand
 		}
 
 		for _, machine := range pool.Machines {
+			if machine.JumpHostOnly {
+				continue
+			}
 			member := machine
 			candidates = append(candidates, machineCandidate{
 				id:         pool.ID + "/" + machine.ID,

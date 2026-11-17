@@ -33,6 +33,14 @@ export function Machines() {
     { key: "port", label: "SSH-Port", type: "number" },
     { key: "user", label: t("Benutzer"), required: true },
     {
+      key: "jumpHostOnly",
+      label: t("Nur als Jump-Host verwenden"),
+      type: "check",
+      description: t(
+        "Diese Maschine dient ausschließlich als SSH-Zwischenstation. Gearbeitet wird auf den Zielmaschinen.",
+      ),
+    },
+    {
       key: "workspaceRoot",
       label: t("Persistentes Projektverzeichnis"),
       required: true,
@@ -55,7 +63,7 @@ export function Machines() {
         )
         .map((k) => ({
           key: String(k.id),
-          label: t("Schlüssel {id}", { id: k.id ?? "" }),
+          label: k.name || t("Schlüssel {id}", { id: k.id ?? "" }),
         })),
     },
     {
@@ -66,7 +74,15 @@ export function Machines() {
         .filter((m) => m.id !== editing?.id)
         .map((m) => ({ key: m.id, label: m.name })),
     },
-    { key: "sandbox", label: "Sandbox", type: "select", options: sandbox },
+    {
+      key: "sandbox",
+      label: "Sandbox",
+      type: "select",
+      options: sandbox,
+      description: t(
+        "Automatisch erfordert eine VM. Fehlen die Voraussetzungen, wird die Ausführung gestoppt.",
+      ),
+    },
     {
       key: "gpuDevicesText",
       label: t("GPU-PCI-Geräte"),
@@ -110,6 +126,7 @@ export function Machines() {
                 port: 22,
                 sandbox: "auto",
                 jumps: [],
+                jumpHostOnly: false,
                 properties: [],
                 workspaceRoot: "~/.local/share/zentrale/projects",
               })
@@ -204,7 +221,22 @@ export function Machines() {
       {editing && (
         <Editor
           title={editing.id ? t("Maschine bearbeiten") : t("Neue Fernmaschine")}
-          fields={fields}
+          fields={(value) =>
+            value.jumpHostOnly
+              ? fields.filter(
+                  (field) =>
+                    ![
+                      "workspaceRoot",
+                      "sandbox",
+                      "gpuDevicesText",
+                      "propertiesText",
+                      "microVMCommand",
+                      "singleUser",
+                      "containers",
+                    ].includes(field.key),
+                )
+              : fields
+          }
           steps={
             editing.id
               ? undefined
@@ -229,10 +261,8 @@ export function Machines() {
                   {
                     id: "environment",
                     title: t("Wie sollen Agenten hier arbeiten?"),
-                    description: t(
-                      "Automatisch erfordert eine VM. Fehlen die Voraussetzungen, wird die Ausführung gestoppt.",
-                    ),
                     fields: [
+                      "jumpHostOnly",
                       "workspaceRoot",
                       "sandbox",
                       "singleUser",

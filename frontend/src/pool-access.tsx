@@ -22,6 +22,7 @@ export function PoolAccess({
   return (
     <Card.Content className="gap-3 border-t border-separator">
       <p className="text-sm font-medium">{t("Pool-Schlüssel")}</p>
+      {key.name && <p className="break-words text-sm">{key.name}</p>}
       <p className="text-sm leading-6 text-muted">
         {t(
           "Den öffentlichen Pool-Schlüssel in ~/.ssh/authorized_keys der Pool-Mitglieder hinterlegen. Bei gemeinsamem Home genügt das einmal.",

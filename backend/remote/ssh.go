@@ -27,6 +27,7 @@ func (e *HostKeyError) Error() string {
 }
 
 type Connection struct {
+	machineID      string
 	Client         *ssh.Client
 	daemon         *daemonClient
 	store          *datastore.Instance
@@ -95,7 +96,7 @@ func (connection *Connection) Retain() (*Connection, error) {
 			return nil, err
 		}
 		connection.daemon.users.Add(1)
-		return &Connection{Client: connection.Client, daemon: connection.daemon, shared: connection.shared, store: connection.store, installationID: connection.installationID}, nil
+		return &Connection{Client: connection.Client, daemon: connection.daemon, shared: connection.shared, store: connection.store, installationID: connection.installationID, machineID: connection.machineID}, nil
 	}
 	connection.shared.mutex.Lock()
 	defer connection.shared.mutex.Unlock()
@@ -106,7 +107,7 @@ func (connection *Connection) Retain() (*Connection, error) {
 
 	connection.shared.users++
 
-	return &Connection{Client: connection.Client, shared: connection.shared, store: connection.store, installationID: connection.installationID}, nil
+	return &Connection{Client: connection.Client, shared: connection.shared, store: connection.store, installationID: connection.installationID, machineID: connection.machineID}, nil
 }
 
 func (connection *Connection) Ping(ctx context.Context) error {
@@ -185,6 +186,9 @@ func poolMachine(pool domain.Pool, id string, machine domain.Machine) domain.Mac
 }
 
 func (connector *Connector) Dial(ctx context.Context, id string) (*Connection, error) {
+	if err := connector.RequireWorkTarget(id); err != nil {
+		return nil, err
+	}
 	if connector.NativeSessionsForTests {
 		connection, err := connector.dialNative(ctx, id)
 		if err != nil {
@@ -224,7 +228,7 @@ func (connector *Connector) Dial(ctx context.Context, id string) (*Connection, e
 		client.release()
 		return nil, err
 	}
-	return &Connection{Client: wire.connection.Client, shared: wire.connection.shared, daemon: client, store: connector.Store, installationID: installation}, nil
+	return &Connection{Client: wire.connection.Client, shared: wire.connection.shared, daemon: client, store: connector.Store, installationID: installation, machineID: id}, nil
 }
 
 func (connector *Connector) routeIdentity(id string) (string, error) {
@@ -285,7 +289,7 @@ func (connector *Connector) Close() {
 }
 
 func (connector *Connector) dialNative(ctx context.Context, id string) (*Connection, error) {
-	conn := &Connection{store: connector.Store}
+	conn := &Connection{store: connector.Store, machineID: id}
 	visiting := map[string]bool{}
 	var identities []verifiedHostIdentity
 	var dial func(string, *ssh.Client) (*ssh.Client, error)

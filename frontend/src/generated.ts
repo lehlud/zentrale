@@ -284,6 +284,7 @@ export type Machine = {
   gpuDevices: Array<string>;
   host: string;
   id: string;
+  jumpHostOnly: boolean;
   jumps: Array<string>;
   keyId: number;
   microVMCommand: string;
@@ -308,6 +309,7 @@ export type MachineInput = {
   gpuDevices?: Array<string> | null;
   host?: string | null;
   id?: string | null;
+  jumpHostOnly?: boolean | null;
   jumps?: Array<string> | null;
   keyId?: number | null;
   microVMCommand?: string | null;
@@ -392,6 +394,7 @@ export type Mutation = {
   refreshGitRepositories: boolean | null;
   refreshModels: boolean | null;
   renameAgent: boolean | null;
+  renameSSHKey: boolean | null;
   resetProjectVM: boolean | null;
   resumeInputs: boolean | null;
   revokeRepositoryKey: boolean | null;
@@ -614,6 +617,7 @@ export type SSHKey = {
   canRevoke: boolean | null;
   fingerprint: string | null;
   id: number | null;
+  name: string | null;
   publicKey: string | null;
   purpose: string | null;
   purposeId: string | null;

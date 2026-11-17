@@ -103,6 +103,9 @@ func RunStreamingInput(
 	if connection.daemon != nil {
 		return runDaemonCommand(ctx, connection, command, input, interactive, onOutput, onChunk)
 	}
+	if err := connection.requireWorkTarget(); err != nil {
+		return "", err
+	}
 	client := connection.Client
 	session, err := commandSession(ctx, client)
 	if err != nil {

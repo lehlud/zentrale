@@ -23,11 +23,12 @@ type Machine struct {
 	ID   string `json:"id" yaml:"id"`
 	Name string `json:"name" yaml:"name"`
 
-	Host  string   `json:"host" yaml:"host"`
-	Port  int      `json:"port" yaml:"port"`
-	User  string   `json:"user" yaml:"user"`
-	KeyID int      `json:"keyId" yaml:"-"`
-	Jumps []string `json:"jumps" yaml:"jumps"`
+	Host         string   `json:"host" yaml:"host"`
+	Port         int      `json:"port" yaml:"port"`
+	User         string   `json:"user" yaml:"user"`
+	KeyID        int      `json:"keyId" yaml:"-"`
+	Jumps        []string `json:"jumps" yaml:"jumps"`
+	JumpHostOnly bool     `json:"jumpHostOnly" yaml:"jump_host_only"`
 
 	Properties []string `json:"properties" yaml:"properties"`
 

@@ -16,7 +16,7 @@ import { useBatch } from "./batches";
 import type { SSHKey } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
-import { Failure, Inspect, Title, useAction } from "./ui";
+import { Editor, Failure, Inspect, Title, useAction } from "./ui";
 import { Icon } from "./icons";
 
 function keyAlgorithm(key: SSHKey) {
@@ -37,6 +37,7 @@ export function Keys() {
   const { params } = useRoute();
   const selected = params.get("type") === "hosts" ? "hosts" : "private";
   const [addingHost, setAddingHost] = useState(false);
+  const [renaming, setRenaming] = useState<{ id: number; name: string }>();
 
   return (
     <>
@@ -103,6 +104,7 @@ export function Keys() {
               );
               const pool = usedBy.find((usage) => usage?.kind === "pool");
               const name =
+                key.name ||
                 repository?.name ||
                 pool?.name ||
                 t("Schlüssel {id}", { id: key.id ?? "" });
@@ -190,6 +192,11 @@ export function Keys() {
                       label={t("Aktionen für {name}", { name })}
                       isDisabled={resource.busy}
                       actions={[
+                        {
+                          id: "rename",
+                          label: t("Umbenennen"),
+                          onAction: () => setRenaming({ id: key.id!, name }),
+                        },
                         ...(key.canRevoke
                           ? [
                               {
@@ -285,6 +292,20 @@ export function Keys() {
           </ResourceList>
         </Tabs.Panel>
       </Tabs>
+      {renaming && (
+        <Editor
+          title={t("SSH-Schlüssel umbenennen")}
+          initial={renaming}
+          fields={[{ key: "name", label: "Name", required: true }]}
+          onClose={() => setRenaming(undefined)}
+          onSave={(value) =>
+            resource.api.mutate(
+              "mutation($id:Int!,$name:String!){renameSSHKey(id:$id,name:$name)}",
+              { id: renaming.id, name: String(value.name).trim() },
+            )
+          }
+        />
+      )}
       {addingHost && <TrustHost onClose={() => setAddingHost(false)} />}
     </>
   );

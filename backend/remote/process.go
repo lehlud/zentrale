@@ -37,6 +37,9 @@ func StartProcess(ctx context.Context, connection *Connection, command string) (
 	if connection.daemon != nil {
 		return startDaemonProcess(ctx, connection, command)
 	}
+	if err := connection.requireWorkTarget(); err != nil {
+		return nil, err
+	}
 	session, err := connection.Client.NewSession()
 	if err != nil {
 		return nil, err

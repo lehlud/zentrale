@@ -277,6 +277,10 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 			if err != nil {
 				return nil, err
 			}
+			names, err := server.Store.SSHKeyNames()
+			if err != nil {
+				return nil, err
+			}
 
 			result := []any{}
 			for _, key := range keys {
@@ -294,6 +298,7 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 					result,
 					map[string]any{
 						"id":          key.ID,
+						"name":        names[key.ID],
 						"publicKey":   pub,
 						"fingerprint": remote.KeyFingerprint(raw),
 						"purpose":     key.Purpose,
@@ -351,6 +356,7 @@ func sshKeyType() *graphql.Object {
 		Name: "SSHKey",
 		Fields: graphql.Fields{
 			"id":        &graphql.Field{Type: graphql.Int},
+			"name":      &graphql.Field{Type: graphql.String},
 			"purpose":   &graphql.Field{Type: graphql.String},
 			"purposeId": &graphql.Field{Type: graphql.String},
 			"usages": &graphql.Field{

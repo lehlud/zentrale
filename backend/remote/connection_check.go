@@ -30,11 +30,19 @@ func (connector *Connector) Check(ctx context.Context, machineID string) domain.
 		return domain.MachineConnectionCheck{Error: err.Error()}
 	}
 
-	connection, err := connector.Dial(ctx, machineID)
+	var connection *Connection
+	if machine.JumpHostOnly {
+		connection, err = connector.dialNative(ctx, machineID)
+	} else {
+		connection, err = connector.Dial(ctx, machineID)
+	}
 	if err != nil {
 		return domain.MachineConnectionCheck{Error: err.Error(), HostKey: HostKeyChallenge(err)}
 	}
 	defer connection.Close()
+	if machine.JumpHostOnly {
+		return domain.MachineConnectionCheck{Connected: true}
+	}
 
 	return domain.MachineConnectionCheck{Connected: true, Sandbox: InspectSandbox(ctx, connection, machine)}
 }

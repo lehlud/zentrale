@@ -181,6 +181,18 @@ func (instance *Instance) SaveWithSSHKeys(kind, id, parent string, value any, cl
 	}
 	defer tx.Rollback()
 
+	if kind == "machine" {
+		var machine domain.Machine
+		if err := json.Unmarshal(data, &machine); err != nil {
+			return err
+		}
+		if machine.JumpHostOnly {
+			if err := checkJumpOnlyRole(tx, id); err != nil {
+				return err
+			}
+		}
+	}
+
 	usages, err := keyUsages(tx)
 	if err != nil {
 		return err
@@ -256,6 +268,9 @@ func (instance *Instance) dropUnusedSSHKey(id int) error {
 	}
 
 	if _, err := tx.Exec(`DELETE FROM private_ssh_keys WHERE id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM resources WHERE kind='ssh_key_name' AND id=CAST(? AS TEXT)`, id); err != nil {
 		return err
 	}
 

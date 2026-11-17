@@ -58,6 +58,9 @@ func StopInvocation(ctx context.Context, connection *Connection, id, generation 
 }
 
 func newDaemonResource(ctx context.Context, connection *Connection, values map[string]any) (*daemonResource, error) {
+	if err := connection.requireWorkTarget(); err != nil {
+		return nil, err
+	}
 	client := connection.daemon
 	invocation, _ := ctx.Value(invocationKey{}).(Invocation)
 	identity := invocation.ID
@@ -277,6 +280,9 @@ type daemonConn struct {
 
 func (connection *Connection) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if connection.daemon == nil {
+		if err := connection.requireWorkTarget(); err != nil {
+			return nil, err
+		}
 		return connection.Client.DialContext(ctx, network, address)
 	}
 	values := map[string]any{"kind": "tunnel", "network": network, "address": address}

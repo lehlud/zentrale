@@ -30,7 +30,7 @@ func ValidID(identifier string) bool {
 // WithMachineDefaults returns a normalized copy. Validation itself does not
 // mutate configuration, so callers can safely validate an existing resource.
 func WithMachineDefaults(machine domain.Machine) domain.Machine {
-	if machine.WorkspaceRoot == "" {
+	if machine.WorkspaceRoot == "" && !machine.JumpHostOnly {
 		machine.WorkspaceRoot = DefaultWorkspaceRoot
 	}
 
@@ -58,6 +58,12 @@ func ValidateMachine(machine domain.Machine) error {
 }
 
 func validateMachine(machine domain.Machine, requireKey bool) error {
+	if machine.JumpHostOnly {
+		if err := validateMachineIdentity(machine, requireKey); err != nil {
+			return err
+		}
+		return validateMachinePorts(machine)
+	}
 	if machine.WorkspaceRoot != "" {
 		if err := ValidateWorkspaceRoot(machine.WorkspaceRoot); err != nil {
 			return err

@@ -129,6 +129,9 @@ func normalizePoolMachines(pool *domain.Pool) error {
 		}
 
 		machine.SingleUser = machine.SingleUser || pool.SingleUser
+		if machine.JumpHostOnly {
+			return fmt.Errorf("pool machine %q: jump-only hosts must be standalone machines referenced through jumps", machine.ID)
+		}
 		machine = WithMachineDefaults(machine)
 		if err := validateMachine(machine, false); err != nil {
 			return fmt.Errorf("pool machine %q: %w", machine.ID, err)

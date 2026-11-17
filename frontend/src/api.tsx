@@ -583,7 +583,7 @@ export function useQuery<T>(
 export const CONFIG = `query {
   sandboxStatuses { machineId mode level checkedAt error }
   machines(limit:500) {
-    id name host port user keyId jumps properties sandbox singleUser containers microVMCommand workspaceRoot gpuDevices storage { id path shared description } quotaCommand
+    id name host port user keyId jumps jumpHostOnly properties sandbox singleUser containers microVMCommand workspaceRoot gpuDevices storage { id path shared description } quotaCommand
   }
   pools(limit:500) {
     id name keyId maxMachines sharedHome workspaceRoot singleUser sandbox storage { id path shared description } quotaCommand machines { id name host user gpuDevices }
@@ -591,7 +591,7 @@ export const CONFIG = `query {
   providers(limit:500) {
     id name kind baseUrl authMode billingMode responsesTransport promptCacheMode oauthClientId oauthProjectId connected accountLabel catalogStatus catalogError modelCount
   }
-  sshKeys { id publicKey fingerprint purpose purposeId canDelete canRevoke usages { kind id name projectId } }
+  sshKeys { id name publicKey fingerprint purpose purposeId canDelete canRevoke usages { kind id name projectId } }
   trustedKeys { publicKey fingerprint }
   projects(limit:500) { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName }
   commitIdentity { name email }

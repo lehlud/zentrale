@@ -14,6 +14,24 @@ user's home. Renaming a project does not move its files. Explicit project paths
 are also supported. Standalone machines have independent workspaces; switching
 machines does not copy files.
 
+## Jump hosts and key names
+
+Enable **Use as jump host only** in a standalone machine's setup when it is an
+SSH gateway. Its connection check verifies authentication and host-key trust
+without running commands or installing a daemon. It needs no Python, VM runtime,
+or project workspace. Select it in a destination machine's ordered **Jump hosts**
+list. The destination remains the machine that executes work.
+
+Jump-only machines are excluded from project targets and agent machine catalogs.
+Direct command execution, terminals and editor tunnels to them are rejected by
+the backend, including retained connections. Reassign projects and finish active
+jobs, editors and terminals before converting a working machine to this role.
+Pool members reference standalone gateways through `jumps`.
+
+Under **Keys → Own keys → Actions → Rename**, set a recognizable key name.
+The name appears in machine and repository key selectors and pool access details.
+Renaming preserves the public/private key, its identifier and all existing uses.
+
 ## Import a pool
 
 A project selects exactly one standalone machine or one pool. Pools group

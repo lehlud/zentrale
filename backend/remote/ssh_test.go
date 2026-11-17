@@ -24,6 +24,7 @@ type sshFixture struct {
 	occupancy    string
 	editorSocket string
 	editorStarts int
+	executions   int
 	mutex        sync.Mutex
 	connections  []net.Conn
 	workers      sync.WaitGroup
@@ -121,6 +122,9 @@ func (fixture *sshFixture) serve(socket net.Conn, configuration *ssh.ServerConfi
 
 			for request := range requests {
 				if request.Type == "exec" {
+					fixture.mutex.Lock()
+					fixture.executions++
+					fixture.mutex.Unlock()
 					var payload struct{ Command string }
 					_ = ssh.Unmarshal(request.Payload, &payload)
 					_ = request.Reply(true, nil)

@@ -20,7 +20,7 @@ func (engine *Engine) projectMachines(agentRecord domain.Agent) ([]domain.Machin
 	result := []domain.Machine{}
 	seen := map[string]bool{}
 	appendMachine := func(machine domain.Machine) {
-		if !seen[machine.ID] {
+		if !machine.JumpHostOnly && !seen[machine.ID] {
 			seen[machine.ID] = true
 			result = append(result, machine)
 		}

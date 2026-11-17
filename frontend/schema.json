@@ -2939,6 +2939,18 @@
             }
           },
           {
+            "name": "jumpHostOnly",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "jumps",
             "type": {
               "kind": "NON_NULL",
@@ -3210,6 +3222,14 @@
             "type": {
               "kind": "SCALAR",
               "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "jumpHostOnly",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
               "ofType": null
             }
           },
@@ -3932,6 +3952,14 @@
           },
           {
             "name": "renameAgent",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "renameSSHKey",
             "type": {
               "kind": "SCALAR",
               "name": "Boolean",
@@ -5825,6 +5853,14 @@
             "type": {
               "kind": "SCALAR",
               "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
               "ofType": null
             }
           },

@@ -45,6 +45,7 @@ export function fieldForServerError(
     [/machine host/i, "host"],
     [/machine user/i, "user"],
     [/machine name/i, "name"],
+    [/SSH key name/i, "name"],
     [/SSH key/i, "keyId"],
     [/microvm_command/i, "microVMCommand"],
     [/gpu_devices/i, "gpuDevicesText"],

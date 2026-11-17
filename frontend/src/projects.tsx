@@ -336,12 +336,13 @@ function Sources({ projectId }: { projectId: string }) {
     sources: Source[];
     sshKeys: {
       id: number;
+      name: string | null;
       purpose: string;
       purposeId: string;
       canDelete: boolean;
     }[];
   }>(
-    `query($id:String!){sources(projectId:$id,limit:500){id projectId name url keyId readOnly bindingId repositoryName projectRoot} sshKeys{id purpose purposeId canDelete}}`,
+    `query($id:String!){sources(projectId:$id,limit:500){id projectId name url keyId readOnly bindingId repositoryName projectRoot} sshKeys{id name purpose purposeId canDelete}}`,
     { id: projectId },
   );
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
@@ -370,7 +371,7 @@ function Sources({ projectId }: { projectId: string }) {
         )
         .map((key) => ({
           key: String(key.id),
-          label: t("Schlüssel {id}", { id: key.id ?? "" }),
+          label: key.name || t("Schlüssel {id}", { id: key.id ?? "" }),
         })),
     },
     { key: "readOnly", label: t("Nur lesend einbinden"), type: "check" },
@@ -524,10 +525,12 @@ function projectFields(
       type: "select",
       required: true,
       options: [
-        ...(data?.machines ?? []).map((machine) => ({
-          key: `machine:${machine.id}`,
-          label: `${t("Fernmaschine")}: ${machine.name}`,
-        })),
+        ...(data?.machines ?? [])
+          .filter((machine) => !machine.jumpHostOnly)
+          .map((machine) => ({
+            key: `machine:${machine.id}`,
+            label: `${t("Fernmaschine")}: ${machine.name}`,
+          })),
         ...(data?.pools ?? []).map((pool) => ({
           key: `pool:${pool.id}`,
           label: `Pool: ${pool.name}`,

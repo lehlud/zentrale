@@ -17,7 +17,13 @@ import {
   type ModalContainerProps,
 } from "@heroui/react";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useAPI } from "./api";
 import { connectionErrorMessage } from "./connection";
@@ -159,6 +165,7 @@ function EditorField({
   disabled?: boolean;
 }) {
   const { t } = useI18n();
+  const descriptionId = useId();
   const validation = {
     name: field.key,
     isInvalid: Boolean(error),
@@ -181,19 +188,27 @@ function EditorField({
 
   if (field.type === "check") {
     return (
-      <Checkbox
-        className="min-h-11"
-        isDisabled={disabled}
-        isSelected={Boolean(value)}
-        onChange={onChange}
-      >
-        <Checkbox.Content>
-          <Checkbox.Control>
-            <Checkbox.Indicator />
-          </Checkbox.Control>
-          <Label>{t(field.label)}</Label>
-        </Checkbox.Content>
-      </Checkbox>
+      <>
+        <Checkbox
+          aria-describedby={field.description ? descriptionId : undefined}
+          className="min-h-11"
+          isDisabled={disabled}
+          isSelected={Boolean(value)}
+          onChange={onChange}
+        >
+          <Checkbox.Content>
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+            <Label>{t(field.label)}</Label>
+          </Checkbox.Content>
+        </Checkbox>
+        {field.description && (
+          <p id={descriptionId} className="text-sm leading-6 text-muted">
+            {t(field.description)}
+          </p>
+        )}
+      </>
     );
   }
 

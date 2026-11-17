@@ -12,7 +12,7 @@ func (connector *Connector) Reattach(ctx context.Context, machineID string) (*Co
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	for delay := 250 * time.Millisecond; ; delay = min(delay*2, 5*time.Second) {
-		if _, err := connector.Machine(machineID); err != nil {
+		if err := connector.RequireWorkTarget(machineID); err != nil {
 			return nil, err
 		}
 		connection, err := connector.Dial(ctx, machineID)

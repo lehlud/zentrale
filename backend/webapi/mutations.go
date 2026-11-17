@@ -228,6 +228,17 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		}),
 	}
 
+	simple("renameSSHKey", graphql.FieldConfigArgument{
+		"id":   &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+		"name": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+	}, func(params graphql.ResolveParams) (any, error) {
+		err := server.Store.RenameSSHKey(params.Args["id"].(int), params.Args["name"].(string))
+		if err == nil {
+			server.Engine.Emit("resources", "", nil)
+		}
+		return err == nil, err
+	})
+
 	simple("deleteSSHKey", graphql.FieldConfigArgument{
 		"id": &graphql.ArgumentConfig{
 			Type: graphql.NewNonNull(graphql.Int),

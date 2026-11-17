@@ -178,7 +178,7 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 	}
 
 	for _, id := range project.MachineIDs {
-		if _, err := engine.Remote.Connector.Machine(id); err != nil {
+		if err := engine.Remote.Connector.RequireWorkTarget(id); err != nil {
 			return project, err
 		}
 	}

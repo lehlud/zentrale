@@ -630,6 +630,13 @@ export const english: Record<string, string> = {
 };
 
 Object.assign(english, {
+  "Nur als Jump-Host verwenden": "Use as jump host only",
+  "Diese Maschine dient ausschließlich als SSH-Zwischenstation. Gearbeitet wird auf den Zielmaschinen.":
+    "This machine only forwards SSH connections. Work runs on the destination machines.",
+  "Nur Jump-Host": "Jump host only",
+  "SSH-Schlüssel umbenennen": "Rename SSH key",
+  "SSH key name must be at most 200 characters without control characters":
+    "SSH key names must contain at most 200 characters and no control characters.",
   Verwalten: "Manage",
   Anmeldeart: "Sign-in method",
   "Datensätze für Agenten freigeben.": "Make datasets available to agents.",
