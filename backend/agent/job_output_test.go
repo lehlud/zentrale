@@ -89,6 +89,7 @@ func TestJobReadPositionPersistsAndExplicitReplayDoesNotRewind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 	defer restarted.Close()
 
 	rest, err := restarted.readJobOutput(job, map[string]any{})

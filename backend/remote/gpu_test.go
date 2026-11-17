@@ -136,7 +136,7 @@ func TestExplicitGPUNeverFallsBackToHostExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	connector := &Connector{Store: store}
+	connector := &Connector{Store: store, NativeSessionsForTests: true}
 	connection, err := connector.Dial(context.Background(), machine.ID)
 	if err != nil {
 		t.Fatal(err)

@@ -17,6 +17,9 @@ type Process struct {
 	reader    *io.PipeReader
 	writer    *io.PipeWriter
 	session   *ssh.Session
+	daemon    *daemonResource
+	ioContext context.Context
+	detach    func() bool
 	stderr    limitedOutput
 	closeOnce sync.Once
 	cleanupMu sync.Mutex
@@ -26,12 +29,15 @@ type Process struct {
 	exitError error // Read only after done is closed.
 }
 
-func StartProcess(ctx context.Context, client *ssh.Client, command string) (*Process, error) {
+func StartProcess(ctx context.Context, connection *Connection, command string) (*Process, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	session, err := client.NewSession()
+	if connection.daemon != nil {
+		return startDaemonProcess(ctx, connection, command)
+	}
+	session, err := connection.Client.NewSession()
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +114,17 @@ func (process *Process) Read(buffer []byte) (int, error) {
 }
 
 func (process *Process) Write(buffer []byte) (int, error) {
+	if process.daemon != nil {
+		return process.daemon.write(process.ioContext, buffer, false)
+	}
 	return process.writer.Write(buffer)
 }
 
 func (process *Process) CloseWrite() error {
+	if process.daemon != nil {
+		_, err := process.daemon.write(process.ioContext, nil, true)
+		return err
+	}
 	return process.writer.Close()
 }
 
@@ -139,9 +152,17 @@ func (process *Process) Close() error {
 		process.cleanup = nil
 		process.cleanupMu.Unlock()
 		_ = process.reader.CloseWithError(context.Canceled)
-		_ = process.writer.CloseWithError(context.Canceled)
+		if process.writer != nil {
+			_ = process.writer.CloseWithError(context.Canceled)
+		}
 		// Network shutdown must not delay local cancellation during an outage.
 		go func() {
+			if process.daemon != nil {
+				if process.detach == nil || !process.detach() {
+					process.daemon.stop()
+				}
+				return
+			}
 			_ = process.session.Signal(ssh.SIGKILL)
 			_ = process.session.Close()
 		}()
@@ -151,4 +172,11 @@ func (process *Process) Close() error {
 		}
 	})
 	return nil
+}
+
+func (process *Process) Terminate() error {
+	if process.daemon != nil {
+		go process.daemon.stop()
+	}
+	return process.Close()
 }

@@ -201,7 +201,7 @@ for (const english of [false, true]) {
     await next();
     const machineChoice = dialog
       .getByRole("button", {
-        name: label("Fernmaschinen", "Remote machines"),
+        name: label("Fernmaschine oder Pool", "Remote machine or pool"),
       })
       .and(dialog.locator('[data-slot="select-trigger"]'));
 
@@ -209,9 +209,12 @@ for (const english of [false, true]) {
 
     await machineChoice.click();
     await page
-      .getByRole("option", { name: config.machines[0].name, exact: true })
+      .getByRole("option", {
+        name: `${label("Fernmaschine", "Remote machine")}: ${config.machines[0].name}`,
+        exact: true,
+      })
       .click();
-    await page.keyboard.press("Escape");
+
     await capture("project-machines");
     await next();
     await capture("project-repository");

@@ -6,6 +6,13 @@ export function mutationConfirmation(
   query: string,
   variables: Record<string, unknown>,
 ): Confirmation | undefined {
+  if (/\bresetProjectVM\b/.test(query)) {
+    return {
+      message:
+        "Alle Projekt-VMs auf den verwendeten Fernmaschinen zurücksetzen? Installierte Pakete und Dateien innerhalb der VMs werden gelöscht. Projektdateien bleiben erhalten. Stoppe zuerst alle Agenten und Jobs und schließe die VM-Terminals.",
+      actionLabel: "Projekt-VM zurücksetzen",
+    };
+  }
   if (/\bstopEditor\b/.test(query)) {
     return {
       message:

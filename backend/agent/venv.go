@@ -102,7 +102,7 @@ func (engine *Engine) cleanupVenv(agentRecord domain.Agent, id string) (any, err
 	}
 	defer conn.Close()
 
-	_, err = remote.Run(ctx, conn.Client, "rm -rf -- "+remote.Quote(dir))
+	_, err = remote.Run(ctx, conn, "rm -rf -- "+remote.Quote(dir))
 	if err != nil {
 		return nil, err
 	}

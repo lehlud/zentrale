@@ -169,7 +169,7 @@ func (engine *Engine) file(
 
 	input := strings.NewReader(payload)
 	phase = "remote helper"
-	out, err := remote.RunPipe(ctx, connection.Client, command, input)
+	out, err := remote.RunPipe(ctx, connection, command, input)
 	if err != nil {
 		return nil, fmt.Errorf("remote file operation: %w", err)
 	}
@@ -211,12 +211,6 @@ func decodeFileResult(output string) (map[string]any, error) {
 func (engine *Engine) invalidate(agentID string) {
 	engine.mu.Lock()
 
-	for _, permission := range engine.grants[agentID] {
-		if permission.cancel != nil {
-			permission.cancel()
-		}
-	}
-
 	delete(engine.grants, agentID)
 	engine.mu.Unlock()
 }
@@ -241,16 +235,10 @@ func (engine *Engine) activeGrants(ctx context.Context, agentRecord domain.Agent
 		if err == nil &&
 			data["sha256"] == permission.Hash &&
 			data["machineId"] == permission.MachineID &&
-			data["sandbox"] != "none" {
+			data["sandbox"] != "none" && permission.Revision == engine.instructionRevision(agentRecord.ProjectID) {
 			active = append(active, permission)
 		} else {
-			if permission.cancel != nil {
-				permission.cancel()
-			}
-
-			engine.mu.Lock()
-			delete(engine.grants[agentRecord.ID], permission.Path)
-			engine.mu.Unlock()
+			engine.revokeReadGrant(agentRecord.ID, permission)
 		}
 	}
 
@@ -284,18 +272,15 @@ func (engine *Engine) approvedRead(
 		return nil, errors.New("user instructions changed; request the file again")
 	}
 
-	if !network && level != "none" && ok && permission.Hash == hash && permission.MachineID == machine {
+	if !network && level != "none" && ok && permission.Hash == hash && permission.MachineID == machine && permission.Revision == revision {
 		delete(data, "sha256")
 		return data, nil
 	}
 
-	if ok && permission.cancel != nil {
-		permission.cancel()
+	if ok {
+		engine.revokeReadGrant(agentRecord.ID, permission)
 	}
 
-	engine.mu.Lock()
-	delete(engine.grants[agentRecord.ID], filename)
-	engine.mu.Unlock()
 	reviewed := map[string]any{}
 	for k, v := range args {
 		reviewed[k] = v
@@ -323,7 +308,7 @@ func (engine *Engine) approvedRead(
 	}
 
 	if blanket && level != "none" {
-		engine.rememberReadGrant(agentRecord, filename, hash, machine)
+		engine.rememberReadGrant(agentRecord, filename, hash, machine, revision)
 	}
 
 	delete(data, "sha256")

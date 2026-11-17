@@ -34,7 +34,7 @@ func TestPoolConnectionSamplesDistinctMembersAndRemembersSandbox(t *testing.T) {
 	peer, err := testssh.StartWithCommandHandler(func(command string, _ io.Reader, stdout, _ io.Writer) int {
 		if strings.Contains(command, "test -c /dev/kvm") {
 			probes.Add(1)
-			_, _ = fmt.Fprintln(stdout, "bwrap")
+			_, _ = fmt.Fprintln(stdout, "microvm")
 		}
 		return 0
 	})
@@ -92,7 +92,7 @@ func TestPoolConnectionSamplesDistinctMembersAndRemembersSandbox(t *testing.T) {
 				if err != nil || configured.Name != member.Name || configured.KeyID != pool.KeyID {
 					t.Fatalf("sample escaped the configured pool identity: %+v, %v", member, err)
 				}
-				if !member.Connected || member.Error != "" || member.Sandbox.Level != "bwrap" {
+				if !member.Connected || member.Error != "" || member.Sandbox.Level != "microvm" {
 					t.Fatalf("member was not actually probed: %+v", member)
 				}
 				if member.Sandbox.MachineID != member.MachineID {

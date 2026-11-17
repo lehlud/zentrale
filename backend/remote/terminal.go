@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
-	"golang.org/x/crypto/ssh"
 )
 
 //go:embed scripts/terminal.py
@@ -25,9 +24,10 @@ func terminalCommand(command string) string {
 // Terminal uses the sandbox's controlling PTY, never a host SSH PTY.
 type Terminal struct {
 	*Process
-	writeMu   sync.Mutex
-	failureMu sync.Mutex
-	failure   error
+	writeMu      sync.Mutex
+	failureMu    sync.Mutex
+	failure      error
+	ConfirmInput func(uint64, func() error) error
 }
 
 func ValidTerminalSize(cols, rows int) bool {
@@ -45,9 +45,13 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		Command: WithCommitIdentity(`exec "${SHELL:-/bin/sh}" -i`, target.CommitIdentity),
 	}
 	ReportStartupPhase(ctx, "preparing_terminal")
+	invocation, _ := ctx.Value(invocationKey{}).(Invocation)
+	reattaching := connection.DaemonEnabled() && invocation.AttachOnly
 	var command string
 	var err error
-	if target.PreparedSandbox == SandboxMicroVM && machine.MicroVMCommand == "" {
+	if reattaching {
+		command = ""
+	} else if target.PreparedSandbox == SandboxMicroVM && machine.MicroVMCommand == "" {
 		// Auto machines may already have a harness-validated native selection.
 		// Preserve Sandbox's workspace/config validation, then avoid repeating
 		// auto detection only. Stage still performs every native prerequisite,
@@ -65,7 +69,7 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		return nil, err
 	}
 	ReportStartupPhase(ctx, "starting_terminal")
-	process, err := StartProcess(ctx, connection.Client, command)
+	process, err := StartProcess(ctx, connection, command)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +79,7 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 	go func() {
 		// WebSocket pings cover only the browser/backend hop, not an idle SSH
 		// transport. A lost SSH peer must also unblock the terminal's readers.
-		err := terminalKeepalive(keepaliveContext, 20*time.Second, 15*time.Second, connection.Ping)
+		err := terminalKeepalive(keepaliveContext, 20*time.Second, 14*time.Minute, connection.Ping)
 		if err != nil && keepaliveContext.Err() == nil {
 			terminal.failureMu.Lock()
 			terminal.failure = fmt.Errorf("terminal SSH connection lost: %w", err)
@@ -83,6 +87,13 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 			terminal.Close()
 		}
 	}()
+	if reattaching {
+		if err := terminal.Resize(cols, rows); err != nil {
+			terminal.Close()
+			return nil, err
+		}
+		return terminal, nil
+	}
 	// StartProcess does not wait for shell output. Send the geometry consumed
 	// by the relay before it forks the child.
 	if err := terminal.frame(map[string]int{"cols": cols, "rows": rows}); err != nil {
@@ -100,6 +111,13 @@ func StartTerminal(ctx context.Context, connection *Connection, machine domain.M
 		return nil, errors.New("invalid terminal startup acknowledgement")
 	}
 	return terminal, nil
+}
+
+func (terminal *Terminal) AcceptInput(sequence uint64, write func() error) error {
+	if terminal.ConfirmInput != nil {
+		return terminal.ConfirmInput(sequence, write)
+	}
+	return write()
 }
 
 func terminalKeepalive(ctx context.Context, interval, timeout time.Duration, ping func(context.Context) error) error {
@@ -146,6 +164,9 @@ func (terminal *Terminal) frame(value any) error {
 }
 
 func (terminal *Terminal) Input(data []byte) error {
+	if terminal.ConfirmInput != nil && len(data) > 16384 {
+		return errors.New("reconnectable terminal input exceeds 16 KiB")
+	}
 	if len(data) > 65536 {
 		return errors.New("terminal input exceeds 64 KiB")
 	}
@@ -166,7 +187,7 @@ func (terminal *Terminal) Exit(ctx context.Context) *int {
 	case <-terminal.done:
 		code := 0
 		if terminal.exitError != nil {
-			var status *ssh.ExitError
+			var status interface{ ExitStatus() int }
 			if !errors.As(terminal.exitError, &status) {
 				return nil
 			}

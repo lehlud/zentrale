@@ -130,7 +130,7 @@ func TestCommandExitDoesNotWaitForNoninteractiveInputEOF(t *testing.T) {
 	defer writer.Close()
 	done := make(chan error, 1)
 	go func() {
-		text, err := RunPipe(context.Background(), client, "fixture", input)
+		text, err := RunPipe(context.Background(), &Connection{Client: client}, "fixture", input)
 		if !strings.Contains(text, "finished before stdin EOF") && err == nil {
 			err = errors.New("lost command output")
 		}
@@ -153,7 +153,7 @@ func TestCommandSetupDeadlineReleasesUnresponsiveTransport(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
 			done := make(chan error, 1)
-			go func() { _, err := Run(ctx, client, "fixture"); done <- err }()
+			go func() { _, err := Run(ctx, &Connection{Client: client}, "fixture"); done <- err }()
 			select {
 			case err := <-done:
 				if !errors.Is(err, context.DeadlineExceeded) {
@@ -204,7 +204,10 @@ func TestCommandSetupCancellationWithLateAckKeepsNeighborAlive(t *testing.T) {
 				fixtureCommandExit(channel, 0)
 			})
 			neighborDone := make(chan error, 1)
-			go func() { _, err := Run(context.Background(), client, "neighbor"); neighborDone <- err }()
+			go func() {
+				_, err := Run(context.Background(), &Connection{Client: client}, "neighbor")
+				neighborDone <- err
+			}()
 			select {
 			case <-neighborStarted:
 			case <-time.After(time.Second):
@@ -213,7 +216,7 @@ func TestCommandSetupCancellationWithLateAckKeepsNeighborAlive(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 			defer cancel()
 			cancelled := make(chan error, 1)
-			go func() { _, err := Run(ctx, client, "late-ack"); cancelled <- err }()
+			go func() { _, err := Run(ctx, &Connection{Client: client}, "late-ack"); cancelled <- err }()
 			select {
 			case err := <-cancelled:
 				if !errors.Is(err, context.DeadlineExceeded) {
@@ -262,7 +265,7 @@ func TestCommandDeadlineAfterOutputEOFKeepsNeighborAlive(t *testing.T) {
 	})
 	neighborDone := make(chan error, 1)
 	go func() {
-		text, err := Run(context.Background(), client, "neighbor")
+		text, err := Run(context.Background(), &Connection{Client: client}, "neighbor")
 		if err == nil && !strings.Contains(text, "neighbor completed") {
 			err = errors.New("neighbor output lost")
 		}
@@ -277,7 +280,7 @@ func TestCommandDeadlineAfterOutputEOFKeepsNeighborAlive(t *testing.T) {
 	defer cancel()
 	targetDone := make(chan error, 1)
 	go func() {
-		text, err := Run(ctx, client, "missing-exit-status")
+		text, err := Run(ctx, &Connection{Client: client}, "missing-exit-status")
 		if !strings.Contains(text, "last output before EOF") {
 			err = errors.New("deadline lost captured output")
 		}

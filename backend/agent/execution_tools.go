@@ -102,6 +102,9 @@ func (engine *Engine) runContainer(
 	request interaction,
 ) (any, error) {
 	runtime := stringArg(request.Arguments, "runtime")
+	if runtime == "" {
+		runtime = "podman"
+	}
 	if runtime != "docker" && runtime != "podman" {
 		return nil, errors.New("runtime must be docker or podman")
 	}
@@ -130,7 +133,7 @@ func (engine *Engine) runContainer(
 	return engine.executeRemote(ctx, agentRecord, executionRequest{
 		Command:           strings.Join(commandParts, " "),
 		Network:           request.Network,
-		OutsideSandbox:    true,
+		OutsideSandbox:    false,
 		RequireContainers: true,
 	})
 }

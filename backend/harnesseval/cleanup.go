@@ -31,12 +31,12 @@ func cleanupCase(
 	var records []map[string]any
 	if record.ID != "" {
 		var err error
-		records, err = store.List("microvm", &record.ID, 500, 0)
+		records, err = store.List("microvm", &project.ID, 500, 0)
 		if err != nil {
 			return err
 		}
 		for _, vm := range records {
-			if vm["agentId"] != record.ID || vm["projectId"] != project.ID || vm["machineId"] != machine.ID || vm["workspace"] != project.Directory {
+			if vm["agentId"] != remote.EditorScopeID(project.ID, "") || vm["projectId"] != project.ID || vm["machineId"] != machine.ID || vm["workspace"] != project.Directory {
 				return errors.New("refuse cleanup of a VM outside this evaluation scope")
 			}
 		}
@@ -51,15 +51,15 @@ func cleanupCase(
 
 	if record.ID != "" && machine.MicroVMCommand == "" && (len(records) > 0 || sandbox == remote.SandboxMicroVM) {
 		_, err = remote.ManageMicroVM(ctx, connection, machine, "remove", remote.Execution{
-			AgentID: record.ID, ProjectID: project.ID, Workspace: project.Directory,
-			TemporaryDirectory: "/tmp/zentrale-" + record.ID,
+			AgentID: remote.EditorScopeID(project.ID, ""), ProjectID: project.ID, Workspace: project.Directory,
+			TemporaryDirectory: connection.ProjectTemporaryDirectory(project.ID),
 		})
 		// Keep backing files intact if the guest could not stop. The logical
 		// deletion below leaves a durable cleanup record for a failed removal.
 		if err != nil {
 			return err
 		}
-		if err := store.Remove("microvm", record.ID+":"+machine.ID); err != nil {
+		if err := store.Remove("microvm", remote.EditorScopeID(project.ID, "")+":"+machine.ID); err != nil {
 			return err
 		}
 	}
@@ -67,7 +67,8 @@ func cleanupCase(
 	command := "rm -rf -- " + remote.Quote(directory)
 	if record.ID != "" {
 		command += " " + remote.Quote("/tmp/zentrale-"+record.ID)
+		command += " " + remote.Quote(connection.ProjectTemporaryDirectory(project.ID))
 	}
-	_, err = remote.Run(ctx, connection.Client, command)
+	_, err = remote.Run(ctx, connection, command)
 	return err
 }

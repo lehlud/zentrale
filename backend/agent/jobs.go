@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/lehlud/zentrale/datastore"
 	"io"
 	"strings"
 	"time"
-
-	"golang.org/x/crypto/ssh"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
@@ -42,8 +41,8 @@ type executionRequest struct {
 
 	Command        string
 	DisplayCommand string
-	Input          io.Reader
-	OpenInput      func(context.Context) (io.ReadCloser, error)
+	Input          io.Reader                                    `json:"-"`
+	OpenInput      func(context.Context) (io.ReadCloser, error) `json:"-"`
 
 	Network           bool
 	OutsideSandbox    bool
@@ -225,6 +224,7 @@ func (engine *Engine) startJob(
 
 	if request.Interactive {
 		running.input = newJobInput()
+		running.inputReady = make(chan struct{})
 		input = running.input
 		context.AfterFunc(jobContext, running.input.stop)
 	}
@@ -305,14 +305,17 @@ func (engine *Engine) runJob(
 	defer engine.Remote.Release("job:" + running.job.ID)
 
 	monitorCompleted := make(chan struct{})
-	go func() {
+	go func(monitorContext context.Context) {
 		defer close(monitorCompleted)
 
-		engine.monitorOccupancy(ctx, running, machine, connection)
-	}()
+		engine.monitorOccupancy(monitorContext, running, machine, connection)
+	}(ctx)
 	lastPublished := time.Time{}
+	if connection.DaemonEnabled() {
+		ctx = engine.daemonJobContext(ctx, running)
+	}
 	output, runError := runWithJobInput(ctx, input, running.execution.OpenInput, func(input io.Reader) (string, error) {
-		return remote.RunStreamingInput(ctx, connection.Client, command, input, running.input != nil, func(output string) {
+		return remote.RunStreamingInput(ctx, connection, command, input, running.input != nil, func(output string) {
 			running.mu.Lock()
 			running.job.Output = output
 			publish := time.Since(lastPublished) >= 500*time.Millisecond
@@ -354,13 +357,26 @@ func (engine *Engine) runJob(
 	running.cancel()
 	<-monitorCompleted
 	running.mu.Lock()
+	stopJob := running.job
+	running.mu.Unlock()
+	stopRequested := engine.jobStopRequested(stopJob)
+	if engine.ctx.Err() != nil && connection.DaemonEnabled() && !stopRequested {
+		return
+	}
+	var stopError error
+	if stopRequested && connection.DaemonEnabled() {
+		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stopError = engine.confirmDaemonStop(stopContext, running.job.ID, running.job.MachineID, connection)
+		cancel()
+	}
+	running.mu.Lock()
 	running.job.Output = output
 	running.job.Status = "completed"
 
 	if runError != nil {
 		running.job.Status = "failed"
 		running.job.Error = runError.Error()
-		var exitStatus *ssh.ExitError
+		var exitStatus interface{ ExitStatus() int }
 		var inputFailure *jobInputError
 		connectionLost := !commandCancelled &&
 			!errors.As(runError, &exitStatus) &&
@@ -380,6 +396,10 @@ func (engine *Engine) runJob(
 		}
 	}
 
+	if stopRequested && stopError != nil {
+		running.job.Status = "stopping"
+		running.job.Error = "stop requested; awaiting confirmation from the original remote process"
+	}
 	final := running.job
 	window := running.output.Window()
 	yielded := running.yielded
@@ -396,6 +416,11 @@ func (engine *Engine) runJob(
 	)
 
 	_ = engine.Store.Save("job", final.ID, final.AgentID, final)
+	if stopError == nil {
+		_ = engine.Store.DeleteCredential(daemonReceiptName(final.ID))
+		_ = engine.Store.DeleteCredential("job-input/" + final.ID)
+		_ = engine.Store.Remove("job_stop", final.ID)
+	}
 
 	if yielded {
 		completionError, _ := outputPreview(final.Error, 500)
@@ -456,6 +481,9 @@ func (engine *Engine) monitorOccupancy(
 				if ctx.Err() != nil {
 					return
 				}
+				if connection.DaemonEnabled() && errors.Is(err, context.DeadlineExceeded) {
+					continue
+				}
 				running.mu.Lock()
 				running.terminationReason = "machine became unavailable or another user logged in"
 				running.mu.Unlock()
@@ -500,6 +528,11 @@ func (engine *Engine) jobToolArguments(
 	engine.mu.Unlock()
 
 	if action == "job_stop" {
+		if job.Status == "running" {
+			if err := engine.Store.SaveResources([]datastore.ResourceWrite{jobStopWrite(job)}); err != nil {
+				return nil, err
+			}
+		}
 		if running != nil {
 			running.cancel()
 		}

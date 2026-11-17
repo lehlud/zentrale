@@ -111,6 +111,7 @@ func TestPublishedVSCodeWorkbenchOverSSH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.Remote.Connector.NativeSessionsForTests = true
 	defer engine.Close()
 
 	authentication, err := auth.New(store, "")

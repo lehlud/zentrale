@@ -35,6 +35,9 @@ func TestVSCodeWorkbenchInsideMicroVMLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := store.PrepareEvaluationCopy(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
 	hash, err := auth.Hash("isolated editor smoke password")
 	if err != nil {
@@ -65,7 +68,7 @@ func TestVSCodeWorkbenchInsideMicroVMLive(t *testing.T) {
 	}
 
 	t.Cleanup(func() { connection.Close() })
-	base, err := remote.Run(ctx, connection.Client, "mktemp -d /tmp/zentrale-vscode-microvm-XXXXXXXX")
+	base, err := remote.Run(ctx, connection, "mktemp -d /tmp/zentrale-vscode-microvm-XXXXXXXX")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,12 +107,12 @@ func TestVSCodeWorkbenchInsideMicroVMLive(t *testing.T) {
 			t.Error(err)
 		}
 
-		if _, err := remote.Run(cleanup, connection.Client, "rm -rf -- "+remote.Quote(base)+" "+remote.Quote(temporary)); err != nil {
+		if _, err := remote.Run(cleanup, connection, "rm -rf -- "+remote.Quote(base)+" "+remote.Quote(temporary)); err != nil {
 			t.Error(err)
 		}
 	})
 	command := "mkdir -p -- " + remote.Quote(workspace) + " && printf %s " + remote.Quote("print('remote workspace')\n") + " > " + remote.Quote(workspace+"/remote.py") + " && printf %s " + remote.Quote("const answer: number = 'wrong';\n") + " > " + remote.Quote(workspace+"/remote.ts")
-	if _, err := remote.Run(ctx, connection.Client, command); err != nil {
+	if _, err := remote.Run(ctx, connection, command); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,7 +184,7 @@ func TestVSCodeWorkbenchInsideMicroVMLive(t *testing.T) {
 					return
 				}
 
-				content, err := remote.Run(request.Context(), connection.Client, "cat -- "+remote.Quote(file))
+				content, err := remote.Run(request.Context(), connection, "cat -- "+remote.Quote(file))
 				if err != nil {
 					writer.WriteHeader(http.StatusNotFound)
 					return

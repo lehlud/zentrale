@@ -52,7 +52,7 @@ func TestFedoraInstallAcceptsNamesButRejectsOptionsAndShellInput(t *testing.T) {
 
 func TestAutomaticVMStopPreservesScopeAndDisk(t *testing.T) {
 	var calls atomic.Int32
-	engine, record, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+	engine, record, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		calls.Add(1)
 
 		if !strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'stop'") {
@@ -89,7 +89,7 @@ func TestAutomaticVMStopPreservesScopeAndDisk(t *testing.T) {
 	}
 
 	var retained domain.Agent
-	records, err := engine.listAll("microvm", &record.ID)
+	records, err := engine.listAll("microvm", &record.ProjectID)
 	if err != nil ||
 		len(records) != 1 ||
 		engine.Store.Load("agent", record.ID, &retained) != nil ||
@@ -106,7 +106,7 @@ func TestAutomaticVMStopPreservesScopeAndDisk(t *testing.T) {
 
 func TestMicroVMActionsRequireApprovalAndPackagesRequireNetwork(t *testing.T) {
 	var remoteCalls, approvals atomic.Int32
-	engine, record, _ := executionTestEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+	engine, record, _ := vmExecutionTestEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
 		approvals.Add(1)
 		return providers.Result{
 			Text:       `{"allowed":false,"reason":"test denial","blanket":false}`,
@@ -137,21 +137,21 @@ func TestMicroVMActionsRequireApprovalAndPackagesRequireNetwork(t *testing.T) {
 		t.Fatal("missing network grant reached approval or remote execution")
 	}
 
-	for _, action := range []string{"packages_install", "microvm_reset", "microvm_info"} {
+	for _, action := range []string{"packages_install", "microvm_info"} {
 		if _, err := engine.dispatch(context.Background(), record, call(action, true)); err == nil ||
 			!strings.Contains(err.Error(), "test denial") {
 			t.Fatalf("%s bypassed approval: %v", action, err)
 		}
 	}
 
-	if approvals.Load() != 3 || remoteCalls.Load() != 0 {
+	if approvals.Load() != 2 || remoteCalls.Load() != 0 {
 		t.Fatalf("denied actions reached the SSH host: approvals=%d remote=%d", approvals.Load(), remoteCalls.Load())
 	}
 }
 
 func TestAgentMicroVMStartupFailureBlocksInference(t *testing.T) {
 	var providerCalls atomic.Int32
-	engine, record, _ := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
+	engine, record, _ := vmExecutionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		providerCalls.Add(1)
 		return providers.Result{}, nil
 	}), func(command string, input io.Reader, stdout, stderr io.Writer) int {

@@ -19,8 +19,10 @@ import (
 )
 
 func copySnapshot(source, destination string) error {
-	if _, err := os.Stat(source + ".wal"); err == nil {
-		return errors.New("use a closed database snapshot without a WAL file")
+	for _, suffix := range []string{".wal", "-wal"} {
+		if _, err := os.Stat(source + suffix); err == nil {
+			return errors.New("use a closed database snapshot without a WAL file")
+		}
 	}
 
 	input, err := os.Open(source)
@@ -61,6 +63,27 @@ func copySnapshot(source, destination string) error {
 
 	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		return errors.New("snapshot changed while copying")
+	}
+	if key, err := os.Open(source + ".credentials.key"); err == nil {
+		defer key.Close()
+		info, err := key.Stat()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Size() != 32 {
+			return errors.New("snapshot credential key must be a regular 32-byte file")
+		}
+		output, err := os.OpenFile(destination+".credentials.key", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		_, copyError := io.Copy(output, key)
+		closeError := output.Close()
+		if err := errors.Join(copyError, closeError); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 
 	return nil
@@ -109,7 +132,7 @@ func writeReport(destination string, data []byte, inputs ...string) error {
 
 func run() error {
 	syscall.Umask(0077)
-	snapshot := flag.String("snapshot", "", "closed DuckDB snapshot containing providers, models and SSH configuration")
+	snapshot := flag.String("snapshot", "", "closed SQLite snapshot containing providers, models and SSH configuration; keep its adjacent .credentials.key file")
 	planPath := flag.String("plan", "", "evaluation plan JSON; model requests use the configured provider accounts")
 	reportPath := flag.String(
 		"report",
@@ -148,7 +171,7 @@ func run() error {
 	}
 	defer os.RemoveAll(directory)
 
-	copyPath := filepath.Join(directory, "evaluation.duckdb")
+	copyPath := filepath.Join(directory, "evaluation.sqlite")
 	if err := copySnapshot(*snapshot, copyPath); err != nil {
 		return err
 	}
@@ -158,6 +181,9 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	if err := store.PrepareEvaluationCopy(); err != nil {
+		return err
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

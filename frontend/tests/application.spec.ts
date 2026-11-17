@@ -334,6 +334,10 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .getByRole("option", { name: "Schlüssel 1" })
     .click();
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
+  await dialog.getByRole("button", { name: /Sandbox/ }).click();
+  await page
+    .getByRole("option", { name: "Nur Auto-Approval", exact: true })
+    .click();
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
 
   await expect(dialog).not.toBeVisible();
@@ -344,13 +348,13 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     .click();
 
   await expect(
-    page.getByText("Sandbox: Automatisch → Ohne Sandbox", { exact: true }),
+    page.getByText("Sandbox: Ohne Sandbox", { exact: true }),
   ).toBeVisible();
 
   await page.reload();
 
   await expect(
-    page.getByText("Sandbox: Automatisch → Ohne Sandbox", { exact: true }),
+    page.getByText("Sandbox: Ohne Sandbox", { exact: true }),
   ).toBeVisible();
 
   await navigateToPage(page, "Provider");
@@ -401,12 +405,12 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
   ).toHaveCount(0);
 
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
-  await dialog.getByRole("button", { name: /Fernmaschinen/ }).click();
+  await dialog.getByRole("button", { name: /Fernmaschine oder Pool/ }).click();
   await page
     .locator('[data-slot="select-popover"]:not([data-exiting])')
     .getByRole("option", { name: "Testserver" })
     .click();
-  await page.keyboard.press("Escape");
+
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
   await dialog.getByRole("button", { name: "Weiter", exact: true }).click();
   await dialog

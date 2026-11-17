@@ -66,7 +66,6 @@ func (engine *Engine) scheduleRemovalCleanup(selected map[string]bool, projectID
 				<-wait
 			}
 			engine.closeMCPServers(id)
-			_ = engine.Editors.StopAgent(id)
 			engine.invalidate(id)
 			engine.releaseConnection(id)
 			engine.mu.Lock()

@@ -39,7 +39,6 @@ var toolPolicies = map[string]toolPolicy{
 	"python":               {CommandLifetime: true},
 	"venv_create":          {CommandLifetime: true},
 	"packages_install":     {RequiresNetwork: true, CommandLifetime: true},
-	"microvm_reset":        {},
 	"microvm_info":         {},
 	"container":            {CommandLifetime: true},
 	"websearch":            {RequiresNetwork: true},
@@ -104,8 +103,11 @@ func (engine *Engine) dispatch(ctx context.Context, agentRecord domain.Agent, ca
 	if err != nil {
 		return nil, err
 	}
-	if request.Action == "microvm_reset" && (agentRecord.Role != "main" || agentRecord.ParentID != "") {
-		return nil, errors.New("only the main agent can reset the shared environment")
+	if request.Action == "microvm_reset" {
+		return nil, errors.New("VM reset is a user action in the project menu")
+	}
+	if boolArg(request.Arguments, "guestRoot") {
+		return nil, errors.New("arbitrary guest administration is unavailable to agents; use packages_install for packages")
 	}
 
 	policy, exists := toolPolicies[request.Action]
@@ -321,7 +323,6 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 			Command:        stringArg(arguments, "command"),
 			Network:        request.Network,
 			OutsideSandbox: boolArg(arguments, "outsideSandbox"),
-			GuestRoot:      boolArg(arguments, "guestRoot"),
 			YieldTime:      time.Duration(yield) * time.Millisecond,
 			Interactive:    boolArg(arguments, "interactive"),
 			TTY:            boolArg(arguments, "tty"),
@@ -329,7 +330,7 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 		})
 	case "packages_install":
 		return engine.installPackages(ctx, agentRecord, arguments)
-	case "microvm_reset", "microvm_info":
+	case "microvm_info":
 		return engine.microVMTool(ctx, agentRecord, request.Action)
 	case "python":
 		return engine.runPython(ctx, agentRecord, arguments, request.Network)

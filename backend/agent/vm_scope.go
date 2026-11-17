@@ -28,32 +28,21 @@ func (operation *vmOperation) Lock(ctx context.Context) error {
 
 func (operation *vmOperation) Unlock() { <-operation.gate }
 
-// Conversations own environments. Their workers share packages, scratch files
-// and the editor while keeping their instructions, jobs and histories separate.
+// A project owns one environment, independent of conversations and workers.
 func (engine *Engine) vmOwner(agentID string) (domain.Agent, error) {
-	if strings.HasPrefix(agentID, "editor-") {
-		return domain.Agent{ID: agentID}, nil
-	}
-
-	var current domain.Agent
-	if err := engine.Store.Load("agent", agentID, &current); err != nil {
-		return current, err
-	}
-	projectID := current.ProjectID
-	visited := map[string]bool{}
-	for current.ParentID != "" {
-		if visited[current.ID] {
-			return domain.Agent{}, errors.New("cyclic agent ownership")
+	projectID := strings.TrimPrefix(agentID, "project-")
+	if projectID == agentID {
+		var record domain.Agent
+		if err := engine.Store.Load("agent", agentID, &record); err != nil {
+			return record, err
 		}
-		visited[current.ID] = true
-		if err := engine.Store.Load("agent", current.ParentID, &current); err != nil {
-			return domain.Agent{}, err
-		}
-		if current.ProjectID != projectID {
-			return domain.Agent{}, errors.New("agent environment belongs to another project")
-		}
+		projectID = record.ProjectID
 	}
-	return current, nil
+	var project domain.Project
+	if err := engine.Store.Load("project", projectID, &project); err != nil {
+		return domain.Agent{}, err
+	}
+	return domain.Agent{ID: remote.EditorScopeID(projectID, ""), ProjectID: projectID}, nil
 }
 
 func (engine *Engine) temporaryDirectory(agentID string) (string, error) {
@@ -61,10 +50,22 @@ func (engine *Engine) temporaryDirectory(agentID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return agentTemporaryDirectory(owner.ID), nil
+	return engine.environmentTemporaryDirectory(owner.ID), nil
+}
+
+func (engine *Engine) environmentTemporaryDirectory(scope string) string {
+	if strings.HasPrefix(scope, "project-") {
+		return "/tmp/zentrale-" + engine.installationID + "-" + scope
+	}
+	return agentTemporaryDirectory(scope) // Legacy scopes remain addressable for cleanup.
 }
 
 func (engine *Engine) vmOperation(agentID, machineID string) *vmOperation {
+	if !strings.HasPrefix(agentID, "project-") {
+		if owner, err := engine.vmOwner(agentID); err == nil {
+			agentID = owner.ID
+		}
+	}
 	value, _ := engine.vmOperations.LoadOrStore(agentID+":"+machineID, &vmOperation{gate: make(chan struct{}, 1)})
 	return value.(*vmOperation)
 }
@@ -75,7 +76,7 @@ func (engine *Engine) vmExecution(execution remote.Execution) (remote.Execution,
 		return execution, err
 	}
 	execution.AgentID = owner.ID
-	execution.TemporaryDirectory = agentTemporaryDirectory(owner.ID)
+	execution.TemporaryDirectory = engine.environmentTemporaryDirectory(owner.ID)
 	return execution, nil
 }
 
@@ -90,6 +91,9 @@ func (engine *Engine) sandbox(
 
 // Uploads may prepare/start a VM, but can never authorize destructive recovery.
 func (engine *Engine) sandboxWithRecovery(ctx context.Context, connection *remote.Connection, machine domain.Machine, execution remote.Execution, allowRecovery bool) (string, string, error) {
+	if err := engine.projectEnvironmentAvailable(execution.ProjectID); err != nil {
+		return "", "", err
+	}
 	execution, err := engine.vmExecution(execution)
 	if err != nil {
 		return "", "", err
@@ -129,6 +133,11 @@ func (engine *Engine) manageVM(
 	action string,
 	execution remote.Execution,
 ) (map[string]any, error) {
+	if action == "prepare" {
+		if err := engine.projectEnvironmentAvailable(execution.ProjectID); err != nil {
+			return nil, err
+		}
+	}
 	execution, err := engine.vmExecution(execution)
 	if err != nil {
 		return nil, err
@@ -161,6 +170,13 @@ func (engine *Engine) agentFamily(owner domain.Agent) (map[string]bool, error) {
 	records, err := engine.listAll("agent", &owner.ProjectID)
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasPrefix(owner.ID, "project-") {
+		selected := map[string]bool{owner.ID: true}
+		for _, record := range records {
+			selected[stringArg(record, "id")] = true
+		}
+		return selected, nil
 	}
 	selected := map[string]bool{owner.ID: true}
 	for changed := true; changed; {

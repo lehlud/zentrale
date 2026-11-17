@@ -156,32 +156,26 @@ func TestHostQuotaUsesOnlyConfiguredArgvAndWorksWithoutVM(t *testing.T) {
 
 func TestReadOnlyInspectionCanFollowAJobWithoutSwitchingTheDefaultMachine(t *testing.T) {
 	engine, record, project, machine := managedWorkspaceEngine(t)
-	ctx := context.Background()
-	connection, _, first, err := engine.connect(ctx, record)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connection.Close()
-
-	if err := os.WriteFile(filepath.Join(first.Directory, "script.py"), []byte("default-machine"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	other := machine
-	other.ID = "other-worker"
-	other.WorkspaceRoot = t.TempDir()
-
-	if err := engine.Store.Save("machine", other.ID, "", other); err != nil {
+	other.ID, other.WorkspaceRoot = "other-worker", t.TempDir()
+	pool := domain.Pool{ID: "inspection-pool", MaxMachines: 2, KeyID: machine.KeyID, Sandbox: machine.Sandbox, WorkspaceRoot: machine.WorkspaceRoot, Machines: []domain.Machine{machine, other}}
+	if err := engine.Store.Save("pool", pool.ID, "", pool); err != nil {
 		t.Fatal(err)
 	}
-
-	project.MachineIDs = append(project.MachineIDs, other.ID)
-
+	project.MachineIDs, project.PoolIDs = nil, []string{pool.ID}
 	if err := engine.Store.Save("project", project.ID, "", project); err != nil {
 		t.Fatal(err)
 	}
-
+	machine.ID, other.ID = pool.ID+"/"+machine.ID, pool.ID+"/"+other.ID
+	ctx := context.Background()
+	initial, _, first, err := engine.connect(ctx, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial.Close()
+	if err := os.WriteFile(filepath.Join(first.Directory, "script.py"), []byte("default-machine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	connection, _, second, release, err := engine.connectForJob(ctx, record, &executionRequest{
 		MachineID: other.ID,
 	})

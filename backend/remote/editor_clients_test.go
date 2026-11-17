@@ -21,7 +21,7 @@ func editorClientFixture(t *testing.T) (*Editors, *editorSession, context.Contex
 		ready: make(chan struct{}), done: make(chan struct{}), cancel: cancel,
 	}
 	editors.mutex.Lock()
-	editors.sessions["project:main"] = session
+	editors.sessions[editorSessionKey("project", "worker")] = session
 	editors.mutex.Unlock()
 	return editors, session, ctx
 }
@@ -101,7 +101,7 @@ func TestOldEditorDisconnectCannotCloseReplacement(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	editors.mutex.Lock()
-	editors.sessions["project:main"] = &editorSession{
+	editors.sessions[editorSessionKey("project", "worker")] = &editorSession{
 		project: old.project, target: old.target,
 		info: domain.EditorSession{ID: "replacement"}, done: make(chan struct{}), cancel: cancel,
 	}

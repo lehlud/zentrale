@@ -154,7 +154,6 @@ func executionTool() providers.Tool {
 			"max_output_bytes": integerProperty(256, 64000),
 			"network":          map[string]any{"type": "boolean"},
 			"outsideSandbox":   map[string]any{"type": "boolean"},
-			"guestRoot":        map[string]any{"type": "boolean"},
 			"justification":    textProperty("Why exceptional access or network is needed, when applicable."),
 		}, "cmd", "timeout_ms"),
 	}

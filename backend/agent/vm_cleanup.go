@@ -66,7 +66,7 @@ func (engine *Engine) cleanupDeletedVMs() {
 				connection, dialErr := engine.Remote.Connector.Dial(ctx, task.MachineID)
 				err = dialErr
 				if err == nil {
-					_, err = remote.ManageMicroVM(ctx, connection, machine, "remove", remote.Execution{AgentID: task.OwnerID, ProjectID: task.ProjectID, Workspace: task.Workspace, TemporaryDirectory: agentTemporaryDirectory(task.OwnerID)})
+					_, err = remote.ManageMicroVM(ctx, connection, machine, "remove", remote.Execution{AgentID: task.OwnerID, ProjectID: task.ProjectID, Workspace: task.Workspace, TemporaryDirectory: engine.environmentTemporaryDirectory(task.OwnerID)})
 					connection.Close()
 				}
 				operation.Unlock()

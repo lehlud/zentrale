@@ -27,8 +27,7 @@ func (engine *Engine) editorSelection(projectID, agentID string) (domain.Project
 			return project, selected, errors.New("select a working agent from this project for VS Code")
 		}
 
-		selected, err := engine.vmOwner(selected.ID)
-		return project, selected, err
+		return project, selected, nil
 	}
 
 	// Selecting a default owner must not decode every agent's large summary.
@@ -122,11 +121,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	engine.mu.Lock()
 	engine.editorPreparing[projectID]++
 
-	if selected.ID != "" {
-		engine.preparing[selected.ID]++
-	} else {
-		engine.preparing[remote.EditorScopeID(projectID, "")]++
-	}
+	engine.preparing[remote.EditorScopeID(projectID, "")]++
 
 	engine.mu.Unlock()
 	engine.configMu.Unlock()
@@ -219,7 +214,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		return domain.EditorSession{}, errors.New("create a conversation before starting a GPU-backed editor")
 	}
 
-	temporary := agentTemporaryDirectory(scope)
+	temporary := engine.environmentTemporaryDirectory(scope)
 	if !ready {
 		remote.ReportStartupPhase(ctx, "preparing_environment")
 		if err := remote.CheckRuntime(ctx, connection); err != nil {
@@ -263,7 +258,11 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		}
 
 		remote.ReportStartupPhase(ctx, "preparing_sources")
-		if err := engine.prepareProjectSources(ctx, connection, machine, project, scope); err != nil {
+		sourceScope := scope
+		if selected.ID != "" {
+			sourceScope = selected.ID
+		}
+		if err := engine.prepareProjectSources(ctx, connection, machine, project, sourceScope); err != nil {
 			return domain.EditorSession{}, err
 		}
 		mark("sources_and_credentials")

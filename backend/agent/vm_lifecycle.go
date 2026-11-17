@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ func (engine *Engine) superviseVMs() {
 	defer ticker.Stop()
 
 	for {
+		_ = engine.Store.PruneTerminalAttachments()
 		engine.reconcileVMs(engine.ctx)
 		select {
 		case <-engine.ctx.Done():
@@ -123,38 +125,45 @@ func (engine *Engine) scheduleVMIdleCheck(agentID string) {
 }
 
 func (engine *Engine) stopIdleVMs(ctx context.Context, owner domain.Agent) error {
+	owner, err := engine.vmOwner(owner.ID)
+	if err != nil {
+		return err
+	}
 	family, err := engine.agentFamily(owner)
 	if err != nil {
 		return err
 	}
 
-	var records []map[string]any
-	for id := range family {
-		items, err := engine.listAll("microvm", &id)
-		if err != nil {
-			return err
-		}
-
-		records = append(records, items...)
+	records, err := engine.listAll("microvm", &owner.ProjectID)
+	if err != nil {
+		return err
 	}
 
 	return engine.stopVMRecords(ctx, records, family)
 }
 
 func (engine *Engine) environmentBusy(family map[string]bool, machineID string) bool {
+	projects := make(map[string]bool)
 	machines := make(map[string]string, len(family))
+	scopes := make(map[string]string, len(family))
 	for id := range family {
+		if strings.HasPrefix(id, "project-") {
+			projects[strings.TrimPrefix(id, "project-")] = true
+		}
 		var record domain.Agent
 		if engine.Store.Load("agent", id, &record) == nil {
+			projects[record.ProjectID] = true
 			machines[id] = record.MachineID
+			scopes[id] = remote.EditorScopeID(record.ProjectID, "")
 		}
 	}
 
 	engine.mu.Lock()
 	busy := false
 	for id := range family {
+
 		workingHere := engine.running[id] != nil && (machines[id] == "" || machines[id] == machineID)
-		if engine.preparing[id] > 0 || workingHere {
+		if engine.preparing[id] > 0 || engine.preparing[scopes[id]] > 0 || workingHere {
 			busy = true
 			break
 		}
@@ -174,6 +183,12 @@ func (engine *Engine) environmentBusy(family map[string]bool, machineID string) 
 	}
 	engine.mu.Unlock()
 
+	for projectID := range projects {
+		active, err := engine.Store.HasTerminalAttachment(projectID, machineID)
+		if err != nil || active {
+			return true
+		}
+	}
 	return busy || engine.Editors.HasActive(family, machineID)
 }
 
@@ -242,7 +257,7 @@ func (engine *Engine) stopVMRecord(ctx context.Context, record map[string]any, f
 		AgentID:            agentID,
 		ProjectID:          stringArg(record, "projectId"),
 		Workspace:          stringArg(record, "workspace"),
-		TemporaryDirectory: agentTemporaryDirectory(agentID),
+		TemporaryDirectory: engine.environmentTemporaryDirectory(agentID),
 	})
 	if err == nil {
 		operation.stopped = true

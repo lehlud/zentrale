@@ -45,7 +45,7 @@ func TestManagedVenvUsesOwnerScratchAndBoundedCleanup(t *testing.T) {
 	})
 
 	temporary, err := engine.temporaryDirectory(child.ID)
-	if err != nil || temporary != agentTemporaryDirectory(parent.ID) {
+	if err != nil || temporary != engine.environmentTemporaryDirectory("project-"+parent.ProjectID) {
 		t.Fatal("worker did not share its main agent's scratch", temporary, err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(temporary) })

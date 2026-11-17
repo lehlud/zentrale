@@ -313,7 +313,7 @@ def private_directory(directory):
 def cache_directory(writable_roots=()):
     # One location per SSH user protects concurrent projects too. Choosing a
     # different cache for a broad workspace would expose another VM's cache.
-    candidate = Path("/var/tmp") / ("zentrale-microvm-" + str(os.getuid()))
+    candidate = Path("/tmp") / ("zentrale-microvm-" + str(os.getuid()))
     cache = private_directory(candidate)
     if any(within(root, cache) for root in writable_roots):
         raise RuntimeError(
@@ -895,8 +895,18 @@ def scope_directory(cache, execution, allow_rebind=False):
         "temporaryDirectory": execution["temporaryDirectory"],
     }
 
-    scopes = private_directory(cache / "agents")
-    key = hashlib.sha256((project + "\0" + agent).encode()).hexdigest()
+    installation = execution.get("installationId", "")
+    if agent.startswith("project-"):
+        if not re.fullmatch(r"[a-f0-9]{32}", installation):
+            raise RuntimeError("Project VM requires its Zentrale installation identity")
+        scopes = private_directory(cache / "projects")
+        key = hashlib.sha256((installation + "\0" + project).encode()).hexdigest()
+        identity["installationId"] = installation
+    else:
+        # Retain access to legacy disks for explicit cleanup. Never overwrite
+        # or delete an old conversation disk while adopting project sharing.
+        scopes = private_directory(cache / "agents")
+        key = hashlib.sha256((project + "\0" + agent).encode()).hexdigest()
     scope = private_directory(scopes / key)
     metadata = scope / "identity.json"
     with (scope / "identity.lock").open("a") as lock:
@@ -931,6 +941,25 @@ def stop_session(scope):
     shutil.rmtree(control)
 
 
+class DaemonLease:
+    def __init__(self, filename):
+        self.path = Path(filename)
+        self.stamp = None
+        self.last_contact = time.monotonic()
+
+    def active(self):
+        try:
+            stamp = self.path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return False
+        now = time.monotonic()
+        if stamp != self.stamp:
+            self.stamp, self.last_contact = stamp, now
+        # A wall-clock correction must neither prolong nor prematurely expire
+        # a VM's lease. Only observed daemon contact renews the monotonic timer.
+        return now - self.last_contact < 15 * 60
+
+
 def supervise(runtime, kernel, control, gpu_leases=()):
     """Own QEMU independently of individual SSH tool sessions."""
     os.setsid()
@@ -953,6 +982,8 @@ def supervise(runtime, kernel, control, gpu_leases=()):
     (control / "supervisor.pid").write_text(json.dumps(process_reference()))
     child = launch_vm(runtime, kernel, control)
     boot_deadline = time.monotonic() + STARTUP_TIMEOUT
+    lease = os.environ.get("ZENTRALE_DAEMON_LEASE")
+    daemon_lease = DaemonLease(lease) if lease else None
     try:
         while True:
             finished, status = os.waitpid(child, os.WNOHANG)
@@ -986,6 +1017,8 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                     pass  # PID 1 may have removed an acknowledged mailbox.
             if (control / "stop").exists():
                 return
+            if daemon_lease is not None and not daemon_lease.active():
+                return  # Stop this VM, preserving its persistent disk.
             if (
                 not (control / "ready.json").exists()
                 and time.monotonic() > boot_deadline
@@ -1125,6 +1158,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         network=True,
         editorPort=editor_port,
         controlProtocol=CONTROL_PROTOCOL,
+        standardTools=configuration.get("release", {}).get("tools", {}),
         gpuDevices=addresses,
         gpu=bool(configuration.get("gpu")),
     )

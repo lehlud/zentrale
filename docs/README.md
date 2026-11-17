@@ -19,6 +19,8 @@ come later.
 
 - [Database operation and concurrency](database-latency.md): SQLite WAL, the
   shared connection pool, independent live queries and remote cleanup.
+- [Remote daemon](remote-daemon.md): reconnecting processes, service restarts,
+  installation identity, and project VMs on pool members.
 - [Token and cache audit, November 2026](token-cache-audit.md) (German): recorded
   usage, comparison with Codex, changes, and remaining measurement gaps.
 - [Codex efficiency follow-up, November 16](codex-efficiency.md#nachprüfung-vom-16-november-2026)

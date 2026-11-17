@@ -59,8 +59,8 @@ func (engine *Engine) installPackages(
 func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent, action string) (any, error) {
 	releaseEnvironment := engine.useEnvironment(agentRecord.ID)
 	defer releaseEnvironment()
-	if action == "microvm_reset" && (agentRecord.Role != "main" || agentRecord.ParentID != "") {
-		return nil, errors.New("only the main agent can reset the shared environment")
+	if action == "microvm_reset" {
+		return nil, errors.New("VM reset is a user action in the project menu")
 	}
 
 	connection, machine, project, err := engine.connect(ctx, agentRecord)
@@ -74,7 +74,7 @@ func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent,
 		ProjectID: project.ID,
 
 		Workspace:          project.Directory,
-		TemporaryDirectory: agentTemporaryDirectory(agentRecord.ID),
+		TemporaryDirectory: engine.environmentTemporaryDirectory(agentRecord.ID),
 	})
 	if err == nil && action == "microvm_reset" {
 		engine.invalidate(agentRecord.ID)
@@ -86,8 +86,8 @@ func (engine *Engine) microVMTool(ctx context.Context, agentRecord domain.Agent,
 // Called with the VM lifecycle lock held. A new command cannot pass staging
 // between this check and reset; already prepared commands hold a preparation pin.
 func (engine *Engine) prepareEnvironmentReset(agentID string) error {
-	var owner domain.Agent
-	if err := engine.Store.Load("agent", agentID, &owner); err != nil {
+	owner, err := engine.vmOwner(agentID)
+	if err != nil {
 		return err
 	}
 	family, err := engine.agentFamily(owner)
@@ -101,7 +101,7 @@ func (engine *Engine) prepareEnvironmentReset(agentID string) error {
 		}
 	}
 	if engine.agentsAreBusy(children) {
-		return errors.New("stop subagents and running jobs before resetting the shared environment")
+		return errors.New("stop project agents and running jobs before resetting the shared environment")
 	}
 
 	engine.mu.Lock()
@@ -116,17 +116,17 @@ func (engine *Engine) prepareEnvironmentReset(agentID string) error {
 		return errors.New("stop running jobs and wait for command preparation before resetting the shared environment")
 	}
 
+	if err := engine.Editors.StopProject(owner.ProjectID); err != nil {
+		return err
+	}
 	for id := range family {
-		if err := engine.Editors.StopAgent(id); err != nil {
-			return err
-		}
 		engine.closeMCPServers(id)
 	}
 	return nil
 }
 
-// Remember every machine used by this agent, including one left during failover.
-// Removing the agent must not leave its guest disk or supervisor behind.
+// Remember each actual host used by the project, including during pool failover.
+// Conversation deletion preserves shared VMs; project deletion cleans them up.
 type microVMRecord struct {
 	AgentID   string `json:"agentId"`
 	ProjectID string `json:"projectId"`
@@ -148,7 +148,7 @@ func (engine *Engine) rememberMicroVM(
 		return err
 	}
 
-	return engine.Store.Save("microvm", owner.ID+":"+machine.ID, owner.ID, microVMRecord{
+	return engine.Store.Save("microvm", owner.ID+":"+machine.ID, project.ID, microVMRecord{
 		AgentID:   owner.ID,
 		ProjectID: project.ID,
 		MachineID: machine.ID,
@@ -187,7 +187,7 @@ func (engine *Engine) manageAgentMicroVMs(ctx context.Context, agentID, action s
 				ProjectID: stringArg(record, "projectId"),
 
 				Workspace:          stringArg(record, "workspace"),
-				TemporaryDirectory: agentTemporaryDirectory(agentID),
+				TemporaryDirectory: engine.environmentTemporaryDirectory(agentID),
 			})
 		}
 

@@ -3,8 +3,6 @@ package remote
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,15 +36,7 @@ type RuntimeLock interface {
 	Unlock()
 }
 
-func EditorScopeID(projectID, agentID string) string {
-	if agentID != "" {
-		return agentID
-	}
-
-	digest := sha256.Sum256([]byte(projectID))
-
-	return "editor-" + hex.EncodeToString(digest[:16])
-}
+func EditorScopeID(projectID, _ string) string { return "project-" + projectID }
 
 type editorRuntime struct {
 	command string
@@ -128,7 +118,7 @@ func prepareEditorRuntimeOnce(
 	}
 	if _, err := Run(
 		ctx,
-		connection.Client,
+		connection,
 		"mkdir -p -- "+Quote(execution.Workspace)+" "+Quote(execution.TemporaryDirectory)+" && chmod 700 -- "+Quote(execution.TemporaryDirectory),
 	); err != nil {
 		return editorRuntime{}, err
@@ -160,17 +150,17 @@ func prepareEditorRuntimeOnce(
 func dialEditorPort(ctx context.Context, session *editorSession, port int) (net.Conn, error) {
 	if session.runtime.address == "" {
 		if port != 0 {
-			connection, err := session.connection.Client.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			connection, err := session.connection.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 			if err == nil || ctx.Err() != nil {
 				return connection, err
 			}
-			return session.connection.Client.DialContext(ctx, "tcp", net.JoinHostPort("::1", strconv.Itoa(port)))
+			return session.connection.DialContext(ctx, "tcp", net.JoinHostPort("::1", strconv.Itoa(port)))
 		}
 
-		return session.connection.Client.DialContext(ctx, "unix", session.socketPath)
+		return session.connection.DialContext(ctx, "unix", session.socketPath)
 	}
 
-	connection, err := session.connection.Client.DialContext(ctx, "tcp", session.runtime.address)
+	connection, err := session.connection.DialContext(ctx, "tcp", session.runtime.address)
 	if err != nil {
 		return nil, err
 	}

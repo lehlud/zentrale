@@ -39,8 +39,7 @@ type grant struct {
 	Hash      string
 	MachineID string
 
-	watchID string
-	cancel  context.CancelFunc
+	Revision uint64
 }
 
 type runningJob struct {
@@ -59,6 +58,9 @@ type runningJob struct {
 	yielded         bool
 	connection      *remote.Connection
 	launchDirectory string
+	daemonReceipt   *daemonJobReceipt
+	daemonInput     func(context.Context, []byte, bool) error
+	inputReady      chan struct{}
 
 	inputHistory        []string
 	inputHistoryOmitted bool
@@ -68,14 +70,18 @@ type runningJob struct {
 // lifecycle transitions; mu protects only the short-lived in-memory registries.
 // mu is never held while a provider request or remote command is running.
 type Engine struct {
-	Store        *datastore.Instance
-	Remote       *remote.Manager
-	Editors      *remote.Editors
-	Provider     providers.Client
-	Catalog      *modelcatalog.Client
-	AccountLogin *providerlogin.Client
-	GitForge     *gitforge.Service
-	HuggingFace  *huggingface.Service
+	installationID    string
+	projectReadiness  sync.Map
+	terminalGates     keylock.Group
+	resettingProjects map[string]bool
+	Store             *datastore.Instance
+	Remote            *remote.Manager
+	Editors           *remote.Editors
+	Provider          providers.Client
+	Catalog           *modelcatalog.Client
+	AccountLogin      *providerlogin.Client
+	GitForge          *gitforge.Service
+	HuggingFace       *huggingface.Service
 
 	accountGates     keylock.Group
 	loginPollMu      sync.Mutex
@@ -124,8 +130,13 @@ type Engine struct {
 }
 
 func New(store *datastore.Instance, providerClient providers.Client) (*Engine, error) {
+	installationID, _, err := store.InstallationIdentity()
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	engine := &Engine{
+		installationID:       installationID,
 		Store:                store,
 		connections:          make(map[string]*agentConnection),
 		preparing:            make(map[string]int),
@@ -164,6 +175,14 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 	engine.Editors = remote.NewEditors(engine.Remote, func(session domain.EditorSession) {
 		engine.scheduleVMIdleCheck(remote.EditorScopeID(session.ProjectID, session.AgentID))
 	})
+	if err := engine.Editors.Restore(); err != nil {
+		engine.Close()
+		return nil, err
+	}
+	if err := engine.recoverDaemonJobs(); err != nil {
+		engine.Close()
+		return nil, err
+	}
 
 	if err := engine.recoverLoginProtocols(); err != nil {
 		engine.Close()
@@ -175,6 +194,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 	}
 	engine.workers.Go(engine.superviseVMs)
 	engine.workers.Go(engine.cleanupDeletedVMs)
+	engine.workers.Go(engine.superviseDaemonStops)
 
 	return engine, nil
 }
@@ -193,6 +213,11 @@ func (engine *Engine) recoverInterruptedWork() error {
 			status := stringArg(resource, "status")
 			if status != "running" && status != "waiting" {
 				continue
+			}
+			if kind == "job" && status == "running" {
+				if _, err := engine.Store.Credential(daemonReceiptName(stringArg(resource, "id"))); err == nil {
+					continue
+				}
 			}
 
 			resource["status"] = "interrupted"
@@ -247,5 +272,8 @@ func (engine *Engine) Close() {
 	for _, id := range ids {
 		engine.releaseConnection(id)
 	}
-	engine.stopUnusedVMsOnShutdown()
+	if engine.Remote.Connector.NativeSessionsForTests {
+		engine.stopUnusedVMsOnShutdown()
+	}
+	engine.Remote.Connector.Close()
 }

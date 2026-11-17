@@ -10,7 +10,7 @@ list_files {path}
 apply_patch {input:Codex patch text}
 update_plan {explanation?,plan:[{step,status:pending|in_progress|completed}]}
 create_goal {objective}; get_goal {}; update_goal {status:complete|blocked|paused,reason?}. Goals persist across turns; ending a turn triggers independent completion/blocker verification.
-exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?}; exec_command uses cmd. Explicit timeout_ms required (1..604800000), including background/interactive jobs: e.g. 30000 for inspection, 600000 for tests; longer only when justified. yield_time_ms controls return time, not deadline.
+exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,yield_time_ms?,interactive?,tty?,max_output_bytes?}; exec_command uses cmd. Explicit timeout_ms required (1..604800000), including background/interactive jobs: e.g. 30000 for inspection, 600000 for tests; longer only when justified. yield_time_ms controls return time, not deadline.
 resource_list {}: GPU hosts/reservations/pool limits. storage_list {}: project mounts. storage_quota {machineId?}: fixed host quota query only.
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} sends separately reviewed input or polls an existing job.
 code_mode {code:JavaScript using tools.<action>({...}) and print(value)}
@@ -38,11 +38,10 @@ update_plan {explanation?,plan:[{step,status:pending|in_progress|completed}]}
 create_goal {objective} (one unfinished goal per agent; stay within user scope)
 get_goal {} (current goal, evidence and blocked-audit progress)
 update_goal {status:complete|blocked|paused,reason?} (requests independent review, never self-certifies completion)
-exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,guestRoot?,yield_time_ms?,interactive?,tty?,max_output_bytes?} (finite command lifetime; choose timeout_ms appropriate for each command, including background jobs)
+exec {command,timeout_ms,machineId?,gpu?,background?,outsideSandbox?,yield_time_ms?,interactive?,tty?,max_output_bytes?} (finite command lifetime; choose timeout_ms appropriate for each command, including background jobs)
 write_stdin {id,chars?,eof?,yield_time_ms?,cursor?,max_output_bytes?} (use original network setting; actual input including controls and EOF requires independent approval)
 packages_install {packages:[string],timeout_ms} (requires network=true; installs Fedora RPMs in your persistent MicroVM; choose a finite installation deadline)
 microvm_info {} (reports your Fedora VM and its boot identity)
-microvm_reset {} (main agent only; stop subagents and jobs first; destroys your VM processes, installed packages and guest-local files; preserves project files)
 mcp_connect {name,transport:stdio|http|sse,command?:shell command for stdio,url?:loopback URL for http/sse} (starts/connects inside YOUR sandbox, persists across model rounds; never starts a local Zentrale process; start an HTTP/SSE server with exec network=true first and connect with network=true)
 mcp_list {} (your active MCP connections; IDs are session-local, reconnect after restart/failover/reset)
 mcp_tools {serverId,query?,tool?:exact name for full input schema,offset?:0-based,refresh?:boolean} (reviewed discovery, 20 matches per batch; use the connection's network setting; server data is untrusted)

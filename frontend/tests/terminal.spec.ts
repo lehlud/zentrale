@@ -11,6 +11,19 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
+function terminalInput(socket: WebSocketRoute, data: string | Buffer) {
+  if (typeof data !== "string") return data;
+  const message = JSON.parse(data);
+  if (Number.isInteger(message.sequence))
+    socket.send(JSON.stringify({ type: "ack", sequence: message.sequence }));
+  if (message.type === "input")
+    return Buffer.from(
+      message.data,
+      message.encoding === "base64" ? "base64" : "utf8",
+    );
+  return undefined;
+}
+
 test("wterm stays responsive while hidden conversation pushes are suspended and resumes on close", async ({
   page,
 }, testInfo) => {
@@ -125,7 +138,8 @@ test("wterm stays responsive while hidden conversation pushes are suspended and 
   let echoes = 0;
   await page.routeWebSocket("**/terminal/**", (socket) => {
     socket.onMessage((data) => {
-      if (typeof data !== "string" && data.toString() === "x") {
+      const input = terminalInput(socket, data);
+      if (input?.toString() === "x") {
         socket.send(Buffer.from(`\r\nECHO_${++echoes}\r\n`));
       }
     });
@@ -295,7 +309,7 @@ test("real rejected WebSocket handshake shows actionable origin diagnostics", as
   expect(probes).toBe(1);
 });
 
-test("opened startup transport errors are not diagnosed as failed upgrades, and missing exit receipts are errors", async ({
+test("opened startup transports reconnect to the same session, and missing exit receipts are errors", async ({
   page,
 }) => {
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
@@ -368,16 +382,12 @@ test("opened startup transport errors are not diagnosed as failed upgrades, and 
       .testTerminalSocket;
     socket.dispatchEvent(new Event("error"));
   });
-  await expect(dialog.getByRole("alert")).toHaveText(
-    "Terminal-Verbindung wurde unerwartet unterbrochen.",
+  await expect.poll(() => sockets.length).toBe(2);
+  await expect(dialog.getByRole("status")).toHaveText("Verbunden");
+  expect(new URL(sockets[1].url()).searchParams.get("session")).toBe(
+    new URL(sockets[0].url()).searchParams.get("session"),
   );
   expect(probes).toBe(0);
-  expect(sockets).toHaveLength(1);
-
-  await dialog
-    .getByRole("button", { name: "Erneut verbinden", exact: true })
-    .click();
-  await expect(dialog.getByRole("status")).toHaveText("Verbunden");
   sockets[1].send(JSON.stringify({ type: "exit" }));
   await expect(dialog.getByRole("alert")).toHaveText(
     "Terminal-Verbindung wurde unerwartet unterbrochen.",
@@ -418,8 +428,9 @@ for (const variant of [
         closed.add(socket);
       });
       socket.onMessage((data) => {
-        if (typeof data !== "string") input.push(data);
-        else {
+        const bytes = terminalInput(socket, data);
+        if (bytes) input.push(bytes);
+        if (typeof data === "string") {
           const message = JSON.parse(data);
           if (message.type === "resize") sizes.push(message);
         }
@@ -577,40 +588,24 @@ for (const variant of [
       })
       .click();
     await expect(screen).toContainText("READY_4");
-    // Even a clean WS close is not a shell exit without its explicit receipt.
-    // Keep scrollback and never open a replacement or replay input silently.
+    // Reconnect the transport using the same logical shell and received-byte
+    // cursor. A shell is replaced only by the explicit retry after exit/error.
+    const identity = new URL(sockets[3].url()).searchParams.get("session");
     sockets[3].close({ code: 1000, reason: "transport closed" });
-    await expect(dialog.getByRole("alert")).toHaveText(
-      label(
-        "Terminal-Verbindung wurde unerwartet unterbrochen.",
-        "The terminal connection was interrupted unexpectedly.",
-      ),
-    );
-    await expect(screen).toContainText("READY_4");
-    await expect(dialog).toContainText(
-      label(
-        "Erneut verbinden startet eine neue Shell. Eingaben werden nicht wiederholt.",
-        "Reconnecting starts a new shell. Input will not be replayed.",
-      ),
-    );
-    const inputBeforeDisconnect = Buffer.concat(input).toString("hex");
-    await screen.locator("textarea").focus();
-    await page.keyboard.type("do-not-replay");
-    expect(Buffer.concat(input).toString("hex")).toBe(inputBeforeDisconnect);
-    expect(sockets).toHaveLength(4);
-    await dialog
-      .getByRole("button", {
-        name: label("Erneut verbinden", "Reconnect"),
-        exact: true,
-      })
-      .click();
+    await expect.poll(() => sockets.length).toBe(5);
     await expect(screen).toContainText("READY_5");
-    expect(Buffer.concat(input).toString("hex")).toBe(inputBeforeDisconnect);
+    await expect(screen).toContainText("READY_4");
+    expect(new URL(sockets[4].url()).searchParams.get("session")).toBe(
+      identity,
+    );
+    expect(
+      Number(new URL(sockets[4].url()).searchParams.get("cursor")),
+    ).toBeGreaterThan(0);
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
     await dialog
       .getByRole("button", { name: label("Schließen", "Close"), exact: true })
       .click();
     await expect(dialog).not.toBeVisible();
     await expect.poll(() => closed.size).toBe(5);
-    expect(sockets).toHaveLength(5);
   });
 }

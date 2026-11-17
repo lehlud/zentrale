@@ -568,7 +568,7 @@ func TestRemoteMCPProcessCancellationUnblocksIO(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	process, err := remote.StartProcess(ctx, connection.Client, "mcp-blocked-io")
+	process, err := remote.StartProcess(ctx, connection, "mcp-blocked-io")
 	if err != nil {
 		t.Fatal(err)
 	}

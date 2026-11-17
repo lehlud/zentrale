@@ -75,7 +75,7 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	}
 	openWorkspace := func(agentID string) error {
 		_, err := engine.withEditorEnvironment(ctx, project.ID, agentID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, resolved domain.Project, target remote.EditorTarget) (domain.EditorSession, error) {
-			if target.AgentID != record.ID || target.TemporaryDirectory != agentTemporaryDirectory(record.ID) {
+			if (agentID != "" && target.AgentID != agentID) || target.TemporaryDirectory != engine.environmentTemporaryDirectory(remote.EditorScopeID(project.ID, "")) {
 				t.Errorf("editor/terminal did not reuse owner scope: %+v", target)
 			}
 			return domain.EditorSession{}, nil
@@ -122,8 +122,8 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	}
 	engine.releaseConnection(record.ID)
 	before = prepares.Load()
-	if err := engine.requireConnection(ctx, record.ID); err != nil || prepares.Load() != before+1 {
-		t.Fatal("disconnected scope reused readiness", err, prepares.Load())
+	if err := engine.requireConnection(ctx, record.ID); err != nil || prepares.Load() != before {
+		t.Fatal("reconnected scope lost validated project readiness", err, prepares.Load())
 	}
 	// A different assigned machine drops the per-transport readiness proof.
 	alternate := machine
@@ -131,7 +131,7 @@ func TestReadinessWarmTurnsSkipPreparationButExplicitChecksDoNot(t *testing.T) {
 	if err := engine.Store.Save("machine", alternate.ID, "", alternate); err != nil {
 		t.Fatal(err)
 	}
-	project.MachineIDs = append(project.MachineIDs, alternate.ID)
+	project.MachineIDs = []string{alternate.ID}
 	if err := engine.Store.Save("project", project.ID, "", project); err != nil {
 		t.Fatal(err)
 	}

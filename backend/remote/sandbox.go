@@ -45,8 +45,19 @@ func Sandbox(
 	}
 
 	command := hostExecutionCommand(execution)
+	level, err := sandboxLevel(ctx, connection, machine)
+	if err != nil {
+		return "", "", err
+	}
+	if level == SandboxMicroVM && connection != nil && execution.ProjectID != "" {
+		execution.AgentID = EditorScopeID(execution.ProjectID, "")
+		execution.TemporaryDirectory = connection.ProjectTemporaryDirectory(execution.ProjectID)
+	}
 
 	if execution.OutsideSandbox {
+		if level == SandboxMicroVM {
+			return "", "", errors.New("host command execution is unavailable in VM mode; run the command inside the VM")
+		}
 		if execution.TTY {
 			execution.Command = terminalCommand(execution.Command)
 			command = hostExecutionCommand(execution)
@@ -57,11 +68,6 @@ func Sandbox(
 		}
 
 		return command, SandboxDisabled, nil
-	}
-
-	level, err := sandboxLevel(ctx, connection, machine)
-	if err != nil {
-		return "", "", err
 	}
 
 	if execution.TTY && (level != SandboxMicroVM || machine.MicroVMCommand != "") {
@@ -113,7 +119,7 @@ func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Ma
 
 		// Explicit PCI/GPU requirements must never fall back to a host process
 		// or to another sandbox after KVM, VFIO or device preparation fails.
-		if _, err := Run(ctx, connection.Client, microVMCommand("ensure", machine)); err != nil {
+		if _, err := Run(ctx, connection, microVMCommand("ensure", machine)); err != nil {
 			return "", fmt.Errorf("prepare managed VM: %w", err)
 		}
 
@@ -121,7 +127,7 @@ func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Ma
 	}
 
 	if machine.Sandbox == SandboxMicroVM && machine.MicroVMCommand == "" {
-		if _, err := Run(ctx, connection.Client, microVMCommand("ensure", machine)); err != nil {
+		if _, err := Run(ctx, connection, microVMCommand("ensure", machine)); err != nil {
 			return "", fmt.Errorf("prepare managed MicroVM: %w", err)
 		}
 
@@ -132,29 +138,19 @@ func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Ma
 		return machine.Sandbox, nil
 	}
 
-	// Installed binaries do not establish that user scopes and namespaces work
-	// in this SSH session. Test a harmless isolated command before selecting auto.
-	checkBubblewrap := userScopeCommand + " " + isolatedBubblewrapCommand +
-		" --ro-bind / / --proc /proc --dev /dev /bin/sh -c 'exit 0'"
-
-	probe := "if test -c /dev/kvm && test -r /dev/kvm && test -w /dev/kvm; then\n"
-
+	// Automatic mode requires VM isolation. Missing prerequisites are an error;
+	// weaker isolation must be an explicit machine configuration decision.
+	probe := "if ! test -c /dev/kvm || ! test -r /dev/kvm || ! test -w /dev/kvm; then echo 'VM isolation requires accessible /dev/kvm; automatic sandbox selection cannot downgrade isolation' >&2; exit 78; fi\n"
 	if machine.MicroVMCommand != "" {
-		probe += "if test -x " + Quote(machine.MicroVMCommand) + "; then echo microvm; exit 0; fi\n"
+		probe += "if test -x " + Quote(machine.MicroVMCommand) + "; then echo microvm; else echo 'configured VM runner is unavailable' >&2; exit 78; fi\n"
 	} else {
-		// Exit 78 means prerequisites are absent. Download or boot failures are
-		// actionable errors, not permission to silently select a weaker sandbox.
-		probe += "if " + microVMCommand("select", machine) + "; then exit 0; else status=$?; if test \"$status\" -ne 78; then exit \"$status\"; fi; fi\n"
+		probe += microVMCommand("select", machine)
 	}
-
-	probe += "fi\nif command -v bwrap >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1" +
-		" && test -f /sys/fs/cgroup/cgroup.controllers && " + checkBubblewrap +
-		" >/dev/null 2>&1; then echo bwrap; else echo none; fi"
 
 	probeContext, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	output, err := Run(probeContext, connection.Client, probe)
+	output, err := Run(probeContext, connection, probe)
 	if err != nil {
 		return "", fmt.Errorf("detect remote sandbox: %w", err)
 	}
@@ -162,7 +158,7 @@ func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Ma
 	level := strings.TrimSpace(output)
 
 	switch level {
-	case "microvm", "bwrap", SandboxDisabled:
+	case SandboxMicroVM:
 		return level, nil
 	default:
 		return "", fmt.Errorf("unexpected sandbox detection result: %q", level)

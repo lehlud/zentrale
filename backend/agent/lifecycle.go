@@ -396,6 +396,14 @@ func (engine *Engine) Stop(agentID string) error {
 
 	engine.mu.Lock()
 	workerRunning := engine.running[agentID] != nil
+	for _, running := range engine.jobs {
+		running.mu.Lock()
+		job := running.job
+		running.mu.Unlock()
+		if job.AgentID == agentID {
+			writes = append(writes, jobStopWrite(job))
+		}
+	}
 	engine.mu.Unlock()
 
 	if !workerRunning {

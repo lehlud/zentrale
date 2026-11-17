@@ -640,12 +640,17 @@ for (const variant of variants) {
       .click();
     await capture("project-machines-step");
     await dialog()
-      .getByRole("button", { name: label("Fernmaschinen", "Remote machines") })
+      .getByRole("button", {
+        name: label("Fernmaschine oder Pool", "Remote machine or pool"),
+      })
       .click();
     await page
-      .getByRole("option", { name: "GPU-Worker Frankfurt", exact: true })
+      .getByRole("option", {
+        name: `${label("Fernmaschine", "Remote machine")}: GPU-Worker Frankfurt`,
+        exact: true,
+      })
       .click();
-    await page.keyboard.press("Escape");
+
     await capture("project-multi-select");
     await dialog()
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })

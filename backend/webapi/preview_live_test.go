@@ -131,6 +131,7 @@ func newPreviewFixture(t *testing.T) *previewFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.Remote.Connector.NativeSessionsForTests = true
 	fixture.engine = engine
 	t.Cleanup(engine.Close)
 	authentication, err := auth.New(store, "")

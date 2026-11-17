@@ -271,7 +271,7 @@ func TestSSHTrustJumpHostsStreamingAndCancellation(t *testing.T) {
 		}
 	}
 
-	connector := &Connector{Store: store}
+	connector := &Connector{Store: store, NativeSessionsForTests: true}
 	if _, err := connector.Dial(context.Background(), "target"); err == nil {
 		t.Fatal("untrusted host key accepted")
 	} else {
@@ -296,7 +296,7 @@ func TestSSHTrustJumpHostsStreamingAndCancellation(t *testing.T) {
 	updates := []string{}
 	output, err := RunStreaming(
 		context.Background(),
-		connection.Client,
+		connection,
 		"stream",
 		func(chunk string) { updates = append(updates, chunk) },
 	)
@@ -307,7 +307,7 @@ func TestSSHTrustJumpHostsStreamingAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	if _, err := Run(ctx, connection.Client, "wait"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := Run(ctx, connection, "wait"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancel remote command: %v", err)
 	}
 }
@@ -327,7 +327,9 @@ func TestSingleUserFailoverSkipsOccupiedMachine(t *testing.T) {
 	busy := newSSHFixture(t, "developer\nother-user\n")
 	available := newSSHFixture(t, "developer\n")
 
+	var members []domain.Machine
 	for index, fixture := range []*sshFixture{busy, available} {
+		members = append(members, fixture.machine([]string{"busy", "available"}[index], key.ID))
 		machine := fixture.machine([]string{"busy", "available"}[index], key.ID)
 		if err := store.Save("machine", machine.ID, "", machine); err != nil {
 			t.Fatal(err)
@@ -338,23 +340,23 @@ func TestSingleUserFailoverSkipsOccupiedMachine(t *testing.T) {
 		}
 	}
 
-	manager := NewManager(&Connector{Store: store})
+	if err := store.Save("pool", "failover", "", domain.Pool{ID: "failover", KeyID: key.ID, MaxMachines: 2, Sandbox: SandboxDisabled, SingleUser: true, Machines: members}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(&Connector{Store: store, NativeSessionsForTests: true})
 	project := domain.Project{
 		ID:        "project",
 		Directory: "/srv/project",
-		MachineIDs: []string{
-			"busy",
-			"available",
-		},
+		PoolIDs:   []string{"failover"},
 	}
 
-	connection, machine, err := manager.Connect(context.Background(), project, "agent", "busy", nil)
+	connection, machine, err := manager.Connect(context.Background(), project, "agent", "failover/busy", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer connection.Close()
 
-	if machine.ID != "available" {
+	if machine.ID != "failover/available" {
 		t.Fatalf("occupied machine was selected: %s", machine.ID)
 	}
 }

@@ -52,7 +52,10 @@ export function fieldForServerError(
     [/provider URL/i, "baseUrl"],
     [/workspace|project directory/i, "directory"],
     [/workspace root|workspace_root/i, "workspaceRoot"],
-    [/select a remote machine or pool/i, "machineIds"],
+    [
+      /select (?:exactly one|a) remote machine or (?:(?:exactly )?one )?pool/i,
+      "executionTarget",
+    ],
     [/YAML|pool configuration/i, "yaml"],
   ];
   return candidates.find(

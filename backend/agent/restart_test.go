@@ -116,6 +116,7 @@ func TestRestartHonorsStopCommittedBeforeWorkerExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 	t.Cleanup(restarted.Close)
 	if err := restarted.Store.Load("agent", record.ID, &record); err != nil || record.Status != "stopped" || record.Error != "" {
 		t.Fatal(record, err)
@@ -163,6 +164,7 @@ func TestRestartNotificationDrivenTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			restarted.Remote.Connector.NativeSessionsForTests = true
 			t.Cleanup(restarted.Close)
 			if final := waitForRestartAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 1 {
 				t.Fatal(final, calls.Load())
@@ -199,6 +201,7 @@ func TestRestartPreservesGoalIntent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			restarted.Remote.Connector.NativeSessionsForTests = true
 			t.Cleanup(restarted.Close)
 			waitForRestartAgent(t, restarted, record.ID)
 			if status == "active" {
@@ -265,6 +268,7 @@ func TestRestartDoesNotReplayPartialToolBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 	t.Cleanup(restarted.Close)
 	if final := waitForRestartAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 1 {
 		t.Fatal(final, calls.Load())
@@ -302,6 +306,7 @@ func TestRestartCompletedGoalAllowsFreshQueuedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 	t.Cleanup(restarted.Close)
 	if final := waitForRestartAgent(t, restarted, record.ID); final.Status != "idle" || calls.Load() != 1 {
 		t.Fatal(final, calls.Load())

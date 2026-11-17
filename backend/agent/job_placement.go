@@ -35,7 +35,7 @@ func (engine *Engine) prepareJobExecution(
 		}
 
 		prepare := func() (string, string, error) {
-			if request.RequireContainers && !machine.Containers {
+			if request.RequireContainers && !machine.Containers && machine.Sandbox != remote.SandboxMicroVM && machine.Sandbox != remote.SandboxAutomatic {
 				return "", "", errors.New("container runtime not enabled on this machine")
 			}
 

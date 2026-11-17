@@ -16,7 +16,7 @@ func TestToolPolicyPreservesReviewAndDiscoveryBoundaries(t *testing.T) {
 	// catalog: changing authorization or the JavaScript surface is not a refactor.
 	groups := map[toolReview]string{
 		reviewRequired: `apply_patch list_files write_file delete_file exec python
-			venv_create packages_install microvm_reset microvm_info container websearch
+			venv_create packages_install microvm_info container websearch
 			webfetch github clone_source source_git machine_list machine_properties
 			machine_select resource_list storage_list storage_quota subagent steer_agent
 			inspect_agent question_answer huggingface_files huggingface_download`,
@@ -69,8 +69,8 @@ func TestDispatchPolicyGuardsBeforeReviewOrExecution(t *testing.T) {
 		{"webfetch", `{"url":"https://example.com"}`, "network=true", domain.Agent{}},
 		{"clone_source", `{"timeout_ms":1000}`, "network=true", domain.Agent{}},
 		{"exec", `{"timeout_ms":1000,"outsideSandbox":true}`, "outsideSandbox requires", domain.Agent{}},
-		{"microvm_reset", `{}`, "only the main agent", domain.Agent{Role: "subagent"}},
-		{"microvm_reset", `{}`, "only the main agent", domain.Agent{Role: "main", ParentID: "parent"}},
+		{"microvm_reset", `{}`, "VM reset is a user action", domain.Agent{Role: "subagent"}},
+		{"microvm_reset", `{}`, "VM reset is a user action", domain.Agent{Role: "main", ParentID: "parent"}},
 	} {
 		t.Run(test.action+"/"+test.agent.Role, func(t *testing.T) {
 			_, err := engine.dispatch(context.Background(), test.agent, providers.Call{

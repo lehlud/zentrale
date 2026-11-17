@@ -89,7 +89,7 @@ func TestMachineCatalogIncludesAssignedPoolMembersButNotOtherProjects(t *testing
 	if err := store.Save("project", project.ID, "", project); err != nil {
 		t.Fatal(err)
 	}
-	engine := &Engine{Store: store, Remote: remote.NewManager(&remote.Connector{Store: store})}
+	engine := &Engine{Store: store, Remote: remote.NewManager(&remote.Connector{Store: store, NativeSessionsForTests: true})}
 	agent := domain.Agent{ProjectID: project.ID}
 	page, err := engine.listProjectMachines(agent, map[string]any{"search": "CUDA"})
 	if err != nil || page.Total != 1 || page.Machines[0].ID != "pool/gpu" {

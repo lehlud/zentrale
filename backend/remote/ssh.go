@@ -2,14 +2,17 @@ package remote
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -24,10 +27,20 @@ func (e *HostKeyError) Error() string {
 }
 
 type Connection struct {
-	Client *ssh.Client
-	chain  []*ssh.Client
-	shared *sharedConnection
-	closed sync.Once
+	Client         *ssh.Client
+	daemon         *daemonClient
+	store          *datastore.Instance
+	installationID string
+	chain          []*ssh.Client
+	shared         *sharedConnection
+	closed         sync.Once
+	released       atomic.Bool
+}
+
+func (connection *Connection) InstallationID() string { return connection.installationID }
+
+func (connection *Connection) ProjectTemporaryDirectory(projectID string) string {
+	return "/tmp/zentrale-" + connection.installationID + "-" + EditorScopeID(projectID, "")
 }
 
 type sharedConnection struct {
@@ -45,6 +58,10 @@ type verifiedHostIdentity struct {
 }
 
 func (connection *Connection) Close() {
+	if connection.daemon != nil {
+		connection.closed.Do(func() { connection.released.Store(true); connection.daemon.release() })
+		return
+	} // Release an attachment, never its remote work.
 	connection.closed.Do(func() {
 		chain := connection.chain
 
@@ -70,6 +87,16 @@ func (connection *Connection) Close() {
 // Retain gives a tool or background job its own handle. Closing the agent's
 // handle must not disconnect a job that is still using the same SSH transport.
 func (connection *Connection) Retain() (*Connection, error) {
+	if connection.daemon != nil {
+		if connection.released.Load() {
+			return nil, errors.New("daemon attachment is closed")
+		}
+		if err := connection.daemon.ctx.Err(); err != nil {
+			return nil, err
+		}
+		connection.daemon.users.Add(1)
+		return &Connection{Client: connection.Client, daemon: connection.daemon, shared: connection.shared, store: connection.store, installationID: connection.installationID}, nil
+	}
 	connection.shared.mutex.Lock()
 	defer connection.shared.mutex.Unlock()
 
@@ -79,10 +106,13 @@ func (connection *Connection) Retain() (*Connection, error) {
 
 	connection.shared.users++
 
-	return &Connection{Client: connection.Client, shared: connection.shared}, nil
+	return &Connection{Client: connection.Client, shared: connection.shared, store: connection.store, installationID: connection.installationID}, nil
 }
 
 func (connection *Connection) Ping(ctx context.Context) error {
+	if connection.daemon != nil {
+		return connection.daemon.call(ctx, map[string]any{"op": "ping"}, nil)
+	}
 	completed := make(chan error, 1)
 	go func() {
 		_, _, err := connection.Client.SendRequest("keepalive@openssh.com", true, nil)
@@ -99,7 +129,14 @@ func (connection *Connection) Ping(ctx context.Context) error {
 	}
 }
 
-type Connector struct{ Store *datastore.Instance }
+type Connector struct {
+	Store *datastore.Instance
+	// Synthetic SSH fixtures cannot execute the daemon bootstrap. This adapter
+	// is an explicit test dependency, never selected after a production error.
+	NativeSessionsForTests bool
+	daemonMu               sync.Mutex
+	daemons                map[string]*daemonClient
+}
 
 func (connector *Connector) Machine(id string) (domain.Machine, error) {
 	var machine domain.Machine
@@ -148,7 +185,107 @@ func poolMachine(pool domain.Pool, id string, machine domain.Machine) domain.Mac
 }
 
 func (connector *Connector) Dial(ctx context.Context, id string) (*Connection, error) {
-	conn := &Connection{}
+	if connector.NativeSessionsForTests {
+		connection, err := connector.dialNative(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		connection.installationID, _, err = connector.Store.InstallationIdentity()
+		if err != nil {
+			connection.Close()
+			return nil, err
+		}
+		return connection, nil
+	}
+	installation, token, err := connector.Store.InstallationIdentity()
+	if err != nil {
+		return nil, err
+	}
+	configuration, err := connector.routeIdentity(id)
+	if err != nil {
+		return nil, err
+	}
+	cacheKey := id + ":" + configuration
+	connector.daemonMu.Lock()
+	if connector.daemons == nil {
+		connector.daemons = make(map[string]*daemonClient)
+	}
+	client := connector.daemons[cacheKey]
+	if client == nil {
+		lifetime, cancel := context.WithCancel(context.Background())
+		client = &daemonClient{connector: connector, machineID: id, installationID: installation, token: token, gate: make(chan struct{}, 1), ctx: lifetime, cancel: cancel, configuration: configuration}
+		connector.daemons[cacheKey] = client
+		go client.heartbeat()
+	}
+	connector.daemonMu.Unlock()
+	client.users.Add(1)
+	wire, err := client.connect(ctx)
+	if err != nil {
+		client.release()
+		return nil, err
+	}
+	return &Connection{Client: wire.connection.Client, shared: wire.connection.shared, daemon: client, store: connector.Store, installationID: installation}, nil
+}
+
+func (connector *Connector) routeIdentity(id string) (string, error) {
+	type hop struct {
+		ID, Host, User, KeyDigest string
+		Port, KeyID               int
+		Jumps                     []string
+	}
+	var route []hop
+	visiting := map[string]bool{}
+	var visit func(string) error
+	visit = func(id string) error {
+		if visiting[id] || len(route) > 16 {
+			return errors.New("cyclic or excessive jump hosts")
+		}
+		visiting[id] = true
+		defer delete(visiting, id)
+		machine, err := connector.Machine(id)
+		if err != nil {
+			return err
+		}
+		key, err := connector.Store.PrivateKey(machine.KeyID)
+		if err != nil {
+			return err
+		}
+		route = append(route, hop{ID: id, Host: machine.Host, Port: machine.Port, User: machine.User, KeyID: machine.KeyID, Jumps: machine.Jumps, KeyDigest: fmt.Sprintf("%x", sha256.Sum256(key))})
+		for _, jump := range machine.Jumps {
+			if err := visit(jump); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit(id); err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(route)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+}
+
+// Close detaches this service from its daemons. They keep their lease and work
+// so a replacement process using the same database can recover attachments.
+func (connector *Connector) Close() {
+	connector.daemonMu.Lock()
+	defer connector.daemonMu.Unlock()
+	for _, client := range connector.daemons {
+		client.cancel()
+		client.mu.Lock()
+		if client.wire != nil {
+			client.wire.close()
+		}
+		client.mu.Unlock()
+	}
+	connector.daemons = nil
+}
+
+func (connector *Connector) dialNative(ctx context.Context, id string) (*Connection, error) {
+	conn := &Connection{store: connector.Store}
 	visiting := map[string]bool{}
 	var identities []verifiedHostIdentity
 	var dial func(string, *ssh.Client) (*ssh.Client, error)
@@ -295,6 +432,14 @@ func Encode(data string) string {
 
 // VerifyTrust applies later trust revocations to a reused SSH connection too.
 func (connector *Connector) VerifyTrust(connection *Connection) error {
+	if connection.daemon != nil {
+		connection.daemon.mu.Lock()
+		wire := connection.daemon.wire
+		connection.daemon.mu.Unlock()
+		if wire != nil {
+			connection = wire.connection
+		}
+	}
 	for _, identity := range connection.shared.identities {
 		if err := connector.verifyHostIdentity(identity); err != nil {
 			return err

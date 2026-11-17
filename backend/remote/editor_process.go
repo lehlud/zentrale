@@ -12,8 +12,12 @@ import (
 //go:embed scripts/editor.py
 var editorSupervisor string
 
-func runEditorProcess(ctx context.Context, client *ssh.Client, command string, onOutput func(string)) error {
-	session, err := client.NewSession()
+func runEditorProcess(ctx context.Context, connection *Connection, command string, onOutput func(string)) error {
+	if connection.daemon != nil {
+		_, err := runDaemonCommand(ctx, connection, command, nil, true, onOutput, nil)
+		return err
+	}
+	session, err := connection.Client.NewSession()
 	if err != nil {
 		return err
 	}

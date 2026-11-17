@@ -51,11 +51,11 @@ see [database operation and concurrency](database-latency.md).
 ## Execution environment
 
 Managed Fedora commands, VS Code and terminals use `/home/zentrale/project`
-and the conversation owner's shared `/tmp/zentrale` scratch directory. Runtime
+and the project's shared `/tmp/zentrale` scratch directory on that host. Runtime
 context reports this execution view; persisted project/cleanup records describe
 host-backed storage. `remote.PathsForExecution` selects paths from the actual
-sandbox level; custom runners and explicit `outsideSandbox` keep their host
-contract. Never rewrite arbitrary command strings to translate between views.
+sandbox level. VM execution rejects `outsideSandbox`; explicitly selected
+non-VM levels retain their documented host contract. Never rewrite arbitrary command strings to translate between views.
 
 Internal file, Git, download, attachment and Python-environment helpers use the
 process working directory and `TMPDIR`. Git inventories store project-relative

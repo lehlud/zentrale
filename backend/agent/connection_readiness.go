@@ -16,6 +16,7 @@ import (
 )
 
 type connectionReadiness struct {
+	sourceKey  string
 	key        string
 	generation string
 	status     domain.SandboxStatus
@@ -133,12 +134,15 @@ func (engine *Engine) probeReadyGeneration(ctx context.Context, record domain.Ag
 	}
 	probeContext, cancel := context.WithTimeout(ctx, 7*time.Second)
 	defer cancel()
-	identity := map[string]string{"agentId": owner.ID, "projectId": project.ID, "workspace": project.Directory, "temporaryDirectory": agentTemporaryDirectory(owner.ID)}
+	identity := map[string]string{"agentId": owner.ID, "projectId": project.ID, "workspace": project.Directory, "temporaryDirectory": engine.environmentTemporaryDirectory(owner.ID)}
+	if strings.HasPrefix(owner.ID, "project-") {
+		identity["installationId"] = connection.InstallationID()
+	}
 	command := "python3 -I -c " + remote.Quote(connectionReadinessProbe)
 	if len(expectedBootID) > 0 {
 		command += " " + remote.Quote(expectedBootID[0])
 	}
-	output, err := remote.RunPipe(probeContext, connection.Client, command, strings.NewReader(JSON(identity)))
+	output, err := remote.RunPipe(probeContext, connection, command, strings.NewReader(JSON(identity)))
 	if err != nil {
 		return "", err
 	}
@@ -156,6 +160,13 @@ func (engine *Engine) reuseReadyConnection(ctx context.Context, record domain.Ag
 	}
 	entry.mutex.Lock()
 	previous := entry.ready
+	if previous == nil {
+		if shared, ok := engine.projectReadiness.Load(project.ID + ":" + machine.ID); ok {
+			previous = shared.(*connectionReadiness)
+			entry.ready = previous
+			entry.sourcesKey = previous.sourceKey
+		}
+	}
 	entry.mutex.Unlock()
 	if previous == nil {
 		return domain.SandboxStatus{}, false
@@ -209,7 +220,8 @@ func (engine *Engine) rememberReadyConnection(ctx context.Context, record domain
 	entry.mutex.Lock()
 	defer entry.mutex.Unlock()
 	if entry.connection != nil && entry.connection.Client == connection.Client && entry.sourcesKey != "" {
-		entry.ready = &connectionReadiness{key: key, generation: generation, status: status}
+		entry.ready = &connectionReadiness{key: key, generation: generation, status: status, sourceKey: entry.sourcesKey}
+		engine.projectReadiness.Store(project.ID+":"+machine.ID, entry.ready)
 	}
 }
 
@@ -220,10 +232,17 @@ from pathlib import Path
 p=json.load(sys.stdin)
 agent,project=p['agentId'],p['projectId']
 assert all(isinstance(v,str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,80}',v) for v in (agent,project))
-root=Path('/var/tmp')/('zentrale-microvm-'+str(os.getuid()))
-scope=root/'agents'/hashlib.sha256((project+'\0'+agent).encode()).hexdigest()
+root=Path('/tmp')/('zentrale-microvm-'+str(os.getuid()))
+if agent.startswith('project-'):
+ installation=p['installationId']
+ assert re.fullmatch(r'[a-f0-9]{32}',installation)
+ scopes=root/'projects'
+ scope=scopes/hashlib.sha256((installation+'\0'+project).encode()).hexdigest()
+else:
+ scopes=root/'agents'
+ scope=scopes/hashlib.sha256((project+'\0'+agent).encode()).hexdigest()
 control=scope/'session'
-for directory in (root,root/'agents',scope,control):
+for directory in (root,scopes,scope,control):
  s=directory.lstat()
  assert stat.S_ISDIR(s.st_mode) and s.st_uid==os.getuid() and not s.st_mode&0o077
 def read(directory,name):
@@ -239,7 +258,14 @@ try:
  fcntl.flock(lock,fcntl.LOCK_EX)
  assert json.loads(read(scope,'identity.json'))==p
  assert not (control/'stopped').exists() and not (control/'stop').exists()
- pid=int(read(control,'supervisor.pid'))
+ reference=json.loads(read(control,'supervisor.pid'))
+ pid=int(reference['pid']) if isinstance(reference,dict) else int(reference)
+ def check_pid():
+  os.kill(pid,0)
+  if isinstance(reference,dict):
+   fields=Path('/proc',str(pid),'stat').read_text().rsplit(') ',1)[1].split()
+   assert fields[0] not in ('Z','X') and fields[19]==reference['started']
+ check_pid()
  os.kill(pid,0)
  proof=json.loads(read(control,'ready.json'))
  assert re.fullmatch(r'[A-Za-z0-9-]{16,80}',proof.get('bootId',''))
@@ -264,7 +290,8 @@ try:
  os.kill(pid,0)
  assert json.loads(read(control,'ready.json')).get('bootId')==proof['bootId']
  assert read(control,'version').decode()==version and read(control,'request.json').decode()==request
- assert int(read(control,'supervisor.pid'))==pid
+ assert json.loads(read(control,'supervisor.pid'))==reference
+ check_pid()
  print(generation)
 finally:
  try:

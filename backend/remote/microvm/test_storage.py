@@ -101,7 +101,7 @@ class StorageTests(unittest.TestCase):
             patch.object(runner.os, "getuid", return_value=123),
         ):
             with self.assertRaisesRegex(RuntimeError, "protected MicroVM cache"):
-                runner.cache_directory([Path("/var/tmp")])
+                runner.cache_directory([Path("/tmp")])
 
 
 if __name__ == "__main__":

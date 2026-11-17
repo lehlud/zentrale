@@ -54,7 +54,7 @@ class Protocol(unittest.TestCase):
   temporary=directory/(name+'.test')
   temporary.write_text(json.dumps(value)); os.replace(temporary,directory/name)
  def run_probe(self,identity=None,timeout=False):
-  script=probe.replace("Path('/var/tmp')",'Path('+repr(str(self.root))+')')
+  script=probe.replace("Path('/tmp')",'Path('+repr(str(self.root))+')')
   if timeout: script=script.replace('time.monotonic()+5','time.monotonic()+0.1')
   output=io.StringIO()
   with patch('sys.stdin',io.StringIO(json.dumps(identity or self.identity))),contextlib.redirect_stdout(output): exec(script,{})

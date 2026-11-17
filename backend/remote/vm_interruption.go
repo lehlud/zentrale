@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // VMInvocationInterrupted means the trusted runner lost the invocation's VM
@@ -22,7 +20,7 @@ func (failure *VMInvocationInterrupted) Error() string {
 // ParseVMInvocationFailure is only for commands staged by the native managed
 // runner. Neither a human diagnostic string nor exit code 77 alone is proof.
 func ParseVMInvocationFailure(output string, err error) *VMInvocationInterrupted {
-	var exit *ssh.ExitError
+	var exit interface{ ExitStatus() int }
 	if !errors.As(err, &exit) || exit.ExitStatus() != 77 {
 		return nil
 	}

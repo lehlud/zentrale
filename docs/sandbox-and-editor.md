@@ -4,32 +4,41 @@
 
 ## Fedora guests
 
-Automatic sandbox selection prefers the integrated QEMU/KVM runner with Fedora
-Minimal 45. Each main conversation has one persistent guest per selected host.
-Its subagents and browser VS Code share packages, scratch files, and project
-files. Independent GPU jobs can still use additional hosts concurrently.
+Automatic sandbox selection requires the integrated QEMU/KVM runner with Fedora
+Minimal 45. Each project has one guest per actual remote machine. Independent
+conversations, subagents, browser terminals and VS Code share that guest. A
+project selects exactly one standalone machine or one pool. Pool members can
+have separate project VMs, including concurrent GPU jobs.
 
-Guests include Git, ripgrep, Python 3 and pip, curl, SSH clients, jq, less, Make,
-fish, and standard file, archive, and process tools. Missing standard packages
-are added without resetting an existing disk. Interactive guest terminals use
-fish; harness commands use a POSIX shell.
+Guests include Python 3 (`python` and `python3`), pip, Git, ripgrep (`rg`), fd,
+ast-grep (`sg`), cloc, tree, bat, jq, yq, gron, jc, DuckDB, sqlite3, csvkit,
+Miller (`mlr`), qsv, sd, Perl, delta, direnv, mise, just, Podman, curl, SSH
+clients, less, Make, fish and standard file/archive/process tools. Missing
+standard tools are added without resetting an existing disk. Upstream binaries
+are version-pinned and checksum-verified; downloads and installation happen
+inside the guest. Interactive terminals use fish; harness commands use a POSIX
+shell. Agents use rootless Podman, installing Docker in the guest only when
+Podman cannot satisfy a concrete requirement.
 
-The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm`, `qemu-img`, Python 3.10+, `mkfs.ext4`, `tar`, and `modprobe`. Preparing a
-fallback kernel's modules also needs `depmod`. Automatic CPU selection can use
-Bubblewrap with cgroups v2 and `systemd-run --user` when VM prerequisites are
-absent. An explicit GPU assignment never falls back to weaker execution.
-Download and boot failures are reported as errors.
+The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm`,
+`qemu-img`, Python 3.10+, `mkfs.ext4`, `tar`, and `modprobe`. Preparing a fallback
+kernel's modules also needs `depmod`. Automatic selection fails if these
+requirements are unavailable. It never silently switches to Bubblewrap or host
+execution. Weaker levels remain explicit administrator choices.
 
 A compatible readable host kernel is reused. Only when necessary does Zentrale
 download a pinned guest kernel and modules, verify them, and cache them privately.
 Host kernels, drivers, and packages are not modified. Artifact versions and
 checksums live in [release.json](../backend/remote/microvm/release.json).
 
-Guests use 2 vCPUs, 4 GiB RAM, and a sparse disk capped at 8 GiB. Packages and
-guest files survive idle periods and stop/start. Project files and configured
-storage are mounted separately. Failover does not move a guest disk to another
-host. Deleting a main agent removes its descendants and their managed VMs and
-disks. Removing a subagent preserves the main agent's shared guest.
+Guests use 2 vCPUs, 4 GiB RAM, and a sparse disk capped at 8 GiB. Disks, VM
+artifacts and per-project scratch live in private directories under `/tmp` on
+the remote machine. They survive ordinary stop/start while present; remote
+host reboot or temporary-file cleanup may remove them. Zentrale creates a new
+guest when needed. Project files and configured storage are mounted separately
+and retained. Pool failover does not move a guest disk to another host.
+Deleting a conversation preserves the project's shared VM. Removing the project
+queues cleanup of its VMs on their recorded hosts.
 
 ## Permissions and lifecycle
 
@@ -38,23 +47,25 @@ still depends on the selected sandbox. Network permission is per action;
 network-free guest jobs get their own namespace with loopback only, including
 guest-root jobs.
 
-If neither VM nor Bubblewrap is available, automatic selection can report no
-technical sandbox. Model review remains the action gate in that mode; it cannot
-provide host-level filesystem or network isolation.
+In VM mode, agent commands cannot request execution outside the VM. Arbitrary
+`guestRoot` execution and agent-triggered VM reset are unavailable. The reviewed
+`packages_install` helper installs guest RPMs with network permission.
+`microvm_info` reports VM state, boot identity and detected GPUs.
 
-- `packages_install` installs guest RPMs and requires network permission.
-- `exec` with `guestRoot:true` grants administration only inside the managed guest.
-- `microvm_info` reports VM state, boot identity, and detected guest GPUs.
-- `microvm_reset` is available only to the main agent, after subagents and jobs
-  stop. It removes guest files, packages, and processes; project files and extra
-  storage remain.
+Only the authenticated user's VM terminal enables passwordless `sudo` inside
+the Fedora guest. Agent processes retain `no_new_privs` and a `nosuid` root.
+Terminal administration still excludes capabilities that could expose the
+VM init's host tooling filesystem. Host administration is never provided.
 
-Zentrale starts environments automatically when a conversation continues and
-stops them when no agent, background job, preparation, or VS Code session needs
-them. Stops release RAM and GPU devices while retaining the disk and packages.
-Agents have no stop command, and the interface needs no manual VM controls.
-Cleanup also retries after connection failures and server restarts. Obsolete
-per-subagent guests are stopped without deleting their retained disks.
+The project's upper-right three-dot menu offers **Reset VM**. It resets all
+recorded VMs for that project on their actual hosts, after active work and
+terminals have stopped. Packages and guest-only files are discarded; mounted
+project files and configured storage remain. Agents cannot invoke this action.
+
+Environments start when needed and stop when no agent, background job,
+preparation, terminal or editor needs them. Idle stops release RAM and GPUs,
+retaining disks while `/tmp` remains present. Transport recovery and service
+restart behavior are described in [Remote daemon](remote-daemon.md).
 
 The dispatcher answers health probes independently of guest and host clock
 agreement. A healthy, compatible environment can finish existing jobs before
@@ -105,7 +116,7 @@ machines:
 
 This fragment belongs inside a [complete pool configuration](machines.md#import-a-pool).
 The same selection applies to agent commands, subagents, background jobs, and
-browser VS Code in the conversation's shared guest. GPU jobs can still be
+browser VS Code in the project's shared guest on that host. GPU jobs can still be
 scheduled across multiple pool members.
 
 CPU guests keep the minimal virtio-MMIO machine. GPU guests enable its PCIe
@@ -178,15 +189,16 @@ supports Linux and macOS on x64 and ARM64; managed VMs have separate Linux host
 requirements.
 
 Sessions require authentication and use private SSH tunnels without a public
-editor port. Multiple workbenches share the conversation's editor. Closing the
+editor port. Multiple workbenches share the project's editor on that host. Closing the
 last workbench releases its session after a short reconnect grace period;
-active requests finish first. Service shutdown and SSH loss also close sessions.
+active requests finish first. SSH loss and a Zentrale restart retain the remote
+server and restore its existing workbench URL within the daemon lease.
 Closing the editor does not reset the guest disk.
 
 Cache paths can be changed through `ZENTRALE_VSCODE_CACHE` on the server and
 `ZENTRALE_VSCODE_SERVER_CACHE` / `ZENTRALE_VSCODE_SERVER_DATA` on SSH hosts.
 VM setup diagnostics are kept in the private runtime directory at
-`/var/tmp/zentrale-microvm-<uid>`.
+`/tmp/zentrale-microvm-<uid>`.
 
 HTTP servers started in the editor can be opened through the authenticated
 [HTTPS preview gateway](preview.md), including a frontend and API on different

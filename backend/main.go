@@ -52,6 +52,7 @@ func run() error {
 		return err
 	}
 	defer engine.Close()
+	configureSyntheticSSHFixtures(engine)
 
 	api := &webapi.Server{
 		Store:        store,

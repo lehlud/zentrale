@@ -44,6 +44,31 @@ function newProject() {
     name: "",
     machineIds: [],
     poolIds: [],
+    executionTarget: "",
+  };
+}
+
+function projectEditorValue(value: Record<string, unknown>) {
+  const machines = (value.machineIds ?? []) as string[];
+  const pools = (value.poolIds ?? []) as string[];
+  return {
+    ...value,
+    executionTarget:
+      machines.length + pools.length === 1
+        ? machines.length
+          ? `machine:${machines[0]}`
+          : `pool:${pools[0]}`
+        : "",
+  };
+}
+
+function projectInput(value: Record<string, unknown>) {
+  const { executionTarget, ...input } = value;
+  const selected = String(executionTarget ?? "");
+  return {
+    ...input,
+    machineIds: selected.startsWith("machine:") ? [selected.slice(8)] : [],
+    poolIds: selected.startsWith("pool:") ? [selected.slice(5)] : [],
   };
 }
 
@@ -200,7 +225,7 @@ export function Projects() {
               ? undefined
               : t("Projekt anlegen")
           }
-          initial={editing}
+          initial={projectEditorValue(editing)}
           renderExtra={(value, patch) => (
             <ProjectRepository value={value} patch={patch} />
           )}
@@ -211,7 +236,7 @@ export function Projects() {
           onSave={(input) =>
             api.mutate(
               "mutation($input:ProjectInput!){saveProject(input:$input){id}}",
-              { input },
+              { input: projectInput(input) },
             )
           }
         />
@@ -494,19 +519,20 @@ function projectFields(
   return [
     { key: "name", label: "Name", required: true },
     {
-      key: "machineIds",
-      label: t("Fernmaschinen"),
-      type: "multi",
-      options: data?.machines.map((machine) => ({
-        key: machine.id,
-        label: machine.name,
-      })),
-    },
-    {
-      key: "poolIds",
-      label: "Pools",
-      type: "multi",
-      options: data?.pools.map((pool) => ({ key: pool.id, label: pool.name })),
+      key: "executionTarget",
+      label: t("Fernmaschine oder Pool"),
+      type: "select",
+      required: true,
+      options: [
+        ...(data?.machines ?? []).map((machine) => ({
+          key: `machine:${machine.id}`,
+          label: `${t("Fernmaschine")}: ${machine.name}`,
+        })),
+        ...(data?.pools ?? []).map((pool) => ({
+          key: `pool:${pool.id}`,
+          label: `Pool: ${pool.name}`,
+        })),
+      ],
     },
     {
       key: "commitName",
@@ -541,15 +567,14 @@ function projectCreationSteps(
     {
       id: "machines",
       title: t("Wo sollen die Agenten arbeiten?"),
-      description: t("Wähle mindestens eine Fernmaschine oder einen Pool."),
-      fields: ["machineIds", "poolIds"],
+      description: t("Wähle genau eine Fernmaschine oder genau einen Pool."),
+      fields: ["executionTarget"],
       validate: (value): Record<string, string> =>
-        ((value.machineIds as string[])?.length ?? 0) +
-          ((value.poolIds as string[])?.length ?? 0) >
-        0
+        Boolean(value.executionTarget)
           ? {}
           : {
-              machineIds: "Wähle mindestens eine Fernmaschine oder einen Pool.",
+              executionTarget:
+                "Wähle genau eine Fernmaschine oder genau einen Pool.",
             },
     },
     {
@@ -592,7 +617,7 @@ function ProjectSettings({
       title={t("Projekteinstellungen")}
       placement="top"
       fields={projectFields(data, t)}
-      initial={{ ...project }}
+      initial={projectEditorValue({ ...project })}
       renderExtra={(value, patch) => (
         <ProjectRepository value={value} patch={patch} />
       )}
@@ -600,7 +625,7 @@ function ProjectSettings({
       onSave={(input) =>
         api.mutate(
           "mutation($input:ProjectInput!){saveProject(input:$input){id}}",
-          { input },
+          { input: projectInput(input) },
         )
       }
     />

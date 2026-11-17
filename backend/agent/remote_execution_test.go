@@ -111,7 +111,7 @@ func executionTestEngine(
 		t.Fatal(err)
 	}
 
-	machine.Host, machine.Port, machine.Sandbox = server.Host, server.Port, "auto"
+	machine.Host, machine.Port, machine.Sandbox = server.Host, server.Port, "none"
 
 	if err := engine.Store.Save("machine", machine.ID, "", machine); err != nil {
 		t.Fatal(err)
@@ -128,6 +128,22 @@ func fishExecutable(t *testing.T) string {
 	}
 
 	return fish
+}
+
+// VM-specific tests simulate the native VM protocol rather than executing a
+// host shell. Select that isolation mode explicitly in those fixtures.
+func vmExecutionTestEngine(t *testing.T, provider providers.Client, handler testssh.CommandHandler) (*Engine, domain.Agent, domain.Project) {
+	t.Helper()
+	engine, record, project := executionTestEngine(t, provider, handler)
+	machine, err := engine.Remote.Connector.Machine(project.MachineIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.Sandbox = remote.SandboxAutomatic
+	if err := engine.Store.Save("machine", machine.ID, "", machine); err != nil {
+		t.Fatal(err)
+	}
+	return engine, record, project
 }
 
 func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
@@ -173,12 +189,12 @@ func TestRemotePOSIXScriptsAndDiagnosticsWithFishLoginShell(t *testing.T) {
 		t.Fatalf("expected the original fish failure using %s, got %v, output=%q", fish, directError, directOutput)
 	}
 
-	if output, err := remote.Run(context.Background(), connection.Client, probe); err != nil ||
+	if output, err := remote.Run(context.Background(), connection, probe); err != nil ||
 		output != "ready" {
 		t.Fatalf("POSIX script over fish SSH: %q, %v", output, err)
 	}
 
-	_, err = remote.Run(context.Background(), connection.Client, "printf 'specific remote failure' >&2; exit 127")
+	_, err = remote.Run(context.Background(), connection, "printf 'specific remote failure' >&2; exit 127")
 	if !errors.As(err, &exitStatus) ||
 		exitStatus.ExitStatus() != 127 ||
 		!strings.Contains(err.Error(), "specific remote failure") {

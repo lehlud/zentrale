@@ -176,7 +176,7 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 	if level == remote.SandboxDisabled {
 		return attachment, errors.New("attachments require an isolated agent sandbox")
 	}
-	state, err := remote.Run(ctx, connection.Client, checkCommand)
+	state, err := remote.Run(ctx, connection, checkCommand)
 	if err != nil {
 		return attachment, fmt.Errorf("check attachment: %w", err)
 	}
@@ -186,7 +186,7 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 		if err != nil {
 			return attachment, err
 		}
-		if _, err := remote.RunPipe(ctx, connection.Client, command, bytes.NewReader(data)); err != nil {
+		if _, err := remote.RunPipe(ctx, connection, command, bytes.NewReader(data)); err != nil {
 			return attachment, fmt.Errorf("stage attachment: %w", err)
 		}
 	}

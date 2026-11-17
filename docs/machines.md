@@ -16,7 +16,9 @@ machines does not copy files.
 
 ## Import a pool
 
-Pools group machines that share persistent project storage. Open
+A project selects exactly one standalone machine or one pool. Pools group
+machines that share persistent project storage. Each actual host has its own
+project VM; selecting a pool does not pin all conversations to one member. Open
 **Machines → Pools → Import / update YAML**:
 
 ```yaml

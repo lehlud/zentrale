@@ -123,7 +123,13 @@ func (engine *Engine) writeStdin(ctx context.Context, record domain.Agent, reque
 			return nil, errors.New("process ended or was stopped while input was reviewed")
 		}
 
-		if err := engine.Remote.Connector.VerifyTrust(running.connection); err != nil {
+		running.mu.Lock()
+		connection := running.connection
+		running.mu.Unlock()
+		if connection == nil {
+			return nil, errors.New("remote process is still being reattached")
+		}
+		if err := engine.Remote.Connector.VerifyTrust(connection); err != nil {
 			return nil, err
 		}
 
@@ -137,7 +143,22 @@ func (engine *Engine) writeStdin(ctx context.Context, record domain.Agent, reque
 		}
 
 		inputContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := running.input.send(inputContext, data, closeInput)
+		var err error
+		if connection.DaemonEnabled() {
+			select {
+			case <-running.inputReady:
+				running.mu.Lock()
+				write := running.daemonInput
+				running.mu.Unlock()
+				err = write(inputContext, data, closeInput)
+			case <-running.done:
+				err = errors.New("process has ended")
+			case <-inputContext.Done():
+				err = inputContext.Err()
+			}
+		} else {
+			err = running.input.send(inputContext, data, closeInput)
+		}
 		cancel()
 
 		if err != nil {

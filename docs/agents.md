@@ -11,11 +11,11 @@ current request finishes; an already running batch completes before steering.
 
 Inputs are persisted before SSH setup or model execution. The UI shows connecting,
 sandbox preparation, running, and interruption states. Closing the browser after
-acceptance does not cancel work. A service restart briefly interrupts execution;
-unfinished agent turns resume automatically on startup. Explicit stops, paused or
-blocked goals, and completed work are not reopened. Interrupted external jobs
-are not blindly replayed: the agent inspects their state/checkpoints before
-deciding how to continue.
+acceptance does not cancel work. A service restart reconnects to existing daemon-owned processes; unfinished
+agent turns resume automatically on startup. Explicit stops, paused or
+blocked goals, and completed work are not reopened. Running jobs reattach to their original resource and host. Missing resources or
+changed daemon generations are reported without replaying commands. See
+[Remote daemon](remote-daemon.md) for the 15-minute lease and restart limits.
 
 Main agents can send independently reviewed guidance to their own direct children
 using `steer_agent {agentId,id,text}`. A stable `id` makes retries idempotent.

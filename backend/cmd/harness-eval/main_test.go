@@ -46,6 +46,29 @@ func TestActiveWALSnapshotIsRejected(t *testing.T) {
 	}
 }
 
+func TestSnapshotCopiesItsPrivateCredentialKey(t *testing.T) {
+	directory := t.TempDir()
+	source, destination := filepath.Join(directory, "source.sqlite"), filepath.Join(directory, "copy.sqlite")
+	if err := os.WriteFile(source, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	key := strings.Repeat("k", 32)
+	if err := os.WriteFile(source+".credentials.key", []byte(key), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copySnapshot(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	value, err := os.ReadFile(destination + ".credentials.key")
+	if err != nil || string(value) != key {
+		t.Fatal("credential key was not copied", err)
+	}
+	info, err := os.Stat(destination + ".credentials.key")
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("credential key permissions", err)
+	}
+}
+
 func TestReportNeverOverwritesItsInputs(t *testing.T) {
 	input := filepath.Join(t.TempDir(), "snapshot")
 	_ = os.WriteFile(input, []byte("original"), 0600)

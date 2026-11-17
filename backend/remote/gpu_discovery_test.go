@@ -13,17 +13,16 @@ func TestResourceCatalogIncludesGPUDiscoveryAndExplicitAssignments(t *testing.T)
 		t.Fatal(err)
 	}
 	defer store.Close()
-	for _, machine := range []domain.Machine{
+	machines := []domain.Machine{
 		{ID: "automatic", Properties: []string{"GPU"}},
 		{ID: "explicit", GPUDevices: []string{"0000:01:00.0"}},
 		{ID: "cpu"},
-	} {
-		if err := store.Save("machine", machine.ID, "", machine); err != nil {
-			t.Fatal(err)
-		}
 	}
-	manager := NewManager(&Connector{Store: store})
-	state, err := manager.ResourceState(domain.Project{MachineIDs: []string{"automatic", "explicit", "cpu"}})
+	if err := store.Save("pool", "discovery", "", domain.Pool{ID: "discovery", Machines: machines, MaxMachines: 3}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(&Connector{Store: store, NativeSessionsForTests: true})
+	state, err := manager.ResourceState(domain.Project{PoolIDs: []string{"discovery"}})
 	if err != nil {
 		t.Fatal(err)
 	}

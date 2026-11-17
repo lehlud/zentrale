@@ -37,7 +37,7 @@ func TestPreviewPortUsesAuthenticatedGuestRelayWithoutHostFallback(t *testing.T)
 	if err := store.Save("machine", machine.ID, "", machine); err != nil {
 		t.Fatal(err)
 	}
-	connection, err := (&Connector{Store: store}).Dial(context.Background(), machine.ID)
+	connection, err := (&Connector{Store: store, NativeSessionsForTests: true}).Dial(context.Background(), machine.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestPreviewPortUsesAuthenticatedGuestRelayWithoutHostFallback(t *testing.T)
 		stream.Close()
 		t.Fatal("unavailable guest relay fell back to a host port")
 	}
-	editors := NewEditors(NewManager(&Connector{Store: store}))
+	editors := NewEditors(NewManager(&Connector{Store: store, NativeSessionsForTests: true}))
 	defer editors.Close()
 	for _, port := range []int{0, -1, 65536, 9842} {
 		if _, _, err := editors.PortTransport(domain.Project{}, "", port); err == nil || !strings.Contains(err.Error(), "invalid preview port") {

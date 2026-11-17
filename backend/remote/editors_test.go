@@ -33,7 +33,7 @@ func TestConnectionCheckReturnsTrustChallengeAndVisibleSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	connector := &Connector{Store: store}
+	connector := &Connector{Store: store, NativeSessionsForTests: true}
 	result := connector.Check(context.Background(), machine.ID)
 	if result.Connected || result.HostKey.Fingerprint == "" || result.HostKey.PublicKey == "" {
 		t.Fatalf("missing trust challenge: %+v", result)
@@ -81,7 +81,7 @@ func TestRetainedSSHHandleOutlivesItsAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	connection, err := (&Connector{Store: store}).Dial(context.Background(), machine.ID)
+	connection, err := (&Connector{Store: store, NativeSessionsForTests: true}).Dial(context.Background(), machine.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRetainedSSHHandleOutlivesItsAgent(t *testing.T) {
 	connection.Close()
 	connection.Close()
 
-	if _, err := Run(context.Background(), job.Client, "stream"); err != nil {
+	if _, err := Run(context.Background(), job, "stream"); err != nil {
 		t.Fatalf("finishing an agent disconnected its retained job: %v", err)
 	}
 
@@ -155,7 +155,7 @@ func TestEditorReusesOneSSHSessionAndReleasesItsPoolLease(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manager := NewManager(&Connector{Store: store})
+	manager := NewManager(&Connector{Store: store, NativeSessionsForTests: true})
 	editors := NewEditors(manager)
 	defer editors.Close()
 
@@ -207,16 +207,16 @@ func TestEditorReusesOneSSHSessionAndReleasesItsPoolLease(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if second.ID == session.ID || second.AgentID != "second-agent" {
-		t.Fatal("different agents shared an editor session")
+	if second.ID != session.ID {
+		t.Fatal("agents on the same project machine did not share the editor session")
 	}
 
 	if err := editors.StopAgent("second-agent"); err != nil {
 		t.Fatal(err)
 	}
 
-	if current := editors.CurrentFor(project, "second-agent"); current.ID != "" {
-		t.Fatal("stopped agent editor remained current")
+	if current := editors.CurrentFor(project, "second-agent"); current.ID != session.ID {
+		t.Fatal("releasing one agent lost the shared project editor")
 	}
 
 	if current := editors.Current(project); current.ID != session.ID {

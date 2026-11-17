@@ -1,6 +1,9 @@
 #!/usr/bin/python3 -I
 """Minimal PID 1 for the managed guest; no host services or udev are started."""
 
+import hashlib
+import tarfile
+import zipfile
 import ctypes
 import json
 import os
@@ -174,6 +177,24 @@ STANDARD_PACKAGES = {
     "libstdc++": ("/usr/lib64/libstdc++.so.6",),
     "libatomic": ("/usr/lib64/libatomic.so.1",),
     "ripgrep": ("rg",),
+    "fd-find": ("fd",),
+    "cloc": ("cloc",),
+    "tree": ("tree",),
+    "sudo": ("sudo",),
+    "bat": ("bat",),
+    "yq": ("yq",),
+    "jc": ("jc",),
+    "sqlite": ("sqlite3",),
+    "python3-csvkit": ("csvcut", "csvsql", "csvstat"),
+    "miller": ("mlr",),
+    "sd": ("sd",),
+    "perl-interpreter": ("perl",),
+    "git-delta": ("delta",),
+    "direnv": ("direnv",),
+    "just": ("just",),
+    "podman": ("podman",),
+    "crun": ("crun",),
+    "passt": ("pasta",),
     "python3": ("python3",),
     "python3-pip": ("pip3",),
     "curl": ("curl",),
@@ -477,6 +498,101 @@ def prepare_standard_packages(root):
         )
 
 
+def prepare_standard_binaries(root, tools):
+    """Install verified upstream CLIs entirely inside the guest, once per disk."""
+    destination = root / "usr/local/bin"
+    destination.mkdir(parents=True, exist_ok=True)
+    cache = root / "var/cache/zentrale/tools"
+    cache.mkdir(parents=True, exist_ok=True)
+    for name, artifact in tools.items():
+        digest = artifact["sha256"]
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise RuntimeError("invalid standard tool checksum")
+        receipt = cache / (name + ".json")
+        members = artifact["members"]
+        if receipt.exists() and receipt.read_text() == digest and all(
+            (destination / command).is_file() for command in members
+        ):
+            continue
+        archive = cache / (digest + ".download")
+        if not archive.exists() or hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
+            archive.unlink(missing_ok=True)
+            subprocess.run(
+                ["curl", "--fail", "--location", "--proto", "=https", "--retry", "3",
+                 "--max-time", "180", "--output", "/var/cache/zentrale/tools/" + archive.name,
+                 artifact["url"]],
+                check=True, timeout=200, preexec_fn=enter_guest(root), env=GUEST_ENV,
+            )
+        if archive.stat().st_size > 256 * 1024 * 1024:
+            raise RuntimeError("standard tool archive exceeds size limit")
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
+            archive.unlink()
+            raise RuntimeError("standard tool checksum mismatch: " + name)
+        for command, member in members.items():
+            if not re.fullmatch(r"[a-zA-Z0-9_-]+", command):
+                raise RuntimeError("invalid standard tool command name")
+            if artifact["format"] == "raw":
+                content = archive.read_bytes()
+            elif artifact["format"] == "zip":
+                with zipfile.ZipFile(archive) as package:
+                    entries = [item for item in package.infolist() if Path(item.filename).name == member and not item.is_dir()]
+                    if len(entries) != 1 or entries[0].file_size > 256 * 1024 * 1024:
+                        raise RuntimeError("invalid standard tool archive member: " + member)
+                    content = package.read(entries[0])
+            elif artifact["format"] == "tar":
+                with tarfile.open(archive) as package:
+                    entries = [item for item in package.getmembers() if Path(item.name).name == member and item.isfile()]
+                    if len(entries) != 1 or entries[0].size > 256 * 1024 * 1024:
+                        raise RuntimeError("invalid standard tool archive member: " + member)
+                    content = package.extractfile(entries[0]).read()
+            else:
+                raise RuntimeError("unsupported standard tool archive format")
+            temporary = destination / ("." + command + ".new")
+            temporary.unlink(missing_ok=True)
+            with temporary.open("xb") as target:
+                target.write(content)
+                target.flush()
+                os.fsync(target.fileno())
+            temporary.chmod(0o755)
+            os.replace(temporary, destination / command)
+        receipt.write_text(digest)
+        archive.unlink()
+    python = destination / "python"
+    if not python.exists():
+        python.symlink_to("/usr/bin/python3")
+
+
+def prepare_guest_administration(root, request):
+    # Agent tasks retain no_new_privs and a nosuid root mount. Only the trusted
+    # browser-terminal launcher enables sudo in its private mount namespace.
+    sudoers = root / "etc/sudoers.d/zentrale-terminal"
+    sudoers.parent.mkdir(parents=True, exist_ok=True)
+    sudoers.write_text("zentrale ALL=(root) NOPASSWD: ALL\n")
+    sudoers.chmod(0o440)
+    shadow = root / "etc/shadow"
+    accounts = shadow.read_text().splitlines() if shadow.exists() else []
+    if not any(line.startswith("zentrale:") for line in accounts):
+        accounts.append("zentrale:!:%d:0:99999:7:::" % (time.time() // 86400))
+        shadow.write_text("\n".join(accounts) + "\n")
+        shadow.chmod(0o600)
+    runtime = root / ("run/user/" + str(request["uid"]))
+    runtime.mkdir(parents=True, exist_ok=True)
+    runtime.chmod(0o700)
+    os.chown(runtime, request["uid"], request["gid"])
+    containers = root / "etc/containers"
+    containers.mkdir(parents=True, exist_ok=True)
+    # Single-UID rootless Podman needs no setuid newuidmap or guest sudo. Keep
+    # its storage on the persistent guest disk rather than a host 9p export.
+    (containers / "storage.conf").write_text(
+        '[storage]\ndriver="vfs"\n'
+        '[storage.options.vfs]\nignore_chown_errors="true"\n'
+    )
+    (containers / "containers.conf").write_text(
+        '[containers]\ncgroups="disabled"\n'
+        '[engine]\ncgroup_manager="cgroupfs"\nevents_logger="file"\n'
+    )
+
+
 def prepare_user_shell(root):
     """Install the interactive shell in the guest, preserving its persistent disk."""
     fish = root / "usr/bin/fish"
@@ -653,6 +769,8 @@ def serve_jobs(request):
     configure_network(True)
     prepare_standard_packages(Path(FEDORA))
     prepare_user_shell(Path(FEDORA))
+    prepare_standard_binaries(Path(FEDORA), request.get("standardTools", {}))
+    prepare_guest_administration(Path(FEDORA), request)
     prepare_tooling(request)
     proof = {
         "os": "fedora",

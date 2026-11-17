@@ -1,74 +1,31 @@
 package agent
 
-import (
-	"context"
-	_ "embed"
-	"strings"
+import "github.com/lehlud/zentrale/domain"
 
-	"github.com/lehlud/zentrale/domain"
-	"github.com/lehlud/zentrale/remote"
-)
-
-//go:embed scripts/watch_file.py
-var watchFileScript string
-
-// A digest check protects the next read even before the remote watch is ready.
-// The watch additionally revokes grants immediately after external changes.
-func (engine *Engine) rememberReadGrant(agentRecord domain.Agent, filename, digest, machineID string) {
-	ctx, cancel := context.WithCancel(engine.ctx)
-	permission := grant{
-		Path:      filename,
-		Hash:      digest,
-		MachineID: machineID,
-
-		watchID: NewID(),
-		cancel:  cancel,
-	}
-
+// Reuse is checked against the bytes' SHA-256 and instruction revision on every
+// read. Keeping a remote watcher per grant added processes without strengthening
+// that boundary; no file bytes reach an agent before the digest check.
+func (engine *Engine) rememberReadGrant(agentRecord domain.Agent, filename, digest, machineID string, revision uint64) {
 	engine.mu.Lock()
-
-	if previous, exists := engine.grants[agentRecord.ID][filename]; exists && previous.cancel != nil {
-		previous.cancel()
+	defer engine.mu.Unlock()
+	if engine.ctx.Err() != nil || engine.instructionRevisions[agentRecord.ProjectID] != revision {
+		return
 	}
-
 	if engine.grants[agentRecord.ID] == nil {
 		engine.grants[agentRecord.ID] = make(map[string]grant)
 	}
-
-	engine.grants[agentRecord.ID][filename] = permission
-	engine.workers.Add(1)
-	engine.mu.Unlock()
-	go engine.watchReadGrant(ctx, agentRecord.ID, permission)
-}
-
-func (engine *Engine) watchReadGrant(ctx context.Context, agentID string, permission grant) {
-	defer engine.workers.Done()
-	defer permission.cancel()
-	defer engine.revokeReadGrant(agentID, permission)
-
-	connection, err := engine.Remote.Connector.Dial(ctx, permission.MachineID)
-	if err != nil {
-		return
-	}
-	defer connection.Close()
-
-	command := strings.Join([]string{
-		"python3 -I -u -c", remote.Quote(watchFileScript), remote.Quote(permission.Path),
-	}, " ")
-
-	_, _ = remote.Run(ctx, connection.Client, command)
+	engine.grants[agentRecord.ID][filename] = grant{Path: filename, Hash: digest, MachineID: machineID, Revision: revision}
 }
 
 func (engine *Engine) revokeReadGrant(agentID string, permission grant) {
 	engine.mu.Lock()
 	current, exists := engine.grants[agentID][permission.Path]
-	if exists && current.watchID == permission.watchID {
+	revoked := exists && current == permission
+	if revoked {
 		delete(engine.grants[agentID], permission.Path)
 	}
-
 	engine.mu.Unlock()
-
-	if exists {
+	if revoked {
 		engine.Emit("grant_revoked", agentID, map[string]string{"path": permission.Path})
 	}
 }

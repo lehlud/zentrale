@@ -168,7 +168,7 @@ jobs:
       - name: Build backend for browser integration
         working-directory: backend
         run: |
-          go build -o "$RUNNER_TEMP/zentrale" .
+          go build -tags native_test_ssh -o "$RUNNER_TEMP/zentrale" .
           # Warm the local SSH fixture's compile cache before its 30s startup limit.
           go build -o "$RUNNER_TEMP/testssh" ./cmd/testssh
       - name: Install Chromium and system libraries

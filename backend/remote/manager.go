@@ -94,6 +94,33 @@ func (manager *Manager) Hold(ownerID, jobID string) {
 	}
 }
 
+// RestoreUsage accounts for existing remote work before any new placement.
+// Existing work must be counted even if it already fills the pool's limit.
+func (manager *Manager) RestoreUsage(project domain.Project, ownerID, machineID string, gpu bool) error {
+	candidates, err := manager.projectCandidates(project)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		if candidate.id != machineID {
+			continue
+		}
+		manager.mutex.Lock()
+		defer manager.mutex.Unlock()
+		if candidate.pool != nil {
+			if manager.leases[candidate.pool.ID] == nil {
+				manager.leases[candidate.pool.ID] = make(map[string]string)
+			}
+			manager.leases[candidate.pool.ID][ownerID] = machineID
+		}
+		if gpu {
+			manager.gpuLeases[ownerID] = machineID
+		}
+		return nil
+	}
+	return errors.New("original machine is no longer assigned to the project")
+}
+
 func (manager *Manager) Connect(
 	ctx context.Context,
 	project domain.Project,
@@ -107,6 +134,7 @@ func (manager *Manager) Connect(
 	}
 
 	preferCandidate(candidates, preferredMachine)
+
 	manager.Release(ownerID)
 	failures := []error{}
 	for _, candidate := range candidates {
@@ -142,6 +170,9 @@ func (manager *Manager) Connect(
 }
 
 func (manager *Manager) projectCandidates(project domain.Project) ([]machineCandidate, error) {
+	if len(project.MachineIDs)+len(project.PoolIDs) != 1 {
+		return nil, errors.New("select exactly one remote machine or exactly one pool for the project")
+	}
 	candidates := make([]machineCandidate, 0, len(project.MachineIDs))
 
 	for _, machineID := range project.MachineIDs {
@@ -228,7 +259,7 @@ func CheckAvailability(ctx context.Context, connection *Connection, machine doma
 		return nil
 	}
 
-	output, err := Run(ctx, connection.Client, "who | awk '{print $1}' | sort -u")
+	output, err := Run(ctx, connection, "who | awk '{print $1}' | sort -u")
 	if err != nil {
 		return err
 	}

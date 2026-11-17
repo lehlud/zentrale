@@ -312,6 +312,7 @@ func TestAcceptedInputsRecoverWithoutDuplicatingDeliveredMessages(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(restarted.Close)
 
@@ -386,6 +387,7 @@ func TestStopAndServiceShutdownHaveDifferentRecoverySemantics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			restarted.Remote.Connector.NativeSessionsForTests = true
 
 			t.Cleanup(restarted.Close)
 

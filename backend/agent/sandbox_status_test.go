@@ -21,7 +21,7 @@ func TestSandboxStatusDoesNotWaitForLifecycleLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	engine := &Engine{Store: store, Remote: &remote.Manager{Connector: &remote.Connector{Store: store}}}
+	engine := &Engine{Store: store, Remote: &remote.Manager{Connector: &remote.Connector{Store: store, NativeSessionsForTests: true}}}
 	machine := remote.WithMachineDefaults(domain.Machine{ID: "worker", Host: "unused.invalid", Sandbox: "auto"})
 	if err := store.Save("machine", machine.ID, "", machine); err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestSandboxStatusDoesNotWaitForLifecycleLock(t *testing.T) {
 
 func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 	var selection atomic.Value
-	selection.Store("bwrap")
+	selection.Store("microvm")
 	var probes atomic.Int32
 	handler := func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		if strings.Contains(command, "test -c /dev/kvm") {
@@ -77,7 +77,7 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 		return 0
 	}
 
-	engine, record, project := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
+	engine, record, project := vmExecutionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		t.Fatal("sandbox checks must not call a provider")
 		return providers.Result{}, nil
 	}), handler)
@@ -94,7 +94,7 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 	}
 
 	prepared := engine.CheckAgentConnection(context.Background(), record.ID)
-	if !prepared.Connected || prepared.Sandbox.Level != "bwrap" || prepared.Sandbox.Mode != "auto" {
+	if !prepared.Connected || prepared.Sandbox.Level != "microvm" || prepared.Sandbox.Mode != "auto" {
 		t.Fatalf("preflight selection: %+v", prepared)
 	}
 
@@ -115,7 +115,7 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 		}
 	}
 
-	assertSelection("bwrap")
+	assertSelection("microvm")
 
 	// Execution probes again: a machine's available isolation can change.
 	selection.Store("microvm")
@@ -137,23 +137,22 @@ func TestSandboxSelectionTracksPreflightExecutionAndBypass(t *testing.T) {
 	assertSelection("microvm")
 	beforeBypass := probes.Load()
 
-	if _, err := engine.execute(context.Background(), record, "true", false, true); err != nil {
-		t.Fatal(err)
+	if _, err := engine.execute(context.Background(), record, "true", false, true); err == nil || !strings.Contains(err.Error(), "host command execution is unavailable") {
+		t.Fatalf("VM command escaped to the host: %v", err)
 	}
-
-	if probes.Load() != beforeBypass {
-		t.Fatal("explicit bypass unexpectedly probed auto selection")
+	if probes.Load() <= beforeBypass {
+		t.Fatal("host escape did not validate the current VM isolation")
 	}
 
 	assertSelection("microvm")
 
 	selection.Store("none")
 	checked := engine.CheckMachineConnection(context.Background(), project.MachineIDs[0])
-	if !checked.Connected || checked.Sandbox.Level != "none" {
-		t.Fatalf("connection check omitted unsandboxed selection: %+v", checked)
+	if !checked.Connected || checked.Sandbox.Level != "" || !strings.Contains(checked.Sandbox.Error, "unexpected sandbox detection") {
+		t.Fatalf("automatic selection silently downgraded isolation: %+v", checked)
 	}
 
-	assertSelection("none")
+	assertSelection("")
 	selection.Store("error")
 	checked = engine.CheckMachineConnection(context.Background(), project.MachineIDs[0])
 	if !checked.Connected ||
@@ -207,7 +206,7 @@ func TestFailedMicroVMBootOnCachedSSHBlocksProviderAndPreservesPrompt(t *testing
 		return 0
 	}
 
-	engine, record, _ := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
+	engine, record, _ := vmExecutionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		requests.Add(1)
 		return providers.Result{Text: "must not answer"}, nil
 	}), handler)
@@ -335,7 +334,7 @@ func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 	probeStarted := make(chan struct{})
 	var probeSignaled atomic.Bool
 	finishProbe := make(chan struct{})
-	engine, record, _ := executionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
+	engine, record, _ := vmExecutionTestEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		t.Fatal("preflight must not call a provider")
 		return providers.Result{}, nil
 	}), func(command string, input io.Reader, stdout, _ io.Writer) int {
@@ -346,12 +345,21 @@ func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 				close(probeStarted)
 			}
 			<-finishProbe
-			_, _ = fmt.Fprintln(stdout, "bwrap")
+			_, _ = fmt.Fprintln(stdout, "microvm")
 		}
 
 		_, _ = io.Copy(io.Discard, input)
 		return 0
 	})
+
+	machine, loadError := engine.Remote.Connector.Machine("test-worker")
+	if loadError != nil {
+		t.Fatal(loadError)
+	}
+	machine.MicroVMCommand = "/opt/test-microvm"
+	if err := engine.Store.Save("machine", machine.ID, "", machine); err != nil {
+		t.Fatal(err)
+	}
 
 	completed := make(chan domain.MachineConnectionCheck, 1)
 	go func() {
@@ -373,7 +381,7 @@ func TestSandboxPreflightDoesNotWaitForLifecycleLock(t *testing.T) {
 	case result := <-completed:
 		engine.configMu.Unlock()
 
-		if !result.Connected || result.Sandbox.Level != "bwrap" {
+		if !result.Connected || result.Sandbox.Level != "microvm" {
 			t.Fatalf("preflight failed: %+v", result)
 		}
 	case <-time.After(2 * time.Second):

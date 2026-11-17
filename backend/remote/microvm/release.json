@@ -50,5 +50,63 @@
       "source": "https://musl.libc.org/",
       "license": "MIT"
     }
+  },
+  "tools": {
+    "ast-grep": {
+      "version": "0.51.3",
+      "url": "https://github.com/ast-grep/ast-grep/releases/download/0.51.3/app-x86_64-unknown-linux-gnu.zip",
+      "sha256": "22803eb0c5bf83164fb7fd76d4721d355ecf0c8466ef47342c1ec7d80897ca47",
+      "format": "zip",
+      "members": {
+        "ast-grep": "ast-grep",
+        "sg": "sg"
+      },
+      "source": "https://github.com/ast-grep/ast-grep/tree/0.51.3",
+      "license": "MIT"
+    },
+    "qsv": {
+      "version": "29.0.0",
+      "url": "https://github.com/dathere/qsv/releases/download/29.0.0/qsv-29.0.0-x86_64-unknown-linux-musl.zip",
+      "sha256": "20439caaa82be28373051b70da2dc259d74b21b9ddc1c38bd1b34cee299cc435",
+      "format": "zip",
+      "members": {
+        "qsv": "qsv"
+      },
+      "source": "https://github.com/dathere/qsv/tree/29.0.0",
+      "license": "MIT OR Unlicense"
+    },
+    "mise": {
+      "version": "2026.11.9",
+      "url": "https://github.com/jdx/mise/releases/download/v2026.11.9/mise-v2026.11.9-linux-x64",
+      "sha256": "f13f3e5ec88807e0161669b3aa07a91d84478cdf1e95b5b92b63f85a25d42395",
+      "format": "raw",
+      "members": {
+        "mise": "mise"
+      },
+      "source": "https://github.com/jdx/mise/tree/v2026.11.9",
+      "license": "MIT"
+    },
+    "duckdb": {
+      "version": "2.0.0",
+      "url": "https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz",
+      "sha256": "c6507206baf7793c6013dbd82368469a45f20dc0e17a6f92f204602f652ed2bc",
+      "format": "tar",
+      "members": {
+        "duckdb": "duckdb"
+      },
+      "source": "https://github.com/duckdb/duckdb/tree/v2.0.0",
+      "license": "MIT"
+    },
+    "gron": {
+      "version": "0.7.1",
+      "url": "https://github.com/tomnomnom/gron/releases/download/v0.7.1/gron-linux-amd64-0.7.1.tgz",
+      "sha256": "ca0335826b02b044fa05d7e951521e45c6ced1c381a73ed5803450088e18bf22",
+      "format": "tar",
+      "members": {
+        "gron": "gron"
+      },
+      "source": "https://github.com/tomnomnom/gron/tree/v0.7.1",
+      "license": "MIT"
+    }
   }
 }

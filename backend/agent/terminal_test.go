@@ -31,7 +31,7 @@ func TestTerminalPreparationSharesOwnerAndHoldsBusyUntilDisconnect(t *testing.T)
 	done := make(chan error, 1)
 	go func() {
 		_, err := engine.withEditorEnvironment(ctx, project.ID, child.ID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, resolved domain.Project, target remote.EditorTarget) (domain.EditorSession, error) {
-			if target.AgentID != main.ID || resolved.Directory == "" || target.TemporaryDirectory != agentTemporaryDirectory(main.ID) {
+			if target.AgentID != child.ID || resolved.Directory == "" || target.TemporaryDirectory != engine.environmentTemporaryDirectory(remote.EditorScopeID(project.ID, "")) {
 				t.Errorf("wrong environment: %+v %+v", resolved, target)
 			}
 			close(entered)
@@ -51,7 +51,7 @@ func TestTerminalPreparationSharesOwnerAndHoldsBusyUntilDisconnect(t *testing.T)
 		t.Fatal("open terminal not busy")
 	}
 	engine.mu.Lock()
-	if engine.editorPreparing[project.ID] != 1 || engine.preparing[main.ID] != 1 {
+	if engine.editorPreparing[project.ID] != 1 || engine.preparing[remote.EditorScopeID(project.ID, "")] != 1 {
 		t.Error("missing lifecycle holds")
 	}
 	engine.mu.Unlock()
@@ -66,7 +66,7 @@ func TestTerminalPreparationSharesOwnerAndHoldsBusyUntilDisconnect(t *testing.T)
 	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	if engine.editorPreparing[project.ID] != 0 || engine.preparing[main.ID] != 0 {
+	if engine.editorPreparing[project.ID] != 0 || engine.preparing[remote.EditorScopeID(project.ID, "")] != 0 {
 		t.Error("activity leaked")
 	}
 }
@@ -112,7 +112,7 @@ func TestTerminalRealPTYDisconnectReleasesActivity(t *testing.T) {
 	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	if engine.preparing[main.ID] != 0 || engine.editorPreparing[project.ID] != 0 {
+	if engine.preparing[remote.EditorScopeID(project.ID, "")] != 0 || engine.editorPreparing[project.ID] != 0 {
 		t.Fatal("terminal activity leaked")
 	}
 }

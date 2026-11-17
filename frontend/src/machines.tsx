@@ -230,7 +230,7 @@ export function Machines() {
                     id: "environment",
                     title: t("Wie sollen Agenten hier arbeiten?"),
                     description: t(
-                      "Automatisch wählt die stärkste verfügbare Sandbox.",
+                      "Automatisch erfordert eine VM. Fehlen die Voraussetzungen, wird die Ausführung gestoppt.",
                     ),
                     fields: [
                       "workspaceRoot",

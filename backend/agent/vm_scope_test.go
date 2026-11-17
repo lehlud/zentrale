@@ -50,7 +50,7 @@ func TestSharedEnvironmentStopsAfterLastWorkerAndRestartsOnResume(t *testing.T) 
 	var mutex sync.Mutex
 	var prepared []remote.Execution
 	shell := shellPeerHandler("/bin/sh", os.Environ())
-	engine, main, project := executionTestEngine(t, provider, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+	engine, main, project := vmExecutionTestEngine(t, provider, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		if strings.Contains(command, "<zentrale-microvm>") {
 			command = strings.ReplaceAll(command, `'"'"'`, `'`)
 			if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
@@ -146,11 +146,11 @@ func TestSharedEnvironmentStopsAfterLastWorkerAndRestartsOnResume(t *testing.T) 
 		t.Fatalf("preparations: %d", len(prepared))
 	}
 	for _, execution := range prepared {
-		if execution.AgentID != main.ID || execution.TemporaryDirectory != agentTemporaryDirectory(main.ID) {
+		if execution.AgentID != remote.EditorScopeID(project.ID, "") || execution.TemporaryDirectory != engine.environmentTemporaryDirectory(remote.EditorScopeID(project.ID, "")) {
 			t.Fatalf("worker received a separate environment: %+v", execution)
 		}
 	}
-	records, err := engine.listAll("microvm", &main.ID)
+	records, err := engine.listAll("microvm", &project.ID)
 	if err != nil || len(records) != 1 {
 		t.Fatalf("shared VM records: %v %v", records, err)
 	}
@@ -169,7 +169,7 @@ func TestSubagentCannotResetSharedEnvironmentOrReachApproval(t *testing.T) {
 	_, err = engine.dispatch(context.Background(), child, providers.Call{Name: "harness", Arguments: map[string]any{
 		"action": "microvm_reset", "arguments": "{}", "justification": "recover",
 	}})
-	if err == nil || !strings.Contains(err.Error(), "only the main agent") || approvals.Load() != 0 {
+	if err == nil || !strings.Contains(err.Error(), "VM reset is a user action") || approvals.Load() != 0 {
 		t.Fatalf("subagent reset: %v approvals=%d", err, approvals.Load())
 	}
 }
@@ -220,7 +220,7 @@ func TestMainAndSubagentOpenTheSameEditorSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID != second.ID || first.AgentID != main.ID {
+	if first.ID != second.ID || first.MachineID != second.MachineID {
 		t.Fatalf("separate editors: %+v %+v", first, second)
 	}
 	if err := engine.Editors.Stop(project.ID, first.ID); err != nil {
@@ -284,7 +284,7 @@ func TestIdleCleanupDoesNotWaitForAnEnvironmentBeingPrepared(t *testing.T) {
 
 func TestFailedStagingStillTracksGuestForAutomaticCleanup(t *testing.T) {
 	var stops atomic.Int32
-	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+	engine, main, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
 		if strings.Contains(command, " 'stage'") {
 			io.Copy(io.Discard, input)
@@ -330,7 +330,7 @@ func TestFailedStagingStillTracksGuestForAutomaticCleanup(t *testing.T) {
 
 func TestDeletingFamilyRemovesDescendantsButChildKeepsSharedDisk(t *testing.T) {
 	var removals atomic.Int32
-	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, _ io.Writer) int {
+	engine, main, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, _ io.Writer) int {
 		io.Copy(io.Discard, input)
 		if strings.Contains(strings.ReplaceAll(command, `'"'"'`, `'`), " 'remove'") {
 			removals.Add(1)
@@ -359,20 +359,21 @@ func TestDeletingFamilyRemovesDescendantsButChildKeepsSharedDisk(t *testing.T) {
 	if removals.Load() != 0 {
 		t.Fatal("removing a child deleted the shared disk")
 	}
-	records, err := engine.listAll("microvm", &main.ID)
+	records, err := engine.listAll("microvm", &project.ID)
 	if err != nil || len(records) != 1 {
 		t.Fatalf("parent disk record: %v %v", records, err)
 	}
 	if err := engine.Delete("agent", main.ID); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for removals.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	if removals.Load() != 0 {
+		t.Fatalf("conversation deletion removed the project VM: %d", removals.Load())
 	}
-	if removals.Load() != 1 {
-		t.Fatalf("disk removals: %d", removals.Load())
+	records, err = engine.listAll("microvm", &project.ID)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("project VM was lost with its conversation: %v %v", records, err)
 	}
+
 	for _, id := range []string{main.ID, main.ApproverID, first.ID, first.ApproverID, second.ID, second.ApproverID} {
 		var record domain.Agent
 		if err := engine.Store.Load("agent", id, &record); err == nil {

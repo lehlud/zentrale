@@ -64,14 +64,14 @@ func TestEvaluationCleanupStopsNativeVMBeforeRemovingFiles(t *testing.T) {
 				{Kind: "machine", ID: machine.ID, Value: machine},
 				{Kind: "project", ID: project.ID, Value: project},
 				{Kind: "agent", ID: record.ID, Parent: project.ID, Value: record},
-				{Kind: "microvm", ID: record.ID + ":" + machine.ID, Parent: record.ID, Value: map[string]any{"agentId": record.ID, "projectId": project.ID, "machineId": machine.ID, "workspace": workspace}},
+				{Kind: "microvm", ID: remote.EditorScopeID(project.ID, "") + ":" + machine.ID, Parent: project.ID, Value: map[string]any{"agentId": remote.EditorScopeID(project.ID, ""), "projectId": project.ID, "machineId": machine.ID, "workspace": workspace}},
 				{Kind: "project", ID: "other", Value: domain.Project{ID: "other"}},
 			}); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			err = cleanupCase(ctx, store, &remote.Connector{Store: store}, machine, project, record, remote.SandboxMicroVM)
+			err = cleanupCase(ctx, store, &remote.Connector{Store: store, NativeSessionsForTests: true}, machine, project, record, remote.SandboxMicroVM)
 			if (err != nil) != (scenario != "removed") {
 				t.Fatal(err)
 			}

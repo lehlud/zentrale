@@ -400,6 +400,7 @@ func TestPauseDuringGoalReviewSurvivesRestartAndCanResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(restarted.Close)
 
@@ -474,6 +475,7 @@ func TestActiveGoalRecoversWithoutAPendingInputReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(restarted.Close)
 
@@ -498,6 +500,7 @@ func TestActiveGoalRecoversWithoutAPendingInputReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	completed.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(completed.Close)
 	completed.mu.Lock()
@@ -557,6 +560,7 @@ func TestDiscardedGoalStaysStoppedAcrossNotificationsAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restarted.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(restarted.Close)
 	restarted.mu.Lock()

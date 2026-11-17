@@ -73,6 +73,12 @@ async function commandFixture(page: Page) {
       return { stopAgent: true };
     }
 
+    if (query.includes("resetProjectVM(")) {
+      expect(variables.projectId).toBe(project.id);
+      actions.push("reset-vm");
+      return { resetProjectVM: true };
+    }
+
     if (query.includes("resumeInputs(")) {
       actions.push("continue");
       current.status = "running";
@@ -189,7 +195,7 @@ test("Escape preserves the draft and ordinary Tab still queues instructions", as
   expect(submissions[0].mode).toBe("queue");
 });
 
-test("the project menu keeps Stop but not redundant actions or agent links", async ({
+test("the project menu keeps Stop and VM reset without redundant actions or agent links", async ({
   page,
 }) => {
   const { actions } = await commandFixture(page);
@@ -201,7 +207,13 @@ test("the project menu keeps Stop but not redundant actions or agent links", asy
     .getByRole("button", { name: "Projektaktionen", exact: true })
     .click();
   const menu = page.getByRole("menu", { name: "Projektaktionen" });
-  await expect(menu.getByRole("menuitem")).toHaveCount(2);
+  await expect(menu.getByRole("menuitem")).toHaveCount(3);
+  await expect(
+    menu.getByRole("menuitem", {
+      name: "Projekt-VM zurücksetzen",
+      exact: true,
+    }),
+  ).toBeVisible();
   for (const name of [
     "Neue Unterhaltung",
     "Projekteinstellungen",
@@ -219,6 +231,39 @@ test("the project menu keeps Stop but not redundant actions or agent links", asy
     .getByRole("menuitem", { name: "Agent stoppen", exact: true })
     .click();
   await expect.poll(() => actions).toEqual(["stop"]);
+});
+
+test("project VM reset requires explicit user confirmation and supports cancellation", async ({
+  page,
+}) => {
+  const { actions } = await commandFixture(page);
+  const header = page.getByRole("group", { name: "Agentensteuerung" });
+  async function openReset() {
+    await header
+      .getByRole("button", { name: "Projektaktionen", exact: true })
+      .click();
+    await page
+      .getByRole("menu", { name: "Projektaktionen" })
+      .getByRole("menuitem", { name: "Projekt-VM zurücksetzen", exact: true })
+      .click();
+  }
+  await header
+    .getByRole("button", { name: "Projektaktionen", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Agent stoppen", exact: true })
+    .click();
+  await expect.poll(() => actions).toEqual(["stop"]);
+  await openReset();
+  const dialog = page.getByRole("dialog", { name: "Aktion bestätigen" });
+  await expect(dialog).toContainText("Projektdateien bleiben erhalten");
+  await dialog.getByRole("button", { name: "Abbrechen", exact: true }).click();
+  expect(actions).toEqual(["stop"]);
+  await openReset();
+  await dialog
+    .getByRole("button", { name: "Projekt-VM zurücksetzen", exact: true })
+    .click();
+  await expect.poll(() => actions).toEqual(["stop", "reset-vm"]);
 });
 
 test("the teamwork board remains available as a command, not a side button", async ({

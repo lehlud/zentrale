@@ -794,6 +794,16 @@ Object.assign(english, {
 });
 
 Object.assign(english, {
+  "Projekt-VM zurücksetzen": "Reset project VM",
+  "Fernmaschine oder Pool": "Remote machine or pool",
+  "Automatisch erfordert eine VM. Fehlen die Voraussetzungen, wird die Ausführung gestoppt.":
+    "Automatic mode requires a VM. Execution stops if its prerequisites are unavailable.",
+  Fernmaschine: "Remote machine",
+  "Stop angefordert": "Stop requested",
+  "Wähle genau eine Fernmaschine oder genau einen Pool.":
+    "Choose exactly one remote machine or exactly one pool.",
+  "Alle Projekt-VMs auf den verwendeten Fernmaschinen zurücksetzen? Installierte Pakete und Dateien innerhalb der VMs werden gelöscht. Projektdateien bleiben erhalten. Stoppe zuerst alle Agenten und Jobs und schließe die VM-Terminals.":
+    "Reset all project VMs on the previously used remote machines? Installed packages and files inside those VMs will be deleted. Project files will be preserved. First stop all agents and jobs and close the VM terminals.",
   "Agent entfernen": "Remove agent",
   "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?":
     "Permanently remove this agent, its descendants and their histories?",

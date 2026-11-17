@@ -63,6 +63,7 @@ func newAPIFixture(t testing.TB) *apiFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.Remote.Connector.NativeSessionsForTests = true
 
 	api := &Server{Store: store, Auth: authentication, Engine: engine, Frontend: t.TempDir()}
 	handler, err := api.Handler()

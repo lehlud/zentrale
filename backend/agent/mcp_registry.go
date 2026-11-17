@@ -182,7 +182,7 @@ func (engine *Engine) connectMCP(
 			return nil, err
 		}
 
-		process, err := remote.StartProcess(requestContext, connection.Client, wrapped)
+		process, err := remote.StartProcess(requestContext, connection, wrapped)
 		if err != nil {
 			stopLifetime()
 			stop()

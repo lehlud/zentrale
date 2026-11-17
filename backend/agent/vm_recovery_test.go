@@ -19,7 +19,7 @@ func TestRepositoryPreparationRecoversAnInterruptedCredentialCleanup(t *testing.
 		t.Run(fmt.Sprintf("exit%d", status), func(t *testing.T) {
 			var cleanups, stops atomic.Int32
 			shell := shellPeerHandler("/bin/sh", os.Environ())
-			engine, main, _ := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+			engine, main, _ := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 				if !strings.Contains(command, "<zentrale-microvm>") {
 					return shell(command, input, stdout, stderr)
 				}
@@ -82,7 +82,7 @@ func TestVMPreflightRetriesOnlyRecognizedStartupFailures(t *testing.T) {
 		t.Run(fmt.Sprintf("%s/exit%d", test.reason, test.status), func(t *testing.T) {
 			var prepares atomic.Int32
 			shell := shellPeerHandler("/bin/sh", os.Environ())
-			engine, main, _ := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+			engine, main, _ := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 				if !strings.Contains(command, "<zentrale-microvm>") {
 					return shell(command, input, stdout, stderr)
 				}
@@ -119,7 +119,7 @@ func TestVMPreflightRetriesOnlyRecognizedStartupFailures(t *testing.T) {
 func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) {
 	var prepares, stops atomic.Int32
 	shell := shellPeerHandler("/bin/sh", os.Environ())
-	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+	engine, main, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		if strings.Contains(command, "<zentrale-microvm>") {
 			command = strings.ReplaceAll(command, `'"'"'`, `'`)
 			if strings.Contains(command, " 'select'") || strings.Contains(command, " 'ensure'") {
@@ -179,7 +179,7 @@ func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) 
 
 func TestStagingRecoversBeforeStartingTheRequestedCommand(t *testing.T) {
 	var stages, stops atomic.Int32
-	engine, main, project := executionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+	engine, main, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
 		command = strings.ReplaceAll(command, `'"'"'`, `'`)
 		if strings.Contains(command, " 'ensure'") {
 			fmt.Fprintln(stdout, "microvm")

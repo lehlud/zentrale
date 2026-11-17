@@ -46,10 +46,12 @@ def mount(source, target, filesystem=None, flags=0):
     checked(LIBC.mount(*values, ctypes.c_ulong(flags), None), "mount " + target)
 
 
-def drop_privileges(uid, gid, guest_root):
+def drop_privileges(uid, gid, guest_root, user_terminal=False):
     # Package scripts need the usual file ownership capabilities. Namespace,
     # tracing, device and chroot capabilities would expose the trusted VM init.
-    allowed = {0, 1, 3, 4, 6, 7, 8, 9, 31} if guest_root else set()
+    allowed = {0, 1, 3, 4, 6, 7, 8, 9, 31} if guest_root or user_terminal else set()
+    if user_terminal:
+        allowed.add(29)  # CAP_AUDIT_WRITE for sudo's audit plugin inside the VM.
     for capability in range(41):
         if capability not in allowed:
             checked(LIBC.prctl(24, capability, 0, 0, 0), "drop capability")
@@ -60,13 +62,14 @@ def drop_privileges(uid, gid, guest_root):
 
     header = Header(0x20080522, 0)
     data = (Data * 2)()
-    for capability in allowed:
+    for capability in allowed if guest_root else ():
         data[capability // 32].effective |= 1 << (capability % 32)
         data[capability // 32].permitted |= 1 << (capability % 32)
     checked(
         LIBC.capset(ctypes.byref(header), ctypes.byref(data)), "set task capabilities"
     )
-    checked(LIBC.prctl(38, 1, 0, 0, 0), "disable privilege escalation")
+    if not user_terminal:
+        checked(LIBC.prctl(38, 1, 0, 0, 0), "disable privilege escalation")
 
 
 def login_shell(root, guest_root, tooling):
@@ -82,6 +85,12 @@ def login_shell(root, guest_root, tooling):
 def execute(request, session, command):
     tooling = request.get("tooling", False)
     root = "/run/zentrale-tools" if tooling else FEDORA
+    user_terminal = bool(request.get("terminalProtocol")) and not tooling
+    if user_terminal:
+        # This mount namespace belongs to this user terminal only. Agent
+        # commands keep the nosuid mount, empty capabilities and no_new_privs.
+        mount(root, root, flags=4096)
+        mount(None, root, flags=4096 | 32 | 4)  # BIND | REMOUNT | NODEV
     # A private proc mount shows only this task's PID namespace. No task can
     # inspect PID 1's filesystem, descriptors, commands or other jobs' stdin.
     mount("proc", root.rstrip("/") + "/proc", "proc", 2 | 4 | 8)
@@ -104,6 +113,7 @@ def execute(request, session, command):
         "LOGNAME": "root" if guest_root else "zentrale",
         "TMPDIR": "/tmp/zentrale",
         "XDG_CACHE_HOME": "/tmp/zentrale/cache",
+        "XDG_RUNTIME_DIR": "/run/user/" + str(session["uid"]),
         "ZENTRALE_SANDBOX": "microvm",
     }
     if request.get("tty"):
@@ -118,7 +128,7 @@ def execute(request, session, command):
             0 if guest_root else session["gid"],
         )
 
-    drop_privileges(session["uid"], session["gid"], guest_root)
+    drop_privileges(session["uid"], session["gid"], guest_root, user_terminal)
     resource.setrlimit(resource.RLIMIT_NPROC, (256, 256))
     os.execve("/bin/sh", ["/bin/sh", "/proc/self/fd/" + str(descriptor)], environment)
 

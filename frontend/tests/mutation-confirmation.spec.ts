@@ -4,6 +4,12 @@ import { mutationConfirmation } from "../src/mutation-confirmation";
 test("destructive actions keep their explanation and label together", () => {
   for (const [field, variables, message, actionLabel] of [
     ["stopEditor", {}, "Nicht gespeicherte Änderungen", "Editor beenden"],
+    [
+      "resetProjectVM",
+      { projectId: "project" },
+      "Projektdateien bleiben erhalten",
+      "Projekt-VM zurücksetzen",
+    ],
     ["stopJob", {}, "Diesen Job", "Job beenden"],
     ["revokeRepositoryKey", {}, "Repo-Zugriff", "Zugriff widerrufen"],
     ["disconnectGitConnection", {}, "Zugang", "Trennen"],

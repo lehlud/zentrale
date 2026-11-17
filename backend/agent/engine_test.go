@@ -212,6 +212,7 @@ func testEngine(t *testing.T, provider providers.Client) (*Engine, domain.Agent)
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.Remote.Connector.NativeSessionsForTests = true
 
 	t.Cleanup(engine.Close)
 	mainAgent, err := engine.Create("project", "Main", "main-provider", "approver-provider", "")

@@ -32,6 +32,14 @@ func (failure *CommandError) Unwrap() error {
 	return failure.Cause
 }
 
+func commandFailure(cause error, output string) error {
+	diagnostic := strings.TrimSpace(output)
+	if len(diagnostic) > 8192 {
+		diagnostic = "[last output]\n" + strings.ToValidUTF8(diagnostic[len(diagnostic)-8192:], "�")
+	}
+	return &CommandError{Cause: cause, Output: diagnostic}
+}
+
 // shellCommand passes the command through the SSH user's shell to /bin/sh.
 // Fish interprets backslashes even inside single quotes. Emit each backslash
 // in its own double-quoted segment, which fish and POSIX shells read identically.
@@ -41,54 +49,61 @@ func shellCommand(command string) string {
 	return "exec /bin/sh -c " + argument
 }
 
-func Run(ctx context.Context, client *ssh.Client, command string) (string, error) {
-	return runCommand(ctx, client, command, nil, nil)
+func Run(ctx context.Context, connection *Connection, command string) (string, error) {
+	return runCommand(ctx, connection, command, nil, nil)
 }
 
 func RunStreaming(
 	ctx context.Context,
-	client *ssh.Client,
+	connection *Connection,
 	command string,
 	onOutput func(string),
 ) (string, error) {
-	return runCommand(ctx, client, command, nil, onOutput)
+	return runCommand(ctx, connection, command, nil, onOutput)
 }
 
-func RunPipe(ctx context.Context, client *ssh.Client, command string, input io.Reader) (string, error) {
-	return runCommand(ctx, client, command, input, nil)
+func RunPipe(ctx context.Context, connection *Connection, command string, input io.Reader) (string, error) {
+	return runCommand(ctx, connection, command, input, nil)
 }
 
 func RunStreamingPipe(
 	ctx context.Context,
-	client *ssh.Client,
+	connection *Connection,
 	command string,
 	input io.Reader,
 	onOutput func(string),
 ) (string, error) {
-	return runCommand(ctx, client, command, input, onOutput)
+	return runCommand(ctx, connection, command, input, onOutput)
 }
 
 func runCommand(
 	ctx context.Context,
-	client *ssh.Client,
+	connection *Connection,
 	command string,
 	input io.Reader,
 	onOutput func(string),
 ) (string, error) {
-	return RunStreamingInput(ctx, client, command, input, false, onOutput, nil)
+	return RunStreamingInput(ctx, connection, command, input, false, onOutput, nil)
 }
 
 // Interactive stdin must not hold session.Wait open after the process exits.
 // onChunk receives ordered raw bytes before the formatted display snapshot.
 func RunStreamingInput(
 	ctx context.Context,
-	client *ssh.Client,
+	connection *Connection,
 	command string,
 	input io.Reader,
 	interactive bool,
 	onOutput func(string),
 	onChunk func([]byte),
 ) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if connection.daemon != nil {
+		return runDaemonCommand(ctx, connection, command, input, interactive, onOutput, onChunk)
+	}
+	client := connection.Client
 	session, err := commandSession(ctx, client)
 	if err != nil {
 		return "", err
@@ -156,12 +171,7 @@ func RunStreamingInput(
 		text := output.String()
 
 		if err != nil {
-			diagnostic := strings.TrimSpace(text)
-			if len(diagnostic) > 8192 {
-				diagnostic = "[last output]\n" + strings.ToValidUTF8(diagnostic[len(diagnostic)-8192:], "�")
-			}
-
-			err = &CommandError{Cause: err, Output: diagnostic}
+			err = commandFailure(err, text)
 		}
 
 		return text, err

@@ -165,7 +165,7 @@ func (manager *Manager) resolveManagedDirectory(
 
 	output, err := RunPipe(
 		prepare,
-		connection.Client,
+		connection,
 		"python3 -I -c "+Quote(workspaceScript),
 		strings.NewReader(string(configuration)),
 	)

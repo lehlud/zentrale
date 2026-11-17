@@ -31,7 +31,7 @@ func TestVMInvocationInterruptionRequiresNativeProtocol(t *testing.T) {
 			})
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			output, err := RunPipe(ctx, client, "fixture", nil)
+			output, err := RunPipe(ctx, &Connection{Client: client}, "fixture", nil)
 			failure := ParseVMInvocationFailure(output, err)
 			if test.want == "" {
 				if failure != nil {

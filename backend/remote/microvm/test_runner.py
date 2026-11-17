@@ -31,6 +31,21 @@ class MicroVMRunnerTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.cache = runner.private_directory(self.root / "cache")
 
+    def test_daemon_lease_uses_observed_contact_and_monotonic_time(self):
+        path = self.root / "lease"
+        path.touch()
+        with patch.object(runner.time, "monotonic", return_value=100) as clock:
+            lease = runner.DaemonLease(path)
+            self.assertTrue(lease.active())
+            clock.return_value = 1000
+            self.assertFalse(lease.active())
+            os.utime(path, ns=(1, 1))  # Contact remains valid after clock rollback.
+            self.assertTrue(lease.active())
+            clock.return_value = 1900
+            self.assertFalse(lease.active())
+            path.unlink()
+            self.assertFalse(lease.active())
+
     def test_missing_guest_kernel_support_stops_before_boot_without_downgrade(self):
         result = subprocess.CompletedProcess([], 1, "", "modprobe: Module 9p not found")
         with (
@@ -78,9 +93,9 @@ class MicroVMRunnerTests(unittest.TestCase):
         ):
             cache = runner.cache_directory([Path("/home/example/project")])
             self.assertEqual(
-                cache, Path("/var/tmp/zentrale-microvm-" + str(os.getuid()))
+                cache, Path("/tmp/zentrale-microvm-" + str(os.getuid()))
             )
-            for workspace in [Path("/"), Path("/var"), Path("/var/tmp"), cache]:
+            for workspace in [Path("/"), Path("/tmp"), cache]:
                 with self.subTest(workspace=workspace), self.assertRaises(RuntimeError):
                     runner.cache_directory([workspace])
 

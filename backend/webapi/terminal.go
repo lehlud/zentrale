@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,10 +12,12 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/remote"
 )
 
@@ -37,10 +40,12 @@ func (server *Server) terminalOrigin(request *http.Request) bool {
 }
 
 type terminalFrame struct {
-	Type string `json:"type"`
-	Data string `json:"data"`
-	Cols int    `json:"cols"`
-	Rows int    `json:"rows"`
+	Type     string `json:"type"`
+	Data     string `json:"data"`
+	Cols     int    `json:"cols"`
+	Rows     int    `json:"rows"`
+	Sequence uint64 `json:"sequence"`
+	Encoding string `json:"encoding"`
 }
 
 func terminalWebSocketReadReason(err error) string {
@@ -87,6 +92,15 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+	attachmentID := request.URL.Query().Get("session")
+	var cursor int64
+	if raw := request.URL.Query().Get("cursor"); raw != "" {
+		cursor, err = strconv.ParseInt(raw, 10, 64)
+	}
+	if err != nil || cursor < 0 || (attachmentID != "" && !remote.ValidID(attachmentID)) {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid terminal attachment")
+	}
+	var explicitlyClosed atomic.Bool
 	// Browsers hide the HTTP status of rejected WebSocket handshakes. This
 	// authenticated, same-origin probe uses the very same guards and route,
 	// but never provisions a VM or opens a shell.
@@ -207,6 +221,22 @@ func (server *Server) terminal(requestContext echo.Context) error {
 				}
 				continue
 			}
+			if frame.Type == "close" {
+				explicitlyClosed.Store(true)
+				markEnd("user_closed")
+				return
+			}
+			if frame.Encoding == "base64" {
+				decoded, err := base64.StdEncoding.DecodeString(frame.Data)
+				if err != nil {
+					fail(errors.New("invalid terminal input encoding"))
+					return
+				}
+				frame.Data = string(decoded)
+			} else if frame.Encoding != "" {
+				fail(errors.New("unsupported terminal input encoding"))
+				return
+			}
 			if (frame.Type != "input" && frame.Type != "resize") || (frame.Type == "input" && len(frame.Data) > 65536) || (frame.Type == "resize" && !remote.ValidTerminalSize(frame.Cols, frame.Rows)) {
 				markEnd("invalid_frame")
 				fail(errors.New("invalid terminal input or resize"))
@@ -227,7 +257,7 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	if err := event(map[string]string{"type": "status", "status": "starting"}); err != nil {
 		return nil
 	}
-	err = server.Engine.Terminal(ctx, requestContext.Param("project"), request.URL.Query().Get("agent"), cols, rows, func(sessionContext context.Context, terminal *remote.Terminal) error {
+	err = server.Engine.TerminalAttached(ctx, requestContext.Param("project"), request.URL.Query().Get("agent"), agent.TerminalAttachment{ID: attachmentID, OutputOffset: cursor, KeepOnDisconnect: func() bool { return !explicitlyClosed.Load() }}, cols, rows, func(sessionContext context.Context, terminal *remote.Terminal) error {
 		stop := context.AfterFunc(sessionContext, func() { connection.Close() })
 		defer stop()
 		receiptMu.Lock()
@@ -247,10 +277,14 @@ func (server *Server) terminal(requestContext echo.Context) error {
 					return
 				case frame := <-frames:
 					var err error
-					if frame.Type == "input" {
-						err = terminal.Input([]byte(frame.Data))
-					} else {
-						err = terminal.Resize(frame.Cols, frame.Rows)
+					err = terminal.AcceptInput(frame.Sequence, func() error {
+						if frame.Type == "input" {
+							return terminal.Input([]byte(frame.Data))
+						}
+						return terminal.Resize(frame.Cols, frame.Rows)
+					})
+					if err == nil && frame.Sequence > 0 {
+						err = event(map[string]any{"type": "ack", "sequence": frame.Sequence})
 					}
 					if err != nil {
 						markEnd("ssh_input_error")

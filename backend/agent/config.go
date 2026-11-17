@@ -173,8 +173,8 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 		project.Directory = path.Clean(project.Directory)
 	}
 
-	if len(project.MachineIDs)+len(project.PoolIDs) == 0 {
-		return project, errors.New("select a remote machine or pool")
+	if len(project.MachineIDs)+len(project.PoolIDs) != 1 {
+		return project, errors.New("select exactly one remote machine or exactly one pool")
 	}
 
 	for _, id := range project.MachineIDs {

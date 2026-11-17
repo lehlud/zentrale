@@ -225,9 +225,13 @@ func runCase(
 		return
 	}
 
+	var record domain.Agent
 	closed := false
 	finish := func() {
 		if !closed {
+			if record.ID != "" {
+				_ = engine.Stop(record.ID)
+			}
 			engine.Close()
 			closed = true
 		}
@@ -250,7 +254,7 @@ func runCase(
 		return
 	}
 
-	directory, err := remote.Run(ctx, connection.Client, "mktemp -d /tmp/zentrale-eval-XXXXXXXX")
+	directory, err := remote.Run(ctx, connection, "mktemp -d /tmp/zentrale-eval-XXXXXXXX")
 	directory = strings.TrimSpace(directory)
 	if err != nil ||
 		!strings.HasPrefix(directory, "/tmp/zentrale-eval-") ||
@@ -272,7 +276,6 @@ func runCase(
 	}
 
 	result.ProjectID, result.RemoteDirectory = project.ID, project.Directory
-	var record domain.Agent
 	defer func() {
 		cleanupStarted := time.Now()
 		defer func() { result.CleanupMillis = time.Since(cleanupStarted).Milliseconds() }()
@@ -298,7 +301,7 @@ func runCase(
 
 	result.AgentID = record.ID
 	seed := "import json,pathlib\nroot=pathlib.Path(" + fmt.Sprintf("%q", project.Directory) + ")\nroot.mkdir(mode=0o700)\nfiles=json.loads(" + fmt.Sprintf("%q", agent.JSON(task.files)) + ")\nfor name,content in files.items():\n (root/name).write_text(content)\n"
-	if _, err := remote.Run(ctx, connection.Client, "python3 -I -c "+remote.Quote(seed)); err != nil {
+	if _, err := remote.Run(ctx, connection, "python3 -I -c "+remote.Quote(seed)); err != nil {
 		result.Error = err.Error()
 		return
 	}
@@ -373,6 +376,14 @@ func runCase(
 	if result.Error != "" {
 		return
 	}
+	// Joining the engine detaches its daemon transport. A verifier owns a fresh
+	// attachment; it must not use a handle whose client lifetime has ended.
+	connection, err = connector.Dial(ctx, machine.ID)
+	if err != nil {
+		result.Error = err.Error()
+		return
+	}
+	defer connection.Close()
 
 	temporary := "/tmp/zentrale-" + record.ID
 	verificationStarted := time.Now()
@@ -380,7 +391,7 @@ func runCase(
 		result.VerificationMillis = time.Since(verificationStarted).Milliseconds()
 	}()
 
-	_, err = remote.Run(ctx, connection.Client, "mkdir -p -- "+remote.Quote(temporary))
+	_, err = remote.Run(ctx, connection, "mkdir -p -- "+remote.Quote(temporary))
 	if err != nil {
 		result.Error = err.Error()
 		return
@@ -399,7 +410,7 @@ func runCase(
 	result.Sandbox = level
 
 	if err == nil {
-		output, verifyError := remote.Run(ctx, connection.Client, verification)
+		output, verifyError := remote.Run(ctx, connection, verification)
 		err = verifyError
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		if err == nil && lines[len(lines)-1] != "PASS" {

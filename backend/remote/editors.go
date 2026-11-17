@@ -17,10 +17,11 @@ import (
 )
 
 type editorSession struct {
-	project domain.Project
-	target  EditorTarget
-	runtime editorRuntime
-	info    domain.EditorSession
+	restored *editorReceipt
+	project  domain.Project
+	target   EditorTarget
+	runtime  editorRuntime
+	info     domain.EditorSession
 
 	ready      chan struct{}
 	done       chan struct{}
@@ -101,7 +102,7 @@ func (editors *Editors) StartFor(
 		return domain.EditorSession{}, errors.New("editor service is closed")
 	}
 
-	key := project.ID + ":" + target.AgentID
+	key := editorSessionKey(project.ID, target.MachineID)
 	session := editors.sessions[key]
 	previous := session
 
@@ -114,7 +115,7 @@ func (editors *Editors) StartFor(
 		}
 	}
 
-	if session != nil && (!sameEditorProject(session.project, project) || session.target != target) {
+	if session != nil && (!sameEditorProject(session.project, project) || !sameEditorTarget(session.target, target)) {
 		session.cancel()
 		session = nil
 	}
@@ -155,6 +156,12 @@ func (editors *Editors) StartFor(
 
 func (editors *Editors) run(ctx context.Context, session *editorSession) {
 	defer func() {
+		if editors.ctx.Err() == nil && editors.remote != nil {
+			_ = editors.remote.Connector.Store.Remove("editor_attachment", session.info.ID)
+			_ = editors.remote.Connector.Store.DeleteCredential(editorReceiptName(session.info.ID))
+		}
+	}()
+	defer func() {
 		editors.mutex.Lock()
 		if session.disconnect != nil {
 			session.disconnect.Stop()
@@ -175,6 +182,10 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 		})
 	}
 	defer func() { ready(errors.New("remote editor stopped before becoming ready")) }()
+	if session.restored != nil {
+		editors.runRestored(ctx, session, ready)
+		return
+	}
 
 	timer := time.AfterFunc(5*time.Minute, session.cancel)
 	defer timer.Stop()
@@ -247,7 +258,8 @@ func (editors *Editors) run(ctx context.Context, session *editorSession) {
 			session.info.URL += "&agent=" + url.QueryEscape(session.target.AgentID)
 		}
 	}
-	err = runEditorProcess(ctx, connection.Client, session.runtime.command, func(output string) {
+	ctx = editors.durableEditorContext(ctx, session, connection, false)
+	err = runEditorProcess(ctx, connection, session.runtime.command, func(output string) {
 		select {
 		case <-session.ready:
 			return
@@ -311,7 +323,7 @@ func (editors *Editors) expireDisconnected(session *editorSession, after time.Du
 	session.disconnect = time.AfterFunc(after, func() {
 		editors.mutex.Lock()
 		defer editors.mutex.Unlock()
-		key := session.project.ID + ":" + session.target.AgentID
+		key := editorSessionKey(session.project.ID, session.target.MachineID)
 		if editors.sessions[key] != session || session.clients != 0 || session.disconnectRevision != revision {
 			return
 		}
@@ -329,7 +341,7 @@ func (editors *Editors) HasActive(agents map[string]bool, machineID string) bool
 	editors.mutex.Lock()
 	defer editors.mutex.Unlock()
 	for _, session := range editors.sessions {
-		if !agents[EditorScopeID(session.project.ID, session.target.AgentID)] ||
+		if (!agents[EditorScopeID(session.project.ID, session.target.AgentID)] && !agents[session.target.AgentID]) ||
 			(session.target.MachineID != "" && session.target.MachineID != machineID) {
 			continue
 		}
@@ -373,10 +385,27 @@ func (editors *Editors) Current(project domain.Project) domain.EditorSession {
 }
 
 func (editors *Editors) CurrentFor(project domain.Project, agentID string) domain.EditorSession {
+	machineID := ""
+	if agentID != "" && editors.remote != nil {
+		var record domain.Agent
+		if editors.remote.Connector.Store.Load("agent", agentID, &record) == nil {
+			machineID = record.MachineID
+		}
+	}
 	editors.mutex.Lock()
 	defer editors.mutex.Unlock()
 
-	session := editors.sessions[project.ID+":"+agentID]
+	session := editors.sessions[editorSessionKey(project.ID, machineID)]
+	if session == nil && machineID == "" {
+		for _, candidate := range editors.sessions {
+			if candidate.project.ID == project.ID {
+				if session != nil {
+					return domain.EditorSession{}
+				}
+				session = candidate
+			}
+		}
+	}
 	if session == nil || !sameEditorProject(session.project, project) {
 		return domain.EditorSession{}
 	}
@@ -464,7 +493,7 @@ func (editors *Editors) Stop(projectID, sessionID string) error {
 	editors.mutex.Lock()
 	session := editors.findSession(projectID, sessionID)
 	if session != nil && session.info.ID == sessionID {
-		delete(editors.sessions, projectID+":"+session.target.AgentID)
+		delete(editors.sessions, editorSessionKey(projectID, session.target.MachineID))
 		session.cancel()
 	} else {
 		session = nil

@@ -124,6 +124,20 @@ export function AgentControls({
                   >
                     <Label>{t("Quellen verwalten")}</Label>
                   </Dropdown.Item>
+                  <Dropdown.Item
+                    id="reset-vm"
+                    className="min-h-11 text-danger"
+                    onAction={() =>
+                      action.run(() =>
+                        api.mutate(
+                          "mutation($projectId:String!){resetProjectVM(projectId:$projectId)}",
+                          { projectId: project.id },
+                        ),
+                      )
+                    }
+                  >
+                    <Label>{t("Projekt-VM zurücksetzen")}</Label>
+                  </Dropdown.Item>
                   {canRemove && (
                     <Dropdown.Item
                       id="delete"

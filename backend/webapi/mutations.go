@@ -114,6 +114,10 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		err := server.Engine.Delete(params.Args["kind"].(string), params.Args["id"].(string))
 		return err == nil, err
 	})
+	simple("resetProjectVM", strArg("projectId"), func(params graphql.ResolveParams) (any, error) {
+		err := server.Engine.ResetProjectVM(params.Context, params.Args["projectId"].(string))
+		return err == nil, err
+	})
 
 	simple("prompt", strArg("agentId", "text"), func(params graphql.ResolveParams) (any, error) {
 		if err := userInputTarget(params.Args["agentId"].(string)); err != nil {

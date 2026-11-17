@@ -356,12 +356,17 @@ for (const english of [false, true]) {
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
       .click();
     await project
-      .getByRole("button", { name: label("Fernmaschinen", "Remote machines") })
+      .getByRole("button", {
+        name: label("Fernmaschine oder Pool", "Remote machine or pool"),
+      })
       .click();
     await page
-      .getByRole("option", { name: "GPU-Worker Frankfurt", exact: true })
+      .getByRole("option", {
+        name: `${label("Fernmaschine", "Remote machine")}: GPU-Worker Frankfurt`,
+        exact: true,
+      })
       .click();
-    await page.keyboard.press("Escape");
+
     await project
       .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
       .click();

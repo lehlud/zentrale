@@ -29,6 +29,7 @@ func TestEngineStartupResumesPendingLoginAndExpiresStaleGrant(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		engine.Remote.Connector.NativeSessionsForTests = true
 		engine.loginPollMu.Lock()
 		count := len(engine.loginPollers)
 		registered := engine.loginPollers["active"] != nil

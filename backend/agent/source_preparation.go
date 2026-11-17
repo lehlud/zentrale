@@ -158,7 +158,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 		runContext, cancelRun := context.WithTimeout(ctx, timeout)
 		defer cancelRun()
-		output, err := remote.RunPipe(runContext, connection.Client, command, strings.NewReader(JSON(configuration)))
+		output, err := remote.RunPipe(runContext, connection, command, strings.NewReader(JSON(configuration)))
 		if level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 			if interrupted := remote.ParseVMInvocationFailure(output, err); interrupted != nil {
 				return output, interrupted

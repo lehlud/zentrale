@@ -78,10 +78,18 @@ export default function VMTerminal({
     let ready = false;
     let opened = false;
     let finished = false;
+    const sessionId = crypto.randomUUID();
+    let cursor = 0;
+    let sequence = 0;
+    let pendingBytes = 0;
+    const pending = new Map<number, string>();
     const diagnosis = new AbortController();
     let socket: WebSocket | undefined;
     let resizeFrame = 0;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let disconnectedAt: number | undefined;
+    let retryDelay = 500;
     const heartbeat = new TerminalHeartbeat(performance.now());
     const stopHeartbeat = () => clearInterval(heartbeatTimer);
     const encoder = new TextEncoder();
@@ -90,22 +98,40 @@ export default function VMTerminal({
       finished = true;
       ready = false;
       stopHeartbeat();
+      clearTimeout(retryTimer);
       setError(message);
       setState("error");
       socket?.close();
     };
+    const reconnect = () => {
+      if (disposed || finished || retryTimer) return;
+      ready = false;
+      stopHeartbeat();
+      disconnectedAt ??= performance.now();
+      if (performance.now() - disconnectedAt >= 14 * 60 * 1000) {
+        fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
+        return;
+      }
+      setState("starting");
+      setStartupPhase("connecting");
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        connect();
+      }, retryDelay);
+      retryDelay = Math.min(5000, retryDelay * 2);
+    };
     const probe = () => {
       if (disposed || finished || socket?.readyState !== WebSocket.OPEN) return;
       if (!heartbeat.check(performance.now(), document.hidden)) {
-        fail(
-          "Terminal-Verbindung antwortet nicht mehr. Bitte Netzwerk und Server prüfen.",
-        );
+        socket.close();
+        reconnect();
         return;
       }
       try {
         socket.send(JSON.stringify({ type: "ping" }));
       } catch {
-        fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
+        socket.close();
+        reconnect();
       }
     };
     const resume = () => {
@@ -115,26 +141,35 @@ export default function VMTerminal({
     };
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("pageshow", resume);
-    const sendBytes = (bytes: Uint8Array) => {
+    const send = (frame: Record<string, unknown>) => {
       if (!ready || socket?.readyState !== WebSocket.OPEN) return;
-      // Bound each frame, including large paste input and raw mouse reports.
-      if (socket.bufferedAmount + bytes.byteLength > 1024 * 1024) {
+      const number = ++sequence;
+      const encoded = JSON.stringify({ ...frame, sequence: number });
+      if (pendingBytes + encoded.length > 1024 * 1024) {
         fail("Zu viele ausstehende Terminal-Eingaben. Verbindung beendet.");
         return;
       }
+      pending.set(number, encoded);
+      pendingBytes += encoded.length;
+      socket.send(encoded);
+    };
+    const sendBytes = (bytes: Uint8Array) => {
       for (let offset = 0; offset < bytes.byteLength; offset += 16384) {
-        socket.send(bytes.slice(offset, offset + 16384));
+        const chunk = bytes.subarray(offset, offset + 16384);
+        send({
+          type: "input",
+          encoding: "base64",
+          data: btoa(String.fromCharCode(...chunk)),
+        });
       }
     };
     const sendResize = () => {
-      if (disposed || !ready || socket?.readyState !== WebSocket.OPEN) return;
-      socket.send(
-        JSON.stringify({
-          type: "resize",
-          cols: Math.min(500, Math.max(2, terminal.cols)),
-          rows: Math.min(300, Math.max(2, terminal.rows)),
-        }),
-      );
+      if (disposed) return;
+      send({
+        type: "resize",
+        cols: Math.min(500, Math.max(2, terminal.cols)),
+        rows: Math.min(300, Math.max(2, terminal.rows)),
+      });
     };
     const terminal = new WTerm(element, {
       autoResize: true,
@@ -147,6 +182,103 @@ export default function VMTerminal({
         resizeFrame = requestAnimationFrame(sendResize);
       },
     });
+    const connect = () => {
+      if (disposed || finished) return;
+      const url = terminalURL(projectId, agentId, terminal.cols, terminal.rows);
+      url.searchParams.set("session", sessionId);
+      url.searchParams.set("cursor", String(cursor));
+      const current = new WebSocket(url);
+      socket = current;
+      current.binaryType = "arraybuffer";
+      current.onopen = () => {
+        if (disposed || current !== socket) return;
+        opened = true;
+        heartbeat.acknowledge(performance.now());
+        stopHeartbeat();
+        heartbeatTimer = setInterval(probe, terminalHeartbeatInterval);
+        probe();
+      };
+      current.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
+        if (disposed || finished || current !== socket) return;
+        if (event.data instanceof ArrayBuffer) {
+          cursor += event.data.byteLength;
+          terminal.write(new Uint8Array(event.data));
+          return;
+        }
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "pong") {
+            heartbeat.acknowledge(performance.now());
+          } else if (message.type === "ack") {
+            if (
+              !Number.isSafeInteger(message.sequence) ||
+              message.sequence < 0 ||
+              message.sequence > sequence
+            ) {
+              fail("Ungültige Antwort der Terminal-Verbindung.");
+              return;
+            }
+            for (const [number, frame] of pending) {
+              if (number <= message.sequence) {
+                pendingBytes -= frame.length;
+                pending.delete(number);
+              }
+            }
+          } else if (message.type === "status" && message.status === "ready") {
+            ready = true;
+            disconnectedAt = undefined;
+            retryDelay = 500;
+            setState("ready");
+            for (const frame of pending.values()) current.send(frame);
+            terminal.fit();
+            sendResize();
+            terminal.focus();
+          } else if (
+            message.type === "status" &&
+            !ready &&
+            isTerminalStartupPhase(message.status)
+          ) {
+            setStartupPhase(message.status);
+          } else if (message.type === "error") {
+            fail(
+              typeof message.message === "string"
+                ? message.message
+                : "Terminal-Verbindung fehlgeschlagen.",
+            );
+          } else if (message.type === "exit") {
+            if (!Number.isInteger(message.code)) {
+              fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
+              return;
+            }
+            finished = true;
+            ready = false;
+            stopHeartbeat();
+            setExitCode(message.code);
+            setState("closed");
+            current.close();
+          }
+        } catch {
+          fail("Ungültige Antwort der Terminal-Verbindung.");
+        }
+      };
+      current.onerror = () => {
+        if (disposed || finished || current !== socket) return;
+        if (opened) {
+          current.close();
+          reconnect();
+          return;
+        }
+        fail("Terminal-Verbindung fehlgeschlagen.");
+        void terminalConnectionError(url, diagnosis.signal, api.fetch).then(
+          (message) => {
+            if (!disposed) setError(message);
+          },
+        );
+      };
+      current.onclose = () => {
+        if (!disposed && !finished && current === socket) reconnect();
+      };
+    };
     element.classList.toggle("theme-light", themeRef.current === "light");
     setState("starting");
     setStartupPhase("starting");
@@ -160,97 +292,21 @@ export default function VMTerminal({
           .querySelector("textarea")
           ?.setAttribute("aria-label", inputLabel.current);
         terminal.fit();
-        const url = terminalURL(
-          projectId,
-          agentId,
-          terminal.cols,
-          terminal.rows,
-        );
-        socket = new WebSocket(url);
-        socket.binaryType = "arraybuffer";
-        socket.onopen = () => {
-          opened = true;
-          heartbeat.acknowledge(performance.now());
-          heartbeatTimer = setInterval(probe, terminalHeartbeatInterval);
-          probe();
-        };
-        socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
-          if (disposed || finished) return;
-          if (event.data instanceof ArrayBuffer) {
-            terminal.write(new Uint8Array(event.data));
-            return;
-          }
-          try {
-            const message = JSON.parse(event.data);
-            if (message.type === "pong") {
-              heartbeat.acknowledge(performance.now());
-            } else if (
-              message.type === "status" &&
-              message.status === "ready"
-            ) {
-              ready = true;
-              setState("ready");
-              terminal.fit();
-              sendResize();
-              terminal.focus();
-            } else if (
-              message.type === "status" &&
-              !ready &&
-              isTerminalStartupPhase(message.status)
-            ) {
-              setStartupPhase(message.status);
-            } else if (message.type === "error") {
-              fail(
-                typeof message.message === "string"
-                  ? message.message
-                  : "Terminal-Verbindung fehlgeschlagen.",
-              );
-            } else if (message.type === "exit") {
-              if (!Number.isInteger(message.code)) {
-                fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
-                return;
-              }
-              finished = true;
-              ready = false;
-              stopHeartbeat();
-              setExitCode(message.code);
-              setState("closed");
-              socket?.close();
-            }
-          } catch {
-            fail("Ungültige Antwort der Terminal-Verbindung.");
-          }
-        };
-        socket.onerror = () => {
-          if (disposed || finished) return;
-          fail(
-            opened
-              ? "Terminal-Verbindung wurde unerwartet unterbrochen."
-              : "Terminal-Verbindung fehlgeschlagen.",
-          );
-          if (opened) return;
-          void terminalConnectionError(url, diagnosis.signal, api.fetch).then(
-            (message) => {
-              if (!disposed) setError(message);
-            },
-          );
-        };
-        socket.onclose = () => {
-          if (!disposed && !finished) {
-            fail("Terminal-Verbindung wurde unerwartet unterbrochen.");
-          }
-        };
+        connect();
       })
       .catch(() => fail("Terminal konnte nicht initialisiert werden."));
     return () => {
       disposed = true;
       diagnosis.abort();
       stopHeartbeat();
+      clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("pageshow", resume);
       ready = false;
       cancelAnimationFrame(resizeFrame);
       if (socket) {
+        if (socket.readyState === WebSocket.OPEN)
+          socket.send(JSON.stringify({ type: "close" }));
         socket.onopen = null;
         socket.onmessage = null;
         socket.onerror = null;

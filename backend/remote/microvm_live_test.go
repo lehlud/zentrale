@@ -19,7 +19,7 @@ import (
 )
 
 // Opt in with a disposable database copy. Every remote write belongs to a new
-// private test directory or to an explicitly owned test-agent MicroVM scope.
+// private test directory or an explicitly owned test-project MicroVM scope.
 func TestManagedMicroVMLive(t *testing.T) {
 	snapshot := os.Getenv("ZENTRALE_MICROVM_TEST_SNAPSHOT")
 	machineID := os.Getenv("ZENTRALE_MICROVM_TEST_MACHINE")
@@ -32,6 +32,9 @@ func TestManagedMicroVMLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := store.PrepareEvaluationCopy(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = store.Close() })
 	connector := &Connector{Store: store}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -97,7 +100,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	base, err := Run(ctx, connection.Client, "mktemp -d /tmp/zentrale-microvm-smoke-XXXXXXXX")
+	base, err := Run(ctx, connection, "mktemp -d /tmp/zentrale-microvm-smoke-XXXXXXXX")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +119,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 
 	second := first
 	second.AgentID, second.TemporaryDirectory = "live-agent-b", base+"/temporary-b"
+	second.ProjectID += "-other"
 	t.Cleanup(func() {
 		cleanupContext, stop := context.WithTimeout(context.Background(), time.Minute)
 		defer stop()
@@ -133,7 +137,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 			}
 		}
 
-		if _, err := Run(cleanupContext, cleanupConnection.Client, "rm -rf -- "+Quote(base)); err != nil {
+		if _, err := Run(cleanupContext, cleanupConnection, "rm -rf -- "+Quote(base)); err != nil {
 			t.Error(err)
 		}
 
@@ -144,7 +148,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 			}
 
 			marker := strings.TrimSuffix(mount.HostPath, "/project-"+first.ProjectID) + "/.zentrale-workspaces/project-" + first.ProjectID + ".json"
-			if _, err := Run(cleanupContext, cleanupConnection.Client, "rm -rf -- "+Quote(mount.HostPath)+" && rm -f -- "+Quote(marker)); err != nil {
+			if _, err := Run(cleanupContext, cleanupConnection, "rm -rf -- "+Quote(mount.HostPath)+" && rm -f -- "+Quote(marker)); err != nil {
 				t.Error(err)
 			}
 		}
@@ -159,7 +163,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 
 	_, err = Run(
 		ctx,
-		connection.Client,
+		connection,
 		"mkdir -p -- "+Quote(first.Workspace)+" "+Quote(first.TemporaryDirectory)+" "+Quote(second.TemporaryDirectory)+" && printf 'host sentinel' > "+Quote(base+"/outside.txt"),
 	)
 	if err != nil {
@@ -185,7 +189,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 
 	run := func(execution Execution, command string, network, root bool) string {
 		t.Helper()
-		output, err := Run(ctx, connection.Client, wrap(execution, command, network, root, false))
+		output, err := Run(ctx, connection, wrap(execution, command, network, root, false))
 		if err != nil {
 			t.Fatalf("guest command: %v", err)
 		}
@@ -199,6 +203,15 @@ func TestManagedMicroVMLive(t *testing.T) {
 	}
 
 	firstBoot := boot(first)
+	shared := first
+	shared.AgentID = "independent-conversation"
+	if boot(shared) != firstBoot {
+		t.Fatal("independent conversations did not share the project VM")
+	}
+	t.Run("default guest tools and agent privilege boundary", func(t *testing.T) {
+		run(first, "for tool in python python3 rg fd ast-grep sg cloc tree sudo bat jq yq gron jc duckdb sqlite3 csvcut mlr qsv sd perl delta direnv mise just podman; do command -v \"$tool\" || exit 1; done", false, false)
+		run(first, "if sudo -n true 2>/dev/null; then exit 1; fi", false, false)
+	})
 	if firstBoot == "" ||
 		!strings.Contains(run(first, "cat /etc/os-release", false, false), `VERSION_ID=45`) {
 		t.Fatal("not a Fedora 45 guest")
@@ -224,7 +237,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 			t.Fatal("unexpected volume output")
 		}
 
-		output, err := Run(ctx, connection.Client, "cat -- "+Quote(mount.HostPath+"/proof.txt"))
+		output, err := Run(ctx, connection, "cat -- "+Quote(mount.HostPath+"/proof.txt"))
 		if err != nil || output != "volume-proof" {
 			t.Fatal("volume writes did not reach project storage", output, err)
 		}
@@ -283,7 +296,7 @@ func TestManagedMicroVMLive(t *testing.T) {
 		execution.TTY, execution.ProtocolIO = true, true
 		command := python("import sys; print('terminal:'+str(sys.stdin.isatty()),flush=True); print(input(),flush=True)")
 		wrapped := wrap(execution, command, false, false, false)
-		output, err := RunStreamingInput(ctx, connection.Client, wrapped, strings.NewReader("guest-input\n"), true, nil, nil)
+		output, err := RunStreamingInput(ctx, connection, wrapped, strings.NewReader("guest-input\n"), true, nil, nil)
 		if err != nil ||
 			!strings.Contains(output, "terminal:True") ||
 			!strings.Contains(output, "guest-input") {
@@ -400,7 +413,7 @@ print('guest administration stays inside Fedora')`), false, true)
 	t.Run("stdin large commands and file harness", func(t *testing.T) {
 		output, err := RunPipe(
 			ctx,
-			connection.Client,
+			connection,
 			wrap(first, "cat; printf 'direct stdout\\n' > /dev/stdout", false, false, false),
 			strings.NewReader("input over SSH\n"),
 		)
@@ -410,7 +423,7 @@ print('guest administration stays inside Fedora')`), false, true)
 			t.Fatalf("stdin/stdout: %q %v", output, err)
 		}
 
-		_, err = Run(ctx, connection.Client, wrap(first, "printf 'specific failure' >&2; exit 7", false, false, false))
+		_, err = Run(ctx, connection, wrap(first, "printf 'specific failure' >&2; exit 7", false, false, false))
 		var exit *ssh.ExitError
 		if !errors.As(err, &exit) ||
 			exit.ExitStatus() != 7 ||
@@ -430,17 +443,17 @@ print('guest administration stays inside Fedora')`), false, true)
 		run(first, `printf '%s' "raise RuntimeError('project module executed')" > json.py`, false, false)
 		probe := "python3 -I -c " + Quote(`import os
 from pathlib import Path
-assert not Path('/var/tmp/zentrale-microvm-'+str(os.getuid())).exists()
+assert not Path('/tmp/zentrale-microvm-'+str(os.getuid())).exists()
 assert not Path('/run/zentrale-control').exists()
 print('tool filesystem is isolated')`)
-		if output, err := Run(ctx, connection.Client, wrap(first, probe, false, false, true)); err != nil ||
+		if output, err := Run(ctx, connection, wrap(first, probe, false, false, true)); err != nil ||
 			!strings.Contains(output, "tool filesystem is isolated") {
 			t.Fatalf("tool isolation: %q %v", output, err)
 		}
 
 		content := strings.Repeat("checkpoint line\n", 20000)
 		command := "python3 -I -c " + Quote(string(script)) + " " + Quote(first.Workspace) + " " + Quote(first.TemporaryDirectory) + " large.txt write_file '-'"
-		output, err = RunPipe(ctx, connection.Client, wrap(first, command, false, false, true), strings.NewReader(Encode(content)))
+		output, err = RunPipe(ctx, connection, wrap(first, command, false, false, true), strings.NewReader(Encode(content)))
 		var result map[string]any
 		if err != nil ||
 			json.Unmarshal([]byte(output), &result) != nil ||
@@ -464,7 +477,7 @@ print('tool filesystem is isolated')`)
 			false,
 			false,
 		) != "checkpoint" {
-		t.Fatal("agent environments are not separate")
+		t.Fatal("different project environments are not separate")
 	}
 
 	t.Run("running job and cancellation preserve VM", func(t *testing.T) {
@@ -472,7 +485,7 @@ print('tool filesystem is isolated')`)
 		ready, done := make(chan struct{}, 1), make(chan error, 1)
 		command := wrap(first, "printf 'JOB_RUNNING\\n'; sleep 600", false, false, false)
 		go func() {
-			_, err := RunStreaming(jobContext, connection.Client, command, func(output string) {
+			_, err := RunStreaming(jobContext, connection, command, func(output string) {
 				if strings.Contains(output, "JOB_RUNNING") {
 					select {
 					case ready <- struct{}{}:
@@ -514,7 +527,7 @@ print('tool filesystem is isolated')`)
 			t.Fatal("cancelling a job destroyed its VM")
 		}
 	})
-	t.Run("SSH disconnect cancels only its job", func(t *testing.T) {
+	t.Run("SSH disconnect preserves its running job", func(t *testing.T) {
 		peer, err := connector.Dial(ctx, machineID)
 		if err != nil {
 			t.Fatal(err)
@@ -529,9 +542,11 @@ while True:
     with Path('heartbeat').open('a') as output: output.write('tick\n')
     time.sleep(0.1)`), false, false, false)
 
+		jobContext, stop := context.WithCancel(ctx)
+		defer stop()
 		ready, done := make(chan struct{}, 1), make(chan error, 1)
 		go func() {
-			_, err := RunStreaming(ctx, peer.Client, command, func(output string) {
+			_, err := RunStreaming(jobContext, peer, command, func(output string) {
 				if strings.Contains(output, "SSH_JOB_RUNNING") {
 					select {
 					case ready <- struct{}{}:
@@ -553,16 +568,25 @@ while True:
 
 		peer.Client.Close()
 
-		if err := <-done; err == nil {
-			t.Fatal("SSH loss was not reported")
-		}
-
-		time.Sleep(2 * time.Second)
+		time.Sleep(300 * time.Millisecond)
 		before := run(first, "wc -l < heartbeat", false, false)
-		time.Sleep(500 * time.Millisecond)
-
-		if after := run(first, "wc -l < heartbeat", false, false); before != after {
-			t.Fatal("job survived SSH loss")
+		time.Sleep(300 * time.Millisecond)
+		if after := run(first, "wc -l < heartbeat", false, false); before == after {
+			t.Fatal("job stopped after SSH loss")
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("transport loss ended the command: %v", err)
+		default:
+		}
+		stop()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("explicit cancellation was not reported")
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("explicit cancellation did not stop command")
 		}
 
 		if boot(first) != firstBoot {
@@ -593,14 +617,14 @@ while True:
 		}
 
 		command := "python3 -I -c " + Quote(string(script)) + " " + Quote(first.Workspace) + " " + Quote(first.TemporaryDirectory) + " project.txt read_file ''"
-		output, err := Run(ctx, connection.Client, wrap(first, command, false, false, true))
+		output, err := Run(ctx, connection, wrap(first, command, false, false, true))
 		var result map[string]any
 		if err != nil || json.Unmarshal([]byte(output), &result) != nil || result["content"] != "checkpoint" {
 			t.Fatalf("file tools need Fedora Python after reset: %q %v", output, err)
 		}
 
 		if boot(second) != secondBoot {
-			t.Fatal("reset affected another agent")
+			t.Fatal("reset affected another project")
 		}
 
 		if len(machine.StorageMounts) > 0 &&
@@ -631,7 +655,7 @@ while True:
 			t.Fatal("reopen did not add the missing standard tool to the existing disk")
 		}
 	})
-	outside, err := Run(ctx, connection.Client, "cat -- "+Quote(base+"/outside.txt"))
+	outside, err := Run(ctx, connection, "cat -- "+Quote(base+"/outside.txt"))
 	if err != nil || outside != "host sentinel" {
 		t.Fatalf("host sentinel changed: %q %v", outside, err)
 	}

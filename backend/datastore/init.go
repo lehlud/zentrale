@@ -16,15 +16,18 @@ import (
 // One database and one ordinary connection pool. SQLite WAL coordinates short
 // write transactions and concurrent readers without application-wide DB locks.
 type Instance struct {
-	path          string
-	db            *sql.DB
-	temporary     string
-	readQueries   atomic.Uint64
-	closeOnce     sync.Once
-	closeErr      error
-	closed        atomic.Bool
-	credentialMu  sync.Mutex
-	credentialKey []byte
+	path                      string
+	db                        *sql.DB
+	temporary                 string
+	readQueries               atomic.Uint64
+	closeOnce                 sync.Once
+	closeErr                  error
+	closed                    atomic.Bool
+	credentialMu              sync.Mutex
+	credentialKey             []byte
+	identityOnce              sync.Once
+	identityID, identityToken string
+	identityError             error
 }
 
 func (i *Instance) readDB() *sql.DB        { i.readQueries.Add(1); return i.db }

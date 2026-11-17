@@ -17,8 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-
 	"github.com/lehlud/zentrale/domain"
 )
 
@@ -177,10 +175,16 @@ func microVMAction(
 	action string,
 	execution Execution,
 ) (string, error) {
+	if action == "stage" || action == "prepare" || action == "reset" {
+		execution.AgentID = EditorScopeID(execution.ProjectID, "")
+		execution.TemporaryDirectory = connection.ProjectTemporaryDirectory(execution.ProjectID)
+	}
+
 	payload, err := json.Marshal(map[string]any{
 		"execution": map[string]any{
-			"agentId":   execution.AgentID,
-			"projectId": execution.ProjectID,
+			"installationId": connection.installationID,
+			"agentId":        execution.AgentID,
+			"projectId":      execution.ProjectID,
 
 			"workspace":          execution.Workspace,
 			"temporaryDirectory": execution.TemporaryDirectory,
@@ -206,10 +210,10 @@ func microVMAction(
 
 	var output string
 	if startupProgress(ctx) == nil {
-		output, err = RunPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)))
+		output, err = RunPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)))
 	} else {
 		var boot sync.Once
-		output, err = RunStreamingPipe(ctx, connection.Client, microVMCommand(action, machine), strings.NewReader(string(payload)), func(snapshot string) {
+		output, err = RunStreamingPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)), func(snapshot string) {
 			if strings.HasPrefix(snapshot, startupBootMarker+"\n") || strings.Contains(snapshot, "\n"+startupBootMarker+"\n") {
 				boot.Do(func() { ReportStartupPhase(ctx, "vm_starting") })
 			}
@@ -221,7 +225,7 @@ func microVMAction(
 	if failure := parseVMStartupFailure(output, err); failure != nil {
 		return "", failure
 	}
-	var exit *ssh.ExitError
+	var exit interface{ ExitStatus() int }
 	if errors.As(err, &exit) && exit.ExitStatus() == 75 {
 		const marker = "ZENTRALE_VM_RECOVERY_REQUIRED "
 		for _, line := range strings.Split(output, "\n") {
@@ -252,7 +256,7 @@ func stripStartupBootMarker(output string) string {
 }
 
 func parseVMStartupFailure(output string, err error) *VMStartupFailure {
-	var exit *ssh.ExitError
+	var exit interface{ ExitStatus() int }
 	if !errors.As(err, &exit) || exit.ExitStatus() != 76 {
 		return nil
 	}

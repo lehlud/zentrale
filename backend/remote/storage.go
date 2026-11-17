@@ -34,7 +34,7 @@ func ReadStorageQuota(
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	output, err := RunPipe(ctx, connection.Client, "python3 -I -c "+Quote(quotaScript), strings.NewReader(string(payload)))
+	output, err := RunPipe(ctx, connection, "python3 -I -c "+Quote(quotaScript), strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, fmt.Errorf("read host storage quota: %w", err)
 	}

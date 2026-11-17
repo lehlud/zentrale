@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 
 def load_module(name, filename):
@@ -28,6 +28,26 @@ guest = load_module("guest_execution", "guest.py")
 
 
 class GuestShellTests(unittest.TestCase):
+    def test_only_browser_terminals_can_gain_sudo_privileges(self):
+        for guest_root, user_terminal in ((False, False), (True, False), (False, True)):
+            with self.subTest(guest_root=guest_root, user_terminal=user_terminal):
+                libc = MagicMock()
+                libc.prctl.return_value = libc.capset.return_value = 0
+                with (
+                    patch.object(guest, "LIBC", libc),
+                    patch.object(guest.os, "setgroups"),
+                    patch.object(guest.os, "setgid"),
+                    patch.object(guest.os, "setuid"),
+                ):
+                    guest.drop_privileges(1000, 1000, guest_root, user_terminal)
+                calls = [call.args for call in libc.prctl.call_args_list]
+                self.assertEqual((38, 1, 0, 0, 0) in calls, not user_terminal)
+                # Root inside Fedora must never gain the capabilities needed
+                # to escape into VM init's read-only host tooling filesystem.
+                for forbidden in (19, 21):  # CAP_SYS_PTRACE, CAP_SYS_ADMIN
+                    self.assertIn((24, forbidden, 0, 0, 0), calls)
+                self.assertIn((24, 18, 0, 0, 0), calls)  # CAP_SYS_CHROOT
+
     def test_commands_and_terminal_use_clean_guest_environment(self):
         session = {
             "workspace": "/host/private/project-id",
@@ -62,7 +82,7 @@ class GuestShellTests(unittest.TestCase):
                 root = "/run/zentrale-tools" if tooling else guest.FEDORA
                 chroot.assert_called_once_with(root)
                 chdir.assert_called_once_with("/home/zentrale/project")
-                privileges.assert_called_once_with(1000, 1000, guest_root)
+                privileges.assert_called_once_with(1000, 1000, guest_root, bool(request.get("terminalProtocol")) and not tooling)
                 environment = execute.call_args.args[2]
                 self.assertEqual(environment["HOME"], "/root" if guest_root else "/home/zentrale")
                 self.assertEqual(environment["TMPDIR"], "/tmp/zentrale")

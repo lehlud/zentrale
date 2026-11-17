@@ -3,6 +3,7 @@ export const statusLabels: Record<string, string> = {
   running: "Arbeitet",
   error: "Fehler",
   stopped: "Gestoppt",
+  stopping: "Stop angefordert",
   interrupted: "Unterbrochen",
   completed: "Abgeschlossen",
   failed: "Fehlgeschlagen",
