@@ -100,7 +100,7 @@ test("usage shows reported cache counts separately from missing measurements", a
     .locator("details")
     .filter({ has: page.locator("summary", { hasText: "Tokens" }) })
     .first();
-  await summary.locator("summary").click();
+  await summary.locator(":scope > summary").click();
 
   await expect(summary).toContainText("75% Cache gelesen (gemeldete Tokens)");
   await expect(summary).toContainText("6.000 Cache-Tokens geschrieben");
@@ -110,8 +110,9 @@ test("usage shows reported cache counts separately from missing measurements", a
   await expect(summary).toContainText(
     "Cache-Schreibdaten fehlen für 3 Anfragen",
   );
-  await expect(summary.locator("summary")).toContainText("≈");
   await expect(summary).toContainText("Letzte Modellrunden");
+  await expect(summary.getByText(/Hauptarbeit · gpt-6.1-sol/)).toBeVisible();
+  await expect(summary.locator(":scope > summary")).toContainText("≈");
   await summary.getByText(/Hauptarbeit · gpt-6.1-sol/).click();
   await expect(summary).toContainText("Verbrauch unbekannt");
   await expect(summary).toContainText("5/6 Nachrichten unverändert");
