@@ -392,6 +392,7 @@ export type Mutation = {
   refreshGitRepositories: boolean | null;
   refreshModels: boolean | null;
   renameAgent: boolean | null;
+  resetProjectVM: boolean | null;
   resumeInputs: boolean | null;
   revokeRepositoryKey: boolean | null;
   saveMachine: Machine | null;

@@ -3939,6 +3939,14 @@
             }
           },
           {
+            "name": "resetProjectVM",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "resumeInputs",
             "type": {
               "kind": "SCALAR",
