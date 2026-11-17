@@ -1,4 +1,11 @@
-import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
+import {
+  Button,
+  Card,
+  FieldError,
+  Input,
+  Label,
+  TextField,
+} from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
 import { CONFIG, useAPI, useQuery } from "./api";
@@ -9,7 +16,7 @@ import {
 import type { Config } from "./config";
 import type { CommitIdentity } from "./generated";
 import { useI18n } from "./preferences";
-import { Failure, Loading, useAction } from "./ui";
+import { Failure, Inspect, Loading, useAction } from "./ui";
 
 export function CommitIdentityFields({
   value,
@@ -81,6 +88,7 @@ export function CommitIdentitySettings() {
   const api = useAPI();
   const { data, error, loading } = useQuery<Config>(CONFIG);
   const [draft, setDraft] = useState<CommitIdentity>();
+  const [editing, setEditing] = useState(false);
   const action = useAction();
   const saved = data?.commitIdentity;
   const value = draft ?? saved ?? { name: "", email: "" };
@@ -97,83 +105,122 @@ export function CommitIdentitySettings() {
       aria-labelledby="commit-identity-title"
       className="border-t border-border pt-8"
     >
-      <h2 id="commit-identity-title" className="text-base font-medium">
-        {t("Standard-Identität für Commits")}
-      </h2>
-      <p className="mt-2 mb-5 max-w-2xl text-sm leading-6 text-muted">
-        {t(
-          "Agenten verwenden diesen Namen und diese E-Mail als Autor und Committer. Projekte können eine eigene Identität festlegen.",
-        )}
-      </p>
-      {loading && !data ? (
-        <Loading />
-      ) : (
-        <form
-          className="max-w-xl space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void action.run(async () => {
-              const submitted = {
-                name: value.name.trim(),
-                email: value.email.trim(),
-              };
-              await api.mutate(
-                "mutation($input:CommitIdentityInput!){setCommitIdentity(input:$input)}",
-                { input: submitted },
-              );
-              setDraft((current) =>
-                finishIdentitySave(current, value, submitted),
-              );
-            });
+      <Card variant="secondary">
+        <Card.Content className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="commit-identity-title" className="text-base font-medium">
+              {t("Standard-Identität für Commits")}
+            </h2>
+            <Button
+              variant="secondary"
+              className="min-h-11"
+              isDisabled={!data}
+              onPress={() => setEditing(true)}
+            >
+              {t("Bearbeiten")}
+            </Button>
+          </div>
+          {loading && !data ? (
+            <Loading />
+          ) : (
+            <div className="min-w-0 text-sm">
+              <p className="break-words">
+                {saved?.name || t("Noch nicht festgelegt")}
+              </p>
+              {saved?.email && (
+                <p className="break-all text-muted">{saved.email}</p>
+              )}
+            </div>
+          )}
+          <Failure message={error} onRetry={() => api.refresh()} />
+        </Card.Content>
+      </Card>
+      {editing && (
+        <Inspect
+          title={t("Standard-Identität für Commits")}
+          isBusy={action.busy}
+          onClose={() => {
+            setEditing(false);
+            setDraft(undefined);
+            action.clearError();
           }}
         >
-          <CommitIdentityFields
-            value={value}
-            onChange={(identity) => {
-              action.clearError();
-              setDraft(identity);
-            }}
-            error={action.error}
-            disabled={action.busy}
-          />
-          <Failure
-            message={
-              error ||
-              (!/commit (name|email)/i.test(action.error)
-                ? action.error
-                : undefined)
-            }
-            onRetry={error ? () => api.refresh() : undefined}
-          />
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button
-              type="submit"
-              className="min-h-11"
-              isDisabled={!dirty || action.busy}
-              isPending={action.busy}
-            >
-              {t("Commit-Identität speichern")}
-            </Button>
-            {dirty && (
-              <>
-                <Button
-                  variant="ghost"
-                  className="min-h-11"
-                  isDisabled={action.busy}
-                  onPress={() => {
-                    setDraft(undefined);
-                    action.clearError();
-                  }}
-                >
-                  {t("Verwerfen")}
-                </Button>
-                <p role="status" className="text-sm text-muted">
-                  {t("Nicht gespeicherte Änderungen")}
-                </p>
-              </>
+          <p className="mb-5 text-sm leading-6 text-muted">
+            {t(
+              "Agenten verwenden diesen Namen und diese E-Mail als Autor und Committer. Projekte können eine eigene Identität festlegen.",
             )}
-          </div>
-        </form>
+          </p>
+          {loading && !data ? (
+            <Loading />
+          ) : (
+            <form
+              className="max-w-xl space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void action.run(async () => {
+                  const submitted = {
+                    name: value.name.trim(),
+                    email: value.email.trim(),
+                  };
+                  await api.mutate(
+                    "mutation($input:CommitIdentityInput!){setCommitIdentity(input:$input)}",
+                    { input: submitted },
+                  );
+                  setDraft((current) =>
+                    finishIdentitySave(current, value, submitted),
+                  );
+                });
+              }}
+            >
+              <CommitIdentityFields
+                value={value}
+                onChange={(identity) => {
+                  action.clearError();
+                  setDraft(identity);
+                }}
+                error={action.error}
+                disabled={action.busy}
+              />
+              <Failure
+                message={
+                  error ||
+                  (!/commit (name|email)/i.test(action.error)
+                    ? action.error
+                    : undefined)
+                }
+                onRetry={error ? () => api.refresh() : undefined}
+              />
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  type="submit"
+                  className="min-h-11"
+                  isDisabled={!dirty || action.busy}
+                  isPending={action.busy}
+                >
+                  {t("Commit-Identität speichern")}
+                </Button>
+                {dirty && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      className="min-h-11"
+                      isDisabled={action.busy}
+                      onPress={() => {
+                        setDraft(undefined);
+                        action.clearError();
+                      }}
+                    >
+                      {t("Verwerfen")}
+                    </Button>
+                    <p role="status" className="text-sm text-muted">
+                      {t("Nicht gespeicherte Änderungen")}
+                    </p>
+                  </>
+                )}
+              </div>
+            </form>
+          )}
+        </Inspect>
       )}
     </section>
   );

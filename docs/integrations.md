@@ -2,6 +2,11 @@
 
 [← Documentation](README.md)
 
+Settings shows current model defaults, the commit identity, and connection
+status. Account setup opens in a modal. Edit the commit identity from its
+summary card; the additional GitHub API token lives under **Advanced API access**.
+See [Hugging Face](huggingface.md) for dataset connections.
+
 ## Choose your models
 
 A provider is an account or endpoint, rather than a fixed model. Connect it in

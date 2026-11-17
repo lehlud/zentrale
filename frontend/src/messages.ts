@@ -630,6 +630,14 @@ export const english: Record<string, string> = {
 };
 
 Object.assign(english, {
+  Verwalten: "Manage",
+  Anmeldeart: "Sign-in method",
+  "Datensätze für Agenten freigeben.": "Make datasets available to agents.",
+  "Mit Token verbinden": "Connect with a token",
+  "Noch nicht festgelegt": "Not configured yet",
+  "GitHub-API-Zugang": "GitHub API access",
+  "OAuth erlaubt Profil- und Lesezugriff. Für einzelne Repositories ist ein fein eingeschränkter Token genauer.":
+    "OAuth grants profile and read access. A fine-grained token is more precise for individual repositories.",
   "Noch keine vertrauenswürdigen Hosts": "No trusted hosts yet",
   "GitHub-Token": "GitHub token",
   "{count} Maschinen · maximal {max} gleichzeitig":

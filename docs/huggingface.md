@@ -14,7 +14,8 @@ read scopes. Browser login uses an explicitly configured Hugging Face OAuth app:
 
 ## Browser OAuth
 
-1. Open **Settings → Hugging Face → Configure a Hugging Face OAuth app** and
+1. Open **Settings → Hugging Face → Actions → Configure OAuth app**. The
+   configuration opens in a modal;
    register an app at <https://huggingface.co/settings/applications/new>.
 2. Register the exact callback URL displayed by Zentrale, including any preview
    or reverse-proxy prefix. See `integrations.md` for public-origin setup.
@@ -53,7 +54,8 @@ older pending callbacks, so a late response cannot restore the previous account.
 
 ## Personal access token
 
-1. Open **Settings → Hugging Face** and follow the token-settings link.
+1. Open **Settings → Hugging Face → Connect → Access Token** and follow the
+   token-settings link in the dialog.
 2. Prefer a fine-grained **read** token limited to the repositories needed for
    the task. Include gated-repository read access if applicable. Do not grant
    write permissions merely to download datasets.
@@ -67,8 +69,9 @@ older pending callbacks, so a late response cannot restore the previous account.
    uses the normal approval/network/job machinery. Anonymous public downloads
    also work without connecting an account.
 
-Replace a token using the same form, including when switching from OAuth.
-**Disconnect** deletes the local account tokens and pending login and cancels
+Choose **Manage → Access Token** to replace a token or switch from OAuth.
+Closing the dialog discards unsaved token input.
+**Actions → Disconnect** deletes the local account tokens and pending login and cancels
 active Hub requests, but retains downloaded data and the OAuth app configuration.
 It does not revoke a personal token or OAuth grant at Hugging Face; revoke these
 there when appropriate.
@@ -214,3 +217,21 @@ Neither production recovery nor lazy rendering was weakened, and no assertion
 was removed. The whole 228-case browser suite was not rerun after that test-only
 correction. These are local results, not a deployment or newly green remote-CI
 claim. No dependency changes, new subagents, commits or pushes were required.
+
+## Local verification, 2026-11-17
+
+The token connection was exercised through the actual local GraphQL API with
+an explicitly supplied credential and a disposable encrypted database. Public
+connection metadata exposed the validated account and authentication mode while
+keeping the credential private.
+
+The live check against
+[`StonyBrook-CVLab/doc3D-dataset`](https://huggingface.co/datasets/StonyBrook-CVLab/doc3D-dataset)
+covered a bounded root listing, five files under `doc3d/` with a continuation
+cursor, the 1,462-byte README through Zentrale's framed download, and an HTTP
+`206` response for bytes `0–255` of `doc3d/alb_1.zip` (289,092,989 bytes total).
+The archive sample used the production HTTP client's redirect policy. The
+follow-up disconnect returned `connected: false`.
+
+This exercised the personal access token path with a small, fixed data sample.
+OAuth setup and callback behavior are covered separately by browser fixtures.

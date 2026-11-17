@@ -349,6 +349,21 @@ for (const variant of variants) {
         return send({ approvals: transcript.approvals });
       }
 
+      if (query.includes("huggingFaceConnection")) {
+        return send({
+          huggingFaceConnection: {
+            connected: false,
+            userName: "",
+            checkedAt: "",
+            authMode: "",
+            oauthClientId: "",
+            oauthConfigured: false,
+            oauthConfidential: false,
+            login: { id: "", authorizationUrl: "", expiresAt: "" },
+          },
+        });
+      }
+
       if (query.includes("gitConnections")) {
         return send({ gitConnections });
       }

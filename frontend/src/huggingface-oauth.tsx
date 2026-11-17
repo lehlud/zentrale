@@ -9,8 +9,12 @@ import { Failure, useAction } from "./ui";
 
 export function HuggingFaceOAuthSettings({
   connection,
+  configure = false,
+  onBusyChange,
 }: {
   connection: HuggingFaceConnection;
+  configure?: boolean;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const api = useAPI();
   const action = useAction();
@@ -23,6 +27,8 @@ export function HuggingFaceOAuthSettings({
   const login = connection.login;
   const redirectUri = browserLoginRedirectURI();
 
+  useEffect(() => onBusyChange(action.busy), [action.busy, onBusyChange]);
+
   useEffect(() => {
     setClientId(connection.oauthClientId ?? "");
     setPublicClient(!connection.oauthConfidential);
@@ -30,15 +36,18 @@ export function HuggingFaceOAuthSettings({
   }, [connection.oauthClientId, connection.oauthConfidential]);
 
   return (
-    <div className="max-w-xl space-y-4 rounded-xl border border-separator p-4">
+    <div className="space-y-4">
       <h3 className="font-medium">{t("Mit Hugging Face anmelden")}</h3>
       <p className="text-sm leading-6 text-muted">
         {t(
-          "OAuth und Access Token sind alternative Anmeldewege. OAuth erlaubt Profil- und Lesezugriff auf private sowie bereits freigeschaltete Gated-Repositories. Organisationen wählst du bei Hugging Face; für einzelne Repositories ist ein fein eingeschränkter Token genauer.",
+          "OAuth erlaubt Profil- und Lesezugriff. Für einzelne Repositories ist ein fein eingeschränkter Token genauer.",
         )}
       </p>
       <Failure message={action.error} />
-      <details open={!connection.oauthConfigured} className="space-y-3">
+      <details
+        open={configure || !connection.oauthConfigured}
+        className="space-y-3"
+      >
         <summary className="cursor-pointer py-2 text-sm font-medium">
           {t("Hugging-Face-OAuth-App einrichten")}
         </summary>
@@ -104,11 +113,13 @@ export function HuggingFaceOAuthSettings({
               <Input className="min-h-11" spellCheck={false} />
             </TextField>
           )}
-          <p className="text-sm leading-6 text-muted">
-            {t(
-              "Ein leeres Secret behält das bisherige Secret derselben Client-ID. Eine andere OAuth-App trennt eine bestehende OAuth-Verbindung; eine Token-Verbindung bleibt erhalten. Ohne Client-ID wird OAuth deaktiviert.",
-            )}
-          </p>
+          {connection.oauthConfigured && (
+            <p className="text-sm leading-6 text-muted">
+              {t(
+                "Ein leeres Secret behält das bisherige Secret derselben Client-ID. Eine andere OAuth-App trennt eine bestehende OAuth-Verbindung; eine Token-Verbindung bleibt erhalten. Ohne Client-ID wird OAuth deaktiviert.",
+              )}
+            </p>
+          )}
           <Button type="submit" isPending={action.busy} className="min-h-11">
             {t("OAuth-App speichern")}
           </Button>

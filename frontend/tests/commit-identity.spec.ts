@@ -52,7 +52,17 @@ test("commit identity settings preserve errors and project overrides can return 
   }
 
   await page.goto("/#/settings");
-  const settings = page.getByRole("region", {
+  const overview = page.getByRole("region", {
+    name: "Standard-Identität für Commits",
+    exact: true,
+  });
+  await expect(
+    overview.getByLabel("Name für Commits", { exact: true }),
+  ).toHaveCount(0);
+  await overview
+    .getByRole("button", { name: "Bearbeiten", exact: true })
+    .click();
+  const settings = page.getByRole("dialog", {
     name: "Standard-Identität für Commits",
     exact: true,
   });
