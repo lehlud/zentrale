@@ -12,9 +12,11 @@ func HostKeyChallenge(err error) domain.SSHHostKey {
 	var identity *HostKeyError
 	if errors.As(err, &identity) {
 		return domain.SSHHostKey{
-			Host:        identity.Host,
-			Fingerprint: identity.Fingerprint,
-			PublicKey:   identity.PublicKey,
+			Host:                identity.Host,
+			Fingerprint:         identity.Fingerprint,
+			PublicKey:           identity.PublicKey,
+			RepositorySourceID:  identity.RepositorySourceID,
+			PreviousFingerprint: identity.PreviousFingerprint,
 		}
 	}
 

@@ -417,6 +417,7 @@ export type Mutation = {
   testPool: PoolConnectionCheck | null;
   testProvider: boolean | null;
   trustHostKey: boolean | null;
+  trustRepositoryHostKey: boolean | null;
 };
 export type Note = {
   agentId: string;
@@ -614,7 +615,9 @@ export type SourceInput = {
 export type SSHHostKey = {
   fingerprint: string;
   host: string;
+  previousFingerprint: string;
   publicKey: string;
+  repositorySourceId: string;
 };
 export type SSHKey = {
   canDelete: boolean | null;

@@ -213,6 +213,13 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 
 		return true, server.Store.DistrustSSHKey(raw)
 	})
+	simple("trustRepositoryHostKey", strArg("sourceId", "host", "publicKey", "previousFingerprint"), func(params graphql.ResolveParams) (any, error) {
+		err := server.Engine.ConfirmRepositoryHostKey(
+			params.Args["sourceId"].(string), params.Args["host"].(string),
+			params.Args["publicKey"].(string), params.Args["previousFingerprint"].(string),
+		)
+		return err == nil, err
+	})
 
 	mutations["generateSSHKey"] = &graphql.Field{
 		Type: builder.sshKeyType(),

@@ -20,17 +20,33 @@ export function HostKeyTrust({
     <Alert status="warning" className="min-w-0">
       <Alert.Indicator />
       <Alert.Content className="min-w-0 space-y-3">
-        <Alert.Title>{t("Host-Schlüssel prüfen")}</Alert.Title>
+        <Alert.Title>
+          {challenge.repositorySourceId
+            ? t("Git-Host-Schlüssel prüfen")
+            : t("Host-Schlüssel prüfen")}
+        </Alert.Title>
         <p className="text-sm">
-          {t(
-            "Diesem Host-Schlüssel wird noch nicht vertraut. Den Fingerprint vor dem Verbinden prüfen.",
-          )}
+          {challenge.previousFingerprint
+            ? t(
+                "Der Schlüssel dieses Git-Hosts hat sich geändert. Vergleiche den neuen Fingerprint mit einer vertrauenswürdigen Quelle, bevor du ihn bestätigst.",
+              )
+            : t(
+                "Diesem Host-Schlüssel wird noch nicht vertraut. Den Fingerprint vor dem Verbinden prüfen.",
+              )}
         </p>
         <dl className="space-y-2 text-sm">
           <div>
             <dt className="font-medium">Host</dt>
             <dd className="break-all">{challenge.host}</dd>
           </div>
+          {challenge.previousFingerprint && (
+            <div>
+              <dt className="font-medium">{t("Bisheriger Fingerprint")}</dt>
+              <dd className="break-all font-mono text-xs">
+                {challenge.previousFingerprint}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="font-medium">Fingerprint</dt>
             <dd className="break-all font-mono text-xs">
@@ -53,10 +69,22 @@ export function HostKeyTrust({
           isPending={action.busy}
           onPress={() =>
             action.run(async () => {
-              await api.mutate(
-                "mutation($publicKey:String!,$trust:String!){trustHostKey(publicKey:$publicKey,trust:$trust)}",
-                { publicKey: challenge.publicKey, trust: "trust" },
-              );
+              if (challenge.repositorySourceId) {
+                await api.mutate(
+                  "mutation($sourceId:String!,$host:String!,$publicKey:String!,$previousFingerprint:String!){trustRepositoryHostKey(sourceId:$sourceId,host:$host,publicKey:$publicKey,previousFingerprint:$previousFingerprint)}",
+                  {
+                    sourceId: challenge.repositorySourceId,
+                    host: challenge.host,
+                    publicKey: challenge.publicKey,
+                    previousFingerprint: challenge.previousFingerprint,
+                  },
+                );
+              } else {
+                await api.mutate(
+                  "mutation($publicKey:String!,$trust:String!){trustHostKey(publicKey:$publicKey,trust:$trust)}",
+                  { publicKey: challenge.publicKey, trust: "trust" },
+                );
+              }
               await onTrusted();
             })
           }

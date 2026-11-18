@@ -212,7 +212,9 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		cancelConfiguration()
 		if err == nil {
 			configuration["operation"] = "prepare"
-			_, err = run(configuration, true, 15*time.Minute)
+			var output string
+			output, err = run(configuration, true, 15*time.Minute)
+			err = repositoryHostKeyFailure(output, err, configuration)
 		}
 
 		if err != nil {

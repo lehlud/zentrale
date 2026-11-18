@@ -56,11 +56,18 @@ func (engine *Engine) sourceReadinessKey(project domain.Project, sources []domai
 		return "", err
 	}
 	sort.Slice(trusted, func(i, j int) bool { return bytes.Compare(trusted[i], trusted[j]) < 0 })
+	var repositoryTrust []map[string]any
+	if len(sources) > 0 {
+		repositoryTrust, err = engine.listAll("repository_host_key", nil)
+		if err != nil {
+			return "", err
+		}
+	}
 	identity, err := engine.Store.Setting("commit_identity")
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(JSON([]any{project.ID, project.Directory, sources, bindings, accounts, keys, trusted, identity, project.CommitName, project.CommitEmail})))), nil
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(JSON([]any{project.ID, project.Directory, sources, bindings, accounts, keys, trusted, repositoryTrust, identity, project.CommitName, project.CommitEmail})))), nil
 }
 
 func (engine *Engine) connectionReadinessKey(record domain.Agent, machine domain.Machine, project domain.Project) (string, error) {

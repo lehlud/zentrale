@@ -427,7 +427,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 	}
 
 	if err := engine.prepareProjectSourcesForConnection(ctx, connection, machine, project, record.ID, reuseSources); err != nil {
-		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status}, err
+		return domain.MachineConnectionCheck{Error: err.Error(), Sandbox: status, HostKey: remote.HostKeyChallenge(err)}, err
 	}
 	engine.rememberReadyConnection(ctx, record, connection, machine, project, status, preparedBootID)
 

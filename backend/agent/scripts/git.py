@@ -15,6 +15,15 @@ from urllib.parse import unquote, urlsplit
 
 READ_ONLY_HOOK = b'#!/bin/sh\necho "Read-only source" >&2\nexit 1\n'
 
+HOST_KEY_OBSERVER = """from pathlib import Path
+import sys
+
+# OpenSSH also calls this command before it has received a host key.
+# Record the offered key for the UI and emit no trusted known_hosts records.
+if sys.argv[1] == "HOSTNAME":
+    Path(__file__).with_name("observed-host-key").write_text(" ".join(sys.argv[2:]), encoding="ascii")
+"""
+
 
 # Installed only in a checkout's private Git metadata, never ~/.ssh or the
 # working tree. Validate Git's destination before exposing its deployment key.
@@ -668,11 +677,34 @@ def run_git(configuration):
         )
 
         directory = configuration["directory"]
-        if configuration["operation"] in ("clone", "prepare"):
-            clone_repository(configuration, environment)
-        else:
-            arguments = ["git", "-C", directory, *configuration["arguments"]]
-            subprocess.run(arguments, env=environment, check=True)
+        observe_key = configuration["operation"] == "prepare" and configuration.get(
+            "repositoryHostKey", {}
+        ).get("repositorySourceId")
+        observed = Path(temporary_directory) / "observed-host-key"
+        if observe_key:
+            observer = write_secret(temporary_directory, "observe.py", HOST_KEY_OBSERVER)
+            command = shlex.join([
+                sys.executable.replace("%", "%%"), "-I", observer.replace("%", "%%"),
+                "%I", "%t", "%K",
+            ])
+            environment["GIT_SSH_COMMAND"] += (
+                " -o IgnoreUnknown=KnownHostsCommand -o "
+                + shlex.quote("KnownHostsCommand=" + command)
+            )
+        try:
+            if configuration["operation"] in ("clone", "prepare"):
+                clone_repository(configuration, environment)
+            else:
+                arguments = ["git", "-C", directory, *configuration["arguments"]]
+                subprocess.run(arguments, env=environment, check=True)
+        except subprocess.CalledProcessError:
+            if observe_key and observed.is_file():
+                offered = observed.read_text(encoding="ascii").split()
+                trusted = [line.split()[1:3] for line in configuration["known"].splitlines()]
+                if len(offered) == 2 and offered not in trusted:
+                    print("ZENTRALE_REPOSITORY_HOST_KEY " + " ".join(offered), file=sys.stderr)
+                    sys.exit(79)
+            raise
         print(
             json.dumps({"directory": directory, "readOnly": configuration["readOnly"]})
         )

@@ -170,9 +170,9 @@ func (connector *Connector) verifyHostIdentity(identity verifiedHostIdentity) er
 
 	if !trusted {
 		return &HostKeyError{
-			identity.address,
-			ssh.FingerprintSHA256(identity.key),
-			strings.TrimSpace(string(ssh.MarshalAuthorizedKey(identity.key))),
+			Host:        identity.address,
+			Fingerprint: ssh.FingerprintSHA256(identity.key),
+			PublicKey:   strings.TrimSpace(string(ssh.MarshalAuthorizedKey(identity.key))),
 		}
 	}
 

@@ -32,7 +32,7 @@ export function EditorLauncher({ projectId }: { projectId: string }) {
     setChallenge(undefined);
     api
       .query<{ startEditor: EditorStartResult }>(
-        "mutation($projectId:String!,$agentId:String){startEditor(projectId:$projectId,agentId:$agentId){session{id projectId agentId sandbox machineId machineName url} error hostKey{host fingerprint publicKey}}}",
+        "mutation($projectId:String!,$agentId:String){startEditor(projectId:$projectId,agentId:$agentId){session{id projectId agentId sandbox machineId machineName url} error hostKey{host fingerprint publicKey repositorySourceId previousFingerprint}}}",
         { projectId, agentId },
         controller.signal,
       )

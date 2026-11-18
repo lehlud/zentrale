@@ -13,6 +13,27 @@ import (
 var repositorySSHUser = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.+-]*$`)
 var repositorySSHHost = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
+// RepositorySSHAddress identifies the server independently of the user and path.
+func RepositorySSHAddress(repositoryURL string) (string, error) {
+	if err := ValidateRepositorySSHURL(repositoryURL); err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(repositoryURL, "ssh://") {
+		parsed, err := url.Parse(repositoryURL)
+		if err != nil {
+			return "", err
+		}
+		port := parsed.Port()
+		if port == "" {
+			port = "22"
+		}
+		return net.JoinHostPort(strings.ToLower(parsed.Hostname()), port), nil
+	}
+	destination, _, _ := strings.Cut(repositoryURL, ":")
+	_, host, _ := strings.Cut(destination, "@")
+	return net.JoinHostPort(strings.ToLower(host), "22"), nil
+}
+
 // ValidateRepositorySSHURL accepts Git's SSH URL and user@host:path forms.
 func ValidateRepositorySSHURL(address string) error {
 	invalid := errors.New("repository requires an SSH Git URL (ssh://host/path or user@host:path)")

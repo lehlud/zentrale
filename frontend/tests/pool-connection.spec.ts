@@ -32,7 +32,13 @@ for (const english of [false, true]) {
     const successful = (id: string): MachineConnectionCheck => ({
       connected: true,
       error: "",
-      hostKey: { host: "", publicKey: "", fingerprint: "" },
+      hostKey: {
+        host: "",
+        publicKey: "",
+        fingerprint: "",
+        repositorySourceId: "",
+        previousFingerprint: "",
+      },
       sandbox: {
         machineId: id,
         mode: "auto",
@@ -62,6 +68,8 @@ for (const english of [false, true]) {
           host: "worker-31.example.test:22",
           publicKey: "ssh-ed25519 TEST_POOL_HOST",
           fingerprint: "SHA256:PoolHost",
+          repositorySourceId: "",
+          previousFingerprint: "",
         },
       }),
       member(38, {

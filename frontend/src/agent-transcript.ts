@@ -27,7 +27,7 @@ export const olderMessagesQuery = `query($id:String!, $beforeId:String!) {
 export const transcriptQuery = `query($id:String!) {
   goal(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
   agentInputs(agentId:$id) { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
-  agentRunState(agentId:$id) { agentId phase error hostKey { host fingerprint publicKey } }
+  agentRunState(agentId:$id) { agentId phase error hostKey { host fingerprint publicKey repositorySourceId previousFingerprint } }
   agent(id:$id) { ${agentFields} }
   messages: recentMessages(agentId:$id) { ${messageFields} }
   questions(agentId:$id, limit:500) { id title options mode status answer agentId }

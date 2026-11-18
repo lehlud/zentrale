@@ -5,9 +5,11 @@ import "time"
 // SSHHostKey is the identity observed during the actual SSH handshake. Empty
 // fields mean that the connection did not require a trust decision.
 type SSHHostKey struct {
-	Host        string `json:"host"`
-	Fingerprint string `json:"fingerprint"`
-	PublicKey   string `json:"publicKey"`
+	Host                string `json:"host"`
+	Fingerprint         string `json:"fingerprint"`
+	PublicKey           string `json:"publicKey"`
+	RepositorySourceID  string `json:"repositorySourceId"`
+	PreviousFingerprint string `json:"previousFingerprint"`
 }
 
 type MachineConnectionCheck struct {

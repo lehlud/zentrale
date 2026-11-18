@@ -20,9 +20,15 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type HostKeyError struct{ Host, Fingerprint, PublicKey string }
+type HostKeyError struct {
+	Host, Fingerprint, PublicKey            string
+	RepositorySourceID, PreviousFingerprint string
+}
 
 func (e *HostKeyError) Error() string {
+	if e.RepositorySourceID != "" {
+		return fmt.Sprintf("repository SSH host %s requires host key confirmation: %s", e.Host, e.Fingerprint)
+	}
 	return fmt.Sprintf("untrusted SSH host %s: %s; public key: %s", e.Host, e.Fingerprint, e.PublicKey)
 }
 

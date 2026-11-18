@@ -419,18 +419,33 @@ func TestRepositoryCloneFailureStopsInferenceAndRetainsThePromptForRetry(t *test
 		calls.Add(1)
 		return providers.Result{Text: "Repository inspected.", UsageKnown: true}, nil
 	}))
+	updates, unsubscribe := engine.Subscribe()
+	defer unsubscribe()
 	if err := engine.Prompt(record.ID, "Explain this repository"); err != nil {
 		t.Fatal(err)
 	}
 	if final := waitForAgent(t, engine, record.ID); final.Status != "error" ||
-		!strings.Contains(final.Error, "Host key verification failed") {
+		!strings.Contains(final.Error, "requires host key confirmation") {
 		t.Fatal("untrusted repository host did not stop preparation", final)
+	}
+	deadline := time.After(5 * time.Second)
+	challenge := engine.RunState(record.ID).HostKey
+	for challenge.RepositorySourceID == "" {
+		select {
+		case <-updates:
+			challenge = engine.RunState(record.ID).HostKey
+		case <-deadline:
+			t.Fatal("host key confirmation did not reach the conversation")
+		}
+	}
+	if challenge.RepositorySourceID != fixture.source.ID || challenge.Fingerprint != remote.KeyFingerprint(public) {
+		t.Fatal("wrong repository challenge", challenge)
 	}
 	history, err := engine.loadHistory(record.ID)
 	if err != nil || len(history) != 1 || history[0].Content != "Explain this repository" || calls.Load() != 0 {
 		t.Fatal("failed checkout consumed the task or reached inference", history, err, calls.Load())
 	}
-	if err := engine.Store.TrustSSHKey(public); err != nil {
+	if err := engine.ConfirmRepositoryHostKey(challenge.RepositorySourceID, challenge.Host, challenge.PublicKey, challenge.PreviousFingerprint); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.ResumeInputs(record.ID); err != nil {

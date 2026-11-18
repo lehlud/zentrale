@@ -902,6 +902,10 @@ Object.assign(english, {
 
 Object.assign(english, {
   "Host-Schlüssel prüfen": "Review host key",
+  "Git-Host-Schlüssel prüfen": "Review Git host key",
+  "Bisheriger Fingerprint": "Previous fingerprint",
+  "Der Schlüssel dieses Git-Hosts hat sich geändert. Vergleiche den neuen Fingerprint mit einer vertrauenswürdigen Quelle, bevor du ihn bestätigst.":
+    "This Git host's key has changed. Compare the new fingerprint with a trusted source before confirming it.",
   "Diesem Host-Schlüssel wird noch nicht vertraut. Den Fingerprint vor dem Verbinden prüfen.":
     "This host key is not trusted yet. Check its fingerprint before connecting.",
   "Öffentlichen Schlüssel anzeigen": "Show public key",

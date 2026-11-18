@@ -4141,6 +4141,14 @@
               "name": "Boolean",
               "ofType": null
             }
+          },
+          {
+            "name": "trustRepositoryHostKey",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
           }
         ],
         "inputFields": null,
@@ -5846,7 +5854,31 @@
             }
           },
           {
+            "name": "previousFingerprint",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "publicKey",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "repositorySourceId",
             "type": {
               "kind": "NON_NULL",
               "name": null,

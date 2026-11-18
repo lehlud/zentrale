@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,8 +37,10 @@ func (client *Client) SSHKnownHosts(ctx context.Context, repositoryURL string) (
 
 	host := strings.ToLower(parsed.Hostname())
 	port := parsed.Port()
-	if parsed.Scheme != "ssh" || !((host == "github.com" && (port == "" || port == "22")) ||
-		(host == "ssh.github.com" && port == "443")) {
+	if port == "" {
+		port = "22"
+	}
+	if parsed.Scheme != "ssh" || !UsesPublishedSSHHostKeys(net.JoinHostPort(host, port)) {
 		return "", nil
 	}
 
@@ -57,6 +60,10 @@ func (client *Client) SSHKnownHosts(ctx context.Context, repositoryURL string) (
 	}
 
 	return known.String(), nil
+}
+
+func UsesPublishedSSHHostKeys(endpoint string) bool {
+	return endpoint == "github.com:22" || endpoint == "ssh.github.com:443"
 }
 
 func (client *Client) githubHostKeys(ctx context.Context) ([]ssh.PublicKey, error) {

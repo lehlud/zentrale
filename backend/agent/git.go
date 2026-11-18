@@ -6,8 +6,6 @@ import (
 	"errors"
 	"strings"
 
-	"golang.org/x/crypto/ssh"
-
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
 )
@@ -97,7 +95,7 @@ func (engine *Engine) sourceGitConfiguration(
 		return nil, err
 	}
 
-	knownHosts, err := engine.gitKnownHosts(ctx, source.URL)
+	knownHosts, hostKey, err := engine.gitKnownHosts(ctx, source)
 	if err != nil {
 		return nil, err
 	}
@@ -111,38 +109,11 @@ func (engine *Engine) sourceGitConfiguration(
 			Type:  "EC PRIVATE KEY",
 			Bytes: privateKey,
 		})),
-		"known":     knownHosts,
-		"url":       source.URL,
-		"httpUrls":  httpURLs,
-		"directory": directory,
-		"readOnly":  source.ReadOnly,
+		"known":             knownHosts,
+		"repositoryHostKey": hostKey,
+		"url":               source.URL,
+		"httpUrls":          httpURLs,
+		"directory":         directory,
+		"readOnly":          source.ReadOnly,
 	}, nil
-}
-
-func (engine *Engine) gitKnownHosts(ctx context.Context, repositoryURL string) (string, error) {
-	// GitHub publishes its host keys over authenticated HTTPS. Machine host keys
-	// must not shadow them, or an unrelated ECDSA key looks like a changed host.
-	known, err := engine.GitForge.Client.SSHKnownHosts(ctx, repositoryURL)
-	if err != nil || known != "" {
-		return known, err
-	}
-
-	trustedKeys, err := engine.Store.TrustedKeys()
-	if err != nil {
-		return "", err
-	}
-
-	var knownHosts strings.Builder
-
-	for _, encodedKey := range trustedKeys {
-		publicKey, err := ssh.ParsePublicKey(encodedKey)
-		if err != nil {
-			return "", err
-		}
-
-		knownHosts.WriteString("* ")
-		knownHosts.Write(ssh.MarshalAuthorizedKey(publicKey))
-	}
-
-	return knownHosts.String(), nil
 }
