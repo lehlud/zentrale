@@ -666,9 +666,60 @@ def interrupted_legacy_checkout(source, stage, receipt, environment):
     )
 
 
+def checkout_files(checkout, receipt, configuration, environment, report_progress):
+    metadata = checkout / ".git"
+    (metadata / "index.lock").unlink(missing_ok=True)
+    git = ["git", "-C", str(checkout), "-c", "core.hooksPath=/dev/null"]
+    paths = receipt.get("checkoutPaths", [])
+    if receipt.get("resetIndex"):
+        # The index was created for a different worktree and path selection.
+        # Only private staging is replaced. Its previous files are archived.
+        (metadata / "index").unlink(missing_ok=True)
+        if not paths:
+            subprocess.run(
+                [*git, "config", "--worktree", "core.sparseCheckout", "false"],
+                env=environment, check=True,
+            )
+        del receipt["resetIndex"]
+        atomic_secret(checkout.parent, "clone.json", json.dumps(receipt))
+    head = subprocess.run(
+        [*git, "rev-parse", "--verify", "--quiet", "HEAD"],
+        env=environment, capture_output=True, timeout=20,
+    )
+    if head.returncode == 1 and not paths:
+        return  # Empty upstream repository.
+    head.check_returncode()
+    if configuration.get("managedVM"):
+        # A parallel checkout queues the whole tree over 9p before writing
+        # its regular files. Write incrementally and read attributes from Git.
+        git.extend(["-c", "checkout.workers=1"])
+        environment = {**environment, "GIT_ATTR_SOURCE": "HEAD"}
+    if paths:
+        if report_progress:
+            report_clone_progress("Checking out selected directories")
+        for directory in paths:
+            kind = subprocess.run(
+                [*git, "cat-file", "-t", "HEAD:" + directory],
+                env=environment, capture_output=True, timeout=20,
+            )
+            if kind.returncode or kind.stdout.strip() != b"tree":
+                raise ValueError(f"Checkout directory is not in HEAD: {directory}")
+        subprocess.run(
+            [*git, "sparse-checkout", "set", "--cone", "--sparse-index", "--", *paths],
+            env=environment, check=True,
+        )
+    elif report_progress:
+        report_clone_progress("Checking out files", "0")
+    run_clone(
+        [*git, "checkout", "--force", *(["--progress"] if report_progress else [])],
+        environment, report_progress,
+    )
+
+
 def clone_repository(configuration, environment):
     directory = Path(configuration["directory"])
     report_progress = configuration.get("reportProgress", False)
+    paths = sorted(set(configuration.get("checkoutPaths") or []))
     previous = interrupted_clones(configuration)
     if report_progress and any(clone_is_running(receipt) for _, receipt in previous):
         report_clone_progress("Waiting for checkout")
@@ -683,11 +734,12 @@ def clone_repository(configuration, environment):
             publish_clone(configuration, stage, receipt, previous)
             return
 
-    fetched = next(
+    reusable = next(
         ((stage, receipt) for stage, receipt in previous
          if receipt["phase"] == "fetched" and usable_clone_metadata(stage / "repository")),
         None,
     )
+    fetched = reusable if reusable and reusable[1].get("checkoutPaths", []) == paths else None
     if fetched is None:
         # Staging on the shared filesystem allows metadata and completed
         # worktree entries to be published with atomic renames.
@@ -698,6 +750,7 @@ def clone_repository(configuration, environment):
             "url": configuration["url"],
             "phase": "cloning",
             "entries": [],
+            "checkoutPaths": paths,
         }
     else:
         stage, receipt = fetched
@@ -706,16 +759,17 @@ def clone_repository(configuration, environment):
     try:
         atomic_secret(stage, "clone.json", json.dumps(receipt))
         if fetched is None:
-            legacy = next((
+            recovery = reusable[0] if reusable else next((
                 old for old, old_receipt in previous
                 if interrupted_legacy_checkout(configuration, old, old_receipt, environment)
             ), None)
-            if legacy:
+            if recovery:
                 checkout.mkdir()
                 # Record the destination first. On interruption before the
                 # rename, the old receipt still points at the only metadata.
+                receipt["resetIndex"] = bool(reusable)
                 atomic_secret(stage, "clone.json", json.dumps({**receipt, "phase": "fetched"}))
-                (legacy / "repository/.git").rename(checkout / ".git")
+                (recovery / "repository/.git").rename(checkout / ".git")
                 receipt["phase"] = "fetched"
             else:
                 references = []
@@ -733,24 +787,7 @@ def clone_repository(configuration, environment):
                 receipt["phase"] = "fetched"
                 atomic_secret(stage, "clone.json", json.dumps(receipt))
 
-        # The previous checkout may have been killed holding the index lock.
-        # This is private staging and no previous receipt owner is still alive.
-        (checkout / ".git/index.lock").unlink(missing_ok=True)
-        head = subprocess.run(
-            ["git", "-C", str(checkout), "rev-parse", "--verify", "--quiet", "HEAD"],
-            env=environment, capture_output=True, timeout=20,
-        )
-        if head.returncode == 0:
-            if report_progress:
-                report_clone_progress("Checking out files", "0")
-            workers = ["-c", "checkout.workers=2"] if configuration.get("parallelCheckout") else []
-            run_clone(
-                ["git", "-C", str(checkout), "-c", "core.hooksPath=/dev/null", *workers,
-                 "checkout", "--force", *(["--progress"] if report_progress else [])],
-                environment, report_progress,
-            )
-        elif head.returncode != 1:
-            head.check_returncode()
+        checkout_files(checkout, receipt, configuration, environment, report_progress)
 
         if configuration["readOnly"]:
             disable_push(checkout)

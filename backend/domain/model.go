@@ -98,11 +98,12 @@ type Project struct {
 	CommitName  string `json:"commitName"`
 	CommitEmail string `json:"commitEmail"`
 
-	GitConnectionID    string `json:"gitConnectionId"`
-	RepositoryID       string `json:"repositoryId"`
-	RepositoryName     string `json:"repositoryName"`
-	RepositorySSHURL   string `json:"repositorySshUrl"`
-	RepositorySSHKeyID int    `json:"repositorySshKeyId"`
+	GitConnectionID         string   `json:"gitConnectionId"`
+	RepositoryID            string   `json:"repositoryId"`
+	RepositoryName          string   `json:"repositoryName"`
+	RepositorySSHURL        string   `json:"repositorySshUrl"`
+	RepositorySSHKeyID      int      `json:"repositorySshKeyId"`
+	RepositoryCheckoutPaths []string `json:"repositoryCheckoutPaths"`
 }
 
 // Provider stores a connection/account. Model selection belongs to ModelChoice.

@@ -120,6 +120,8 @@ class RepositoryPreparationTests(unittest.TestCase):
         (seed / "README.md").write_text("repository content\n")
         (seed / "docs").mkdir()
         (seed / "docs" / "notes.txt").write_text("tracked notes\n")
+        (seed / "assets").mkdir()
+        (seed / "assets" / "data.txt").write_text("tracked asset\n")
         for arguments in (
             ["add", "."],
             [
@@ -324,12 +326,37 @@ class RepositoryPreparationTests(unittest.TestCase):
         receipt.write_text(json.dumps({**saved, "owner": None}))
         self.origin.rename(self.origin.with_name("unavailable.git"))
 
-        resumed = self.run_helper("prepare", directory=str(fresh), reportProgress=True, parallelCheckout=True)
+        resumed = self.run_helper("prepare", directory=str(fresh), reportProgress=True, managedVM=True)
         self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertIn("Checking out files", resumed.stderr)
         self.assertEqual((fresh / "README.md").read_text(), "repository content\n")
         self.assertFalse((fresh / ".git/index.lock").exists())
         self.assertFalse(receipt.exists())
+
+    def test_narrower_checkout_reuses_existing_git_metadata_and_keeps_partial_files(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        manifest = stage / "clone.json"
+        receipt = json.loads(manifest.read_text())
+        receipt.update(phase="fetched", entries=[])
+        manifest.write_text(json.dumps(receipt))
+        (checkout / "large-tree").mkdir()
+        (checkout / "large-tree" / "materialized.txt").write_text("previous files")
+        self.origin.rename(self.origin.with_name("unavailable.git"))
+
+        invalid = self.run_helper("prepare", checkoutPaths=["typo"])
+        self.assertIn("Checkout directory is not in HEAD: typo", invalid.stderr)
+        self.assertNotEqual(invalid.returncode, 0)
+        result = self.run_helper("prepare", checkoutPaths=["docs"], reportProgress=True, managedVM=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Checking out selected directories", result.stderr)
+        self.assertEqual((self.directory / "docs/notes.txt").read_text(), "tracked notes\n")
+        self.assertTrue((self.directory / "README.md").exists())
+        self.assertFalse((self.directory / "assets").exists())
+        self.assertFalse((self.directory / "large-tree").exists())
+        preserved = self.directory / ".git/zentrale-clone-recovery" / stage.name
+        self.assertTrue((preserved / "repository/large-tree/materialized.txt").exists())
+        self.assertEqual(self.git("sparse-checkout", "list"), "docs")
+        self.assertEqual(self.git("show", "HEAD:assets/data.txt"), "tracked asset")
 
     def test_progress_reports_bytes_when_percentage_remains_constant(self):
         stderr = io.StringIO()

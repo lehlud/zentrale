@@ -6,6 +6,7 @@ import {
   Label,
   Input,
   TextField,
+  TextArea,
   Link,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
@@ -53,6 +54,9 @@ function projectEditorValue(value: Record<string, unknown>) {
   const pools = (value.poolIds ?? []) as string[];
   return {
     ...value,
+    checkoutPathsText: ((value.repositoryCheckoutPaths ?? []) as string[]).join(
+      "\n",
+    ),
     executionTarget:
       machines.length + pools.length === 1
         ? machines.length
@@ -63,10 +67,17 @@ function projectEditorValue(value: Record<string, unknown>) {
 }
 
 function projectInput(value: Record<string, unknown>) {
-  const { executionTarget, ...input } = value;
+  const { executionTarget, checkoutPathsText, ...input } = value;
   const selected = String(executionTarget ?? "");
   return {
     ...input,
+    repositoryCheckoutPaths:
+      input.repositoryId || input.repositorySshUrl
+        ? String(checkoutPathsText ?? "")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [],
     machineIds: selected.startsWith("machine:") ? [selected.slice(8)] : [],
     poolIds: selected.startsWith("pool:") ? [selected.slice(5)] : [],
   };
@@ -81,21 +92,46 @@ function ProjectRepository({
   patch: (changes: Record<string, unknown>) => void;
   keys: Config["sshKeys"];
 }) {
+  const { t } = useI18n();
   return (
-    <RepositoryPicker
-      value={value as Partial<RepositoryChoice>}
-      onChange={(choice) => patch(choice)}
-      ssh={{
-        keys,
-        onChange: (changes) =>
-          patch({
-            gitConnectionId: "",
-            repositoryId: "",
-            repositoryName: "",
-            ...changes,
-          }),
-      }}
-    />
+    <>
+      <RepositoryPicker
+        value={value as Partial<RepositoryChoice>}
+        onChange={(choice) => patch(choice)}
+        ssh={{
+          keys,
+          onChange: (changes) =>
+            patch({
+              gitConnectionId: "",
+              repositoryId: "",
+              repositoryName: "",
+              ...changes,
+            }),
+        }}
+      />
+      {!!(value.repositoryId || value.repositorySshUrl) && (
+        <TextField
+          className="gap-2"
+          value={String(value.checkoutPathsText ?? "")}
+          onChange={(checkoutPathsText) => patch({ checkoutPathsText })}
+        >
+          <Label>{t("Checkout-Verzeichnisse (optional)")}</Label>
+          <TextArea
+            rows={3}
+            placeholder={"src\ndocs"}
+            aria-describedby="repository-checkout-paths-description"
+          />
+          <p
+            id="repository-checkout-paths-description"
+            className="text-xs text-muted"
+          >
+            {t(
+              "Ein Verzeichnis pro Zeile. Beim ersten Checkout werden diese Verzeichnisse und die Dateien auf oberster Ebene angelegt. Leer lassen für einen vollständigen Checkout.",
+            )}
+          </p>
+        </TextField>
+      )}
+    </>
   );
 }
 

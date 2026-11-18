@@ -468,6 +468,7 @@ export type Project = {
   managedWorkspace: boolean;
   name: string;
   poolIds: Array<string>;
+  repositoryCheckoutPaths: Array<string>;
   repositoryId: string;
   repositoryName: string;
   repositorySshKeyId: number;
@@ -483,6 +484,7 @@ export type ProjectInput = {
   managedWorkspace?: boolean | null;
   name?: string | null;
   poolIds?: Array<string> | null;
+  repositoryCheckoutPaths?: Array<string> | null;
   repositoryId?: string | null;
   repositoryName?: string | null;
   repositorySshKeyId?: number | null;

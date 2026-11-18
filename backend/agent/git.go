@@ -54,6 +54,9 @@ func (engine *Engine) runSourceGit(
 	}
 
 	configuration["operation"] = "clone"
+	if source.ProjectRoot && len(project.RepositoryCheckoutPaths) > 0 {
+		configuration["checkoutPaths"] = project.RepositoryCheckoutPaths
+	}
 	displayCommand := "git clone " + source.URL
 
 	if len(arguments) > 0 {

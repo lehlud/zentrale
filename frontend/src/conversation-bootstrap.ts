@@ -18,7 +18,7 @@ const compactAgentFields = agentFields.replace(/\s+summary\b/, "");
 // on the first-paint critical path. Pagination continues using recentMessages.
 export const conversationBootstrapQuery = `query($projectId:String!, $agentId:String) {
   conversationBootstrap(projectId:$projectId, agentId:$agentId) {
-    project { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName repositorySshUrl repositorySshKeyId }
+    project { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName repositorySshUrl repositorySshKeyId repositoryCheckoutPaths }
     agents { ${compactAgentFields} }
     agent { ${compactAgentFields} }
     messages { ${messageFields} }

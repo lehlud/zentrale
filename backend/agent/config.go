@@ -129,6 +129,15 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 	}()
 
 	project.CommitName, project.CommitEmail = strings.TrimSpace(project.CommitName), strings.TrimSpace(project.CommitEmail)
+	for index, directory := range project.RepositoryCheckoutPaths {
+		directory = strings.TrimRight(directory, "/")
+		if directory == "" || directory == "." || directory == ".." || path.IsAbs(directory) ||
+			path.Clean(directory) != directory || strings.HasPrefix(directory, "../") ||
+			strings.ContainsAny(directory, "\x00\r\n\\") {
+			return project, errors.New("checkout paths must be repository-relative directory names")
+		}
+		project.RepositoryCheckoutPaths[index] = directory
+	}
 
 	if project.CommitName != "" || project.CommitEmail != "" {
 		identity, err := domain.NormalizeCommitIdentity(domain.CommitIdentity{

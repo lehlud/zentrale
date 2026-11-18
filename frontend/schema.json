@@ -4704,6 +4704,25 @@
             }
           },
           {
+            "name": "repositoryCheckoutPaths",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "SCALAR",
+                    "name": "String"
+                  }
+                }
+              }
+            }
+          },
+          {
             "name": "repositoryId",
             "type": {
               "kind": "NON_NULL",
@@ -4833,6 +4852,22 @@
           },
           {
             "name": "poolIds",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
+            }
+          },
+          {
+            "name": "repositoryCheckoutPaths",
             "type": {
               "kind": "LIST",
               "name": null,

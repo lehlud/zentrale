@@ -1,6 +1,9 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Checkout-Verzeichnisse (optional)": "Checkout directories (optional)",
+  "Ein Verzeichnis pro Zeile. Beim ersten Checkout werden diese Verzeichnisse und die Dateien auf oberster Ebene angelegt. Leer lassen für einen vollständigen Checkout.":
+    "Enter one directory per line. The initial checkout includes these directories and top-level files. Leave blank for a full checkout.",
   Befehle: "Commands",
   "Anweisung des Hauptagenten": "Instruction from main agent",
   "Kurze Nebenfrage zum aktuellen Verlauf stellen":
@@ -727,6 +730,10 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "Checking out selected directories":
+    "Ausgewählte Verzeichnisse werden ausgecheckt",
+  "checkout paths must be repository-relative directory names":
+    "Checkout-Verzeichnisse müssen relative Pfade im Repository sein.",
   "Connecting to repository": "Verbindung zum Git-Server wird hergestellt",
   "Waiting for checkout": "Wartet auf einen laufenden Checkout",
   "Enumerating objects": "Objekte werden ermittelt",

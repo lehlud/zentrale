@@ -16,7 +16,7 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
+var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files|Checking out selected directories) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
 
 var errRepositoryStalled = errors.New("Git stopped reporting progress while preparing the repository")
 
@@ -202,7 +202,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 				engine.setRunState(scope, "repository", nil)
 			}
 			configuration["reportProgress"] = true // Also used by the idle watchdog.
-			configuration["parallelCheckout"] = level == remote.SandboxMicroVM && machine.MicroVMCommand == ""
+			configuration["managedVM"] = level == remote.SandboxMicroVM && machine.MicroVMCommand == ""
 			runContext, cancelRun := context.WithCancelCause(ctx)
 			idle := time.AfterFunc(timeout, func() { cancelRun(errRepositoryStalled) })
 			defer func() {
@@ -282,6 +282,9 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		cancelConfiguration()
 		if err == nil {
 			configuration["operation"] = "prepare"
+			if source.ProjectRoot && len(project.RepositoryCheckoutPaths) > 0 {
+				configuration["checkoutPaths"] = project.RepositoryCheckoutPaths
+			}
 			var output string
 			output, err = run(configuration, true, 15*time.Minute)
 			err = repositoryHostKeyFailure(output, err, configuration)

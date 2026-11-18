@@ -59,7 +59,7 @@ test("project settings save a direct SSH repository and let users generate a rep
   };
   const read = () =>
     query(
-      "query($id:String!){project(id:$id){repositorySshUrl repositorySshKeyId repositoryId} sources(projectId:$id){url keyId projectRoot}}",
+      "query($id:String!){project(id:$id){repositorySshUrl repositorySshKeyId repositoryId repositoryCheckoutPaths} sources(projectId:$id){url keyId projectRoot}}",
       { id: project.id },
     );
   let dialog = await edit();
@@ -68,6 +68,9 @@ test("project settings save a direct SSH repository and let users generate a rep
     .click();
   const firstURL = "git@git.example.test:team/repository.git";
   await dialog.getByLabel("Repository-SSH-URL").fill(firstURL);
+  await dialog
+    .getByLabel("Checkout-Verzeichnisse (optional)")
+    .fill("scripts/\neval");
   const keySelect = () =>
     dialog
       .getByRole("button", { name: "SSH-Schlüssel" })
@@ -83,12 +86,16 @@ test("project settings save a direct SSH repository and let users generate a rep
       repositorySshUrl: firstURL,
       repositorySshKeyId: repositoryKey.id,
       repositoryId: "",
+      repositoryCheckoutPaths: ["scripts", "eval"],
     },
     sources: [{ url: firstURL, keyId: repositoryKey.id, projectRoot: true }],
   });
 
   dialog = await edit();
   await expect(dialog.getByLabel("Repository-SSH-URL")).toHaveValue(firstURL);
+  await expect(
+    dialog.getByLabel("Checkout-Verzeichnisse (optional)"),
+  ).toHaveValue("scripts\neval");
   await expect(keySelect()).toContainText(keyName);
   const secondURL = "ssh://git@git.example.test:2222/team/repository.git";
   await dialog.getByLabel("Repository-SSH-URL").fill(secondURL);
