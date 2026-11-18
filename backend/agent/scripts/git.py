@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from urllib.parse import unquote, urlsplit
 
@@ -594,6 +595,7 @@ CLONE_PROGRESS = re.compile(
     r"(?:, (\d+(?:\.\d+)? (?:bytes?|[KMGT]iB))"
     r"(?: \| (\d+(?:\.\d+)? (?:bytes?|[KMGT]iB)/s))?)?"
 )
+CHECKOUT_ACTIVITY_INTERVAL = 5
 
 
 def report_clone_progress(step, percent="-1", count="", transfer=""):
@@ -603,7 +605,18 @@ def report_clone_progress(step, percent="-1", count="", transfer=""):
     )
 
 
-def run_clone(arguments, environment, report_progress):
+def written_by_process(pid):
+    try:
+        with open(f"/proc/{pid}/io", encoding="ascii") as counters:
+            for line in counters:
+                if line.startswith("wchar:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def run_clone(arguments, environment, report_progress, watch_checkout=False):
     if not report_progress:
         subprocess.run(arguments, env=environment, check=True)
         return
@@ -614,24 +627,53 @@ def run_clone(arguments, environment, report_progress):
     ) as process:
         previous = None
         last_update = 0
-        for line in process.stderr:
-            progress = CLONE_PROGRESS.match(line)
-            if progress is None:
-                sys.stderr.write(line)
-                continue
-            step, percent, count, received, rate = progress.groups()
-            position = (step, percent, count, received)
-            now = time.monotonic()
-            milestone = previous is None or step != previous[0] or (
-                percent == "100" and percent != previous[1]
-            )
-            if position != previous and (
-                milestone or now - last_update >= 2
-            ):
-                transfer = " | ".join(value for value in (received, rate) if value)
-                report_clone_progress(step, percent or "-1", count, transfer)
-                previous, last_update = position, now
-        status = process.wait()
+        output_lock = threading.Lock()
+        stopped = threading.Event()
+
+        def sample_checkout():
+            last_written = written_by_process(process.pid)
+            while last_written is not None and not stopped.wait(CHECKOUT_ACTIVITY_INTERVAL):
+                written = written_by_process(process.pid)
+                if written is None:
+                    return
+                with output_lock:
+                    quiet = time.monotonic() - last_update >= CHECKOUT_ACTIVITY_INTERVAL
+                    if written > last_written and quiet:
+                        # The Git percentage timer can stay quiet while files
+                        # are still being written. Report the exact I/O counter
+                        # for the watchdog and a readable size in the UI.
+                        report_clone_progress(
+                            "Writing checkout data", count=str(written),
+                            transfer=f"{written / (1024 * 1024):.2f} MiB",
+                        )
+                last_written = written
+
+        watcher = None
+        if watch_checkout:
+            watcher = threading.Thread(target=sample_checkout)
+            watcher.start()
+        try:
+            for line in process.stderr:
+                with output_lock:
+                    progress = CLONE_PROGRESS.match(line)
+                    if progress is None:
+                        sys.stderr.write(line)
+                        continue
+                    step, percent, count, received, rate = progress.groups()
+                    position = (step, percent, count, received)
+                    now = time.monotonic()
+                    milestone = previous is None or step != previous[0] or (
+                        percent == "100" and percent != previous[1]
+                    )
+                    if position != previous and (milestone or now - last_update >= 2):
+                        transfer = " | ".join(value for value in (received, rate) if value)
+                        report_clone_progress(step, percent or "-1", count, transfer)
+                        previous, last_update = position, now
+            status = process.wait()
+        finally:
+            stopped.set()
+            if watcher:
+                watcher.join()
         if status:
             raise subprocess.CalledProcessError(status, arguments)
 
@@ -712,7 +754,7 @@ def checkout_files(checkout, receipt, configuration, environment, report_progres
         report_clone_progress("Checking out files", "0")
     run_clone(
         [*git, "checkout", "--force", *(["--progress"] if report_progress else [])],
-        environment, report_progress,
+        environment, report_progress, watch_checkout=True,
     )
 
 

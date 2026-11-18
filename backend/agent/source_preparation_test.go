@@ -224,7 +224,13 @@ func TestRepositoryProgressReaderHandlesSplitTransferUpdates(t *testing.T) {
 	read([]byte("ZENTRALE_CLONE_PROGRESS Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 101\t2/100\t\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 2\t2/100\t\n"))
-	want := []progress{{"Receiving objects", 1, "12.00 MiB | 1.00 MiB/s"}, {"Receiving objects", 1, "24.00 MiB | 1.00 MiB/s"}, {"Updating files", 2, "2/100"}}
+	read([]byte("ZENTRALE_CLONE_PROGRESS Writing checkout data -1\t11000000\t10.49 MiB\n"))
+	want := []progress{
+		{"Receiving objects", 1, "12.00 MiB | 1.00 MiB/s"},
+		{"Receiving objects", 1, "24.00 MiB | 1.00 MiB/s"},
+		{"Updating files", 2, "2/100"},
+		{"Writing checkout data", -1, "10.49 MiB"},
+	}
 	if !slices.Equal(updates, want) {
 		t.Fatalf("progress = %+v, want %+v", updates, want)
 	}

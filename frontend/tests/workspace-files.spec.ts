@@ -35,6 +35,11 @@ test("workspace documents open in a stack and use the conversation's file route"
   page,
 }) => {
   const workingAgent = { ...agent, status: "running" };
+  let progress = {
+    repositoryStep: "Receiving objects",
+    repositoryPercent: 43,
+    repositoryDetail: "1.72 GiB | 8.00 MiB/s",
+  };
   const message = {
     ...transcript.messages[0],
     id: "workspace-links",
@@ -54,16 +59,14 @@ test("workspace documents open in a stack and use the conversation's file route"
         agentRunState: {
           agentId: agent.id,
           phase: "repository",
-          repositoryStep: "Receiving objects",
-          repositoryPercent: 43,
-          repositoryDetail: "1.72 GiB | 8.00 MiB/s",
+          ...progress,
           hostKey: {},
         },
       });
     if (query.includes("agents(projectId:")) return { project, agents };
     return config;
   };
-  await installPushFixture(page, resolve);
+  const push = await installPushFixture(page, resolve);
   await page.route("**/graphql", async (route) => {
     await route.fulfill({
       json: { data: resolve(route.request().postDataJSON().query) },
@@ -96,12 +99,22 @@ test("workspace documents open in a stack and use the conversation's file route"
   });
 
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
-  await expect(
-    page.getByRole("status").filter({ hasText: "Repository wird vorbereitet" }),
-  ).toContainText(/\(43\s%\)/);
-  await expect(
-    page.getByRole("status").filter({ hasText: "Repository wird vorbereitet" }),
-  ).toContainText("Objekte werden empfangen · 1.72 GiB | 8.00 MiB/s");
+  const repositoryStatus = page
+    .getByRole("status")
+    .filter({ hasText: "Repository wird vorbereitet" });
+  await expect(repositoryStatus).toContainText(/\(43\s%\)/);
+  await expect(repositoryStatus).toContainText(
+    "Objekte werden empfangen · 1.72 GiB | 8.00 MiB/s",
+  );
+  progress = {
+    repositoryStep: "Writing checkout data",
+    repositoryPercent: -1,
+    repositoryDetail: "203.38 MiB",
+  };
+  await push.push();
+  await expect(repositoryStatus).toContainText(
+    "Git schreibt Daten für den Checkout · 203.38 MiB",
+  );
   await expect(page.getByRole("link", { name: "Extern" })).toHaveAttribute(
     "href",
     "https://example.test/paper.pdf",

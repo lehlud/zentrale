@@ -16,7 +16,7 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files|Checking out selected directories) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
+var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files|Checking out selected directories|Writing checkout data) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
 
 var errRepositoryStalled = errors.New("Git stopped reporting progress while preparing the repository")
 

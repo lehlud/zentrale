@@ -730,6 +730,7 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "Writing checkout data": "Git schreibt Daten für den Checkout",
   "Checking out selected directories":
     "Ausgewählte Verzeichnisse werden ausgecheckt",
   "checkout paths must be repository-relative directory names":

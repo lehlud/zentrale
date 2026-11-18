@@ -309,12 +309,12 @@ class RepositoryPreparationTests(unittest.TestCase):
         source = {**self.source, "directory": str(fresh), "readOnly": False}
         run_clone = repository_helper.run_clone
 
-        def interrupt_checkout(arguments, environment, report_progress):
+        def interrupt_checkout(arguments, environment, report_progress, watch_checkout=False):
             if "checkout" in arguments:
                 git = Path(arguments[2]) / ".git"
                 (git / "index.lock").touch()
                 raise subprocess.CalledProcessError(1, arguments)
-            return run_clone(arguments, environment, report_progress)
+            return run_clone(arguments, environment, report_progress, watch_checkout)
 
         with patch.object(repository_helper, "run_clone", interrupt_checkout):
             with self.assertRaises(subprocess.CalledProcessError):
@@ -371,6 +371,22 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertIn("Receiving objects 1\t1/100\t12.00 MiB | 1.00 MiB/s", stderr.getvalue())
         self.assertIn("Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s", stderr.getvalue())
         self.assertIn("Updating files 2\t2/100\t", stderr.getvalue())
+
+    @unittest.skipUnless(Path("/proc/self/io").exists(), "Linux process I/O counters")
+    def test_checkout_io_remains_visible_without_git_progress_output(self):
+        stderr = io.StringIO()
+        writer = (
+            "import sys,time\n"
+            "with open(sys.argv[1], 'wb', buffering=0) as output:\n"
+            "    for _ in range(5):\n"
+            "        output.write(bytes(1024 * 1024))\n"
+            "        time.sleep(0.15)\n"
+        )
+        command = [sys.executable, "-c", writer, str(self.root / "checkout-data")]
+        with patch("sys.stderr", stderr), patch.object(repository_helper, "CHECKOUT_ACTIVITY_INTERVAL", 0.05):
+            repository_helper.run_clone(command, repository_helper.git_environment(), True, watch_checkout=True)
+        self.assertIn("ZENTRALE_CLONE_PROGRESS Writing checkout data -1\t", stderr.getvalue())
+        self.assertIn(" MiB", stderr.getvalue())
 
     def test_finished_publication_is_cleaned_during_configuration(self):
         stage, checkout = self.staged_clone(receipt=True)
