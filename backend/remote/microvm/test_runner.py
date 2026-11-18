@@ -87,6 +87,43 @@ class MicroVMRunnerTests(unittest.TestCase):
         self.assertLessEqual(len(diagnostic["log"]), 10000)
         self.assertIn("exit 255", str(error))
 
+    def test_fedora_bootstrap_stages_archive_inside_the_9p_export(self):
+        digest = "a" * 64
+        archive = self.cache / ("fedora-" + digest + ".tar.gz")
+        archive.write_bytes(b"verified Fedora root filesystem")
+        runtime = self.cache / "runtime"
+        runtime.mkdir()
+        (runtime / "busybox").touch()
+        configuration = {
+            "release": {"fedora": {"sha256": digest}},
+            "guest": "",
+            "streams": "",
+            "terminal": "",
+            "init": "",
+        }
+
+        def create_disk(arguments, **_):
+            disk = Path(arguments[-2])
+            staged_archive = disk.with_name("rootfs.tar.gz")
+            # 9p mounts the control directory into the guest. A symlink to
+            # an absolute host path would point outside the guest export.
+            self.assertFalse(staged_archive.is_symlink())
+            self.assertTrue(staged_archive.samefile(archive))
+            disk.touch()
+            disk.with_name("provisioned").touch()
+
+        with (
+            patch.object(runner.shutil, "which", return_value="/usr/bin/qemu-img"),
+            patch.object(runner.subprocess, "run", side_effect=create_disk),
+            patch.object(runner.os, "fork", return_value=42),
+            patch.object(runner.os, "waitpid", return_value=(42, 0)),
+        ):
+            base = runner.provision_base(self.cache, configuration, runtime, None)
+        self.assertEqual(base, self.cache / ("fedora-" + digest + ".raw"))
+        self.assertTrue(base.is_file())
+        self.assertTrue(archive.is_file())
+        self.assertFalse(list(self.cache.glob("fedora-build-*")))
+
     def test_shared_cache_cannot_be_exported_by_another_project(self):
         with patch.object(
             runner, "private_directory", side_effect=lambda directory: directory

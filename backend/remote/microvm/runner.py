@@ -954,7 +954,9 @@ def provision_base(cache, configuration, runtime, kernel):
             "diskFormat": "raw",
         }
         prepare_control(control, configuration, runtime, request)
-        (control / "rootfs.tar.gz").symlink_to(archive)
+        # The guest resolves symlinks in its own filesystem. Put the archive
+        # inside the 9p export without copying it on the host's tmpfs.
+        os.link(archive, control / "rootfs.tar.gz")
         disk = control / "root.qcow2"
         subprocess.run(
             [
