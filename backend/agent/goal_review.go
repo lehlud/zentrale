@@ -207,6 +207,9 @@ func (engine *Engine) reviewGoal(
 	}
 	defer release()
 
+	if err := engine.Store.Load("agent", approver.ID, &approver); err != nil {
+		return goalDecision{}, "", err
+	}
 	configuration, err := engine.inferenceConfiguration(ctx, approver)
 	if err != nil {
 		return goalDecision{}, "", err
@@ -228,9 +231,7 @@ func (engine *Engine) reviewGoal(
 		return goalDecision{}, "", err
 	}
 
-	approver.Status = "running"
-
-	if err := engine.saveAgent(approver); err != nil {
+	if err := engine.patchAgent(approver.ID, map[string]any{"status": "running", "error": ""}); err != nil {
 		return goalDecision{}, "", err
 	}
 	defer engine.finishAgent(approver.ID, nil)

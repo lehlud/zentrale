@@ -407,6 +407,7 @@ export type Mutation = {
   saveProvider: Provider | null;
   saveSource: Source | null;
   setCommitIdentity: boolean | null;
+  setConversationModel: boolean | null;
   setGitHubToken: boolean | null;
   setModelDefaults: boolean | null;
   setup: boolean | null;
@@ -542,6 +543,7 @@ export type Query = {
   approvals: Array<Approval | null> | null;
   commitIdentity: CommitIdentity | null;
   conversationBootstrap: ConversationBootstrap | null;
+  conversationModels: ModelDefaults | null;
   editorSession: EditorSession | null;
   gitConnections: Array<GitConnection | null> | null;
   gitLogin: GitLogin | null;

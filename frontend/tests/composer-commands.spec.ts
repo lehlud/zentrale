@@ -207,7 +207,10 @@ test("the project menu offers Stop, removal and VM reset while the agent works",
     .getByRole("button", { name: "Projektaktionen", exact: true })
     .click();
   const menu = page.getByRole("menu", { name: "Projektaktionen" });
-  await expect(menu.getByRole("menuitem")).toHaveCount(4);
+  await expect(menu.getByRole("menuitem")).toHaveCount(5);
+  await expect(
+    menu.getByRole("menuitem", { name: "Modelle ändern", exact: true }),
+  ).toBeEnabled();
   await expect(
     menu.getByRole("menuitem", { name: "Agent entfernen", exact: true }),
   ).toBeEnabled();

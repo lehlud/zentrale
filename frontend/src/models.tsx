@@ -75,22 +75,44 @@ export function useModels(providerId: string, totalModels?: number) {
   };
 }
 
-export function ModelChooser({
-  title,
-  providers,
-  value,
-  role = "main",
-  onChange,
-  onClose,
-}: {
-  title: string;
-  providers: Provider[];
+type ModelChoiceFormProps = {
+  providers: Pick<Provider, "id" | "name">[];
   value: ModelChoice;
   role?: "main" | "approver";
+  onApply: (choice: ModelChoice) => void | Promise<void>;
+};
+
+export function ModelChooser({
+  title,
+  onChange,
+  onClose,
+  ...form
+}: Omit<ModelChoiceFormProps, "onApply"> & {
+  title: string;
   onChange: (choice: ModelChoice) => void;
   onClose: () => void;
 }) {
+  return (
+    <Inspect title={title} onClose={onClose} placement="top">
+      <ModelChoiceForm
+        {...form}
+        onApply={(choice) => {
+          onChange(choice);
+          onClose();
+        }}
+      />
+    </Inspect>
+  );
+}
+
+export function ModelChoiceForm({
+  providers,
+  value,
+  role = "main",
+  onApply,
+}: ModelChoiceFormProps) {
   const { t } = useI18n();
+  const action = useAction();
   const [draft, setDraft] = useState(value);
   const [providerId, setProviderId] = useState(
     providers.some((provider) => provider.id === value.providerId)
@@ -99,65 +121,72 @@ export function ModelChooser({
   );
 
   return (
-    <Inspect title={title} onClose={onClose} placement="top">
-      <div className="space-y-5">
-        {providers.length > 1 ? (
-          <Select
-            value={providerId || null}
-            onChange={(id) => setProviderId(String(id ?? ""))}
-            className="gap-2"
-          >
-            <Label>{t("Provider")}</Label>
-            <Select.Trigger className="min-h-11">
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {providers.map((provider) => (
-                  <ListBox.Item
-                    key={provider.id}
-                    id={provider.id}
-                    textValue={provider.name}
-                  >
-                    <Label>{provider.name}</Label>
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-        ) : (
-          <p className="text-sm text-muted">{providers[0]?.name}</p>
-        )}
-        {providerId && (
-          <ModelChoiceList
-            key={providerId}
-            providerId={providerId}
-            value={draft}
-            onChoose={(choice) => {
-              setDraft({
-                ...choice,
-                reasoningLevel: "",
-              });
-            }}
-          />
-        )}
-        {draft.modelId && (
-          <ReasoningSelect choice={draft} onChange={setDraft} role={role} />
-        )}
-        <Button
-          className="min-h-11"
-          isDisabled={!draft.modelId || draft.providerId !== providerId}
-          onPress={() => {
-            onChange(draft);
-            onClose();
-          }}
+    <div className="space-y-5">
+      {providers.length > 1 ? (
+        <Select
+          value={providerId || null}
+          onChange={(id) => setProviderId(String(id ?? ""))}
+          className="gap-2"
         >
-          {t("Auswahl übernehmen")}
-        </Button>
-      </div>
-    </Inspect>
+          <Label>{t("Provider")}</Label>
+          <Select.Trigger className="min-h-11">
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox>
+              {providers.map((provider) => (
+                <ListBox.Item
+                  key={provider.id}
+                  id={provider.id}
+                  textValue={provider.name}
+                >
+                  <Label>{provider.name}</Label>
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
+      ) : (
+        <p className="text-sm text-muted">{providers[0]?.name}</p>
+      )}
+      {providerId && (
+        <ModelChoiceList
+          key={providerId}
+          providerId={providerId}
+          value={draft}
+          onChoose={(choice) =>
+            setDraft((previous) =>
+              previous.providerId === choice.providerId &&
+              previous.modelId === choice.modelId
+                ? previous
+                : choice,
+            )
+          }
+        />
+      )}
+      {draft.modelId && draft.providerId === providerId && (
+        <ReasoningSelect choice={draft} onChange={setDraft} role={role} />
+      )}
+      <Failure message={action.error} />
+      <Button
+        className="min-h-11"
+        isPending={action.busy}
+        isDisabled={!draft.modelId || draft.providerId !== providerId}
+        onPress={() =>
+          action.run(
+            async () => {
+              await onApply(draft);
+            },
+            "default",
+            { announce: false },
+          )
+        }
+      >
+        {t("Auswahl übernehmen")}
+      </Button>
+    </div>
   );
 }
 

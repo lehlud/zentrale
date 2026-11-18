@@ -220,10 +220,7 @@ func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 	engine.wake[agentID] = make(chan struct{}, 1)
 	engine.workers.Add(1)
 	engine.mu.Unlock()
-	agentRecord.Status = "running"
-	agentRecord.Error = ""
-
-	if err := engine.saveAgent(agentRecord); err != nil {
+	if err := engine.patchAgent(agentID, map[string]any{"status": "running", "error": ""}); err != nil {
 		engine.removeWorker(agentID)
 		cancel()
 		engine.workers.Done()
@@ -364,7 +361,7 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 		runError = nil
 	}
 
-	_ = engine.saveAgent(agentRecord)
+	_ = engine.patchAgent(agentID, map[string]any{"status": agentRecord.Status, "error": agentRecord.Error})
 	phase := agentRecord.Status
 	var waiting *questionWaitingError
 	if errors.As(runError, &waiting) && phase == "waiting" {

@@ -244,7 +244,7 @@ func (engine *Engine) compactContext(
 	agentRecord.ContextStart = nextStart
 	agentRecord.ContextTokens = (len(summary) + 3) / 4
 
-	if err := engine.saveAgent(agentRecord); err != nil {
+	if err := engine.saveAgentContext(agentRecord); err != nil {
 		return agentRecord, err
 	}
 

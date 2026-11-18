@@ -702,6 +702,9 @@ Object.assign(english, {
   "Zuerst einen Provider verbinden und seine Modelle laden.":
     "Connect a provider and load its models first.",
   Hauptmodell: "Main model",
+  Hauptagent: "Main agent",
+  "Modelle ändern": "Change models",
+  "Modelle der Unterhaltung": "Conversation models",
   "Modell-Defaults speichern": "Save model defaults",
   "Ein Sprachmodell auswählen.": "Select a language model.",
   "Provider verbinden, verfügbare Modelle laden und anschließend die globalen Modell-Defaults festlegen.":

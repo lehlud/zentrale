@@ -20,6 +20,12 @@ func modelResourceID(providerID, modelID string) string {
 	return providerID + ":" + modelID
 }
 
+func agentModelChoice(record domain.Agent) domain.ModelChoice {
+	return domain.ModelChoice{
+		ProviderID: record.ProviderID, ModelID: record.ModelID, ReasoningLevel: record.ReasoningLevel,
+	}
+}
+
 func (engine *Engine) ModelDefaults() (domain.ModelDefaults, error) {
 	encoded, err := engine.Store.Setting("model_defaults")
 	if err != nil {
@@ -155,14 +161,7 @@ func (engine *Engine) normalizeReasoning(choice domain.ModelChoice, role string)
 }
 
 func (engine *Engine) inferenceConfiguration(ctx context.Context, agentRecord domain.Agent) (inferenceConfig, error) {
-	choice, err := engine.resolveChoice(
-		domain.ModelChoice{
-			ProviderID:     agentRecord.ProviderID,
-			ModelID:        agentRecord.ModelID,
-			ReasoningLevel: agentRecord.ReasoningLevel,
-		},
-		agentRecord.Role,
-	)
+	choice, err := engine.resolveChoice(agentModelChoice(agentRecord), agentRecord.Role)
 	if err != nil {
 		return inferenceConfig{}, err
 	}

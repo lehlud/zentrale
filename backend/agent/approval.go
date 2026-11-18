@@ -82,6 +82,10 @@ func (engine *Engine) approve(
 	phase = "review preparation"
 	revision := engine.instructionRevision(agentRecord.ProjectID)
 
+	// A queued review may outlive a change to the conversation's reviewer.
+	if err := engine.Store.Load("agent", approver.ID, &approver); err != nil {
+		return false, err
+	}
 	configuration, err := engine.inferenceConfiguration(ctx, approver)
 	if err != nil {
 		return false, err
@@ -96,9 +100,7 @@ func (engine *Engine) approve(
 		return false, err
 	}
 
-	approver.Status = "running"
-
-	if err := engine.saveAgent(approver); err != nil {
+	if err := engine.patchAgent(approver.ID, map[string]any{"status": "running", "error": ""}); err != nil {
 		return false, err
 	}
 	defer engine.finishAgent(approver.ID, nil)

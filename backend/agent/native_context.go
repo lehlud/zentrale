@@ -57,7 +57,7 @@ func (engine *Engine) loadNativeContext(agent *domain.Agent, configuration infer
 	// the full audit history using the destination provider's portable compactor.
 	agent.ContextStart, agent.ContextTokens, agent.Summary = 0, 0, ""
 
-	if err := engine.saveAgent(*agent); err != nil {
+	if err := engine.saveAgentContext(*agent); err != nil {
 		return "", err
 	}
 
@@ -135,7 +135,7 @@ func (engine *Engine) tryNativeCompaction(
 	agent.ContextStart, agent.Summary = nextStart, ""
 	agent.ContextTokens = estimatedMessageTokens([]domain.Message{{Wire: result.Wire}})
 
-	if err := engine.saveAgent(agent); err != nil {
+	if err := engine.saveAgentContext(agent); err != nil {
 		return agent, "", false, err
 	}
 

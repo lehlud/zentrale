@@ -81,6 +81,14 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			return mapOf(defaults), err
 		}),
 	}
+	queries["conversationModels"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.ModelDefaults]()),
+		Args: gitStringArgs("agentId"),
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			choices, err := server.Engine.ConversationModels(params.Args["agentId"].(string))
+			return mapOf(choices), err
+		}),
+	}
 
 	queries["models"] = &graphql.Field{
 		Type: graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.LanguageModel]()))),
@@ -186,6 +194,22 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 	choiceInput := builder.input(reflect.TypeFor[domain.ModelChoice]())
 	requiredString := func(name string) graphql.FieldConfigArgument {
 		return graphql.FieldConfigArgument{name: {Type: graphql.NewNonNull(graphql.String)}}
+	}
+	mutations["setConversationModel"] = &graphql.Field{
+		Type: graphql.Boolean,
+		Args: graphql.FieldConfigArgument{
+			"agentId": {Type: graphql.NewNonNull(graphql.String)},
+			"role":    {Type: graphql.NewNonNull(graphql.String)},
+			"choice":  {Type: graphql.NewNonNull(choiceInput)},
+		},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			choice, err := convert[domain.ModelChoice](params.Args["choice"])
+			if err != nil {
+				return false, err
+			}
+			err = server.Engine.SetConversationModel(params.Args["agentId"].(string), params.Args["role"].(string), choice)
+			return err == nil, err
+		}),
 	}
 
 	mutations["setModelDefaults"] = &graphql.Field{

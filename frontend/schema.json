@@ -4071,6 +4071,14 @@
             }
           },
           {
+            "name": "setConversationModel",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "setGitHubToken",
             "type": {
               "kind": "SCALAR",
@@ -5397,6 +5405,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "ConversationBootstrap",
+              "ofType": null
+            }
+          },
+          {
+            "name": "conversationModels",
+            "type": {
+              "kind": "OBJECT",
+              "name": "ModelDefaults",
               "ofType": null
             }
           },

@@ -75,6 +75,7 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 	var turnContext context.Context
 	defer func() { providers.CloseResponsesTurn(turnContext) }()
 	var turnRevision uint64
+	var turnModel domain.ModelChoice
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -105,12 +106,6 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 			return processedRevision, inputError
 		}
 
-		if turnContext == nil || turnRevision != processedRevision {
-			providers.CloseResponsesTurn(turnContext)
-			turnContext = withToolFeedback(providers.WithResponsesTurn(ctx))
-			turnRevision = processedRevision
-		}
-
 		var agentRecord domain.Agent
 		if err := engine.Store.Load("agent", agentID, &agentRecord); err != nil {
 			return processedRevision, err
@@ -129,6 +124,14 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		configuration, err := engine.inferenceConfiguration(ctx, agentRecord)
 		if err != nil {
 			return processedRevision, err
+		}
+		choice := domain.ModelChoice{
+			ProviderID: configuration.Provider.ID, ModelID: configuration.Model.ID, ReasoningLevel: configuration.ReasoningLevel,
+		}
+		if turnContext == nil || turnRevision != processedRevision || turnModel != choice {
+			providers.CloseResponsesTurn(turnContext)
+			turnContext = withToolFeedback(providers.WithResponsesTurn(ctx))
+			turnRevision, turnModel = processedRevision, choice
 		}
 
 		engine.setRunState(agentID, "model", nil)

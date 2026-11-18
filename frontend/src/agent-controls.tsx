@@ -1,5 +1,6 @@
 import { Button, Dropdown, Label, Link, buttonVariants } from "@heroui/react";
 import type { RefObject, ReactNode } from "react";
+import { useState } from "react";
 
 import { useAPI } from "./api";
 import { statusLabels } from "./agent-format";
@@ -11,6 +12,7 @@ import { AgentSwitcher } from "./agent-switcher";
 import { Icon } from "./icons";
 import { editorLaunchHref } from "./navigation";
 import { TerminalLauncher } from "./terminal-launcher";
+import { ConversationModelDialog } from "./conversation-models";
 
 export function AgentControls({
   current,
@@ -38,6 +40,7 @@ export function AgentControls({
   const { t } = useI18n();
   const api = useAPI();
   const canRemove = current && current.role !== "approver";
+  const [modelAgentId, setModelAgentId] = useState("");
 
   return (
     <div
@@ -114,6 +117,15 @@ export function AgentControls({
                         <Label>{t("Agent stoppen")}</Label>
                       </Dropdown.Item>
                     )}
+                  {current && (
+                    <Dropdown.Item
+                      id="conversation-models"
+                      className="min-h-11"
+                      onAction={() => setModelAgentId(current.id)}
+                    >
+                      <Label>{t("Modelle ändern")}</Label>
+                    </Dropdown.Item>
+                  )}
                   <Dropdown.Item
                     id="sources"
                     className="min-h-11"
@@ -161,6 +173,12 @@ export function AgentControls({
         </span>
       )}
       {headerContent}
+      {modelAgentId && (
+        <ConversationModelDialog
+          agentId={modelAgentId}
+          onClose={() => setModelAgentId("")}
+        />
+      )}
     </div>
   );
 }

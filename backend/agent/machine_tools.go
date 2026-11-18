@@ -200,5 +200,5 @@ func (engine *Engine) selectProjectMachine(
 		return domain.Machine{}, err
 	}
 
-	return machine, engine.saveAgentMachine(agentRecord.ID, machineID)
+	return machine, engine.patchAgent(agentRecord.ID, map[string]any{"machineId": machineID})
 }

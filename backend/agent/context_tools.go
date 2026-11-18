@@ -70,5 +70,5 @@ func (engine *Engine) manageContext(
 
 	engine.Emit("context", agentRecord.ID, map[string]any{"action": action, "start": start})
 
-	return true, engine.saveAgent(agentRecord)
+	return true, engine.saveAgentContext(agentRecord)
 }

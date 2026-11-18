@@ -78,14 +78,20 @@ func (engine *Engine) saveAgent(agentRecord domain.Agent) error {
 	return nil
 }
 
-// SSH preparation may finish after a separate lifecycle update. Persist only
-// the selected machine so an earlier snapshot cannot restore an old error.
-func (engine *Engine) saveAgentMachine(agentID, machineID string) error {
-	if err := engine.Store.Patch("agent", agentID, map[string]any{"machineId": machineID}); err != nil {
+// Update only the fields owned by this operation. Network or model work may
+// finish after the user has changed another part of the agent's configuration.
+func (engine *Engine) patchAgent(agentID string, fields map[string]any) error {
+	if err := engine.Store.Patch("agent", agentID, fields); err != nil {
 		return err
 	}
 	engine.Emit("agent", agentID, nil)
 	return nil
+}
+
+func (engine *Engine) saveAgentContext(record domain.Agent) error {
+	return engine.patchAgent(record.ID, map[string]any{
+		"contextStart": record.ContextStart, "contextTokens": record.ContextTokens, "summary": record.Summary,
+	})
 }
 
 func (engine *Engine) appendMessage(agentID, role, content, wire, callID, toolName string, changes ...domain.FileChange) error {
