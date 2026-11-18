@@ -5,11 +5,11 @@ import (
 	"compress/zlib"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/url"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -22,11 +22,12 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	if len(command) >= 48*1024 {
 		t.Fatalf("runner command is too large for nested SSH shell quoting: %d bytes", len(command))
 	}
-	match := regexp.MustCompile(`base64.b64decode\('([A-Za-z0-9+/=]+)'\)`).FindStringSubmatch(strings.ReplaceAll(command, `'"'"'`, `'`))
+	match := regexp.MustCompile(`base64.b85decode\('([^']+)'\)`).FindStringSubmatch(strings.ReplaceAll(command, `'"'"'`, `'`))
 	if len(match) != 2 {
 		t.Fatal("missing compressed runner bundle")
 	}
-	compressed, err := base64.StdEncoding.DecodeString(match[1])
+	decode := "python3 -I -c " + Quote("import base64,sys; sys.stdout.buffer.write(base64.b85decode(sys.argv[1]))") + " " + Quote(match[1])
+	compressed, err := exec.Command("/bin/sh", "-c", shellCommand(decode)).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,12 +54,25 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	}
 }
 
-func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
+func TestPythonBase85HandlesZeroGroupsAndPartialBlocks(t *testing.T) {
+	for size := 0; size < 12; size++ {
+		for _, fill := range []byte{0, 1, 255} {
+			data := bytes.Repeat([]byte{fill}, size)
+			decoded, err := exec.Command("python3", "-I", "-c", "import base64,sys; sys.stdout.buffer.write(base64.b85decode(sys.argv[1]))", pythonBase85(data)).Output()
+			if err != nil || !bytes.Equal(decoded, data) {
+				t.Fatalf("Python Base85 roundtrip failed for size=%d fill=%d: %v", size, fill, err)
+			}
+		}
+	}
+}
+
+func TestManagedMicroVMReleaseHasVerifiedArtifacts(t *testing.T) {
 	type artifact struct {
 		URL     string `json:"url"`
 		SHA256  string `json:"sha256"`
 		Source  string `json:"source"`
 		License string `json:"license"`
+		Package string `json:"package"`
 	}
 
 	var release struct {
@@ -67,7 +81,14 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 		Busybox artifact `json:"busybox"`
 		Kernel  artifact `json:"kernel"`
 		Fedora  artifact `json:"fedora"`
-		NVIDIA  struct {
+		Alpine  struct {
+			Repository string `json:"repository"`
+			Keys       map[string]struct {
+				N string `json:"n"`
+				E int    `json:"e"`
+			} `json:"keys"`
+		} `json:"alpine"`
+		NVIDIA struct {
 			artifact
 			Headers artifact `json:"headers"`
 			Musl    artifact `json:"musl"`
@@ -84,8 +105,7 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 	}
 
 	for _, entry := range []artifact{
-		release.Runtime, release.Busybox, release.Kernel, release.Fedora,
-		release.NVIDIA.artifact, release.NVIDIA.Headers, release.NVIDIA.Musl,
+		release.Runtime, release.Fedora, release.NVIDIA.artifact,
 	} {
 		parsed, err := url.Parse(entry.URL)
 		if err != nil ||
@@ -99,6 +119,23 @@ func TestManagedMicroVMReleaseHasPinnedVerifiedArtifacts(t *testing.T) {
 		digest, err := hex.DecodeString(entry.SHA256)
 		if err != nil || len(digest) != 32 || entry.Source == "" || entry.License == "" {
 			t.Fatalf("missing artifact checksum or provenance: %+v", entry)
+		}
+	}
+	if release.Alpine.Repository != "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64" || len(release.Alpine.Keys) == 0 {
+		t.Fatal("Alpine packages require the official versioned repository and pinned signing keys")
+	}
+	for name, key := range release.Alpine.Keys {
+		modulus, err := hex.DecodeString(key.N)
+		if err != nil || len(modulus) != 512 || key.E != 65537 || !strings.HasSuffix(name, ".rsa.pub") {
+			t.Fatal("invalid pinned Alpine repository signing key")
+		}
+	}
+	for name, entry := range map[string]artifact{
+		"busybox-static": release.Busybox, "linux-virt": release.Kernel,
+		"linux-virt-dev": release.NVIDIA.Headers, "musl": release.NVIDIA.Musl,
+	} {
+		if entry.Package != name || entry.URL != "" || entry.SHA256 != "" || entry.Source == "" || entry.License == "" {
+			t.Fatalf("Alpine package must resolve from the signed repository index: %+v", entry)
 		}
 	}
 

@@ -343,7 +343,9 @@ test directories, and read each test's setup before running it:
   a separate `ZENTRALE_VSCODE_MICROVM_TEST_SNAPSHOT`, a test machine, and the
   matching browser release.
 
-Pinned artifacts are described by the runtime and editor `release.json` files.
+Release artifacts are described by the runtime and editor `release.json` files.
+Alpine APKs resolve through a cached, signature-verified repository index. The
+release file pins the repository and signing key.
 GPU passthrough additionally requires [host preparation](sandbox-and-editor.md#gpu-passthrough);
 CPU VM tests do not demonstrate working physical GPU passthrough.
 

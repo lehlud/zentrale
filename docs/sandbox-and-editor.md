@@ -27,9 +27,21 @@ requirements are unavailable. It never silently switches to Bubblewrap or host
 execution. Weaker levels remain explicit administrator choices.
 
 A compatible readable host kernel is reused. Only when necessary does Zentrale
-download a pinned guest kernel and modules, verify them, and cache them privately.
-Host kernels, drivers, and packages are not modified. Artifact versions and
-checksums live in [release.json](../backend/remote/microvm/release.json).
+download a guest kernel and modules and cache them privately. Alpine package
+URLs are resolved from the official Alpine 3.22 `APKINDEX.tar.gz`, whose RSA
+signature is checked against the public key pinned in
+[release.json](../backend/remote/microvm/release.json). Kernel and NVIDIA headers
+must have the same package version. BusyBox and the private musl loader use the
+same verified index. Each APK's control checksum, name, version, architecture,
+size, and SHA-256 data hash are checked before extraction, following
+[Alpine's APKv2 format](https://github.com/alpinelinux/apk-tools/blob/master/doc/apk-v2.5.scd).
+
+The signed index is cached with its repository and trusted-key identity. Cached
+installations remain reusable without network access. If an APK returns 404 or
+410 after Alpine replaces it, setup refreshes the index and retries once with
+the new matching kernel/header pair. Signature and checksum errors stop setup.
+Runtime directories include the resolved artifact identity, so running VMs
+keep their own runtime files through an update.
 
 Guests use 2 vCPUs, 4 GiB RAM, and a sparse disk capped at 8 GiB. Disks, VM
 artifacts and per-project scratch live in private directories under `/tmp` on
@@ -129,11 +141,11 @@ The host needs an existing working NVIDIA driver, readable matching userspace
 libraries, access to `/dev/nvidiactl`, `/dev/nvidia0`, `/dev/nvidia-uvm`, and its
 normal KVM prerequisites. Building the small guest module also needs GCC, Make,
 and binutils already on the host. The pinned QEMU binary needs glibc 2.38+ and
-libslirp 4.7+. Zentrale verifies the runtime, matching guest headers, and private
-build tools against their SHA-256 hashes, builds without privileges, and caches
-the result outside guest-writable exports. A compatible host kernel with headers
-is reused; the pinned guest kernel is needed when matching headers or required
-guest features are unavailable.
+libslirp 4.7+. Zentrale verifies the pinned runtime and uses the signed Alpine
+index to verify matching guest headers and private build tools. It builds
+without privileges and caches the result outside guest-writable exports. A
+compatible host kernel with headers is reused. The managed guest kernel is
+needed when matching headers or required guest features are unavailable.
 
 Only the forwarding module and a read-only copy of the matching NVIDIA libraries
 are attached to Fedora. CUDA, OpenCL, Vulkan, OpenGL/EGL, NVENC, and NVDEC use the

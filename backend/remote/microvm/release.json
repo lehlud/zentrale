@@ -1,5 +1,5 @@
 {
-  "version": "virtme-ng-1.42-busybox-1.37.0-r20",
+  "version": "virtme-ng-1.42-alpine-v3.22",
   "runtime": {
     "url": "https://files.pythonhosted.org/packages/d1/41/838216899c6b1af87b1f32823589619cb1ed95b29e45b616482f84b45988/virtme_ng-1.42-py3-none-any.whl",
     "sha256": "99589f1f5d74249038fe3c52aad9d3c33cb82a2d9617997511d4489fc709a707",
@@ -7,20 +7,16 @@
     "license": "GPL-2.0-only"
   },
   "busybox": {
-    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/busybox-static-1.37.0-r20.apk",
-    "sha256": "488ad6efd04b5a722719e79f8e0dcc2c24afd6758867af3ce41b04839e60c74b",
     "member": "bin/busybox.static",
     "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/busybox",
-    "license": "GPL-2.0-only"
+    "license": "GPL-2.0-only",
+    "package": "busybox-static"
   },
   "kernel": {
-    "version": "6.12.115-0-virt",
-    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/linux-virt-6.12.115-r0.apk",
-    "sha256": "2c0146b71bb15b1dbfe3056d430ddcdb6f99ed937db51be0a2a7760db6a9b3fc",
     "member": "boot/vmlinuz-virt",
-    "config": "boot/config-6.12.115-0-virt",
     "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/linux-lts",
-    "license": "GPL-2.0-only"
+    "license": "GPL-2.0-only",
+    "package": "linux-virt"
   },
   "fedora": {
     "version": "45",
@@ -38,17 +34,14 @@
     "source": "https://github.com/reindertpelsma/nvkvm-pv/tree/v0.2.5",
     "license": "Apache-2.0 AND GPL-2.0-only",
     "headers": {
-      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/linux-virt-dev-6.12.115-r0.apk",
-      "sha256": "26e4dae58330da31b7f4bc1b42a9c245e6ad7c71120a5f1295e5c549cd3fffdc",
-      "version": "6.12.115-0-virt",
       "source": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.22-stable/main/linux-lts",
-      "license": "GPL-2.0-only"
+      "license": "GPL-2.0-only",
+      "package": "linux-virt-dev"
     },
     "musl": {
-      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/musl-1.2.5-r13.apk",
-      "sha256": "359890bc7c4dc5fee7a85192de60a471c987e4664767288578beca60a44db2c8",
       "source": "https://musl.libc.org/",
-      "license": "MIT"
+      "license": "MIT",
+      "package": "musl"
     }
   },
   "tools": {
@@ -107,6 +100,15 @@
       },
       "source": "https://github.com/tomnomnom/gron/tree/v0.7.1",
       "license": "MIT"
+    }
+  },
+  "alpine": {
+    "repository": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64",
+    "keys": {
+      "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub": {
+        "n": "bad424b9ad82022838545489eefe7800bcaefc9d56077a278bbab00990f7bde511c3b1f1a4d023f6147e4b937fa4d79982e6d0bc95b268fb900e6ecf4ecd7eb451a260d7c0b2289b5fa46fd30722dccfb3d9711501e47d57383abf8aa8a1f0f2a136e8be7d8bced68d1234e407ea0ab65be9361835ce1a2ed230d56059e2117bf38dc931b301d56fc713d0e31328700bc8b3eb3ce27356d33d0b57b0d8d9dcdfce3cc4b880a4cbb734193426a7dc4b7068e58d9bd4545506f76dfb6805a0a662c7532765d00467cc50ccbfdad184b91ddd308f9f8410a1df39ddc0ef9b8f6bf590980fa8d1c0457ebce6ebd403712252c06a735ab0f549c1f700af275afa23bfb7bd82e90affdca5d5be1f410d34bedb7024f4a09bd1277cf1cb02d817911968236ec7ebf3ee2e836f480310c2e083850465c862cf0444ca9077a875f2e850b8e10e2d4ada02894cc86d6e751c000ee71298643213d6901a6015dac7fb9cf82f1cbedde93472a708ecaebc12dadf7d4f23b548fd2c54d40bc74445a201b3b36043f2df0db0df1a1f60eaa563d6166593d69a20f4e6ff1b22f2fdeefb4a9aabb2b320173db39f493a803c4e5a4e6987558124211c72c169a84eb808a01fe5488ac6c2f6f9aab13845d90743b50b77ee47aeaa875ad84eac2fb3d4bc8c955c345fc17eee3038e5cd3c474f29afab60a486d06aa230674e19a3250160657a1c1c6f",
+        "e": 65537
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ unmodified, with its license, outside every guest-writable filesystem export.
 """
 
 import ctypes
+import base64
 import fcntl
 import gzip
 import hashlib
@@ -26,7 +27,9 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import zipfile
+import zlib
 import threading
 import traceback
 
@@ -322,11 +325,178 @@ def cache_directory(writable_roots=()):
     return cache
 
 
+class AlpinePackageUnavailable(RuntimeError):
+    """A repository update removed a package from a cached index."""
+
+
+def gzip_member(data, limit):
+    """Split APKv2's concatenated gzip streams without inflating package data."""
+    stream = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        expanded = stream.decompress(data, limit + 1)
+    except zlib.error as error:
+        raise RuntimeError("invalid Alpine gzip stream") from error
+    if len(expanded) > limit or not stream.eof:
+        raise RuntimeError("Alpine metadata is truncated or exceeds its size limit")
+    end = len(data) - len(stream.unused_data)
+    return data[:end], expanded, stream.unused_data
+
+
+def alpine_member(data, name, limit):
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+        matches = [member for member in archive if member.name == name]
+        if len(matches) != 1 or not matches[0].isfile() or matches[0].size > limit:
+            raise RuntimeError("invalid Alpine metadata member: " + name)
+        return archive.extractfile(matches[0]).read()
+
+
+def verified_alpine_index(data, settings):
+    _, signatures, signed = gzip_member(data, 64 * 1024)
+    compressed, index, remainder = gzip_member(signed, 16 * 1024 * 1024)
+    if remainder:
+        raise RuntimeError("unexpected data after the Alpine repository index")
+    # Trust only keys shipped with Zentrale, never keys supplied by the index.
+    for name, key in settings["keys"].items():
+        try:
+            signature = alpine_member(signatures, ".SIGN.RSA." + name, 8192)
+        except RuntimeError:
+            continue
+        # APKv2 uses RSASSA-PKCS1-v1_5 with SHA-1 over the compressed index.
+        # Compare the *entire* encoded message, including all padding and DER.
+        # Only public-key verification is performed; no host crypto tool needed.
+        modulus, exponent = int(key["n"], 16), key["e"]
+        width = (modulus.bit_length() + 7) // 8
+        value = int.from_bytes(signature, "big")
+        if width < 256 or len(signature) != width or value >= modulus:
+            continue
+        digest = (
+            bytes.fromhex("3021300906052b0e03021a05000414")
+            + hashlib.sha1(compressed).digest()
+        )
+        expected = (
+            b"\x00\x01" + b"\xff" * (width - len(digest) - 3) + b"\x00" + digest
+        )
+        if pow(value, exponent, modulus).to_bytes(width, "big") == expected:
+            return alpine_member(index, "APKINDEX", 16 * 1024 * 1024).decode("utf-8")
+    raise RuntimeError("Alpine repository index failed signature verification")
+
+
+def alpine_index(cache, settings, refresh=False):
+    identity = hashlib.sha256(
+        json.dumps(settings, sort_keys=True).encode()
+    ).hexdigest()[:24]
+    path = cache / ("alpine-index-" + identity + ".tar.gz")
+    if path.is_file() and not refresh:
+        return verified_alpine_index(path.read_bytes(), settings)
+    request = urllib.request.Request(
+        settings["repository"] + "/APKINDEX.tar.gz",
+        headers={"Cache-Control": "no-cache"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        data = response.read(4 * 1024 * 1024 + 1)
+    if len(data) > 4 * 1024 * 1024:
+        raise RuntimeError("Alpine repository index exceeds its download limit")
+    index = verified_alpine_index(data, settings)
+    temporary = path.with_suffix(".download")
+    try:
+        temporary.write_bytes(data)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return index
+
+
+def resolve_alpine_release(cache, release, refresh=False):
+    if "alpine" not in release:
+        return release
+    settings = release["alpine"]
+    entries = {}
+    for record in alpine_index(cache, settings, refresh).strip().split("\n\n"):
+        entry = dict(line.split(":", 1) for line in record.splitlines() if ":" in line)
+        name = entry.get("P")
+        if name in entries:
+            raise RuntimeError("ambiguous Alpine package in repository index: " + name)
+        entries[name] = entry
+    resolved = json.loads(json.dumps(release))
+    for artifact in (
+        resolved["busybox"], resolved["kernel"],
+        resolved["nvidia"]["headers"], resolved["nvidia"]["musl"],
+    ):
+        name = artifact["package"]
+        entry = entries.get(name, {})
+        version = entry.get("V", "")
+        checksum = entry.get("C", "")
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+~-]*-r[0-9]+", version)
+            or entry.get("A") != "x86_64"
+            or not re.fullmatch(r"Q1[A-Za-z0-9+/]{27}=", checksum)
+            or not entry.get("S", "").isdigit()
+            or not 0 < int(entry["S"]) <= 64 * 1024 * 1024
+        ):
+            raise RuntimeError("missing or invalid Alpine repository package: " + name)
+        artifact["url"] = settings["repository"] + "/" + name + "-" + version + ".apk"
+        artifact["apk"] = {
+            "name": name, "version": version, "checksum": checksum,
+            "size": int(entry["S"]), "arch": entry["A"],
+        }
+    kernel, headers = resolved["kernel"], resolved["nvidia"]["headers"]
+    if (
+        kernel["apk"]["version"] != headers["apk"]["version"]
+        or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+", kernel["apk"]["version"])
+    ):
+        raise RuntimeError("Alpine guest kernel and headers do not match")
+    version = kernel["apk"]["version"].replace("-r", "-") + "-virt"
+    kernel["version"] = headers["version"] = version
+    kernel["config"] = "boot/config-" + version
+    return resolved
+
+
+def verify_alpine_package(data, artifact):
+    """Return only the data archive authenticated by the signed index."""
+    expected = artifact["apk"]
+    if len(data) != expected["size"]:
+        raise RuntimeError("Alpine package failed size verification")
+    # Skip the package signature stream. The verified index authenticates the
+    # control archive, whose datahash then authenticates the data archive.
+    _, _, remaining = gzip_member(data, 64 * 1024)
+    control, metadata, payload = gzip_member(remaining, 1024 * 1024)
+    checksum = "Q1" + base64.b64encode(hashlib.sha1(control).digest()).decode("ascii")
+    if checksum != expected["checksum"]:
+        raise RuntimeError("Alpine package failed control checksum verification")
+    info = alpine_member(metadata, ".PKGINFO", 1024 * 1024).decode("utf-8")
+    fields = {}
+    for line in info.splitlines():
+        key, separator, value = line.partition(" = ")
+        if separator and key in ("pkgname", "pkgver", "arch", "datahash"):
+            if key in fields:
+                raise RuntimeError("duplicate Alpine package metadata: " + key)
+            fields[key] = value
+    if any(fields.get(key) != expected[value] for key, value in (
+        ("pkgname", "name"), ("pkgver", "version"), ("arch", "arch"),
+    )):
+        raise RuntimeError("Alpine package identity does not match the repository index")
+    if not payload or hashlib.sha256(payload).hexdigest() != fields.get("datahash"):
+        raise RuntimeError("Alpine package failed data SHA-256 verification")
+    return payload
+
+
 def download(artifact, limit=None):
     limit = MAX_DOWNLOAD_BYTES if limit is None else limit
-    with urllib.request.urlopen(artifact["url"], timeout=60) as response:
-        data = response.read(limit + 1)
-    if len(data) > limit or hashlib.sha256(data).hexdigest() != artifact["sha256"]:
+    try:
+        with urllib.request.urlopen(artifact["url"], timeout=60) as response:
+            data = response.read(limit + 1)
+    except urllib.error.HTTPError as error:
+        if "apk" in artifact and error.code in (404, 410):
+            error.close()
+            raise AlpinePackageUnavailable(
+                "Alpine package disappeared: " + artifact["url"]
+            ) from error
+        raise
+    if len(data) > limit:
+        raise RuntimeError("MicroVM runtime download exceeds its size limit")
+    if "apk" in artifact:
+        return verify_alpine_package(data, artifact)
+    if hashlib.sha256(data).hexdigest() != artifact["sha256"]:
         raise RuntimeError("MicroVM runtime download failed SHA-256 verification")
     return data
 
@@ -336,7 +506,8 @@ def install_kernel(cache, artifact):
     version = artifact["version"]
     if not re.fullmatch(r"[A-Za-z0-9_.+-]+", version) or version in (".", ".."):
         raise RuntimeError("invalid managed guest kernel version")
-    destination = cache / ("kernel-" + version + "-" + artifact["sha256"][:12] + "-v1")
+    digest = hashlib.sha256(json.dumps(artifact, sort_keys=True).encode()).hexdigest()
+    destination = cache / ("kernel-" + version + "-" + digest[:12] + "-v1")
     kernel = destination / "boot" / ("vmlinuz-" + version)
     marker = destination / "installed.json"
     installed = {"artifact": artifact, "layout": "uncompressed-modules-v1"}
@@ -419,7 +590,9 @@ def install_kernel(cache, artifact):
 
 
 def install_runtime(cache, release):
-    destination = cache / release["version"]
+    identity = {key: release[key] for key in ("version", "runtime", "busybox")}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:12]
+    destination = cache / (release["version"] + "-" + digest)
     marker = destination / "installed.json"
     if marker.is_file():
         installed = json.loads(marker.read_text(encoding="utf-8"))
@@ -857,27 +1030,40 @@ def bootstrap_failure(cache, control, message, exit_code=None):
 def ensure_ready(cache, configuration, kernel):
     with (cache / "setup.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if kernel is None:
-            kernel = install_kernel(cache, configuration["release"]["kernel"])
-            if configuration.get("gpu") or configuration.get("gpuDevices"):
-                check_guest_kernel_modules(
-                    kernel.parent.parent,
-                    configuration["release"]["kernel"]["version"],
-                    pci=True,
-                )
-        runtime = install_runtime(cache, configuration["release"])
-        base = provision_base(cache, configuration, runtime, kernel)
-        if configuration.get("gpuBackend") == "nvidia":
-            kernel, configuration["gpuRuntime"] = nvidia_helpers(configuration)[
-                "prepare"
-            ](
-                cache,
-                configuration["release"],
-                kernel,
-                configuration["gpuInventory"],
-                download,
-                install_kernel,
+        source_release, host_kernel = configuration["release"], kernel
+        for attempt in range(2):
+            configuration["release"] = resolve_alpine_release(
+                cache, source_release, refresh=bool(attempt)
             )
+            kernel = host_kernel
+            try:
+                if kernel is None:
+                    kernel = install_kernel(cache, configuration["release"]["kernel"])
+                    if configuration.get("gpu") or configuration.get("gpuDevices"):
+                        check_guest_kernel_modules(
+                            kernel.parent.parent,
+                            configuration["release"]["kernel"]["version"],
+                            pci=True,
+                        )
+                runtime = install_runtime(cache, configuration["release"])
+                if configuration.get("gpuBackend") == "nvidia":
+                    kernel, configuration["gpuRuntime"] = nvidia_helpers(configuration)[
+                        "prepare"
+                    ](
+                        cache,
+                        configuration["release"],
+                        kernel,
+                        configuration["gpuInventory"],
+                        download,
+                        install_kernel,
+                    )
+                break
+            except AlpinePackageUnavailable:
+                if attempt or "alpine" not in source_release:
+                    raise
+                # A mirror may replace packages between index lookup and fetch.
+                # Refresh the complete snapshot so kernel and headers stay paired.
+        base = provision_base(cache, configuration, runtime, kernel)
     return runtime, base, kernel
 
 

@@ -6,7 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	_ "embed"
-	"encoding/base64"
+	"encoding/ascii85"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -134,15 +134,35 @@ func microVMCommand(action string, machines ...domain.Machine) string {
 		panic(err)
 	}
 	var compressed bytes.Buffer
-	writer := zlib.NewWriter(&compressed)
+	writer, err := zlib.NewWriterLevel(&compressed, zlib.BestCompression)
+	if err != nil {
+		panic(err) // The fixed compression level is valid.
+	}
 	_, _ = writer.Write(bundle)
 	_ = writer.Close()
-	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
+	encoded := pythonBase85(compressed.Bytes())
 	bootstrap := "import base64,json,sys,zlib; " +
-		"bundle=json.loads(zlib.decompress(base64.b64decode('" + encoded + "'))); " +
+		"bundle=json.loads(zlib.decompress(base64.b85decode('" + encoded + "'))); " +
 		"sys.argv.insert(2,json.dumps(bundle['configuration'])); " +
 		"exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))"
 	return "python3 -I -c " + Quote(bootstrap) + " " + Quote(action)
+}
+
+// RFC 1924's alphabet carries more bytes per SSH shell argument than Base64,
+// while avoiding quotes and backslashes. Python's stdlib decodes it directly.
+func pythonBase85(data []byte) string {
+	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~"
+	encoded := make([]byte, ascii85.MaxEncodedLen(len(data)))
+	encoded = encoded[:ascii85.Encode(encoded, data)]
+	var output strings.Builder
+	for _, digit := range encoded {
+		if digit == 'z' { // Adobe's shorthand for four zero bytes.
+			output.WriteString("00000")
+		} else {
+			output.WriteByte(alphabet[digit-'!'])
+		}
+	}
+	return output.String()
 }
 
 // Stage the invocation over stdin. Commands and file contents can exceed the
