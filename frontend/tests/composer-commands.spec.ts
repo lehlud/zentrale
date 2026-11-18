@@ -195,7 +195,7 @@ test("Escape preserves the draft and ordinary Tab still queues instructions", as
   expect(submissions[0].mode).toBe("queue");
 });
 
-test("the project menu keeps Stop and VM reset without redundant actions or agent links", async ({
+test("the project menu offers Stop, removal and VM reset while the agent works", async ({
   page,
 }) => {
   const { actions } = await commandFixture(page);
@@ -207,7 +207,10 @@ test("the project menu keeps Stop and VM reset without redundant actions or agen
     .getByRole("button", { name: "Projektaktionen", exact: true })
     .click();
   const menu = page.getByRole("menu", { name: "Projektaktionen" });
-  await expect(menu.getByRole("menuitem")).toHaveCount(3);
+  await expect(menu.getByRole("menuitem")).toHaveCount(4);
+  await expect(
+    menu.getByRole("menuitem", { name: "Agent entfernen", exact: true }),
+  ).toBeEnabled();
   await expect(
     menu.getByRole("menuitem", {
       name: "Projekt-VM zurücksetzen",
