@@ -237,64 +237,64 @@ def configure_project_git(configuration):
         destination = ssh_destination(url)
 
         def config(*arguments):
-            return subprocess.run(
-                ["git", "-C", directory, "config", *arguments],
-                env=git_environment(),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-        atomic_secret(managed, "config.pending", "")
-
-        def setting(name, value):
-            config("--file", str(managed / "config.pending"), name, value)
-
-        setting("core.sshCommand", "false")
-        for name, value in source["identity"].items():
-            if value:
-                setting("user." + name, value)
-        if destination:
-            destination["readOnly"] = source["readOnly"]
-            atomic_secret(managed, "destination.json", json.dumps(destination))
-            atomic_secret(managed, "key", source["key"])
-            atomic_secret(managed, "known_hosts", source["known"])
-            atomic_secret(managed, "ssh.py", SSH_WRAPPER)
-            setting(
-                "core.sshCommand", "python3 -I " + shlex.quote(str(managed / "ssh.py"))
-            )
-            setting("ssh.variant", "ssh")
-
-            # Select the repository key even when a terminal/extension supplies
-            # its HTTPS clone URL or the user's global config rewrites SSH URLs.
-            # Full-repository prefixes take precedence over host-wide rewrites.
-            aliases = repository_url_aliases(
-                url, destination, source.get("httpUrls", [])
-            )
-            for alias in aliases:
-                config(
-                    "--file",
-                    str(managed / "config.pending"),
-                    "--add",
-                    "url." + url + ".insteadOf",
-                    alias,
+            try:
+                return subprocess.run(
+                    ["git", "-C", directory, "config", *arguments],
+                    env=git_environment(), check=True, capture_output=True, text=True,
                 )
+            except subprocess.CalledProcessError as error:
+                if error.stderr:
+                    raise ValueError(error.stderr.strip()) from None
+                raise
 
-        # pushurl is multi-valued: adding another include cannot override an
-        # old HTTPS target. Replace origin's local list with the selected source.
-        # This also repairs read-only -> writable transitions on reused checkouts.
-        push_url = "DISABLED_READ_ONLY" if source["readOnly"] else url
-        if destination:
-            config("--local", "--replace-all", "remote.origin.url", url)
-        config("--local", "--replace-all", "remote.origin.pushurl", push_url)
-        if not source["readOnly"]:
-            # Earlier read-only clones also installed this hook. Remove only
-            # our unchanged hook when write access is enabled again.
-            hook = Path(directory) / ".git" / "hooks" / "pre-push"
-            if hook.is_file() and hook.resolve() == hook:
-                if hook.read_bytes() == READ_ONLY_HOOK:
-                    hook.unlink()
-        os.replace(managed / "config.pending", managed / "config")
+        # Git locks the file being built. A killed helper must not leave a lock
+        # at a filename that any subsequent preparation will also use.
+        with tempfile.TemporaryDirectory(prefix="config-", dir=managed) as staging:
+            pending = Path(staging) / "config"
+            pending.touch(mode=0o600)
+
+            def setting(name, value):
+                config("--file", str(pending), name, value)
+
+            setting("core.sshCommand", "false")
+            for name, value in source["identity"].items():
+                if value:
+                    setting("user." + name, value)
+            if destination:
+                destination["readOnly"] = source["readOnly"]
+                atomic_secret(managed, "destination.json", json.dumps(destination))
+                atomic_secret(managed, "key", source["key"])
+                atomic_secret(managed, "known_hosts", source["known"])
+                atomic_secret(managed, "ssh.py", SSH_WRAPPER)
+                setting(
+                    "core.sshCommand", "python3 -I " + shlex.quote(str(managed / "ssh.py"))
+                )
+                setting("ssh.variant", "ssh")
+
+                # Select the repository key even when a terminal/extension supplies
+                # its HTTPS clone URL or the user's global config rewrites SSH URLs.
+                # Full-repository prefixes take precedence over host-wide rewrites.
+                aliases = repository_url_aliases(
+                    url, destination, source.get("httpUrls", [])
+                )
+                for alias in aliases:
+                    config("--file", str(pending), "--add", "url." + url + ".insteadOf", alias)
+
+            # pushurl is multi-valued: adding another include cannot override an
+            # old HTTPS target. Replace origin's local list with the selected source.
+            # This also repairs read-only -> writable transitions on reused checkouts.
+            push_url = "DISABLED_READ_ONLY" if source["readOnly"] else url
+            if destination:
+                config("--local", "--replace-all", "remote.origin.url", url)
+            config("--local", "--replace-all", "remote.origin.pushurl", push_url)
+            if not source["readOnly"]:
+                # Earlier read-only clones also installed this hook. Remove only
+                # our unchanged hook when write access is enabled again.
+                hook = Path(directory) / ".git" / "hooks" / "pre-push"
+                if hook.is_file() and hook.resolve() == hook:
+                    if hook.read_bytes() == READ_ONLY_HOOK:
+                        hook.unlink()
+            os.replace(pending, managed / "config")
         # Includes are exact paths, not a global includeIf that could affect
         # unrelated repositories. Preserve all user-owned configuration/hooks.
         include_git_configuration(directory, managed / "config")

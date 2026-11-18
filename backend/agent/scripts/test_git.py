@@ -472,6 +472,19 @@ class RepositoryPreparationTests(unittest.TestCase):
         )
         self.assertNotEqual(original.returncode, 0)
 
+    def test_configuration_ignores_an_abandoned_pending_lock(self):
+        self.assertEqual(self.run_helper("prepare").returncode, 0)
+        managed = self.directory / ".git/zentrale-git"
+        managed.mkdir()
+        old_lock = managed / "config.pending.lock"
+        old_lock.write_text("interrupted configuration")
+
+        configured = self.configure()
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(self.git("config", "user.name"), "Project Author")
+        self.assertEqual(old_lock.read_text(), "interrupted configuration")
+        self.assertEqual(list(managed.glob("config-*")), [])
+
     def test_repository_scoped_key_strict_host_verification_and_refresh_cleanup(self):
         self.assertEqual(self.run_helper("prepare").returncode, 0)
         url = "ssh://git@example.test:2222/org/repo.git"
