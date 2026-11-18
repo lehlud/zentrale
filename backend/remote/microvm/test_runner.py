@@ -110,13 +110,16 @@ class MicroVMRunnerTests(unittest.TestCase):
             self.assertFalse(staged_archive.is_symlink())
             self.assertTrue(staged_archive.samefile(archive))
             disk.touch()
-            disk.with_name("provisioned").touch()
+
+        def boot(_runtime, _kernel, control):
+            # Timeout cleanup targets the bootstrap child's process group.
+            self.assertEqual(os.getpgrp(), os.getpid())
+            (control / "provisioned").touch()
 
         with (
             patch.object(runner.shutil, "which", return_value="/usr/bin/qemu-img"),
             patch.object(runner.subprocess, "run", side_effect=create_disk),
-            patch.object(runner.os, "fork", return_value=42),
-            patch.object(runner.os, "waitpid", return_value=(42, 0)),
+            patch.object(runner, "execute_vm", side_effect=boot),
         ):
             base = runner.provision_base(self.cache, configuration, runtime, None)
         self.assertEqual(base, self.cache / ("fedora-" + digest + ".raw"))

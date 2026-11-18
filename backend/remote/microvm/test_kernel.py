@@ -73,6 +73,28 @@ class GuestKernelTests(unittest.TestCase):
             )
         )
 
+    def test_fedora_base_is_not_acknowledged_if_unmount_fails(self):
+        root = self.cache / "fedora"
+        exists = Path.exists
+        with (
+            patch.object(guest, "FEDORA", str(root)),
+            patch.object(guest, "CONTROL", str(self.cache)),
+            patch.object(guest, "load_module"),
+            patch.object(guest, "mount"),
+            patch.object(guest.subprocess, "run"),
+            patch.object(guest.LIBC, "umount", return_value=-1) as unmount,
+            patch.object(
+                Path,
+                "exists",
+                autospec=True,
+                side_effect=lambda path: str(path) == "/dev/vda" or exists(path),
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "unmount Fedora base image"):
+                guest.prepare_fedora({"provision": True})
+        unmount.assert_called_once_with(str(root).encode())
+        self.assertFalse((self.cache / "provisioned").exists())
+
     def package(self, extra=None):
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode="w:gz") as archive:

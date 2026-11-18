@@ -976,6 +976,7 @@ def provision_base(cache, configuration, runtime, kernel):
             child = os.fork()
             if child == 0:
                 guard_parent(parent)
+                os.setsid()  # Bound timeout cleanup to this bootstrap VM.
                 os.dup2(log.fileno(), 1)
                 os.dup2(log.fileno(), 2)
                 try:

@@ -249,6 +249,9 @@ def prepare_fedora(request):
             ],
             check=True,
         )
+        # Finish the ext4 transaction before acknowledging a usable base image.
+        if LIBC.umount(FEDORA.encode()) != 0:
+            raise OSError(ctypes.get_errno(), "unmount Fedora base image")
         (Path(CONTROL) / "provisioned").touch()
         return
 
@@ -933,10 +936,10 @@ def main():
     finally:
         sys.stdout.flush()
         sys.stderr.flush()
+        os.sync()
         if "virtme.ret" in ports:
             with open(ports["virtme.ret"], "w") as result:
                 result.write(str(status) + "\n")
-        os.sync()
         LIBC.reboot(0x4321FEDC)
 
 
