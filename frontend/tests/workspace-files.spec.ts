@@ -11,6 +11,26 @@ import {
   transcript,
 } from "./fixtures/visual-data";
 
+function twoPagePDF() {
+  const drawing = "0 0 0 rg 32 48 128 64 re f\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 360 480] >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << >> >>",
+    "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << >> >>",
+    `<< /Length ${drawing.length} >>\nstream\n${drawing}endstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "ascii");
+}
+
 test("workspace documents open in a stack and use the conversation's file route", async ({
   page,
 }) => {
@@ -49,7 +69,7 @@ test("workspace documents open in a stack and use the conversation's file route"
     });
   });
   const payload = Buffer.from([0, 255, 1, 2]);
-  const pdf = await readFile(new URL("../../spec.pdf", import.meta.url));
+  const pdf = twoPagePDF();
   const requests: string[] = [];
   await page.route("**/workspace-file/**", async (route) => {
     const url = new URL(route.request().url());
@@ -87,20 +107,26 @@ test("workspace documents open in a stack and use the conversation's file route"
   await expect(guide.getByRole("heading", { name: "Anleitung" })).toBeVisible();
   await guide.getByRole("link", { name: "Paper" }).click();
   const paper = page.getByRole("dialog", { name: "main.pdf" });
-  const canvas = paper.getByRole("img", { name: "Seite 1" });
-  await expect
-    .poll(async () => {
-      if (!(await canvas.count())) return false;
-      return canvas.evaluate((element: HTMLCanvasElement) => {
-        const pixels = element
-          .getContext("2d")
-          ?.getImageData(0, 0, element.width, element.height).data;
-        return pixels?.some((value, index) => index % 4 === 3 && value > 0);
-      });
-    })
-    .toBe(true);
+  const expectPaintedPage = async (number: number) => {
+    const canvas = paper.getByRole("img", { name: `Seite ${number}` });
+    await expect
+      .poll(async () => {
+        if (!(await canvas.count())) return false;
+        return canvas.evaluate((element: HTMLCanvasElement) => {
+          const pixels = element
+            .getContext("2d")
+            ?.getImageData(0, 0, element.width, element.height).data;
+          return pixels?.some(
+            (value, index) =>
+              index % 4 === 0 && value < 64 && pixels[index + 3] > 0,
+          );
+        });
+      })
+      .toBe(true);
+  };
+  await expectPaintedPage(1);
   await paper.getByRole("button", { name: "Nächste Seite" }).click();
-  await expect(paper.getByRole("img", { name: "Seite 2" })).toBeVisible();
+  await expectPaintedPage(2);
   await page.keyboard.press("Escape");
   await expect(paper).toHaveCount(0);
   await guide.getByRole("link", { name: "Text" }).click();
