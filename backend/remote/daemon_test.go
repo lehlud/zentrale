@@ -248,6 +248,88 @@ func TestDaemonReconnectPreservesExecutionAndExitStatus(t *testing.T) {
 	}
 }
 
+func TestDaemonStartsMicroVMTerminalWhileAgentCommandRuns(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the VM control commands so this runs without KVM. The SSH
+	// transport, daemon, and terminal relay are the production implementations.
+	dir := t.TempDir()
+	runner := `#!/bin/sh
+case "$1:$2:$4" in
+    -I:-c:ensure) exit 0 ;;
+    -I:-c:stage) cat >/dev/null && printf '%s\n' /vm/session/requests/0123456789abcdef0123456789abcdef ;;
+    -I:-c:run) exec ` + terminalCommandWithProtocol("exec /bin/sh -i", true) + ` ;;
+    *) exec ` + Quote(python) + ` "$@" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(runner), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	connector, _ := daemonTestConnector(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	connection, err := connector.Dial(ctx, "daemon-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	gate := filepath.Join(dir, "continue")
+	started := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	go func() {
+		jobContext := WithInvocation(ctx, Invocation{ID: "working-agent-job"})
+		command := "printf started; while ! test -f " + Quote(gate) + "; do sleep 0.02; done; printf completed"
+		output, err := RunStreaming(jobContext, connection, command, func(output string) {
+			if strings.Contains(output, "started") {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+			}
+		})
+		if err != nil || output != "startedcompleted" {
+			err = fmt.Errorf("agent command: output=%q, error=%v", output, err)
+		}
+		done <- err
+	}()
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("agent exited before terminal start: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	persisted := 0
+	terminalContext := WithInvocation(ctx, Invocation{ID: "terminal-user", Persist: func(string) error {
+		persisted++
+		return nil
+	}})
+	machine := domain.Machine{Sandbox: SandboxMicroVM}
+	project := domain.Project{ID: "test-project", Directory: dir}
+	terminal, err := StartTerminal(terminalContext, connection, machine, project, EditorTarget{}, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer terminal.Close()
+	if persisted != 1 {
+		t.Fatalf("terminal receipt saved by %d operations, want 1", persisted)
+	}
+	if err := terminal.Input([]byte("touch " + Quote(gate) + "; printf 'terminal-%s\\n' ready; exit\n")); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(terminal)
+	if err != nil || !strings.Contains(string(output), "terminal-ready") {
+		t.Fatalf("terminal: output=%q, error=%v", output, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDaemonNewConnectorReattachesWithoutReplaying(t *testing.T) {
 	connector, store := daemonTestConnector(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

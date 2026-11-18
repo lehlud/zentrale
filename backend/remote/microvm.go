@@ -195,6 +195,9 @@ func microVMAction(
 	action string,
 	execution Execution,
 ) (string, error) {
+	// VM control commands have independent IDs and stdin streams. Keep any
+	// durable invocation and its input receipts for the actual guest process.
+	ctx = WithInvocation(ctx, Invocation{})
 	if action == "stage" || action == "prepare" || action == "reset" {
 		execution.AgentID = EditorScopeID(execution.ProjectID, "")
 		execution.TemporaryDirectory = connection.ProjectTemporaryDirectory(execution.ProjectID)

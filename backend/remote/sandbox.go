@@ -112,6 +112,8 @@ func Sandbox(
 }
 
 func sandboxLevel(ctx context.Context, connection *Connection, machine domain.Machine) (string, error) {
+	// Probes must not consume the durable resource ID of the process being prepared.
+	ctx = WithInvocation(ctx, Invocation{})
 	if GPUEnabled(machine) || len(machine.Storage) > 0 {
 		if err := validateSandboxConfiguration(WithMachineDefaults(machine)); err != nil {
 			return "", err
