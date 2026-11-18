@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -220,7 +221,7 @@ func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 	engine.wake[agentID] = make(chan struct{}, 1)
 	engine.workers.Add(1)
 	engine.mu.Unlock()
-	if err := engine.patchAgent(agentID, map[string]any{"status": "running", "error": ""}); err != nil {
+	if err := engine.beginAgentRun(agentID); err != nil {
 		engine.removeWorker(agentID)
 		cancel()
 		engine.workers.Done()
@@ -228,10 +229,32 @@ func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 		return err
 	}
 
-	engine.setRunState(agentID, "accepted", nil)
 	go engine.runAgent(workerContext, agentID, cancel)
 
 	return nil
+}
+
+func (engine *Engine) beginAgentRun(agentID string) error {
+	state := domain.AgentRunState{AgentID: agentID, Phase: "accepted"}
+	_, err := engine.writeAgentRun("running", "", state, true)
+	return err
+}
+
+// AgentWorkerActive reports the local worker which can continue consuming this
+// conversation, even if a retiring version has written an interruption marker.
+func (engine *Engine) AgentWorkerActive(agentID string) bool {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	return engine.ctx.Err() == nil && engine.running[agentID] != nil
+}
+
+func (engine *Engine) writeAgentRun(status, failure string, state domain.AgentRunState, begin bool) (bool, error) {
+	applied, err := engine.Store.WriteAgentRun(engine.runOwner, status, failure, state, begin)
+	if applied {
+		engine.Emit("agent", state.AgentID, nil)
+		engine.Emit("agent_run", state.AgentID, state)
+	}
+	return applied, err
 }
 
 func (engine *Engine) removeWorker(agentID string) {
@@ -298,12 +321,12 @@ func (engine *Engine) runAgent(ctx context.Context, agentID string, cancel conte
 		engine.releaseConnection(agentID)
 		engine.configMu.Lock()
 		engine.removeWorker(agentID)
-		engine.finishAgent(agentID, runError)
+		finished := engine.finishAgent(agentID, runError)
 		engine.mu.Lock()
 		restart := engine.inputRevisions[agentID] > processedRevision && !engine.stopRequested[agentID] && engine.ctx.Err() == nil
 		engine.mu.Unlock()
 
-		if restart {
+		if finished && restart {
 			var record domain.Agent
 			if engine.Store.Load("agent", agentID, &record) == nil {
 				_ = engine.resumeBlockedInputs(agentID)
@@ -319,34 +342,27 @@ func (engine *Engine) runAgent(ctx context.Context, agentID string, cancel conte
 	}
 }
 
-func (engine *Engine) finishAgent(agentID string, runError error) {
-	var agentRecord domain.Agent
-	if engine.Store.Load("agent", agentID, &agentRecord) != nil {
-		return
-	}
-
-	agentRecord.Status, agentRecord.Error = "idle", ""
+func (engine *Engine) finishAgent(agentID string, runError error) bool {
+	status, failure := "idle", ""
 
 	if runError != nil {
-		agentRecord.Status = "error"
-		agentRecord.Error = runError.Error()
+		status, failure = "error", runError.Error()
 
 		if errors.Is(runError, context.Canceled) {
-			agentRecord.Status = "stopped"
-			agentRecord.Error = ""
+			status, failure = "stopped", ""
 		}
 
 		var stopped *goalStoppedError
 		if errors.As(runError, &stopped) {
-			agentRecord.Status = "blocked"
+			status = "blocked"
 
 			if stopped.Status == "paused" {
-				agentRecord.Status, agentRecord.Error = "stopped", ""
+				status, failure = "stopped", ""
 			}
 		}
 		var waiting *questionWaitingError
 		if errors.As(runError, &waiting) {
-			agentRecord.Status, agentRecord.Error = "waiting", ""
+			status, failure = "waiting", ""
 		}
 	}
 
@@ -357,17 +373,20 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 	engine.mu.Unlock()
 	var goalStop *goalStoppedError
 	if engine.ctx.Err() != nil && runError != nil && !explicitStop && !errors.As(runError, &goalStop) {
-		agentRecord.Status, agentRecord.Error = "interrupted", ""
+		status, failure = "interrupted", ""
 		runError = nil
 	}
 
-	_ = engine.patchAgent(agentID, map[string]any{"status": agentRecord.Status, "error": agentRecord.Error})
-	phase := agentRecord.Status
+	phase := status
 	var waiting *questionWaitingError
 	if errors.As(runError, &waiting) && phase == "waiting" {
 		phase = "waiting_question"
 	}
-	engine.setRunState(agentID, phase, runError)
+	applied, err := engine.writeAgentRun(status, failure, agentRunState(agentID, phase, runError), false)
+	if err != nil {
+		slog.Error("persist agent completion", "agent", agentID, "error", err)
+	}
+	return applied
 }
 
 func (engine *Engine) Stop(agentID string) error {

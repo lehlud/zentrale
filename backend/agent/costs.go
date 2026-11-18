@@ -138,14 +138,7 @@ func (engine *Engine) recordInferenceUsage(
 	// Provider-reported token counts improve the next 85% threshold check. A byte
 	// estimate remains available for providers that do not report usage.
 	if updateContext && agentRecord.ID != "" {
-		var current domain.Agent
-		if err := engine.Store.Load("agent", agentRecord.ID, &current); err != nil {
-			return err
-		}
-
-		current.ContextTokens = inputTokens + outputTokens
-
-		if err := engine.Store.Save("agent", current.ID, current.ProjectID, current); err != nil {
+		if err := engine.Store.Patch("agent", agentRecord.ID, map[string]any{"contextTokens": inputTokens + outputTokens}); err != nil {
 			return err
 		}
 	}

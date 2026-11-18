@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/graphql-go/graphql"
 	"github.com/lehlud/zentrale/datastore"
@@ -217,13 +218,20 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 				if kind == "inference_trace" {
 					return server.Store.RecentInferenceTraces(*parent, params.Args["limit"].(int), params.Args["offset"].(int))
 				}
+				fields := requestedResourceFields(params.Info, kind == "provider")
+				if kind == "agent" && slices.Contains(fields, "status") && !slices.Contains(fields, "id") {
+					fields = append(fields, "id")
+				}
 				rows, err := server.Store.ListFields(
 					kind,
 					parent,
 					params.Args["limit"].(int),
 					params.Args["offset"].(int),
-					requestedResourceFields(params.Info, kind == "provider"),
+					fields,
 				)
+				if kind == "agent" {
+					server.applyLiveAgentStatus(rows...)
+				}
 				if err == nil && kind == "message" {
 					err = server.attachFileChanges(rows, params.Info)
 				}
@@ -265,6 +273,9 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 				var row map[string]any
 				err := server.Store.Load(kind, params.Args["id"].(string), &row)
+				if kind == "agent" {
+					server.applyLiveAgentStatus(row)
+				}
 
 				return row, err
 			}),

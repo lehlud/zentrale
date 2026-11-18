@@ -100,7 +100,7 @@ func (engine *Engine) approve(
 		return false, err
 	}
 
-	if err := engine.patchAgent(approver.ID, map[string]any{"status": "running", "error": ""}); err != nil {
+	if err := engine.beginAgentRun(approver.ID); err != nil {
 		return false, err
 	}
 	defer engine.finishAgent(approver.ID, nil)

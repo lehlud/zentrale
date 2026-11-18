@@ -2,8 +2,71 @@ package datastore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
+
+	"github.com/lehlud/zentrale/domain"
 )
+
+// WriteAgentRun publishes status and phase together. A retiring engine may
+// finish after the replacement has claimed the same agent during a rollout.
+func (instance *Instance) WriteAgentRun(owner, status, failure string, state domain.AgentRunState, begin bool) (bool, error) {
+	if instance == nil || instance.Closed() {
+		return false, errClosed
+	}
+	phase, err := json.Marshal(state)
+	if err != nil {
+		return false, err
+	}
+	tx, err := instance.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	update := `UPDATE resources SET data=json_set(data,'$.status',?,'$.error',?) WHERE kind='agent' AND id=?`
+	args := []any{status, failure, state.AgentID}
+	if !begin {
+		if owner == "" {
+			update += ` AND json_extract(data,'$.status') IN ('running','waiting')`
+		} else {
+			update += ` AND EXISTS (SELECT 1 FROM resources worker
+				WHERE worker.kind='agent_worker' AND worker.id=resources.id AND worker.data=json_quote(?))`
+			args = append(args, owner)
+		}
+	}
+	result, err := tx.Exec(update, args...)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil || count == 0 {
+		if err == nil && begin {
+			err = sql.ErrNoRows
+		}
+		return false, err
+	}
+	if _, err := tx.Exec(`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES ('agent_run',?,?,?,?)
+		ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
+		state.AgentID, state.AgentID, string(phase), resourceCreatedAt()); err != nil {
+		return false, err
+	}
+	// Ownership belongs to the local worker, independent of the agent record's
+	// settings and history updates. An empty owner is reserved for recovery.
+	if begin {
+		_, err = tx.Exec(`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES ('agent_worker',?,?,json_quote(?),?)
+			ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data`,
+			state.AgentID, state.AgentID, owner, resourceCreatedAt())
+	} else {
+		_, err = tx.Exec(`DELETE FROM resources WHERE kind='agent_worker' AND id=?`, state.AgentID)
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
 func (instance *Instance) RemoveAgents(ids []string) error {
 	if instance == nil || instance.Closed() {

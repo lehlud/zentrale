@@ -455,6 +455,10 @@ func (engine *Engine) RunState(agentID string) domain.AgentRunState {
 }
 
 func (engine *Engine) setRunState(agentID, phase string, failure error) {
+	engine.publishRunState(agentRunState(agentID, phase, failure))
+}
+
+func agentRunState(agentID, phase string, failure error) domain.AgentRunState {
 	state := domain.AgentRunState{AgentID: agentID, Phase: phase}
 
 	if failure != nil {
@@ -470,7 +474,7 @@ func (engine *Engine) setRunState(agentID, phase string, failure error) {
 		}
 	}
 
-	engine.publishRunState(state)
+	return state
 }
 
 func (engine *Engine) publishRunState(state domain.AgentRunState) {

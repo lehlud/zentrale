@@ -89,9 +89,10 @@ type Engine struct {
 	catalogGates     keylock.Group
 	catalogRevisions map[string]uint64
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	workers sync.WaitGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
+	workers  sync.WaitGroup
+	runOwner string
 
 	mu                   sync.Mutex
 	running              map[string]context.CancelFunc
@@ -150,6 +151,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		HuggingFace:          huggingface.New(store),
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
+		runOwner:             NewID(),
 		attachmentGate:       make(chan struct{}, 1),
 		sideSlots:            make(chan struct{}, 8),
 		cancel:               cancel,
@@ -215,22 +217,23 @@ func (engine *Engine) recoverInterruptedWork() error {
 			if status != "running" && status != "waiting" {
 				continue
 			}
-			if kind == "job" && status == "running" {
-				if _, err := engine.Store.Credential(daemonReceiptName(stringArg(resource, "id"))); err == nil {
+			id := stringArg(resource, "id")
+			if kind == "agent" {
+				state := domain.AgentRunState{AgentID: id, Phase: "interrupted"}
+				if _, err := engine.Store.WriteAgentRun("", "interrupted", "", state, false); err != nil {
+					return fmt.Errorf("recover agent state: %w", err)
+				}
+				continue
+			}
+			if status == "running" {
+				if _, err := engine.Store.Credential(daemonReceiptName(id)); err == nil {
 					continue
 				}
 			}
 
 			resource["status"] = "interrupted"
-			resource["error"] = ""
-			parentID := stringArg(resource, "projectId")
-
-			if kind == "job" {
-				resource["error"] = "service restarted"
-				parentID = stringArg(resource, "agentId")
-			}
-
-			if err := engine.Store.Save(kind, stringArg(resource, "id"), parentID, resource); err != nil {
+			resource["error"] = "service restarted"
+			if err := engine.Store.Save(kind, id, stringArg(resource, "agentId"), resource); err != nil {
 				return fmt.Errorf("recover %s state: %w", kind, err)
 			}
 		}

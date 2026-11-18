@@ -95,6 +95,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			if err != nil {
 				return nil, err
 			}
+			server.applyLiveAgentStatus(rows...)
 			id, _ := params.Args["agentId"].(string)
 			if id == "" {
 				for _, row := range rows {
@@ -115,7 +116,9 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 				if agent.ProjectID != projectID {
 					return nil, errors.New("agent does not belong to project")
 				}
-				selected = mapOf(agent)
+				row := mapOf(agent)
+				server.applyLiveAgentStatus(row)
+				selected = row
 				if status := server.Engine.SandboxStatus(agent.MachineID); status != nil {
 					sandboxStatus = mapOf(*status)
 				}
@@ -129,5 +132,16 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			return map[string]any{"project": mapOf(project), "agents": rows, "agent": selected,
 				"agentId": id, "machineName": name, "sandboxMode": mode, "sandboxStatus": sandboxStatus}, nil
 		}),
+	}
+}
+
+// An older binary can still save "interrupted" when it exits during a rollout.
+// Prefer the worker supervised by the server answering the query.
+func (server *Server) applyLiveAgentStatus(rows ...map[string]any) {
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		if row["status"] == "interrupted" && server.Engine.AgentWorkerActive(id) {
+			row["status"], row["error"] = "running", ""
+		}
 	}
 }

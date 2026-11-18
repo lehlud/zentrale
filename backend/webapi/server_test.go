@@ -40,6 +40,23 @@ func (echoProvider) Complete(_ context.Context, request providers.Request) (prov
 	}, nil
 }
 
+type gatedEchoProvider struct {
+	started      chan<- struct{}
+	continueTurn <-chan struct{}
+}
+
+func (provider gatedEchoProvider) Complete(ctx context.Context, request providers.Request) (providers.Result, error) {
+	if !strings.Contains(request.System, "goal_completion_review") {
+		close(provider.started)
+		select {
+		case <-ctx.Done():
+			return providers.Result{}, ctx.Err()
+		case <-provider.continueTurn:
+		}
+	}
+	return (echoProvider{}).Complete(ctx, request)
+}
+
 type apiFixture struct {
 	server *httptest.Server
 	client *http.Client
@@ -245,6 +262,8 @@ func TestCompleteAuthenticatedResourceAndAgentFlow(t *testing.T) {
 	defer connection.Close()
 
 	submit := `mutation($agentId:String!,$id:String!,$text:String!,$mode:String!){submitInput(agentId:$agentId,id:$id,text:$text,mode:$mode){id status}}`
+	started, continueTurn := make(chan struct{}), make(chan struct{})
+	fixture.engine.Provider = gatedEchoProvider{started: started, continueTurn: continueTurn}
 	variables := map[string]any{
 		"agentId": created["id"],
 		"id":      "http-receipt",
@@ -258,6 +277,31 @@ func TestCompleteAuthenticatedResourceAndAgentFlow(t *testing.T) {
 			t.Fatal(receipt)
 		}
 	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not start")
+	}
+	// A retiring older binary can still write this marker without an owner check.
+	if err := fixture.engine.Store.Patch("agent", created["id"].(string), map[string]any{"status": "interrupted", "error": "service shut down"}); err != nil {
+		t.Fatal(err)
+	}
+	working := requireData(t, fixture.query(t,
+		`query($id:String!,$project:String!){agent(id:$id){status error} agents(projectId:$project){status} conversationBootstrap(projectId:$project,agentId:$id){agent{status error}}}`,
+		map[string]any{"id": created["id"], "project": project["id"]},
+	))
+	for _, record := range []map[string]any{
+		working["agent"].(map[string]any),
+		working["conversationBootstrap"].(map[string]any)["agent"].(map[string]any),
+	} {
+		if record["status"] != "running" || record["error"] != "" {
+			t.Fatal("active worker appeared interrupted", record)
+		}
+	}
+	if !strings.Contains(agent.JSON(working["agents"]), `"status":"running"`) {
+		t.Fatal("agent list omitted the live worker", working["agents"])
+	}
+	close(continueTurn)
 
 	_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))
 	completed := false

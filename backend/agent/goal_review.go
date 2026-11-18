@@ -231,7 +231,7 @@ func (engine *Engine) reviewGoal(
 		return goalDecision{}, "", err
 	}
 
-	if err := engine.patchAgent(approver.ID, map[string]any{"status": "running", "error": ""}); err != nil {
+	if err := engine.beginAgentRun(approver.ID); err != nil {
 		return goalDecision{}, "", err
 	}
 	defer engine.finishAgent(approver.ID, nil)
