@@ -200,7 +200,5 @@ func (engine *Engine) selectProjectMachine(
 		return domain.Machine{}, err
 	}
 
-	agentRecord.MachineID = machineID
-
-	return machine, engine.saveAgent(agentRecord)
+	return machine, engine.saveAgentMachine(agentRecord.ID, machineID)
 }

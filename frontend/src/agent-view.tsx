@@ -105,6 +105,17 @@ export function AgentView({
   const current = useStableValue(
     data?.agent ?? agents.find((agent) => agent.id === agentId),
   );
+  const agentError = current?.error;
+  const agentFailure =
+    agentError !== data?.goal?.reason &&
+    agentError !== "service shut down" &&
+    agentError !== "service restarted"
+      ? agentError
+      : undefined;
+  const canContinue =
+    current?.role === "main" &&
+    ((current.status === "interrupted" && !agentFailure) ||
+      (current.status === "stopped" && Boolean(data?.agentInputs?.length)));
   const inputs = useStableValue(data?.agentInputs ?? []);
   const viewport = useTranscriptViewport(
     detailsOpen || Boolean(inspection),
@@ -139,12 +150,15 @@ export function AgentView({
     [detailsTitle],
   );
   const resume = () =>
-    action.run(() =>
-      api.mutate(
-        "mutation($agentId:String!){resumeInputs(agentId:$agentId)}",
-        { agentId },
-        { announce: false },
-      ),
+    action.run(
+      () =>
+        api.mutate(
+          "mutation($agentId:String!){resumeInputs(agentId:$agentId)}",
+          { agentId },
+          { announce: false },
+        ),
+      "default",
+      { announce: false },
     );
   const inspectionDialog = inspection && (
     <Inspect title={inspection.title} onClose={() => setInspection(null)}>
@@ -254,26 +268,27 @@ export function AgentView({
           message={
             error ||
             (!connectionChallenge && action.error) ||
-            (current?.error !== data?.goal?.reason
-              ? current?.error
-              : undefined) ||
+            agentFailure ||
             undefined
           }
           onRetry={
-            error ? () => api.refresh() : current?.error ? resume : undefined
+            error
+              ? () => api.refresh()
+              : agentFailure && current?.role !== "approver"
+                ? resume
+                : undefined
           }
         />
-        {current?.status === "stopped" &&
-          Boolean(data?.agentInputs?.length) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              isPending={action.busy}
-              onPress={resume}
-            >
-              {t("Verarbeitung fortsetzen")}
-            </Button>
-          )}
+        {canContinue && (
+          <Button
+            variant="ghost"
+            size="sm"
+            isPending={action.busy}
+            onPress={resume}
+          >
+            {t("Verarbeitung fortsetzen")}
+          </Button>
+        )}
         {current?.role !== "approver" && (
           <LiveAssistantResponse
             agentId={agentId}
@@ -311,16 +326,17 @@ export function AgentView({
               size="sm"
               variant="secondary"
               isPending={action.busy}
-              onPress={() =>
-                action.run(() =>
-                  api.mutate(
-                    current.status === "running"
-                      ? "mutation($agentId:String!){stopAgent(agentId:$agentId)}"
-                      : "mutation($agentId:String!){resumeInputs(agentId:$agentId)}",
-                    { agentId },
-                    { announce: false },
-                  ),
-                )
+              onPress={
+                current.status === "running"
+                  ? () =>
+                      action.run(() =>
+                        api.mutate(
+                          "mutation($agentId:String!){stopAgent(agentId:$agentId)}",
+                          { agentId },
+                          { announce: false },
+                        ),
+                      )
+                  : resume
               }
             >
               {t(

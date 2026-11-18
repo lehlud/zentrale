@@ -328,7 +328,7 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 		return
 	}
 
-	agentRecord.Status = "idle"
+	agentRecord.Status, agentRecord.Error = "idle", ""
 
 	if runError != nil {
 		agentRecord.Status = "error"
@@ -360,7 +360,8 @@ func (engine *Engine) finishAgent(agentID string, runError error) {
 	engine.mu.Unlock()
 	var goalStop *goalStoppedError
 	if engine.ctx.Err() != nil && runError != nil && !explicitStop && !errors.As(runError, &goalStop) {
-		agentRecord.Status, agentRecord.Error = "interrupted", "service shut down"
+		agentRecord.Status, agentRecord.Error = "interrupted", ""
+		runError = nil
 	}
 
 	_ = engine.saveAgent(agentRecord)

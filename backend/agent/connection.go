@@ -205,10 +205,9 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 
 			if agentRecord.MachineID != machine.ID {
 				previous := agentRecord.MachineID
-				agentRecord.MachineID = machine.ID
 				engine.invalidate(agentRecord.ID)
 
-				if err := engine.saveAgent(agentRecord); err != nil {
+				if err := engine.saveAgentMachine(agentRecord.ID, machine.ID); err != nil {
 					connection.Close()
 					entry.connection = nil
 					engine.Remote.Release(agentRecord.ID)

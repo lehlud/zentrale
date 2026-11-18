@@ -12,6 +12,65 @@ import {
 } from "./fixtures/visual-data";
 import type { LiveResponse } from "../src/live-responses";
 
+test("restart diagnostics do not mask work or announce a resume as completed", async ({
+  page,
+}) => {
+  let current = { ...agent, status: "running", error: "service shut down" };
+  let resumes = 0;
+  const resolve = (query: string) => {
+    if (query.includes("status{"))
+      return { status: { authenticated: true, needsSetup: false } };
+    if (isTranscriptQuery(query))
+      return bootstrapData(query, { ...transcript, agent: current });
+    if (query.includes("agents(projectId:")) return { project, agents };
+    return config;
+  };
+  const push = await installPushFixture(page, resolve);
+  await page.route("**/graphql", async (route) => {
+    const { query, variables } = route.request().postDataJSON();
+    if (query.includes("resumeInputs")) {
+      expect(variables.agentId).toBe(agent.id);
+      resumes++;
+      await route.fulfill({ json: { data: { resumeInputs: true } } });
+      return;
+    }
+    await route.fulfill({ json: { data: resolve(query) } });
+  });
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await expect(page.getByText("Arbeitet …", { exact: true })).toBeVisible();
+  await expect(page.getByText("service shut down")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Erneut versuchen" }),
+  ).toHaveCount(0);
+
+  current = { ...current, status: "interrupted" };
+  await push.push();
+  const resume = page.getByRole("button", { name: "Verarbeitung fortsetzen" });
+  await resume.click();
+  await expect.poll(() => resumes).toBe(1);
+  // Receipt accepted, but the worker has yet to publish a running state.
+  await expect(resume).toBeEnabled();
+  await expect(page.getByText("Erfolgreich", { exact: true })).toHaveCount(0);
+
+  current = { ...current, status: "running", error: "" };
+  await push.push();
+  await expect(page.getByText("Arbeitet …", { exact: true })).toBeVisible();
+  await expect(resume).toHaveCount(0);
+
+  current = {
+    ...current,
+    status: "error",
+    error: "Remote runtime preparation failed",
+  };
+  await push.push();
+  await expect(
+    page.getByRole("alert").filter({ hasText: current.error }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Erneut versuchen" }),
+  ).toBeVisible();
+});
+
 for (const english of [false, true]) {
   test(
     "live generation and compact job controls: " +

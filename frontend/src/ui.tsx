@@ -640,7 +640,11 @@ export function useAction() {
   const [pendingCount, setPendingCount] = useState(0);
   const pending = useRef(new Set<string>());
 
-  async function run(action: () => Promise<unknown>, key = "default") {
+  async function run(
+    action: () => Promise<unknown>,
+    key = "default",
+    { announce = true } = {},
+  ) {
     if (pending.current.has(key)) {
       return;
     }
@@ -651,9 +655,11 @@ export function useAction() {
 
     try {
       await action();
-      window.dispatchEvent(
-        new CustomEvent("zentrale:notice", { detail: "Erfolgreich" }),
-      );
+      if (announce) {
+        window.dispatchEvent(
+          new CustomEvent("zentrale:notice", { detail: "Erfolgreich" }),
+        );
+      }
     } catch (error) {
       if ((error as Error).name !== "CancelledMutation")
         setError((error as Error).message);

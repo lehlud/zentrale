@@ -222,10 +222,11 @@ func (engine *Engine) recoverInterruptedWork() error {
 			}
 
 			resource["status"] = "interrupted"
-			resource["error"] = "service restarted"
+			resource["error"] = ""
 			parentID := stringArg(resource, "projectId")
 
 			if kind == "job" {
+				resource["error"] = "service restarted"
 				parentID = stringArg(resource, "agentId")
 			}
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -141,8 +142,11 @@ func TestRestartNotificationDrivenTurn(t *testing.T) {
 				}
 				waitForRestartProvider(t, engine, record.ID, started)
 				engine.Close()
-				if err := engine.Store.Load("agent", record.ID, &record); err != nil || record.Status != "interrupted" {
+				if err := engine.Store.Load("agent", record.ID, &record); err != nil || record.Status != "interrupted" || record.Error != "" {
 					t.Fatal(record, err)
+				}
+				if state := engine.RunState(record.ID); state.Phase != "interrupted" || state.Error != "" {
+					t.Fatal(state)
 				}
 			} else {
 				// Persist exactly the state left by a killed process, with no worker
@@ -170,6 +174,63 @@ func TestRestartNotificationDrivenTurn(t *testing.T) {
 				t.Fatal(final, calls.Load())
 			}
 		})
+	}
+}
+
+func TestConnectionFromInterruptedSnapshotKeepsResumedAgentRunning(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	checking, release := make(chan struct{}), make(chan struct{})
+	shell := shellPeerHandler("/bin/sh", os.Environ())
+	engine, stale, project := executionTestEngine(t, nil, func(command string, input io.Reader, output, diagnostic io.Writer) int {
+		if strings.Contains(command, "for required in mkdir chmod python3") {
+			close(checking)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return 1
+			}
+		}
+		return shell(command, input, output, diagnostic)
+	})
+	stale.Status, stale.Error = "interrupted", "service shut down"
+	stale.MachineID = ""
+	if err := engine.saveAgent(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	connected := make(chan error, 1)
+	go func() {
+		connection, _, _, err := engine.connect(ctx, stale)
+		if connection != nil {
+			connection.Close()
+		}
+		connected <- err
+	}()
+	select {
+	case <-checking:
+	case err := <-connected:
+		t.Fatalf("connection ended before runtime check: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	resumed := stale
+	resumed.Status, resumed.Error, resumed.Name = "running", "", "Resumed conversation"
+	if err := engine.saveAgent(resumed); err != nil {
+		t.Fatal(err)
+	}
+
+	close(release)
+	if err := <-connected; err != nil {
+		t.Fatal(err)
+	}
+	var stored domain.Agent
+	if err := engine.Store.Load("agent", stale.ID, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "running" || stored.Error != "" || stored.Name != resumed.Name || stored.MachineID != project.MachineIDs[0] {
+		t.Fatalf("connection replaced the current agent state: %+v", stored)
 	}
 }
 
