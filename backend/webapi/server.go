@@ -218,6 +218,10 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.Any("/preview/:project/:session/:port", server.preview)
 
 	e.GET("/*", func(requestContext echo.Context) error {
+		viewer := strings.HasPrefix(requestContext.Request().URL.Path, "/pdfjs/")
+		if viewer {
+			requestContext.Response().Header().Set("Content-Security-Policy", "connect-src 'self' blob: data:; frame-ancestors 'self'")
+		}
 		root, err := filepath.Abs(server.Frontend)
 		if err != nil {
 			return err
@@ -232,7 +236,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			return requestContext.File(params)
 		}
 
-		if strings.HasPrefix(requestContext.Request().URL.Path, "/assets/") {
+		if viewer || strings.HasPrefix(requestContext.Request().URL.Path, "/assets/") {
 			return echo.ErrNotFound
 		}
 

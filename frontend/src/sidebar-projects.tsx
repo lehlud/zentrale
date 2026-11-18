@@ -183,13 +183,9 @@ function SidebarConversations({
                 id: "delete",
                 label: t("Entfernen"),
                 destructive: true,
-                isDisabled: agent.status === "running",
                 onAction: () =>
                   void action.run(async () => {
-                    await api.mutate(
-                      "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-                      { kind: "agent", id: agent.id },
-                    );
+                    await api.removeAgent(agent.id);
                     if (branchContains(branch, activeId ?? ""))
                       location.hash = `#/projects/${encodeURIComponent(projectId)}`;
                     onNavigate?.();

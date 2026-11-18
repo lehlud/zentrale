@@ -24,6 +24,9 @@ func (engine *Engine) CreateWithModels(
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
 
+	if engine.agentRemoving(parentID) {
+		return domain.Agent{}, errAgentRemoving
+	}
 	if strings.TrimSpace(name) == "" {
 		return domain.Agent{}, errors.New("agent name is required")
 	}
@@ -189,6 +192,9 @@ func (engine *Engine) wakeNotPaused(agentRecord domain.Agent) error {
 
 func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 	agentID := agentRecord.ID
+	if engine.agentRemoving(agentID) {
+		return errAgentRemoving
+	}
 	engine.mu.Lock()
 	if err := engine.ctx.Err(); err != nil {
 		engine.mu.Unlock()

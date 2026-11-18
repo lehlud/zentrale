@@ -37,10 +37,7 @@ export function AgentControls({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const canRemove =
-    Boolean(current) &&
-    current?.role !== "approver" &&
-    current?.status !== "running";
+  const canRemove = current && current.role !== "approver";
 
   return (
     <div
@@ -144,10 +141,7 @@ export function AgentControls({
                       className="min-h-11 text-danger"
                       onAction={() =>
                         action.run(async () => {
-                          await api.mutate(
-                            "mutation($kind:String!,$id:String!){deleteResource(kind:$kind,id:$id)}",
-                            { kind: "agent", id: current!.id },
-                          );
+                          await api.removeAgent(current.id);
                           onSelect("");
                         })
                       }

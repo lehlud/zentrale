@@ -19,7 +19,7 @@ for (const mobile of [false, true]) {
       name: "Main conversation",
       role: "main",
       parentId: "",
-      status: "idle",
+      status: mobile ? "running" : "idle",
     };
     const child = {
       ...main,
@@ -27,8 +27,15 @@ for (const mobile of [false, true]) {
       name: "Research worker",
       role: "subagent",
       parentId: main.id,
+      status: "idle",
     };
-    const other = { ...main, id: "other", name: "Other conversation" };
+    const other = {
+      ...main,
+      id: "other",
+      name: "Other conversation",
+      status: "idle",
+    };
+    let removals = 0;
     let records = [
       child,
       other,
@@ -43,7 +50,13 @@ for (const mobile of [false, true]) {
         bootstrapData(query, data, { agents: records });
       if (query.includes("status{"))
         return send({ status: { authenticated: true, needsSetup: false } });
+      if (query.includes("agentRemovalBusy")) {
+        expect(variables.agentId).toBe(main.id);
+        return send({ agentRemovalBusy: mobile });
+      }
       if (query.includes("deleteResource")) {
+        removals++;
+        expect(variables.stopRunning).toBe(mobile);
         records = records.filter(
           (record) => record.id !== main.id && record.parentId !== main.id,
         );
@@ -111,9 +124,29 @@ for (const mobile of [false, true]) {
     await page
       .getByRole("menuitem", { name: "Entfernen", exact: true })
       .click();
-    await page
-      .getByRole("dialog", { name: "Entfernen bestätigen", exact: true })
-      .getByRole("button", { name: "Entfernen", exact: true })
+    const dialog = page.getByRole("dialog", {
+      name: "Entfernen bestätigen",
+      exact: true,
+    });
+    if (mobile) {
+      await expect(dialog.getByText(/laufen noch Aufgaben/)).toBeVisible();
+      await dialog.getByRole("button", { name: "Abbrechen" }).click();
+      expect(removals).toBe(0);
+      await navigation
+        .getByRole("button", {
+          name: "Aktionen für Main conversation",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole("menuitem", { name: "Entfernen", exact: true })
+        .click();
+    }
+    await dialog
+      .getByRole("button", {
+        name: mobile ? "Stoppen und entfernen" : "Entfernen",
+        exact: true,
+      })
       .click();
     await expect(page).toHaveURL(new RegExp(`#/projects/${project.id}$`));
     if (mobile) await menu.click();

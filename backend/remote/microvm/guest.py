@@ -89,7 +89,7 @@ def execute(request, session, command):
     if user_terminal:
         # This mount namespace belongs to this user terminal only. Agent
         # commands keep the nosuid mount, empty capabilities and no_new_privs.
-        mount(root, root, flags=4096)
+        # Remount in place so /dev, /tmp and the project exports stay visible.
         mount(None, root, flags=4096 | 32 | 4)  # BIND | REMOUNT | NODEV
     # A private proc mount shows only this task's PID namespace. No task can
     # inspect PID 1's filesystem, descriptors, commands or other jobs' stdin.

@@ -107,8 +107,11 @@ test("workspace documents open in a stack and use the conversation's file route"
   await expect(guide.getByRole("heading", { name: "Anleitung" })).toBeVisible();
   await guide.getByRole("link", { name: "Paper" }).click();
   const paper = page.getByRole("dialog", { name: "main.pdf" });
+  const viewer = paper.frameLocator("iframe");
   const expectPaintedPage = async (number: number) => {
-    const canvas = paper.getByRole("img", { name: `Seite ${number}` });
+    const canvas = viewer
+      .locator(`.page[data-page-number="${number}"] canvas`)
+      .first();
     await expect
       .poll(async () => {
         if (!(await canvas.count())) return false;
@@ -125,8 +128,16 @@ test("workspace documents open in a stack and use the conversation's file route"
       .toBe(true);
   };
   await expectPaintedPage(1);
-  await paper.getByRole("button", { name: "Nächste Seite" }).click();
+  await expect(viewer.locator("#zoomInButton")).toBeVisible();
+  await expect(viewer.locator("#downloadButton")).toBeVisible();
+  await viewer.locator("#next").click();
+  await expect(viewer.locator("#pageNumber")).toHaveValue("2");
   await expectPaintedPage(2);
+  const savingPDF = page.waitForEvent("download");
+  await viewer.locator("#downloadButton").click();
+  const savedPDF = await savingPDF;
+  expect(savedPDF.suggestedFilename()).toBe("main.pdf");
+  expect(await readFile((await savedPDF.path())!)).toEqual(pdf);
   await page.keyboard.press("Escape");
   await expect(paper).toHaveCount(0);
   await guide.getByRole("link", { name: "Text" }).click();

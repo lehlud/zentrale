@@ -30,6 +30,9 @@ func (engine *Engine) SubmitInput(agentID, id, text, mode string) (domain.AgentI
 func (engine *Engine) SubmitInputWithAttachments(agentID, id, text, mode string, attachmentIDs []string) (domain.AgentInput, error) {
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
+	if engine.agentRemoving(agentID) {
+		return domain.AgentInput{}, errAgentRemoving
+	}
 
 	if !inputIDPattern.MatchString(id) || (strings.TrimSpace(text) == "" && len(attachmentIDs) == 0) || len(text) > 100000 {
 		return domain.AgentInput{}, errors.New("instruction must contain 1–100000 bytes and a valid receipt ID")
@@ -366,6 +369,9 @@ func (engine *Engine) CancelInput(agentID, id string) error {
 func (engine *Engine) ResumeInputs(agentID string) error {
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
+	if engine.agentRemoving(agentID) {
+		return errAgentRemoving
+	}
 
 	var record domain.Agent
 	if err := engine.Store.Load("agent", agentID, &record); err != nil {

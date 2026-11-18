@@ -307,6 +307,34 @@ func TestManagedMicroVMLive(t *testing.T) {
 			t.Fatal("terminal changed the persistent VM")
 		}
 	})
+	t.Run("browser terminal retains guest devices and project mounts", func(t *testing.T) {
+		terminalContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		project := domain.Project{ID: first.ProjectID, Directory: first.Workspace}
+		terminal, err := StartTerminal(terminalContext, connection, machine, project, EditorTarget{
+			AgentID: first.AgentID, PreparedSandbox: SandboxMicroVM, TemporaryDirectory: first.TemporaryDirectory,
+		}, 80, 24)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer terminal.Close()
+		check := `set -e
+test "$(id -u)" != 0
+test -c /dev/null
+printf x >/dev/null
+test "$(cat project.txt)" = checkpoint
+sudo -n true
+printf 'terminal-%s\n' mounts-ok`
+		if err := terminal.Input([]byte("/bin/sh -c " + Quote(check) + "\nexit $status\n")); err != nil {
+			t.Fatal(err)
+		}
+		output, err := io.ReadAll(terminal)
+		code := terminal.Exit(terminalContext)
+		if err != nil || code == nil || *code != 0 ||
+			!strings.Contains(string(output), "terminal-mounts-ok") || strings.Contains(string(output), "Permission denied") {
+			t.Fatalf("browser terminal: %v, output=%q, error=%v", code, output, err)
+		}
+	})
 	t.Run("VS Code server and terminal devices share the agent guest", func(t *testing.T) {
 		editors := NewEditors(NewManager(connector))
 		defer editors.Close()

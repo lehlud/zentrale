@@ -298,6 +298,18 @@ export class API {
       return response;
     });
 
+  async removeAgent(agentId: string) {
+    const { agentRemovalBusy } = await this.query<{
+      agentRemovalBusy: boolean;
+    }>("query($agentId:String!){agentRemovalBusy(agentId:$agentId)}", {
+      agentId,
+    });
+    await this.mutate(
+      "mutation($kind:String!,$id:String!,$stopRunning:Boolean!){deleteResource(kind:$kind,id:$id,stopRunning:$stopRunning)}",
+      { kind: "agent", id: agentId, stopRunning: agentRemovalBusy },
+    );
+  }
+
   async mutate<T>(
     query: string,
     variables: Record<string, unknown> = {},

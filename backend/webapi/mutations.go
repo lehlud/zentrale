@@ -110,8 +110,15 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		return args
 	}
 
-	simple("deleteResource", strArg("kind", "id"), func(params graphql.ResolveParams) (any, error) {
-		err := server.Engine.Delete(params.Args["kind"].(string), params.Args["id"].(string))
+	deleteArgs := strArg("kind", "id")
+	deleteArgs["stopRunning"] = &graphql.ArgumentConfig{Type: graphql.Boolean}
+	simple("deleteResource", deleteArgs, func(params graphql.ResolveParams) (any, error) {
+		kind, id := params.Args["kind"].(string), params.Args["id"].(string)
+		if kind == "agent" && params.Args["stopRunning"] == true {
+			err := server.Engine.StopAndDeleteAgent(params.Context, id)
+			return err == nil, err
+		}
+		err := server.Engine.Delete(kind, id)
 		return err == nil, err
 	})
 	simple("resetProjectVM", strArg("projectId"), func(params graphql.ResolveParams) (any, error) {

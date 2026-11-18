@@ -235,6 +235,12 @@ func (engine *Engine) startJob(
 	}
 
 	engine.mu.Lock()
+	if engine.agentRemoving(agentRecord.ID) {
+		engine.mu.Unlock()
+		cancel()
+		_ = engine.Store.Remove("job", running.job.ID)
+		return nil, errAgentRemoving
+	}
 	engine.jobs[running.job.ID] = running
 	engine.workers.Add(1)
 	engine.mu.Unlock()

@@ -56,7 +56,8 @@ export function ConfirmationProvider({
                 <Modal.Header>
                   <Modal.Heading>
                     {t(
-                      pending.actionLabel === "Entfernen"
+                      pending.actionLabel === "Entfernen" ||
+                        pending.actionLabel === "Stoppen und entfernen"
                         ? "Entfernen bestätigen"
                         : "Aktion bestätigen",
                     )}

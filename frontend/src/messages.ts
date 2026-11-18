@@ -195,12 +195,7 @@ export const english: Record<string, string> = {
   "Datei wird geladen …": "Loading file …",
   "Für diesen Dateityp gibt es keine Vorschau.":
     "This file type has no preview.",
-  "Vorherige Seite": "Previous page",
-  "Nächste Seite": "Next page",
-  "Das PDF konnte nicht angezeigt werden.": "The PDF could not be displayed.",
-  "PDF wird geladen …": "Loading PDF …",
   Herunterladen: "Download",
-  Seite: "Page",
   "Sandbox wird geprüft …": "Checking sandbox …",
   "Umgebung wird wiederhergestellt …": "Restoring environment …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
@@ -851,13 +846,19 @@ Object.assign(english, {
   "Agent entfernen": "Remove agent",
   "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?":
     "Permanently remove this agent, its descendants and their histories?",
+  "In diesem Agentenbaum laufen noch Aufgaben. Agenten und Jobs stoppen und den Verlauf dauerhaft entfernen?":
+    "Work is still running. Stop this agent, its descendants and their jobs, then permanently remove their histories?",
+  "Stoppen und entfernen": "Stop and remove",
   "stop the agent and its jobs before removing it":
     "Stop the agent and its jobs before removing it.",
 });
 
 Object.assign(germanErrors, {
   "stop the agent and its jobs before removing it":
-    "Vor dem Entfernen den Agenten und seine Jobs stoppen.",
+    "Es laufen Aufgaben. Öffne den Entfernen-Dialog erneut, um sie zu stoppen.",
+  "the agent is still stopping; retry removing it":
+    "Der Agent wird noch gestoppt. Versuche das Entfernen erneut.",
+  "this agent is being removed": "Dieser Agent wird gerade entfernt.",
 });
 
 Object.assign(english, { Anfragedaten: "Request details" });

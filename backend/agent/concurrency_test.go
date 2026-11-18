@@ -105,6 +105,78 @@ func TestDeletionCommitsWithoutWaitingForRemoteTeardown(t *testing.T) {
 	}
 }
 
+func TestConfirmedAgentRemovalWaitsForAgentAndChildJob(t *testing.T) {
+	engine, main := testEngine(t, nil)
+	child := domain.Agent{ID: "child", ParentID: main.ID, ProjectID: main.ProjectID, Role: "subagent"}
+	if err := engine.Store.Save("agent", child.ID, child.ProjectID, child); err != nil {
+		t.Fatal(err)
+	}
+	job := domain.Job{ID: "child-job", AgentID: child.ID, MachineID: "unreachable", Status: "running"}
+	if err := engine.Store.Save("job", job.ID, child.ID, job); err != nil {
+		t.Fatal(err)
+	}
+	agentContext, stopAgent := context.WithCancel(context.Background())
+	defer stopAgent()
+	jobContext, stopJob := context.WithCancel(context.Background())
+	defer stopJob()
+	engine.mu.Lock()
+	engine.running[main.ID] = stopAgent
+	engine.jobs[job.ID] = &runningJob{job: job, cancel: stopJob}
+	engine.mu.Unlock()
+
+	busy, err := engine.AgentRemovalBusy(main.ID)
+	if err != nil || !busy {
+		t.Fatalf("active removal status: %t %v", busy, err)
+	}
+	if err := engine.Delete("agent", main.ID); err == nil || agentContext.Err() != nil || jobContext.Err() != nil {
+		t.Fatal("deletion without confirmation stopped work or succeeded")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	deleted := make(chan error, 1)
+	go func() { deleted <- engine.StopAndDeleteAgent(ctx, main.ID) }()
+	for _, stopped := range []context.Context{agentContext, jobContext} {
+		select {
+		case <-stopped.Done():
+		case <-ctx.Done():
+			t.Fatal("work was not canceled")
+		}
+	}
+	select {
+	case err := <-deleted:
+		t.Fatalf("deletion returned before the workers finished: %v", err)
+	default:
+	}
+	resume := make(chan error, 1)
+	go func() { resume <- engine.ResumeInputs(main.ID) }()
+	select {
+	case err := <-resume:
+		if err != errAgentRemoving {
+			t.Fatal("work restarted during removal", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("deletion held the configuration lock while waiting")
+	}
+	engine.configMu.Lock()
+	engine.removeWorker(main.ID)
+	engine.mu.Lock()
+	delete(engine.jobs, job.ID)
+	engine.mu.Unlock()
+	engine.configMu.Unlock()
+	if err := <-deleted; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{main.ID, child.ID} {
+		if err := engine.Store.Load("agent", id, &domain.Agent{}); err != sql.ErrNoRows {
+			t.Fatal("agent remained after deletion", id, err)
+		}
+	}
+	var stop map[string]any
+	if err := engine.Store.Load("job_stop", job.ID, &stop); err != nil || stop["targetAgentId"] != child.ID {
+		t.Fatal("pending remote stop did not survive deletion", stop, err)
+	}
+}
+
 func TestMachineDeletionCascadesConnectionsAndPreservesConversations(t *testing.T) {
 	engine, main := testEngine(t, nil)
 	for _, machine := range []domain.Machine{{ID: "gateway"}, {ID: "jump-child", Jumps: []string{"gateway"}}, {ID: "jump-grandchild", Jumps: []string{"jump-child"}}, {ID: "survivor"}} {

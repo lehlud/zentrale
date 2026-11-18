@@ -536,6 +536,7 @@ export type ProviderLogin = {
 export type Query = {
   agent: Agent | null;
   agentInputs: Array<AgentInput | null> | null;
+  agentRemovalBusy: boolean;
   agentRunState: AgentRunState | null;
   agents: Array<Agent | null> | null;
   approvals: Array<Approval | null> | null;

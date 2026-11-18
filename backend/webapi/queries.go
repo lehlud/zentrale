@@ -90,6 +90,13 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 			return mapOf(server.Engine.RunState(params.Args["agentId"].(string))), nil
 		}),
 	}
+	queries["agentRemovalBusy"] = &graphql.Field{
+		Type: graphql.NewNonNull(graphql.Boolean),
+		Args: graphql.FieldConfigArgument{"agentId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			return server.Engine.AgentRemovalBusy(params.Args["agentId"].(string))
+		}),
+	}
 
 	queries["commitIdentity"] = &graphql.Field{
 		Type: builder.output(resourceTypes["commitIdentity"]),

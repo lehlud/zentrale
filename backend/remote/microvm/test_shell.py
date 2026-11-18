@@ -59,6 +59,7 @@ class GuestShellTests(unittest.TestCase):
             {"network": False},
             {"network": True},
             {"network": True, "tty": True},
+            {"network": True, "tty": True, "terminalProtocol": True},
             {"network": False, "guestRoot": True},
             {"network": False, "tooling": True, "guestRoot": True},
         ]
@@ -68,7 +69,7 @@ class GuestShellTests(unittest.TestCase):
                 guest_root = request.get("guestRoot", False) and not tooling
                 shell = "/bin/sh" if guest_root or tooling else "/usr/bin/fish"
                 with (
-                    patch.object(guest, "mount"),
+                    patch.object(guest, "mount") as mount,
                     patch.object(guest, "login_shell", return_value=shell),
                     patch.object(guest.os, "chroot") as chroot,
                     patch.object(guest.os, "chdir") as chdir,
@@ -94,6 +95,14 @@ class GuestShellTests(unittest.TestCase):
                 else:
                     self.assertNotIn("TERM", environment)
                 os.close(int(execute.call_args.args[1][1].rsplit("/", 1)[1]))
+                if request.get("terminalProtocol"):
+                    # Keep /dev, /tmp and the workspace visible while enabling
+                    # sudo on the terminal's private Fedora mount.
+                    self.assertEqual(
+                        [call.args for call in mount.call_args_list],
+                        [(None, root), ("proc", root + "/proc", "proc", 14)],
+                    )
+                    self.assertEqual(mount.call_args_list[0].kwargs["flags"], 4096 | 32 | 4)
 
     def test_only_stable_guest_project_paths_are_mounted(self):
         self.assertEqual(

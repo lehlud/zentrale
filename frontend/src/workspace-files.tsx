@@ -1,7 +1,5 @@
 import { Button, Modal } from "@heroui/react";
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -13,8 +11,6 @@ import {
 import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
 import { WorkspaceFileContext, workspaceFileURL } from "./workspace-file-links";
-
-const PDFPreview = lazy(() => import("./workspace-pdf"));
 
 export function WorkspaceFiles({
   projectId,
@@ -86,7 +82,6 @@ function WorkspaceFileDialog({
   const name = path.split("/").at(-1) ?? path;
   const [preview, setPreview] = useState<{
     text?: string;
-    pdf?: Uint8Array;
     error?: string;
   }>({});
   const activeDownload = useRef<AbortController | null>(null);
@@ -123,24 +118,20 @@ function WorkspaceFileDialog({
   };
 
   useEffect(() => {
-    if (!format) return;
+    if (!format || format === "pdf") return;
     const request = new AbortController();
     void (async () => {
       try {
-        const response = await fetch(
-          `${url}&preview=${format === "pdf" ? "pdf" : "text"}`,
-          { signal: request.signal },
-        );
+        const response = await fetch(`${url}&preview=text`, {
+          signal: request.signal,
+        });
         if (!response.ok) {
           if (!request.signal.aborted)
             setPreview({ error: fileError(response.status, true) });
           return;
         }
-        const result =
-          format === "pdf"
-            ? { pdf: new Uint8Array(await response.arrayBuffer()) }
-            : { text: await response.text() };
-        if (!request.signal.aborted) setPreview(result);
+        const text = await response.text();
+        if (!request.signal.aborted) setPreview({ text });
       } catch {
         if (!request.signal.aborted)
           setPreview({ error: "Die Datei konnte nicht geladen werden." });
@@ -173,14 +164,16 @@ function WorkspaceFileDialog({
                   <p className="truncate text-xs text-muted">{path}</p>
                 )}
               </div>
-              <Button
-                variant="secondary"
-                className="min-h-11"
-                isPending={downloading}
-                onPress={download}
-              >
-                {t("Herunterladen")}
-              </Button>
+              {format !== "pdf" && (
+                <Button
+                  variant="secondary"
+                  className="min-h-11"
+                  isPending={downloading}
+                  onPress={download}
+                >
+                  {t("Herunterladen")}
+                </Button>
+              )}
               <Button variant="ghost" className="min-h-11" onPress={onClose}>
                 {t(nested ? "Zurück" : "Schließen")}
               </Button>
@@ -194,7 +187,9 @@ function WorkspaceFileDialog({
               </p>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
-              {!format ? (
+              {format === "pdf" ? (
+                <PDFViewer name={name} url={url} onClose={onClose} />
+              ) : !format ? (
                 <p className="p-4 text-sm text-muted">
                   {t("Für diesen Dateityp gibt es keine Vorschau.")}
                 </p>
@@ -202,10 +197,6 @@ function WorkspaceFileDialog({
                 <p role="alert" className="p-4 text-sm text-danger">
                   {t(preview.error)}
                 </p>
-              ) : preview.pdf ? (
-                <Suspense fallback={loading}>
-                  <PDFPreview data={preview.pdf} />
-                </Suspense>
               ) : preview.text !== undefined ? (
                 <div className="mx-auto max-w-5xl p-4 sm:p-8">
                   {format === "markdown" ? (
@@ -227,6 +218,54 @@ function WorkspaceFileDialog({
         </Modal.Container>
       </Modal.Backdrop>
     </Modal>
+  );
+}
+
+function PDFViewer({
+  name,
+  url,
+  onClose,
+}: {
+  name: string;
+  url: string;
+  onClose: () => void;
+}) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    let current: Document | null = null;
+    const keydown = (event: KeyboardEvent) => {
+      // Let PDF.js handle Escape in its own dialogs and toolbars first.
+      if (
+        event.key === "Escape" &&
+        !event.repeat &&
+        !current?.querySelector("dialog[open]")
+      ) {
+        setTimeout(() => {
+          if (!event.defaultPrevented) onClose();
+        }, 0);
+      }
+    };
+    const listen = () => {
+      current?.defaultView?.removeEventListener("keydown", keydown, true);
+      current = element.contentDocument;
+      current?.defaultView?.addEventListener("keydown", keydown, true);
+    };
+    listen();
+    element.addEventListener("load", listen);
+    return () => {
+      element.removeEventListener("load", listen);
+      current?.defaultView?.removeEventListener("keydown", keydown, true);
+    };
+  }, [onClose]);
+  return (
+    <iframe
+      ref={frame}
+      title={name}
+      src={`/pdfjs/web/viewer.html?${new URLSearchParams({ file: url })}`}
+      className="block h-full w-full border-0"
+    />
   );
 }
 

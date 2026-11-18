@@ -25,6 +25,7 @@
 **/*.tsbuildinfo
 backend/zentrale
 frontend/dist
+frontend/public/pdfjs
 frontend/artifacts
 frontend/playwright-report
 frontend/test-results

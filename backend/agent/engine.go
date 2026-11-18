@@ -99,6 +99,7 @@ type Engine struct {
 	inputRevisions       map[string]uint64
 	instructionRevisions map[string]uint64
 	stopRequested        map[string]bool
+	agentsRemoving       sync.Map // Agent ID -> pending confirmed removal.
 
 	jobs       map[string]*runningJob
 	mcpServers map[string]*mcpServer

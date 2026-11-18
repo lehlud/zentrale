@@ -283,6 +283,10 @@ func (engine *Engine) checkAgentConnection(ctx context.Context, agentID string, 
 
 func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string, reuseSources bool) (domain.MachineConnectionCheck, error) {
 	engine.configMu.Lock()
+	if engine.agentRemoving(agentID) {
+		engine.configMu.Unlock()
+		return domain.MachineConnectionCheck{Error: errAgentRemoving.Error()}, errAgentRemoving
+	}
 	var record domain.Agent
 	err := engine.Store.Load("agent", agentID, &record)
 	if err != nil || record.Role == "approver" || engine.ctx.Err() != nil {

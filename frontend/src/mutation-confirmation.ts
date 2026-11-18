@@ -60,6 +60,13 @@ export function mutationConfirmation(
       };
     }
     if (variables.kind === "agent") {
+      if (variables.stopRunning === true) {
+        return {
+          message:
+            "In diesem Agentenbaum laufen noch Aufgaben. Agenten und Jobs stoppen und den Verlauf dauerhaft entfernen?",
+          actionLabel: "Stoppen und entfernen",
+        };
+      }
       return {
         message: "Agentenbaum und zugehörigen Verlauf dauerhaft entfernen?",
         actionLabel: "Entfernen",
