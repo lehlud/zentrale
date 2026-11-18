@@ -185,9 +185,7 @@ STANDARD_PACKAGES = {
     "yq": ("yq",),
     "jc": ("jc",),
     "sqlite": ("sqlite3",),
-    "python3-csvkit": ("csvcut", "csvsql", "csvstat"),
     "miller": ("mlr",),
-    "sd": ("sd",),
     "perl-interpreter": ("perl",),
     "git-delta": ("delta",),
     "direnv": ("direnv",),
@@ -482,10 +480,15 @@ done""",
 def prepare_standard_packages(root):
     # Commands can already exist when an interrupted RPM transaction has not
     # finished. Replay its package set even if the executable probe succeeds.
+    pending = pending_packages(root)
+    # Older transactions may include tools now installed from upstream releases.
+    rpm_packages = [name for name in pending if name not in ("python3-csvkit", "sd")]
     missing = list(
-        dict.fromkeys([*pending_packages(root), *missing_standard_packages(root)])
+        dict.fromkeys([*rpm_packages, *missing_standard_packages(root)])
     )
     if not missing:
+        if pending:
+            package_journal(root).unlink()
         return
     # Keep working providers such as curl-minimal, rather than replacing them
     # just because their RPM name differs from the default package name.
@@ -560,6 +563,53 @@ def prepare_standard_binaries(root, tools):
     python = destination / "python"
     if not python.exists():
         python.symlink_to("/usr/bin/python3")
+
+
+def prepare_csvkit(root, requirements):
+    """Keep the hash-locked Python tools in their own guest environment."""
+    if not requirements:
+        return
+    lock = "\n".join(requirements) + "\n"
+    version = hashlib.sha256(lock.encode()).hexdigest()[:16]
+    guest_path = "/opt/zentrale/csvkit-" + version
+    directory = root / guest_path.lstrip("/")
+    receipt = directory / "installed.txt"
+    commands = (
+        "csvclean", "csvcut", "csvformat", "csvgrep", "csvjoin", "csvjson",
+        "csvlook", "csvpy", "csvsort", "csvsql", "csvstack", "csvstat",
+        "in2csv", "sql2csv",
+    )
+    scripts = [directory / "bin" / name for name in commands]
+    if not receipt.is_file() or not all(script.is_file() for script in scripts):
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir(parents=True)
+        (directory / "requirements.txt").write_text(lock, encoding="utf-8")
+        python = ["/usr/bin/python3", "-I", "-m"]
+        for command in (
+            ["venv", "--without-pip", guest_path],
+            [
+                "pip", "--python", guest_path, "--disable-pip-version-check", "install",
+                "--no-cache-dir", "--require-hashes", "--only-binary=:all:",
+                "--index-url", "https://pypi.org/simple", "-r", guest_path + "/requirements.txt",
+            ],
+        ):
+            subprocess.run(
+                python + command, check=True, timeout=180,
+                preexec_fn=enter_guest(root), env=GUEST_ENV,
+            )
+        if not all(script.is_file() for script in scripts):
+            raise RuntimeError("csvkit installation is missing command scripts")
+        receipt.touch()
+    destination = root / "usr/local/bin"
+    for name in commands:
+        link, target = destination / name, guest_path + "/bin/" + name
+        if link.is_symlink() and os.readlink(link) == target:
+            continue
+        temporary = destination / ("." + name + ".new")
+        temporary.unlink(missing_ok=True)
+        temporary.symlink_to(target)
+        os.replace(temporary, link)
 
 
 def prepare_guest_administration(root, request):
@@ -770,6 +820,7 @@ def serve_jobs(request):
     prepare_standard_packages(Path(FEDORA))
     prepare_user_shell(Path(FEDORA))
     prepare_standard_binaries(Path(FEDORA), request.get("standardTools", {}))
+    prepare_csvkit(Path(FEDORA), request.get("csvkitRequirements", []))
     prepare_guest_administration(Path(FEDORA), request)
     prepare_tooling(request)
     proof = {

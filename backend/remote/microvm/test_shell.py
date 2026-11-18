@@ -244,6 +244,20 @@ class GuestShellTests(unittest.TestCase):
             guest_init.prepare_standard_packages(self.root)
         install.assert_not_called()
 
+    def test_old_transaction_retries_rpms_after_tools_move_to_upstream(self):
+        journal = guest_init.package_journal(self.root)
+        journal.parent.mkdir(parents=True)
+        journal.write_text('["ca-certificates", "git-core", "python3-csvkit", "sd"]')
+        (self.root / "usr/bin/microdnf").touch()
+        with (
+            patch.object(guest_init, "missing_standard_packages", return_value=[]),
+            patch.object(guest_init, "mount"),
+            patch.object(guest_init, "run_package_manager") as install,
+        ):
+            guest_init.prepare_standard_packages(self.root)
+        self.assertEqual(install.call_args.args[0][-2:], ["ca-certificates", "git-core"])
+        self.assertFalse(journal.exists())
+
     def test_interrupted_transaction_replays_even_after_commands_appear(self):
         (self.root / "usr/bin/microdnf").touch()
         saved = self.root / "user-data"

@@ -19,8 +19,10 @@ import (
 
 func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testing.T) {
 	command := microVMCommand("run", domain.Machine{})
-	if len(command) >= 48*1024 {
-		t.Fatalf("runner command is too large for nested SSH shell quoting: %d bytes", len(command))
+	// Measure the quoted SSH argument and leave half of Linux's 128 KiB
+	// limit available for machine configuration and the invocation path.
+	if size := len(shellCommand(command)); size >= 64*1024 {
+		t.Fatalf("runner command is too large for nested SSH shell quoting: %d bytes", size)
 	}
 	match := regexp.MustCompile(`base64.b85decode\('([^']+)'\)`).FindStringSubmatch(strings.ReplaceAll(command, `'"'"'`, `'`))
 	if len(match) != 2 {

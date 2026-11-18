@@ -1347,6 +1347,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         editorPort=editor_port,
         controlProtocol=CONTROL_PROTOCOL,
         standardTools=configuration.get("release", {}).get("tools", {}),
+        csvkitRequirements=configuration.get("release", {}).get("csvkitRequirements", []),
         gpuDevices=addresses,
         gpu=bool(configuration.get("gpu")),
     )
