@@ -280,6 +280,8 @@ export function AgentView({
             messages={visibleMessages}
             working={current?.status === "running"}
             phase={data?.agentRunState?.phase}
+            repositoryStep={data?.agentRunState?.repositoryStep}
+            repositoryPercent={data?.agentRunState?.repositoryPercent}
           />
         )}
       </div>

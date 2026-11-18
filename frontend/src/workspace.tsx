@@ -3,6 +3,7 @@ import { useRef } from "react";
 
 import { AgentControls } from "./agent-controls";
 import { AgentView } from "./agent-view";
+import { WorkspaceFiles } from "./workspace-files";
 import {
   bootstrapTranscript,
   type ConversationBootstrap,
@@ -95,21 +96,31 @@ export function Workspace({
         </div>
       ) : (
         activeId && (
-          <AgentView
+          <WorkspaceFiles
             key={activeId}
-            agentId={activeId}
-            project={project}
-            onProjectDialog={onProjectDialog}
-            agents={agents}
-            onSelect={setSelected}
-            focusAgentSwitcher={focusAgentId === activeId}
-            onAgentSwitcherFocus={() => onFocusAgent("")}
-            initialTranscript={bootstrapTranscript(bootstrap)}
-            managedTranscript
-            sandboxMode={bootstrap.sandboxMode}
-            sandboxStatus={bootstrap.sandboxStatus ?? undefined}
-            machineName={bootstrap.machineName}
-          />
+            agentId={
+              agents.find(
+                (agent) => agent.id === activeId && agent.role === "approver",
+              )?.parentId || activeId
+            }
+            projectId={project.id}
+            directory={project.directory}
+          >
+            <AgentView
+              agentId={activeId}
+              project={project}
+              onProjectDialog={onProjectDialog}
+              agents={agents}
+              onSelect={setSelected}
+              focusAgentSwitcher={focusAgentId === activeId}
+              onAgentSwitcherFocus={() => onFocusAgent("")}
+              initialTranscript={bootstrapTranscript(bootstrap)}
+              managedTranscript
+              sandboxMode={bootstrap.sandboxMode}
+              sandboxStatus={bootstrap.sandboxStatus ?? undefined}
+              machineName={bootstrap.machineName}
+            />
+          </WorkspaceFiles>
         )
       )}
     </div>

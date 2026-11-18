@@ -5,14 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
 )
+
+var cloneProgress = regexp.MustCompile(`(?m)^ZENTRALE_CLONE_PROGRESS (Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files) ([0-9]{1,3})\r?\n`)
+
+func repositoryProgress(output string) (step string, percent int, marker string) {
+	matches := cloneProgress.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return "", 0, ""
+	}
+	last := matches[len(matches)-1]
+	percent, _ = strconv.Atoi(last[2])
+	if percent > 100 {
+		return "", 0, ""
+	}
+	return last[1], percent, last[0]
+}
 
 // Repository selection authorizes its initial checkout. Preparation belongs to
 // the harness, so inference and the editor never start with an empty repository.
@@ -89,7 +106,8 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		}
 	}
 	var preparing domain.Agent
-	if engine.Store.Load("agent", scope, &preparing) == nil {
+	reportProgress := engine.Store.Load("agent", scope, &preparing) == nil
+	if reportProgress {
 		engine.setRunState(scope, "repository", nil)
 	}
 
@@ -158,7 +176,23 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 		runContext, cancelRun := context.WithTimeout(ctx, timeout)
 		defer cancelRun()
-		output, err := remote.RunPipe(runContext, connection, command, strings.NewReader(JSON(configuration)))
+		var onOutput func(string)
+		if reportProgress && configuration["operation"] == "prepare" {
+			engine.setRunState(scope, "repository", nil)
+			configuration["reportProgress"] = true
+			var last string
+			onOutput = func(output string) {
+				step, percent, marker := repositoryProgress(output)
+				if marker == "" || marker == last || runContext.Err() != nil {
+					return
+				}
+				last = marker
+				engine.publishRunState(domain.AgentRunState{
+					AgentID: scope, Phase: "repository", RepositoryStep: step, RepositoryPercent: percent,
+				})
+			}
+		}
+		output, err := remote.RunStreamingPipe(runContext, connection, command, strings.NewReader(JSON(configuration)), onOutput)
 		if level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 			if interrupted := remote.ParseVMInvocationFailure(output, err); interrupted != nil {
 				return output, interrupted

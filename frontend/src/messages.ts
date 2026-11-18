@@ -185,6 +185,22 @@ export const english: Record<string, string> = {
   "Verbindung zur Maschine wird hergestellt …": "Connecting to the machine …",
   "Projektverzeichnis wird vorbereitet …": "Preparing project directory …",
   "Repository wird vorbereitet …": "Preparing repository …",
+  "Die Datei ist zu groß für den Download.":
+    "The file is too large to download.",
+  "Die Datei ist zu groß für die Vorschau.":
+    "The file is too large to preview.",
+  "Die Datei wurde im Projekt nicht gefunden.":
+    "The file was not found in the project.",
+  "Die Datei konnte nicht geladen werden.": "The file could not be loaded.",
+  "Datei wird geladen …": "Loading file …",
+  "Für diesen Dateityp gibt es keine Vorschau.":
+    "This file type has no preview.",
+  "Vorherige Seite": "Previous page",
+  "Nächste Seite": "Next page",
+  "Das PDF konnte nicht angezeigt werden.": "The PDF could not be displayed.",
+  "PDF wird geladen …": "Loading PDF …",
+  Herunterladen: "Download",
+  Seite: "Page",
   "Sandbox wird geprüft …": "Checking sandbox …",
   "Umgebung wird wiederhergestellt …": "Restoring environment …",
   "Sandbox wird vorbereitet …": "Preparing sandbox …",
@@ -713,6 +729,12 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "Counting objects": "Objekte werden gezählt",
+  "Compressing objects": "Objekte werden komprimiert",
+  "Receiving objects": "Objekte werden empfangen",
+  "Resolving deltas": "Deltas werden aufgelöst",
+  "Updating files": "Dateien werden aktualisiert",
+  "Checking out files": "Dateien werden ausgecheckt",
   "pool SSH keys are managed automatically; remove key_id from the YAML":
     "Der Pool-Schlüssel wird automatisch verwaltet. Schlüssel-IDs aus der YAML-Konfiguration entfernen.",
   "pool SSH keys are managed automatically":

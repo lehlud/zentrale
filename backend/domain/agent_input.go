@@ -21,8 +21,10 @@ type AgentInput struct {
 }
 
 type AgentRunState struct {
-	AgentID string     `json:"agentId"`
-	Phase   string     `json:"phase"`
-	Error   string     `json:"error"`
-	HostKey SSHHostKey `json:"hostKey"`
+	AgentID           string     `json:"agentId"`
+	Phase             string     `json:"phase"`
+	Error             string     `json:"error"`
+	HostKey           SSHHostKey `json:"hostKey"`
+	RepositoryStep    string     `json:"repositoryStep"`
+	RepositoryPercent int        `json:"repositoryPercent"`
 }

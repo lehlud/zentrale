@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -372,6 +373,15 @@ func TestRepositoriesAreClonedBeforeInferenceAndReusedWithoutNetwork(t *testing.
 	}
 	if fixture.clones.Load() != 2 || calls.Load() != 1 {
 		t.Fatal("expected two checkouts before the first model call", fixture.clones.Load(), calls.Load())
+	}
+	events, err := engine.Store.Events(0, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events, func(event domain.Event) bool {
+		return event.Type == "agent_run" && strings.Contains(event.Data, `"repositoryPercent":100`) && strings.Contains(event.Data, `"repositoryStep":"Receiving objects"`)
+	}) {
+		t.Fatal("Git checkout did not publish its transfer progress")
 	}
 	history, err := engine.loadHistory(record.ID)
 	if err != nil || len(history) != 2 || history[0].Role != "user" || history[1].Role != "assistant" {

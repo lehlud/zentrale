@@ -587,6 +587,41 @@ def disable_push(directory):
     hook.chmod(0o700)
 
 
+CLONE_PROGRESS = re.compile(
+    r"^(?:remote: )?(Counting objects|Compressing objects|Receiving objects|"
+    r"Resolving deltas|Updating files|Checking out files):\s+(\d{1,3})%"
+)
+
+
+def run_clone(arguments, environment, report_progress):
+    if not report_progress:
+        subprocess.run(arguments, env=environment, check=True)
+        return
+
+    with subprocess.Popen(
+        arguments, env={**environment, "LC_ALL": "C"}, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+    ) as process:
+        previous = None
+        last_update = 0
+        for line in process.stderr:
+            progress = CLONE_PROGRESS.match(line)
+            if progress is None:
+                sys.stderr.write(line)
+                continue
+            step, percent = progress.groups()
+            now = time.monotonic()
+            if (step, percent) != previous and (
+                previous is None or step != previous[0] or percent == "100"
+                or now - last_update >= 0.5
+            ):
+                print(f"ZENTRALE_CLONE_PROGRESS {step} {percent}", file=sys.stderr, flush=True)
+                previous, last_update = (step, percent), now
+        status = process.wait()
+        if status:
+            raise subprocess.CalledProcessError(status, arguments)
+
+
 def clone_repository(configuration, environment):
     directory = Path(configuration["directory"])
     previous = interrupted_clones(configuration)
@@ -622,20 +657,22 @@ def clone_repository(configuration, environment):
                 references.extend(
                     ["--reference-if-able", str(abandoned / "repository")]
                 )
-        subprocess.run(
+        report_progress = configuration.get("reportProgress", False)
+        run_clone(
             [
                 "git",
                 "-c",
                 "core.hooksPath=/dev/null",
                 "clone",
+                *(["--progress"] if report_progress else []),
                 *references,
                 "--dissociate",
                 "--",
                 configuration["url"],
                 str(checkout),
             ],
-            env=environment,
-            check=True,
+            environment,
+            report_progress,
         )
         if configuration["readOnly"]:
             disable_push(checkout)

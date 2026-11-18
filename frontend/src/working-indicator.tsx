@@ -1,6 +1,12 @@
 import { useI18n } from "./preferences";
 
-export function WorkingIndicator({ label }: { label?: string }) {
+export function WorkingIndicator({
+  label,
+  title,
+}: {
+  label?: string;
+  title?: string;
+}) {
   const { t } = useI18n();
   return (
     <div
@@ -12,7 +18,7 @@ export function WorkingIndicator({ label }: { label?: string }) {
         <span />
         <span />
       </span>
-      <span>{label ?? t("Arbeitet …")}</span>
+      <span title={title}>{label ?? t("Arbeitet …")}</span>
     </div>
   );
 }

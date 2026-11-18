@@ -464,13 +464,17 @@ func (engine *Engine) setRunState(agentID, phase string, failure error) {
 		}
 	}
 
-	previous := engine.RunState(agentID)
+	engine.publishRunState(state)
+}
+
+func (engine *Engine) publishRunState(state domain.AgentRunState) {
+	previous := engine.RunState(state.AgentID)
 	if JSON(previous) == JSON(state) {
 		return
 	}
 
-	if engine.Store.Save("agent_run", agentID, agentID, state) == nil {
-		engine.Emit("agent_run", agentID, state)
+	if engine.Store.Save("agent_run", state.AgentID, state.AgentID, state) == nil {
+		engine.Emit("agent_run", state.AgentID, state)
 	}
 }
 

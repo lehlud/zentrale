@@ -33,14 +33,18 @@ export function LiveAssistantResponse({
   messages,
   working,
   phase,
+  repositoryStep,
+  repositoryPercent,
 }: {
   agentId: string;
   messages: Message[];
   working: boolean;
   phase?: string;
+  repositoryStep?: string;
+  repositoryPercent?: number;
 }) {
   const api = useAPI();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const source = useMemo(
     () => ({
       subscribe: (listener: () => void) =>
@@ -61,6 +65,21 @@ export function LiveAssistantResponse({
   }, [api, agentId, persisted, response]);
 
   const generating = response?.status === "running";
+  const label = t(
+    phaseLabels[phase ?? ""] ??
+      (generating
+        ? text
+          ? "Schreibt …"
+          : "Antwort wird vorbereitet …"
+        : "Arbeitet …"),
+  );
+  const step = phase === "repository" ? repositoryStep : undefined;
+  const percentage =
+    step && repositoryPercent !== undefined
+      ? new Intl.NumberFormat(locale, { style: "percent" }).format(
+          repositoryPercent / 100,
+        )
+      : undefined;
 
   return (
     <>
@@ -81,14 +100,8 @@ export function LiveAssistantResponse({
       )}
       {working && (
         <WorkingIndicator
-          label={t(
-            phaseLabels[phase ?? ""] ??
-              (generating
-                ? text
-                  ? "Schreibt …"
-                  : "Antwort wird vorbereitet …"
-                : "Arbeitet …"),
-          )}
+          label={percentage ? `${label} (${percentage})` : label}
+          title={step ? t(step) : undefined}
         />
       )}
     </>

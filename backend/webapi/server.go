@@ -207,6 +207,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.GET("/events", func(requestContext echo.Context) error { return server.events(requestContext, schema) })
 	e.POST("/attachments/:agent/:id", server.attachment)
 	e.GET("/attachments/:agent/:id", server.attachment)
+	e.GET("/workspace-file/:project", server.workspaceFile)
 	e.GET("/terminal/:project", server.terminal)
 	e.GET("/side/:agent", server.side)
 	e.HEAD("/side/:agent", server.sideStatus)

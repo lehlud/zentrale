@@ -33,6 +33,8 @@ export type AgentRunState = {
   error: string;
   hostKey: SSHHostKey;
   phase: string;
+  repositoryPercent: number;
+  repositoryStep: string;
 };
 export type Approval = {
   agentId: string;

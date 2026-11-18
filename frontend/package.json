@@ -21,6 +21,7 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^1.70.0",
     "monaco-editor": "0.57.0",
+    "pdfjs-dist": "6.5.438",
     "react": "^19.2.0",
     "react-aria-components": "^1.22.1",
     "react-dom": "^19.2.0",

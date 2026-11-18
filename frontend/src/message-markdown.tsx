@@ -1,10 +1,21 @@
 import { Link } from "@heroui/react";
-import { isValidElement, memo, type ReactNode } from "react";
+import {
+  isValidElement,
+  memo,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { useI18n } from "./preferences";
 import { CodeSnippet } from "./code-snippet";
+import {
+  WorkspaceFileContext,
+  workspaceFileURL,
+  workspaceLink,
+} from "./workspace-file-links";
 
 function CodeBlock({ children }: { children?: ReactNode }) {
   const { t } = useI18n();
@@ -93,12 +104,49 @@ const components: Components = {
 
 export const MessageMarkdown = memo(function MessageMarkdown({
   content,
+  documentPath,
 }: {
   content: string;
+  documentPath?: string;
 }) {
+  const files = useContext(WorkspaceFileContext);
+  const renderers = useMemo<Components>(() => {
+    if (!files) return components;
+    const anchor: Components["a"] = ({ href, children }) => {
+      const path = workspaceLink(href, files, documentPath);
+      return (
+        <Link
+          href={
+            path ? workspaceFileURL(files.projectId, files.agentId, path) : href
+          }
+          target={path ? undefined : "_blank"}
+          rel={path ? undefined : "noopener noreferrer"}
+          className="inline break-all text-sm underline underline-offset-4"
+          onClick={
+            path
+              ? (event) => {
+                  event.preventDefault();
+                  files.open(path);
+                }
+              : undefined
+          }
+        >
+          {children}
+        </Link>
+      );
+    };
+    return {
+      ...components,
+      a: anchor,
+      img: function ImageLink({ alt, src }) {
+        const { t } = useI18n();
+        return anchor({ href: src, children: alt || t("Bild öffnen") });
+      },
+    };
+  }, [files, documentPath]);
   return (
     <div className="min-w-0 space-y-3 break-words text-sm leading-7 [overflow-wrap:anywhere]">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={[remarkGfm]} components={renderers}>
         {content}
       </Markdown>
     </div>
