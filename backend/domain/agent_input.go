@@ -27,4 +27,5 @@ type AgentRunState struct {
 	HostKey           SSHHostKey `json:"hostKey"`
 	RepositoryStep    string     `json:"repositoryStep"`
 	RepositoryPercent int        `json:"repositoryPercent"`
+	RepositoryDetail  string     `json:"repositoryDetail"`
 }

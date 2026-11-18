@@ -24,7 +24,7 @@ export const conversationBootstrapQuery = `query($projectId:String!, $agentId:St
     messages { ${messageFields} }
     goal { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
     agentInputs { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
-    agentRunState { agentId phase error repositoryStep repositoryPercent hostKey { host fingerprint publicKey repositorySourceId previousFingerprint } }
+    agentRunState { agentId phase error repositoryStep repositoryPercent repositoryDetail hostKey { host fingerprint publicKey repositorySourceId previousFingerprint } }
     questions { id title options mode status answer agentId }
     jobs { id command status error startedAt machineId agentId timeoutMs }
     modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }

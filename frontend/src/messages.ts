@@ -727,6 +727,11 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "Connecting to repository": "Verbindung zum Git-Server wird hergestellt",
+  "Waiting for checkout": "Wartet auf einen laufenden Checkout",
+  "Enumerating objects": "Objekte werden ermittelt",
+  "Git stopped reporting progress while preparing the repository":
+    "Git meldet seit 15 Minuten keinen Fortschritt beim Vorbereiten des Repositorys.",
   "Counting objects": "Objekte werden gezählt",
   "Compressing objects": "Objekte werden komprimiert",
   "Receiving objects": "Objekte werden empfangen",

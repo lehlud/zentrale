@@ -326,13 +326,17 @@ func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string
 	defer stop()
 
 	var result domain.MachineConnectionCheck
-	// Individual phases retain their independent cold-boot/queue/clone budgets.
-	// The retry ceiling must not collapse them back into a shared three minutes.
-	err = retryConnectionPreparation(ctx, 45*time.Minute, 250*time.Millisecond, func(attempt context.Context) error {
-		var failure error
-		result, failure = engine.checkAgentConnectionAttempt(attempt, record, reuseSources)
-		return failure
-	})
+	if reuseSources {
+		// The background worker already retries transport failures. Its phases
+		// bound setup and inactivity independently, including long Git transfers.
+		result, err = engine.checkAgentConnectionAttempt(ctx, record, true)
+	} else {
+		err = retryConnectionPreparation(ctx, 45*time.Minute, 250*time.Millisecond, func(attempt context.Context) error {
+			var failure error
+			result, failure = engine.checkAgentConnectionAttempt(attempt, record, false)
+			return failure
+		})
+	}
 	if err != nil {
 		result.Connected = false
 		result.Error = err.Error()

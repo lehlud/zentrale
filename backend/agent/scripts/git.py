@@ -470,7 +470,7 @@ def interrupted_clones(source, timeout=20):
                     receipt["version"] == 1
                     and receipt["directory"] == str(directory)
                     and receipt["url"] == source["url"]
-                    and receipt["phase"] in ("cloning", "ready")
+                    and receipt["phase"] in ("cloning", "fetched", "ready")
                     and isinstance(entries, list)
                     and all(
                         isinstance(name, str)
@@ -588,9 +588,19 @@ def disable_push(directory):
 
 
 CLONE_PROGRESS = re.compile(
-    r"^(?:remote: )?(Counting objects|Compressing objects|Receiving objects|"
-    r"Resolving deltas|Updating files|Checking out files):\s+(\d{1,3})%"
+    r"^(?:remote: )?(Enumerating objects|Counting objects|Compressing objects|"
+    r"Receiving objects|Resolving deltas|Updating files|Checking out files):\s+"
+    r"(?:(\d{1,3})%\s*)?\(?(\d+(?:/\d+)?)\)?"
+    r"(?:, (\d+(?:\.\d+)? (?:bytes?|[KMGT]iB))"
+    r"(?: \| (\d+(?:\.\d+)? (?:bytes?|[KMGT]iB)/s))?)?"
 )
+
+
+def report_clone_progress(step, percent="-1", count="", transfer=""):
+    print(
+        f"ZENTRALE_CLONE_PROGRESS {step} {percent}\t{count}\t{transfer}",
+        file=sys.stderr, flush=True,
+    )
 
 
 def run_clone(arguments, environment, report_progress):
@@ -609,22 +619,59 @@ def run_clone(arguments, environment, report_progress):
             if progress is None:
                 sys.stderr.write(line)
                 continue
-            step, percent = progress.groups()
+            step, percent, count, received, rate = progress.groups()
+            position = (step, percent, count, received)
             now = time.monotonic()
-            if (step, percent) != previous and (
-                previous is None or step != previous[0] or percent == "100"
-                or now - last_update >= 0.5
+            milestone = previous is None or step != previous[0] or (
+                percent == "100" and percent != previous[1]
+            )
+            if position != previous and (
+                milestone or now - last_update >= 2
             ):
-                print(f"ZENTRALE_CLONE_PROGRESS {step} {percent}", file=sys.stderr, flush=True)
-                previous, last_update = (step, percent), now
+                transfer = " | ".join(value for value in (received, rate) if value)
+                report_clone_progress(step, percent or "-1", count, transfer)
+                previous, last_update = position, now
         status = process.wait()
         if status:
             raise subprocess.CalledProcessError(status, arguments)
 
 
+def usable_clone_metadata(checkout):
+    metadata = checkout / ".git"
+    return (
+        metadata.is_dir()
+        and metadata.resolve() == metadata
+        and (metadata / "config").is_file()
+        and not (metadata / "config").is_symlink()
+        and not os.path.lexists(metadata / "objects/info/alternates")
+    )
+
+
+def interrupted_legacy_checkout(source, stage, receipt, environment):
+    # The old git clone completed and dissociated its download before taking
+    # the index lock for checkout. Leave its partial worktree in recovery.
+    checkout = stage / "repository"
+    lock = checkout / ".git/index.lock"
+    return (
+        receipt["phase"] == "cloning"
+        and usable_clone_metadata(checkout)
+        and lock.is_file()
+        and not lock.is_symlink()
+        and not os.path.lexists(checkout / ".git/index")
+        and checkout_exists({**source, "directory": str(checkout)})
+        and subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "--verify", "HEAD^{tree}"],
+            env=environment, capture_output=True, timeout=20,
+        ).returncode == 0
+    )
+
+
 def clone_repository(configuration, environment):
     directory = Path(configuration["directory"])
+    report_progress = configuration.get("reportProgress", False)
     previous = interrupted_clones(configuration)
+    if report_progress and any(clone_is_running(receipt) for _, receipt in previous):
+        report_clone_progress("Waiting for checkout")
     while any(clone_is_running(receipt) for _, receipt in previous):
         time.sleep(0.2)
         if (directory / ".git").exists() and checkout_exists(configuration):
@@ -636,44 +683,75 @@ def clone_repository(configuration, environment):
             publish_clone(configuration, stage, receipt, previous)
             return
 
-    # Stay on the shared filesystem for atomic entry renames. Completed clones
-    # survive interrupted publication; an earlier attempt is retained in .git.
-    stage = Path(tempfile.mkdtemp(prefix=".zentrale-clone-", dir=directory))
+    fetched = next(
+        ((stage, receipt) for stage, receipt in previous
+         if receipt["phase"] == "fetched" and usable_clone_metadata(stage / "repository")),
+        None,
+    )
+    if fetched is None:
+        # Staging on the shared filesystem allows metadata and completed
+        # worktree entries to be published with atomic renames.
+        stage = Path(tempfile.mkdtemp(prefix=".zentrale-clone-", dir=directory))
+        receipt = {
+            "version": 1,
+            "directory": str(directory),
+            "url": configuration["url"],
+            "phase": "cloning",
+            "entries": [],
+        }
+    else:
+        stage, receipt = fetched
     checkout = stage / "repository"
-    receipt = {
-        "version": 1,
-        "directory": str(directory),
-        "url": configuration["url"],
-        "phase": "cloning",
-        "entries": [],
-        "owner": clone_owner(),
-    }
-    ready = False
+    receipt["owner"] = clone_owner()
     try:
         atomic_secret(stage, "clone.json", json.dumps(receipt))
-        references = []
-        for abandoned, _ in previous:
-            if (abandoned / "repository" / ".git").is_dir():
-                references.extend(
-                    ["--reference-if-able", str(abandoned / "repository")]
+        if fetched is None:
+            legacy = next((
+                old for old, old_receipt in previous
+                if interrupted_legacy_checkout(configuration, old, old_receipt, environment)
+            ), None)
+            if legacy:
+                checkout.mkdir()
+                # Record the destination first. On interruption before the
+                # rename, the old receipt still points at the only metadata.
+                atomic_secret(stage, "clone.json", json.dumps({**receipt, "phase": "fetched"}))
+                (legacy / "repository/.git").rename(checkout / ".git")
+                receipt["phase"] = "fetched"
+            else:
+                references = []
+                for abandoned, _ in previous:
+                    if (abandoned / "repository" / ".git").is_dir():
+                        references.extend(["--reference-if-able", str(abandoned / "repository")])
+                if report_progress:
+                    report_clone_progress("Connecting to repository")
+                run_clone(
+                    ["git", "-c", "core.hooksPath=/dev/null", "clone", "--no-checkout",
+                     *(["--progress"] if report_progress else []), *references,
+                     "--dissociate", "--", configuration["url"], str(checkout)],
+                    environment, report_progress,
                 )
-        report_progress = configuration.get("reportProgress", False)
-        run_clone(
-            [
-                "git",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "clone",
-                *(["--progress"] if report_progress else []),
-                *references,
-                "--dissociate",
-                "--",
-                configuration["url"],
-                str(checkout),
-            ],
-            environment,
-            report_progress,
+                receipt["phase"] = "fetched"
+                atomic_secret(stage, "clone.json", json.dumps(receipt))
+
+        # The previous checkout may have been killed holding the index lock.
+        # This is private staging and no previous receipt owner is still alive.
+        (checkout / ".git/index.lock").unlink(missing_ok=True)
+        head = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "--verify", "--quiet", "HEAD"],
+            env=environment, capture_output=True, timeout=20,
         )
+        if head.returncode == 0:
+            if report_progress:
+                report_clone_progress("Checking out files", "0")
+            workers = ["-c", "checkout.workers=2"] if configuration.get("parallelCheckout") else []
+            run_clone(
+                ["git", "-C", str(checkout), "-c", "core.hooksPath=/dev/null", *workers,
+                 "checkout", "--force", *(["--progress"] if report_progress else [])],
+                environment, report_progress,
+            )
+        elif head.returncode != 1:
+            head.check_returncode()
+
         if configuration["readOnly"]:
             disable_push(checkout)
         allowed = {stage, *(old for old, _ in previous)}
@@ -685,10 +763,9 @@ def clone_repository(configuration, environment):
             phase="ready", entries=[entry.name for entry in checkout.iterdir()]
         )
         atomic_secret(stage, "clone.json", json.dumps(receipt))
-        ready = True
         publish_clone(configuration, stage, receipt, previous)
     finally:
-        if not ready:
+        if receipt["phase"] == "cloning":
             shutil.rmtree(stage)
 
 

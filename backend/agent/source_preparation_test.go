@@ -154,6 +154,7 @@ func TestRepositoryPreparationRecoversAnAbandonedClone(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"clone", address.Path, checkout},
 		{"-C", checkout, "remote", "set-url", "origin", fixture.source.URL},
+		{"-C", checkout, "repack", "-a", "-d"},
 	} {
 		command := exec.Command("git", arguments...)
 		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
@@ -161,10 +162,21 @@ func TestRepositoryPreparationRecoversAnAbandonedClone(t *testing.T) {
 			t.Fatal(string(output), err)
 		}
 	}
+	packFiles, err := filepath.Glob(filepath.Join(checkout, ".git", "objects", "pack", "*.pack"))
+	if err != nil || len(packFiles) != 1 {
+		t.Fatal("expected one Git pack", packFiles, err)
+	}
+	pack, err := os.Stat(packFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(checkout, ".git", "index")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(checkout, ".git", "index.lock"), []byte("interrupted"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "draft.txt"), []byte("interrupted"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	receipt := map[string]any{
@@ -186,9 +198,35 @@ func TestRepositoryPreparationRecoversAnAbandonedClone(t *testing.T) {
 	if err != nil || string(readme) != "Repository content\n" {
 		t.Fatal("project did not recover its repository", string(readme), err)
 	}
-	saved := filepath.Join(fixture.directory, ".git", "zentrale-clone-recovery", filepath.Base(stage), "repository", ".git", "index.lock")
+	saved := filepath.Join(fixture.directory, ".git", "zentrale-clone-recovery", filepath.Base(stage), "repository", "draft.txt")
 	if data, err := os.ReadFile(saved); err != nil || string(data) != "interrupted" {
 		t.Fatal("the previous attempt was not retained", string(data), err)
+	}
+	newPack, err := os.Stat(filepath.Join(fixture.directory, ".git", "objects", "pack", pack.Name()))
+	if err != nil || !os.SameFile(pack, newPack) || fixture.clones.Load() != 0 {
+		t.Fatal("recovery replaced the downloaded pack or contacted its origin", err, fixture.clones.Load())
+	}
+}
+
+func TestRepositoryProgressReaderHandlesSplitTransferUpdates(t *testing.T) {
+	type progress struct {
+		step    string
+		percent int
+		detail  string
+	}
+	var updates []progress
+	read := repositoryProgressReader(func(step string, percent int, detail string) {
+		updates = append(updates, progress{step, percent, detail})
+	})
+	read([]byte("Cloning into repository\nZENTRALE_CLONE_PRO"))
+	read([]byte("GRESS Receiving objects 1\t1/100\t12.00 MiB | 1.00 MiB/s\n"))
+	read([]byte("ZENTRALE_CLONE_PROGRESS Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s\n"))
+	read([]byte("ZENTRALE_CLONE_PROGRESS Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s\n"))
+	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 101\t2/100\t\n"))
+	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 2\t2/100\t\n"))
+	want := []progress{{"Receiving objects", 1, "12.00 MiB | 1.00 MiB/s"}, {"Receiving objects", 1, "24.00 MiB | 1.00 MiB/s"}, {"Updating files", 2, "2/100"}}
+	if !slices.Equal(updates, want) {
+		t.Fatalf("progress = %+v, want %+v", updates, want)
 	}
 }
 

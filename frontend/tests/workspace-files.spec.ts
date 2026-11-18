@@ -56,6 +56,7 @@ test("workspace documents open in a stack and use the conversation's file route"
           phase: "repository",
           repositoryStep: "Receiving objects",
           repositoryPercent: 43,
+          repositoryDetail: "1.72 GiB | 8.00 MiB/s",
           hostKey: {},
         },
       });
@@ -98,6 +99,9 @@ test("workspace documents open in a stack and use the conversation's file route"
   await expect(
     page.getByRole("status").filter({ hasText: "Repository wird vorbereitet" }),
   ).toContainText(/\(43\s%\)/);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Repository wird vorbereitet" }),
+  ).toContainText("Objekte werden empfangen · 1.72 GiB | 8.00 MiB/s");
   await expect(page.getByRole("link", { name: "Extern" })).toHaveAttribute(
     "href",
     "https://example.test/paper.pdf",

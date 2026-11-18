@@ -1,6 +1,7 @@
 """Checkout readiness, staged clone failures and preservation on real files."""
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -298,6 +299,51 @@ class RepositoryPreparationTests(unittest.TestCase):
         )
         self.assertTrue((self.directory / ".git").is_dir())
         self.assertFalse(stage.exists())
+
+    def test_retry_uses_downloaded_objects_after_checkout_is_interrupted(self):
+        self.staged_clone(receipt=True)
+        fresh = self.root / "fresh"
+        fresh.mkdir()
+        source = {**self.source, "directory": str(fresh), "readOnly": False}
+        run_clone = repository_helper.run_clone
+
+        def interrupt_checkout(arguments, environment, report_progress):
+            if "checkout" in arguments:
+                git = Path(arguments[2]) / ".git"
+                (git / "index.lock").touch()
+                raise subprocess.CalledProcessError(1, arguments)
+            return run_clone(arguments, environment, report_progress)
+
+        with patch.object(repository_helper, "run_clone", interrupt_checkout):
+            with self.assertRaises(subprocess.CalledProcessError):
+                repository_helper.clone_repository(source, repository_helper.git_environment())
+        [receipt] = list(fresh.glob(".zentrale-clone-*/clone.json"))
+        saved = json.loads(receipt.read_text())
+        self.assertEqual(saved["phase"], "fetched")
+        # The simulated first invocation exited once checkout failed.
+        receipt.write_text(json.dumps({**saved, "owner": None}))
+        self.origin.rename(self.origin.with_name("unavailable.git"))
+
+        resumed = self.run_helper("prepare", directory=str(fresh), reportProgress=True, parallelCheckout=True)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertIn("Checking out files", resumed.stderr)
+        self.assertEqual((fresh / "README.md").read_text(), "repository content\n")
+        self.assertFalse((fresh / ".git/index.lock").exists())
+        self.assertFalse(receipt.exists())
+
+    def test_progress_reports_bytes_when_percentage_remains_constant(self):
+        stderr = io.StringIO()
+        lines = (
+            'Receiving objects: 1% (1/100), 12.00 MiB | 1.00 MiB/s\r'
+            'Receiving objects: 1% (1/100), 24.00 MiB | 1.00 MiB/s\r'
+            'Updating files: 2% (2/100)\r'
+        )
+        command = [sys.executable, "-c", f"import sys; sys.stderr.write({lines!r})"]
+        with patch("sys.stderr", stderr), patch.object(repository_helper.time, "monotonic", side_effect=[1, 4, 5]):
+            repository_helper.run_clone(command, repository_helper.git_environment(), True)
+        self.assertIn("Receiving objects 1\t1/100\t12.00 MiB | 1.00 MiB/s", stderr.getvalue())
+        self.assertIn("Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s", stderr.getvalue())
+        self.assertIn("Updating files 2\t2/100\t", stderr.getvalue())
 
     def test_finished_publication_is_cleaned_during_configuration(self):
         stage, checkout = self.staged_clone(receipt=True)

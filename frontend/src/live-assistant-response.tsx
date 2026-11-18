@@ -35,6 +35,7 @@ export function LiveAssistantResponse({
   phase,
   repositoryStep,
   repositoryPercent,
+  repositoryDetail,
 }: {
   agentId: string;
   messages: Message[];
@@ -42,6 +43,7 @@ export function LiveAssistantResponse({
   phase?: string;
   repositoryStep?: string;
   repositoryPercent?: number;
+  repositoryDetail?: string;
 }) {
   const api = useAPI();
   const { t, locale } = useI18n();
@@ -75,11 +77,18 @@ export function LiveAssistantResponse({
   );
   const step = phase === "repository" ? repositoryStep : undefined;
   const percentage =
-    step && repositoryPercent !== undefined
+    step && repositoryPercent !== undefined && repositoryPercent >= 0
       ? new Intl.NumberFormat(locale, { style: "percent" }).format(
           repositoryPercent / 100,
         )
       : undefined;
+  const statusLabel = [
+    percentage ? `${label} (${percentage})` : label,
+    step && t(step),
+    step && repositoryDetail,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <>
@@ -98,12 +107,7 @@ export function LiveAssistantResponse({
           )}
         </article>
       )}
-      {working && (
-        <WorkingIndicator
-          label={percentage ? `${label} (${percentage})` : label}
-          title={step ? t(step) : undefined}
-        />
-      )}
+      {working && <WorkingIndicator label={statusLabel} />}
     </>
   );
 }

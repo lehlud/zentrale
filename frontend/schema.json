@@ -380,6 +380,18 @@
             }
           },
           {
+            "name": "repositoryDetail",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "repositoryPercent",
             "type": {
               "kind": "NON_NULL",

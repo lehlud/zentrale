@@ -16,19 +16,43 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-var cloneProgress = regexp.MustCompile(`(?m)^ZENTRALE_CLONE_PROGRESS (Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files) ([0-9]{1,3})\r?\n`)
+var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
 
-func repositoryProgress(output string) (step string, percent int, marker string) {
-	matches := cloneProgress.FindAllStringSubmatch(output, -1)
-	if len(matches) == 0 {
-		return "", 0, ""
+var errRepositoryStalled = errors.New("Git stopped reporting progress while preparing the repository")
+
+// Git uses both CR and LF for its status, but the helper emits bounded LF lines.
+// Consume only new bytes so a long clone never reparses earlier output.
+func repositoryProgressReader(update func(step string, percent int, detail string)) func([]byte) {
+	var pending, previous string
+	return func(chunk []byte) {
+		remaining := pending + string(chunk)
+		for {
+			line, rest, complete := strings.Cut(remaining, "\n")
+			if !complete {
+				pending = line
+				if len(pending) > 256 {
+					pending = " " // This long, incomplete line cannot be a marker.
+				}
+				return
+			}
+			remaining = rest
+			line = strings.TrimSuffix(line, "\r")
+			if line == previous || len(line) > 256 {
+				continue
+			}
+			if match := cloneProgress.FindStringSubmatch(line); match != nil {
+				percent, _ := strconv.Atoi(match[2])
+				if percent <= 100 {
+					previous = line
+					detail := match[4]
+					if detail == "" {
+						detail = match[3]
+					}
+					update(match[1], percent, detail)
+				}
+			}
+		}
 	}
-	last := matches[len(matches)-1]
-	percent, _ = strconv.Atoi(last[2])
-	if percent > 100 {
-		return "", 0, ""
-	}
-	return last[1], percent, last[0]
 }
 
 // Repository selection authorizes its initial checkout. Preparation belongs to
@@ -133,17 +157,15 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 	// Separate 9p guests cannot coordinate using directory flock locks. Hold
 	// this workspace's semaphore across inspection and cloning in the harness.
-	// Waiting behind another agent's clone must not use up an inspection's budget.
+	// A waiting agent inherits cancellation from its caller and does not time out
+	// a separate agent's active checkout.
 	value, _ := engine.sourcePreparations.LoadOrStore(project.Directory, make(chan struct{}, 1))
 	lock := value.(chan struct{})
-	waitContext, cancelWait := context.WithTimeout(ctx, 15*time.Minute)
 	select {
 	case lock <- struct{}{}:
-		cancelWait()
 		defer func() { <-lock }()
-	case <-waitContext.Done():
-		defer cancelWait()
-		return fmt.Errorf("wait for another agent to prepare project repositories: %w", waitContext.Err())
+	case <-ctx.Done():
+		return fmt.Errorf("wait for another agent to prepare project repositories: %w", ctx.Err())
 	}
 
 	temporary, err := engine.temporaryDirectory(scope)
@@ -174,25 +196,39 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return "", fmt.Errorf("prepare repository sandbox: %w", err)
 		}
 
-		runContext, cancelRun := context.WithTimeout(ctx, timeout)
-		defer cancelRun()
-		var onOutput func(string)
-		if reportProgress && configuration["operation"] == "prepare" {
-			engine.setRunState(scope, "repository", nil)
-			configuration["reportProgress"] = true
-			var last string
-			onOutput = func(output string) {
-				step, percent, marker := repositoryProgress(output)
-				if marker == "" || marker == last || runContext.Err() != nil {
+		var output string
+		if configuration["operation"] == "prepare" {
+			if reportProgress {
+				engine.setRunState(scope, "repository", nil)
+			}
+			configuration["reportProgress"] = true // Also used by the idle watchdog.
+			configuration["parallelCheckout"] = level == remote.SandboxMicroVM && machine.MicroVMCommand == ""
+			runContext, cancelRun := context.WithCancelCause(ctx)
+			idle := time.AfterFunc(timeout, func() { cancelRun(errRepositoryStalled) })
+			defer func() {
+				cancelRun(nil)
+				idle.Stop()
+			}()
+			onChunk := repositoryProgressReader(func(step string, percent int, detail string) {
+				if runContext.Err() != nil {
 					return
 				}
-				last = marker
-				engine.publishRunState(domain.AgentRunState{
-					AgentID: scope, Phase: "repository", RepositoryStep: step, RepositoryPercent: percent,
-				})
+				idle.Reset(timeout)
+				if reportProgress {
+					engine.publishRunState(domain.AgentRunState{
+						AgentID: scope, Phase: "repository", RepositoryStep: step, RepositoryPercent: percent, RepositoryDetail: detail,
+					})
+				}
+			})
+			output, err = remote.RunStreamingInput(runContext, connection, command, strings.NewReader(JSON(configuration)), false, nil, onChunk)
+			if errors.Is(context.Cause(runContext), errRepositoryStalled) {
+				return output, errRepositoryStalled
 			}
+		} else {
+			runContext, cancelRun := context.WithTimeout(ctx, timeout)
+			defer cancelRun()
+			output, err = remote.RunPipe(runContext, connection, command, strings.NewReader(JSON(configuration)))
 		}
-		output, err := remote.RunStreamingPipe(runContext, connection, command, strings.NewReader(JSON(configuration)), onOutput)
 		if level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
 			if interrupted := remote.ParseVMInvocationFailure(output, err); interrupted != nil {
 				return output, interrupted

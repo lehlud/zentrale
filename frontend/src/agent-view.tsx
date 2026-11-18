@@ -297,6 +297,7 @@ export function AgentView({
             phase={data?.agentRunState?.phase}
             repositoryStep={data?.agentRunState?.repositoryStep}
             repositoryPercent={data?.agentRunState?.repositoryPercent}
+            repositoryDetail={data?.agentRunState?.repositoryDetail}
           />
         )}
       </div>
