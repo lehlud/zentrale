@@ -476,6 +476,66 @@ class MicroVMRunnerTests(unittest.TestCase):
             with self.subTest(forged=forged), self.assertRaises(RuntimeError):
                 runner.scope_directory(self.cache, dict(execution, agentId=forged))
 
+    def test_run_accepts_the_request_staged_for_a_shared_project(self):
+        execution = {
+            "agentId": "project-example",
+            "projectId": "example",
+            "installationId": "a" * 32,
+            "workspace": str(self.root / "work"),
+            "temporaryDirectory": str(self.root / "temporary"),
+            "command": "printf done",
+        }
+        for agent, namespace in (("project-example", "projects"), ("legacy", "agents")):
+            with self.subTest(namespace=namespace):
+                execution["agentId"] = agent
+                scope = runner.scope_directory(self.cache, execution)
+                self.assertEqual(scope.parent, self.cache / namespace)
+                with patch.object(runner, "ensure_session", return_value=scope / "session"):
+                    invocation = runner.stage(self.cache, execution, {}, None, None, None)
+                self.assertEqual((invocation / "command.sh").read_text(), execution["command"])
+                with (
+                    patch.object(runner.sys, "argv", ["runner", "run", "{}", str(invocation)]),
+                    patch.object(runner, "guard_parent"),
+                    patch.object(runner, "cache_directory", return_value=self.cache),
+                    patch.object(runner, "run_invocation", return_value=0) as run,
+                ):
+                    self.assertEqual(runner.main(), 0)
+                run.assert_called_once_with(invocation)
+
+    def test_run_rejects_redirected_and_unstaged_project_requests(self):
+        requests = self.cache / "projects" / ("a" * 64) / "session" / "requests"
+        requests.mkdir(parents=True)
+        target = self.root / "outside"
+        target.mkdir()
+        link = requests / ("b" * 32)
+        link.symlink_to(target, target_is_directory=True)
+        missing = requests / ("c" * 32)
+        invalid = (
+            self.cache / "projects" / ("a" * 64) / "other" / "requests" / ("d" * 32),
+            self.cache / "projects" / "not-a-scope" / "session" / "requests" / ("d" * 32),
+            self.root / "requests" / ("d" * 32),
+            link,
+        )
+        with (
+            patch.object(runner, "guard_parent"),
+            patch.object(runner, "cache_directory", return_value=self.cache),
+            patch.object(runner, "run_invocation") as run,
+        ):
+            for path in invalid:
+                with (
+                    self.subTest(path=path),
+                    patch.object(runner.sys, "argv", ["runner", "run", "{}", str(path)]),
+                    self.assertRaisesRegex(RuntimeError, "invalid MicroVM invocation path"),
+                ):
+                    runner.main()
+            with (
+                patch.object(runner.sys, "argv", ["runner", "run", "{}", str(missing)]),
+                self.assertRaises(runner.InvocationInterrupted),
+            ):
+                runner.main()
+        self.assertFalse(missing.exists())
+        run.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -298,8 +298,9 @@ def within(directory, candidate):
     return candidate == directory or directory in candidate.parents
 
 
-def private_directory(directory):
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+def private_directory(directory, *, create=True):
+    if create:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     metadata = directory.lstat()
     if (
         not stat.S_ISDIR(metadata.st_mode)
@@ -1703,14 +1704,20 @@ def main():
     if action == "run":
         invocation = Path(sys.argv[3])
         cache = cache_directory()
+        parts = invocation.relative_to(cache).parts if invocation.is_relative_to(cache) else ()
         if (
-            invocation != invocation.resolve()
-            or not within(cache / "agents", invocation)
-            or invocation.parent.name != "requests"
-            or not re.fullmatch(r"[a-f0-9]{32}", invocation.name)
+            len(parts) != 5
+            or parts[0] not in ("projects", "agents")
+            or not re.fullmatch(r"[a-f0-9]{64}", parts[1])
+            or parts[2:4] != ("session", "requests")
+            or not re.fullmatch(r"[a-f0-9]{32}", parts[4])
+            or invocation != invocation.resolve()
         ):
             raise RuntimeError("invalid MicroVM invocation path")
-        private_directory(invocation)
+        try:
+            private_directory(invocation, create=False)
+        except FileNotFoundError as error:
+            raise InvocationInterrupted("generation_replaced") from error
         return run_invocation(invocation)
     raise RuntimeError("unknown managed MicroVM action")
 
