@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 READ_ONLY_HOOK = b'#!/bin/sh\necho "Read-only source" >&2\nexit 1\n'
@@ -95,11 +95,14 @@ def managed_git_directory(project, directory):
 def ssh_destination(url):
     if url.startswith("ssh://"):
         parsed = urlsplit(url)
+        host = parsed.netloc.rsplit("@", 1)[-1]
+        if parsed.port:
+            host = host.rsplit(":", 1)[0]
         return {
-            "host": (parsed.username + "@" if parsed.username else "")
-            + parsed.hostname,
+            "host": (unquote(parsed.username) + "@" if parsed.username else "")
+            + host.strip("[]"),
             "port": str(parsed.port or 22),
-            "path": parsed.path,
+            "path": unquote(parsed.path),
         }
     if ":" in url and "://" not in url and not url.startswith("/"):
         host, path = url.split(":", 1)

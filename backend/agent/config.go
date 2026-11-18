@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"net/url"
 	"path"
 	"strings"
 
@@ -232,7 +231,7 @@ func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 		}
 	}
 
-	if existing.BindingID != "" {
+	if existing.BindingID != "" || existing.ProjectRoot {
 		if err := engine.projectAvailable(existing.ProjectID); err != nil {
 			return source, err
 		}
@@ -264,31 +263,8 @@ func (engine *Engine) SaveSource(source domain.Source) (domain.Source, error) {
 		return source, errors.New("unknown source SSH key")
 	}
 
-	valid := false
-
-	if strings.HasPrefix(source.URL, "ssh://") {
-		u, err := url.Parse(source.URL)
-		hasPassword := false
-
-		if err == nil && u.User != nil {
-			_, hasPassword = u.User.Password()
-		}
-
-		valid = err == nil &&
-			!hasPassword &&
-			u.Host != "" &&
-			u.Path != "" &&
-			u.User != nil &&
-			u.RawQuery == "" &&
-			u.Fragment == ""
-	} else {
-		at := strings.Index(source.URL, "@")
-		colon := strings.Index(source.URL, ":")
-		valid = at > 0 && colon > at+1 && colon < len(source.URL)-1
-	}
-
-	if !valid || strings.ContainsAny(source.URL, "\n\r\x00 ") {
-		return source, errors.New("source requires an SSH Git URL")
+	if err := domain.ValidateRepositorySSHURL(source.URL); err != nil {
+		return source, err
 	}
 
 	rows, err := engine.listAll("source", &source.ProjectID)

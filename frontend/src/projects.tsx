@@ -75,14 +75,26 @@ function projectInput(value: Record<string, unknown>) {
 function ProjectRepository({
   value,
   patch,
+  keys,
 }: {
   value: Record<string, unknown>;
   patch: (changes: Record<string, unknown>) => void;
+  keys: Config["sshKeys"];
 }) {
   return (
     <RepositoryPicker
       value={value as Partial<RepositoryChoice>}
       onChange={(choice) => patch(choice)}
+      ssh={{
+        keys,
+        onChange: (changes) =>
+          patch({
+            gitConnectionId: "",
+            repositoryId: "",
+            repositoryName: "",
+            ...changes,
+          }),
+      }}
     />
   );
 }
@@ -227,7 +239,11 @@ export function Projects() {
           }
           initial={projectEditorValue(editing)}
           renderExtra={(value, patch) => (
-            <ProjectRepository value={value} patch={patch} />
+            <ProjectRepository
+              value={value}
+              patch={patch}
+              keys={data?.sshKeys ?? []}
+            />
           )}
           onClose={() => {
             setEditing(null);
@@ -493,7 +509,7 @@ function Sources({ projectId }: { projectId: string }) {
         <Editor
           title={t("Quelle konfigurieren")}
           fields={
-            editing.bindingId
+            editing.bindingId || editing.projectRoot
               ? fields.filter(
                   (field) => field.key === "name" || field.key === "readOnly",
                 )
@@ -622,7 +638,11 @@ function ProjectSettings({
       fields={projectFields(data, t)}
       initial={projectEditorValue({ ...project })}
       renderExtra={(value, patch) => (
-        <ProjectRepository value={value} patch={patch} />
+        <ProjectRepository
+          value={value}
+          patch={patch}
+          keys={data?.sshKeys ?? []}
+        />
       )}
       onClose={onClose}
       onSave={(input) =>

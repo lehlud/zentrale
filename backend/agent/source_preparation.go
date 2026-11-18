@@ -53,7 +53,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		rootFound = rootFound || source.ProjectRoot
 	}
 
-	if project.RepositoryID != "" && !rootFound {
+	if (project.RepositoryID != "" || project.RepositorySSHURL != "") && !rootFound {
 		return errors.New("project repository connection is missing; reconnect the repository in project settings")
 	}
 

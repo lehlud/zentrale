@@ -16,6 +16,12 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 	}
 	defer tx.Rollback()
 
+	if source != nil && source.BindingID == "" {
+		if err := claimSSHKeys(tx, SSHKeyClaim{KeyID: source.KeyID, Purpose: "source", PurposeID: source.ID}); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.Exec(
 		`DELETE FROM resources WHERE kind='source' AND parent_id=? AND json_extract(data,'$.projectRoot')=1`,
 		project.ID,
@@ -24,16 +30,18 @@ func (instance *Instance) SaveProjectRepository(project domain.Project, source *
 	}
 
 	if source != nil {
-		var keyID int
-		if err := tx.QueryRow(
-			`SELECT CAST(json_extract(data,'$.keyId') AS INTEGER) FROM resources WHERE kind='repository_binding' AND id=?`,
-			source.BindingID,
-		).Scan(&keyID); err != nil {
-			return err
-		}
+		if source.BindingID != "" {
+			var keyID int
+			if err := tx.QueryRow(
+				`SELECT CAST(json_extract(data,'$.keyId') AS INTEGER) FROM resources WHERE kind='repository_binding' AND id=?`,
+				source.BindingID,
+			).Scan(&keyID); err != nil {
+				return err
+			}
 
-		if keyID != source.KeyID {
-			return errors.New("repository key changed; retry")
+			if keyID != source.KeyID {
+				return errors.New("repository key changed; retry")
+			}
 		}
 
 		encoded, err := json.Marshal(source)

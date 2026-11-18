@@ -20,6 +20,7 @@ import type {
   GitNamespace,
   GitRepository,
   GitRepositoryPage,
+  SSHKey,
 } from "./generated";
 import {
   GitConnect,
@@ -27,13 +28,28 @@ import {
   gitConnectionLabel,
 } from "./git-connections";
 import { useI18n } from "./preferences";
-import { Editor, Empty, Failure, Loading } from "./ui";
+import { Editor, Empty, Failure, Loading, useAction } from "./ui";
 import { Icon } from "./icons";
 
 export type RepositoryChoice = {
   gitConnectionId: string;
   repositoryId: string;
   repositoryName: string;
+  repositorySshUrl?: string | null;
+  repositorySshKeyId?: number | null;
+};
+
+type SSHRepositoryChoice = Pick<
+  RepositoryChoice,
+  "repositorySshUrl" | "repositorySshKeyId"
+>;
+
+const emptyRepository: RepositoryChoice = {
+  gitConnectionId: "",
+  repositoryId: "",
+  repositoryName: "",
+  repositorySshUrl: "",
+  repositorySshKeyId: 0,
 };
 
 const repositoryFields =
@@ -44,9 +60,11 @@ const repositoriesQuery = `query($connectionId:String!,$search:String!,$offset:I
 export function RepositoryPicker({
   value,
   onChange,
+  ssh,
 }: {
   value: Partial<RepositoryChoice>;
   onChange: (choice: RepositoryChoice) => void;
+  ssh?: { keys: SSHKey[]; onChange: (change: SSHRepositoryChoice) => void };
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -62,9 +80,13 @@ export function RepositoryPicker({
   const [connecting, setConnecting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState(!value.repositoryId);
+  const [direct, setDirect] = useState(
+    Boolean(value.repositorySshUrl || value.repositorySshKeyId),
+  );
   const choose = (repository: GitRepository) => {
     if (connection) {
       onChange({
+        ...emptyRepository,
         gitConnectionId: connection.id,
         repositoryId: repository.id,
         repositoryName: repository.fullName,
@@ -80,7 +102,9 @@ export function RepositoryPicker({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">{t("Repository (optional)")}</h3>
-        {value.repositoryId && (
+        {value.repositoryId ||
+        value.repositorySshUrl ||
+        value.repositorySshKeyId ? (
           <div className="flex gap-1">
             {!expanded && (
               <Button
@@ -97,27 +121,40 @@ export function RepositoryPicker({
               variant="ghost"
               className="min-h-11"
               onPress={() => {
-                onChange({
-                  gitConnectionId: "",
-                  repositoryId: "",
-                  repositoryName: "",
-                });
+                onChange(emptyRepository);
+                setDirect(false);
                 setExpanded(true);
               }}
             >
               {t("Auswahl entfernen")}
             </Button>
           </div>
-        )}
+        ) : null}
       </div>
-      {value.repositoryName && (
-        <p role="status" className="break-all text-sm">
-          <span className="text-muted">{t("Ausgewählt")}: </span>
-          {value.repositoryName}
-        </p>
+      {ssh && (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="min-h-11"
+          onPress={() => {
+            setDirect(!direct);
+            setExpanded(true);
+          }}
+        >
+          {direct ? t("Über Git-Dienst auswählen") : t("SSH-URL eingeben")}
+        </Button>
       )}
-      <Failure message={error} onRetry={() => api.refresh()} />
-      {!expanded ? null : loading ? (
+      {(!direct || value.repositoryId) &&
+        (value.repositorySshUrl || value.repositoryName) && (
+          <p role="status" className="break-all text-sm">
+            <span className="text-muted">{t("Ausgewählt")}: </span>
+            {value.repositorySshUrl || value.repositoryName}
+          </p>
+        )}
+      {!direct && <Failure message={error} onRetry={() => api.refresh()} />}
+      {ssh && direct ? (
+        <SSHRepositoryFields value={value} {...ssh} />
+      ) : !expanded ? null : loading ? (
         <Loading />
       ) : (
         connection && (
@@ -182,11 +219,13 @@ export function RepositoryPicker({
           </>
         )
       )}
-      <p className="text-xs leading-5 text-muted">
-        {t(
-          "Ein eigener Deploy-Key erlaubt Lesen und Schreiben. Vorhandene Repo-Schlüssel werden wiederverwendet.",
-        )}
-      </p>
+      {!direct && (
+        <p className="text-xs leading-5 text-muted">
+          {t(
+            "Ein eigener Deploy-Key erlaubt Lesen und Schreiben. Vorhandene Repo-Schlüssel werden wiederverwendet.",
+          )}
+        </p>
+      )}
       {connection && connecting && (
         <GitConnect
           connection={connection}
@@ -201,6 +240,128 @@ export function RepositoryPicker({
         />
       )}
     </section>
+  );
+}
+
+function SSHRepositoryFields({
+  value,
+  keys,
+  onChange,
+}: {
+  value: SSHRepositoryChoice;
+  keys: SSHKey[];
+  onChange: (change: SSHRepositoryChoice) => void;
+}) {
+  const { t } = useI18n();
+  const api = useAPI();
+  const action = useAction();
+  const [generated, setGenerated] = useState<SSHKey>();
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const available = keys.filter(
+    (key) => key.canDelete || key.id === value.repositorySshKeyId,
+  );
+  if (generated && !available.some((key) => key.id === generated.id)) {
+    available.push(generated);
+  }
+  const publicKey = available.find(
+    (key) => key.id === value.repositorySshKeyId,
+  )?.publicKey;
+
+  return (
+    <div className="space-y-3">
+      <TextField
+        value={value.repositorySshUrl ?? ""}
+        onChange={(url) => onChange({ repositorySshUrl: url })}
+      >
+        <Label>{t("Repository-SSH-URL")}</Label>
+        <Input
+          className="min-h-11"
+          placeholder="git@example.org:team/repository.git"
+        />
+      </TextField>
+      <Select
+        className="gap-2"
+        value={
+          value.repositorySshKeyId ? String(value.repositorySshKeyId) : null
+        }
+        onChange={(id) => onChange({ repositorySshKeyId: Number(id ?? 0) })}
+        isDisabled={action.busy}
+      >
+        <Label>{t("SSH-Schlüssel")}</Label>
+        <Select.Trigger className="min-h-11">
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox>
+            {available.map((key) => {
+              const name =
+                key.name || t("Schlüssel {id}", { id: key.id ?? "" });
+              return (
+                <ListBox.Item
+                  key={key.id}
+                  id={String(key.id)}
+                  textValue={name}
+                  className="min-h-11"
+                >
+                  <Label>{name}</Label>
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              );
+            })}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          className="min-h-11"
+          isPending={action.busy}
+          onPress={() =>
+            action.run(async () => {
+              const { generateSSHKey: key } = await api.mutate<{
+                generateSSHKey: SSHKey;
+              }>("mutation{generateSSHKey{id publicKey}}");
+              if (active.current) {
+                setGenerated(key);
+                onChange({ repositorySshKeyId: key.id });
+              }
+            })
+          }
+        >
+          <Icon name="plus" />
+          {t("Neuen SSH-Schlüssel erzeugen")}
+        </Button>
+        {publicKey && (
+          <Button
+            variant="ghost"
+            className="min-h-11"
+            isDisabled={action.busy}
+            onPress={() =>
+              action.run(() => navigator.clipboard.writeText(publicKey))
+            }
+          >
+            <Icon name="copy" />
+            {t("Öffentlichen Schlüssel kopieren")}
+          </Button>
+        )}
+      </div>
+      <p className="text-xs leading-5 text-muted">
+        {t(
+          "Hinterlege den öffentlichen Schlüssel beim Git-Server, damit Zentrale auf das Repository zugreifen kann.",
+        )}{" "}
+        {t(
+          "Hinterlege den Host-Schlüssel eigener Git-Server unter Schlüssel → Vertrauenswürdige Hosts.",
+        )}
+      </p>
+      <Failure message={action.error} />
+    </div>
   );
 }
 

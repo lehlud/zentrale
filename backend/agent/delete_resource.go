@@ -55,6 +55,7 @@ func (engine *Engine) Delete(kind, id string) error {
 			}
 
 			project.GitConnectionID, project.RepositoryID, project.RepositoryName = "", "", ""
+			project.RepositorySSHURL, project.RepositorySSHKeyID = "", 0
 
 			if err := engine.Store.SaveProjectRepository(project, nil); err != nil {
 				return err

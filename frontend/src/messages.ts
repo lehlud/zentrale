@@ -335,6 +335,13 @@ export const english: Record<string, string> = {
   "Repository (optional)": "Repository (optional)",
   "Auswahl entfernen": "Clear selection",
   "Git-Dienst": "Git service",
+  "Über Git-Dienst auswählen": "Choose from a Git service",
+  "SSH-URL eingeben": "Enter SSH URL",
+  "Repository-SSH-URL": "Repository SSH URL",
+  "Hinterlege den öffentlichen Schlüssel beim Git-Server, damit Zentrale auf das Repository zugreifen kann.":
+    "Add the public key to the Git server so Zentrale can access the repository.",
+  "Hinterlege den Host-Schlüssel eigener Git-Server unter Schlüssel → Vertrauenswürdige Hosts.":
+    "Add the host key for self-hosted Git servers under Keys → Trusted hosts.",
   "Repository erstellen": "Create repository",
   "Ein eigener Deploy-Key erlaubt Lesen und Schreiben. Vorhandene Repo-Schlüssel werden wiederverwendet.":
     "A dedicated deploy key allows read and write access. Existing repository keys are reused.",

@@ -4674,6 +4674,30 @@
                 "ofType": null
               }
             }
+          },
+          {
+            "name": "repositorySshKeyId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "repositorySshUrl",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
           }
         ],
         "inputFields": null,
@@ -4781,6 +4805,22 @@
           },
           {
             "name": "repositoryName",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "repositorySshKeyId",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "repositorySshUrl",
             "type": {
               "kind": "SCALAR",
               "name": "String",

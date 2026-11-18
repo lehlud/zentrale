@@ -7,7 +7,73 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lehlud/zentrale/domain"
 )
+
+func TestDirectSSHProjectRepositoryPreparesCheckoutAndClaimsKey(t *testing.T) {
+	fixture := newRepositoryFixture(t, nil)
+	engine, project := fixture.engine, fixture.project
+	if err := engine.Store.Remove("source", fixture.source.ID); err != nil {
+		t.Fatal(err)
+	}
+	key, err := engine.Store.GenerateSSHKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.RepositorySSHURL, project.RepositorySSHKeyID = fixture.source.URL, key.ID
+	project, err = engine.SaveProject(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := engine.CheckAgentConnection(context.Background(), fixture.record.ID); !result.Connected {
+		t.Fatal(result)
+	}
+	if content, err := os.ReadFile(filepath.Join(fixture.directory, "README.md")); err != nil || string(content) != "Repository content\n" {
+		t.Fatalf("direct repository was not cloned into the project root: %q, %v", content, err)
+	}
+	command := exec.Command("git", "-C", fixture.directory, "ls-remote", "origin", "HEAD")
+	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "SSH_AUTH_SOCK=/unrelated-agent")
+	if output, err := command.CombinedOutput(); err != nil || !strings.Contains(string(output), "HEAD") {
+		t.Fatalf("plain Git could not authenticate: %s: %v", output, err)
+	}
+
+	usages, err := engine.Store.SSHKeyUsages()
+	if err != nil || len(usages[key.ID]) != 1 || usages[key.ID][0].ProjectID != project.ID {
+		t.Fatalf("repository key usage was not recorded: %v: %v", usages[key.ID], err)
+	}
+	if err := engine.Store.DropPrivSSHKey(key.ID); err == nil {
+		t.Fatal("was able to delete an assigned repository key")
+	}
+	other := project
+	other.ID = NewID()
+	if _, err := engine.SaveProject(other); err == nil {
+		t.Fatal("another project claimed the same key")
+	}
+	project.Name = "Renamed"
+	if _, err := engine.SaveProject(project); err != nil {
+		t.Fatal("changing project metadata must preserve the repository", err)
+	}
+	bad := project
+	bad.RepositorySSHKeyID = fixture.source.KeyID // Already belongs to the worker.
+	if _, err := engine.SaveProject(bad); err == nil {
+		t.Fatal("project repository claimed a machine key")
+	}
+	var stored domain.Project
+	if err := engine.Store.Load("project", project.ID, &stored); err != nil || stored.RepositorySSHKeyID != key.ID {
+		t.Fatalf("failed save changed the repository: %+v, %v", stored, err)
+	}
+	rootSource := usages[key.ID][0].ID
+	if err := engine.Delete("source", rootSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Store.Load("project", project.ID, &stored); err != nil || stored.RepositorySSHURL != "" || stored.RepositorySSHKeyID != 0 {
+		t.Fatalf("removing the source did not clear the project selection: %+v, %v", stored, err)
+	}
+	if err := engine.Store.DropPrivSSHKey(key.ID); err != nil {
+		t.Fatal("detaching the repository did not release its key", err)
+	}
+}
 
 func TestProjectGitPreparationConfiguresPlainGitAndClearsDetachedCredentials(t *testing.T) {
 	fixture := newRepositoryFixture(t, nil)

@@ -593,7 +593,7 @@ export const CONFIG = `query {
   }
   sshKeys { id name publicKey fingerprint purpose purposeId canDelete canRevoke usages { kind id name projectId } }
   trustedKeys { publicKey fingerprint }
-  projects(limit:500) { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName }
+  projects(limit:500) { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName repositorySshUrl repositorySshKeyId }
   commitIdentity { name email }
   modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
   providerKinds { id name authMethods }

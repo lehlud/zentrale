@@ -193,6 +193,24 @@ func (instance *Instance) SaveWithSSHKeys(kind, id, parent string, value any, cl
 		}
 	}
 
+	if err := claimSSHKeys(tx, claims...); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
+		kind, id, parent, string(data), resourceCreatedAt(),
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func claimSSHKeys(tx *sql.Tx, claims ...SSHKeyClaim) error {
+	if len(claims) == 0 {
+		return nil
+	}
 	usages, err := keyUsages(tx)
 	if err != nil {
 		return err
@@ -233,18 +251,7 @@ func (instance *Instance) SaveWithSSHKeys(kind, id, parent string, value any, cl
 		}
 	}
 
-	if _, err := tx.Exec(
-		`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,parent_id=excluded.parent_id`,
-		kind,
-		id,
-		parent,
-		string(data),
-		resourceCreatedAt(),
-	); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return nil
 }
 
 func (instance *Instance) dropUnusedSSHKey(id int) error {

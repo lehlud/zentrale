@@ -199,6 +199,35 @@ func (service *Service) ensureBinding(
 }
 
 func (service *Service) SaveProject(ctx context.Context, project domain.Project) (domain.Project, error) {
+	project.RepositorySSHURL = strings.TrimSpace(project.RepositorySSHURL)
+	if project.RepositorySSHURL != "" || project.RepositorySSHKeyID != 0 {
+		if project.RepositoryID != "" || project.GitConnectionID != "" {
+			return project, errors.New("choose either a Git service repository or a direct SSH URL")
+		}
+		if err := domain.ValidateRepositorySSHURL(project.RepositorySSHURL); err != nil {
+			return project, err
+		}
+		if project.RepositorySSHKeyID <= 0 {
+			return project, errors.New("select an SSH key for the project repository")
+		}
+
+		project.RepositoryName = project.RepositorySSHURL
+		source := domain.Source{
+			ID: rootSourceID(project.ID), ProjectID: project.ID, Name: "repository",
+			URL: project.RepositorySSHURL, KeyID: project.RepositorySSHKeyID,
+			RepositoryName: project.RepositoryName, ProjectRoot: true,
+		}
+		var previous domain.Source
+		if err := service.Store.Load("source", source.ID, &previous); err == nil {
+			if previous.ProjectRoot {
+				source.Name, source.ReadOnly = previous.Name, previous.ReadOnly
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return project, err
+		}
+		return project, service.Store.SaveProjectRepository(project, &source)
+	}
+
 	if project.RepositoryID == "" && project.GitConnectionID == "" {
 		project.RepositoryName = ""
 		return project, service.Store.SaveProjectRepository(project, nil)

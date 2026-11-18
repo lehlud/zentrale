@@ -465,6 +465,8 @@ export type Project = {
   poolIds: Array<string>;
   repositoryId: string;
   repositoryName: string;
+  repositorySshKeyId: number;
+  repositorySshUrl: string;
 };
 export type ProjectInput = {
   commitEmail?: string | null;
@@ -478,6 +480,8 @@ export type ProjectInput = {
   poolIds?: Array<string> | null;
   repositoryId?: string | null;
   repositoryName?: string | null;
+  repositorySshKeyId?: number | null;
+  repositorySshUrl?: string | null;
 };
 export type Provider = {
   accountLabel: string;
