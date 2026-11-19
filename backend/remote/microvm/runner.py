@@ -40,6 +40,7 @@ STARTUP_FAILED = 76
 INVOCATION_INTERRUPTED = 77
 STARTUP_TIMEOUT = 1080
 CONTROL_PROTOCOL = 1
+MAX_MICROVM_CPUS = 288  # QEMU's microvm machine limit.
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 MAX_KERNEL_EXTRACT_BYTES = 256 * 1024 * 1024
@@ -687,7 +688,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         "--memory",
         "4096M",
         "--cpus",
-        "2",
+        str(request.get("vcpus", 2)),
         "--rwdir",
         "/run/zentrale-workspace=" + str(invocation / "workspace"),
         "--rwdir",
@@ -1230,12 +1231,13 @@ def supervise(runtime, kernel, control, gpu_leases=()):
         (control / "stopped").touch()
 
 
-def session_identity(configuration, execution):
+def session_identity(configuration, execution, vcpus):
     addresses = gpu_devices(configuration)
     return hashlib.sha256(
         json.dumps(
             {
                 "runner": configuration["runnerHash"],
+                "vcpus": vcpus,
                 "gpuDevices": addresses,
                 "gpu": bool(configuration.get("gpu")),
                 "gpuInventory": configuration.get("gpuInventory"),
@@ -1310,10 +1312,17 @@ def active_invocations(control):
     return False
 
 
+def available_vcpus():
+    affinity = getattr(os, "sched_getaffinity", None)
+    available = len(affinity(0)) if affinity else (os.cpu_count() or 1)
+    return min(available, MAX_MICROVM_CPUS)
+
+
 def ensure_session(scope, configuration, runtime, base, kernel, execution):
     control = scope / "session"
     addresses = gpu_devices(configuration)
-    identity = session_identity(configuration, execution)
+    vcpus = available_vcpus()
+    identity = session_identity(configuration, execution, vcpus)
     if control.is_dir():
         active = active_invocations(control)
         alive_supervisor = (
@@ -1327,8 +1336,8 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
             control / "version"
         ).read_text() == identity
         if responsive and compatible:
-            # Applying a new implementation can wait until existing work ends.
-            # Hardware, mounts and protocol changes cannot be deferred this way.
+            # Applying a new implementation or CPU count can wait until work
+            # ends. Device, mount and protocol changes have to match now.
             if same_version or active:
                 return control
         if active:
@@ -1348,6 +1357,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         network=True,
         editorPort=editor_port,
         controlProtocol=CONTROL_PROTOCOL,
+        vcpus=vcpus,
         standardTools=configuration.get("release", {}).get("tools", {}),
         csvkitRequirements=configuration.get("release", {}).get("csvkitRequirements", []),
         gpuDevices=addresses,

@@ -358,6 +358,20 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertEqual(self.git("sparse-checkout", "list"), "docs")
         self.assertEqual(self.git("show", "HEAD:assets/data.txt"), "tracked asset")
 
+    def test_managed_checkout_uses_guest_cpus_within_the_process_limit(self):
+        _, checkout = self.staged_clone(receipt=True)
+        for cpus, workers in [(16, 0), (288, 252)]:
+            with (
+                self.subTest(cpus=cpus),
+                patch.object(repository_helper.os, "cpu_count", return_value=cpus),
+                patch.object(repository_helper.resource, "getrlimit", return_value=(256, 256)),
+                patch.object(repository_helper, "run_clone") as clone,
+            ):
+                repository_helper.checkout_files(
+                    checkout, {}, {"managedVM": True}, repository_helper.git_environment(), False,
+                )
+                self.assertIn(f"checkout.workers={workers}", clone.call_args.args[0])
+
     def test_progress_reports_bytes_when_percentage_remains_constant(self):
         stderr = io.StringIO()
         lines = (

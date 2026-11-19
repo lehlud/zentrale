@@ -43,10 +43,12 @@ the new matching kernel/header pair. Signature and checksum errors stop setup.
 Runtime directories include the resolved artifact identity, so running VMs
 keep their own runtime files through an update.
 
-Guests use 2 vCPUs, 4 GiB RAM, and a sparse disk capped at 8 GiB. Disks, VM
-artifacts and per-project scratch live in private directories under `/tmp` on
-the remote machine. They survive ordinary stop/start while present; remote
-host reboot or temporary-file cleanup may remove them. Zentrale creates a new
+Guests use the logical CPUs available to the runner, up to QEMU's `microvm`
+limit, with 4 GiB RAM and a sparse disk capped at 8 GiB. Git uses one checkout
+worker per guest vCPU within the guest process limit. Disks, VM artifacts and
+per-project scratch live in private directories under `/tmp` on the remote
+machine. They survive ordinary stop/start while present. Remote host reboot
+or temporary-file cleanup may remove them. Zentrale creates a new
 guest when needed. Project files and configured storage are mounted separately
 and retained. Pool failover does not move a guest disk to another host.
 Deleting a conversation preserves the project's shared VM. Removing the project

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shlex
 import shutil
 import subprocess
@@ -778,9 +779,14 @@ def checkout_files(checkout, receipt, configuration, environment, report_progres
     elif report_progress:
         report_clone_progress("Checking out files", "0")
     if configuration.get("managedVM"):
-        # The guest has two vCPUs. Overlap writes on the shared filesystem
-        # using Git's native parallel checkout and file progress reporting.
-        git.extend(["-c", "checkout.workers=2"])
+        # Git uses one worker per online CPU with 0. On very large guests,
+        # leave process slots for the launcher, progress monitor and Git itself.
+        processes, _ = resource.getrlimit(resource.RLIMIT_NPROC)
+        cpus = os.cpu_count() or 1
+        workers = 0
+        if processes != resource.RLIM_INFINITY and processes < cpus + 4:
+            workers = max(1, processes - 4)
+        git.extend(["-c", f"checkout.workers={workers}"])
     run_clone(
         [*git, "checkout", "--force", *(["--progress"] if report_progress else [])],
         environment, report_progress, watch_checkout=True,

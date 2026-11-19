@@ -368,8 +368,8 @@ class GPUDiscoveryTests(unittest.TestCase):
         self.assertNotIn("gpuDevices", configuration)
         self.assertEqual(resolved["gpuDevices"], addresses)
         self.assertEqual(
-            runner.session_identity(resolved, {}),
-            runner.session_identity(dict(configuration, gpuDevices=addresses), {}),
+            runner.session_identity(resolved, {}, 2),
+            runner.session_identity(dict(configuration, gpuDevices=addresses), {}, 2),
         )
         discover.assert_called_once_with()
 

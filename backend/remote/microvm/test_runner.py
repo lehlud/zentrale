@@ -292,16 +292,25 @@ class MicroVMRunnerTests(unittest.TestCase):
         # individual approvals without rebooting or inheriting a past grant.
         self.assertIn("--net", arguments)
 
+        request["vcpus"] = 16
+        with patch.object(
+            runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"
+        ):
+            arguments = runner.virtme_arguments(
+                runtime, Path("/boot/kernel"), control, request
+            )
+        self.assertEqual(arguments[arguments.index("--cpus") + 1], "16")
+
+        del request["vcpus"]
         request["provision"] = True
         with patch.object(
             runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"
         ):
-            self.assertNotIn(
-                "--net",
-                runner.virtme_arguments(
-                    runtime, Path("/boot/kernel"), control, request
-                ),
+            arguments = runner.virtme_arguments(
+                runtime, Path("/boot/kernel"), control, request
             )
+        self.assertNotIn("--net", arguments)
+        self.assertEqual(arguments[arguments.index("--cpus") + 1], "2")
 
     def test_reused_pid_is_not_treated_as_the_old_supervisor(self):
         reference = runner.process_reference()
@@ -316,7 +325,8 @@ class MicroVMRunnerTests(unittest.TestCase):
         control = scope / "session"
         (control / "requests").mkdir(parents=True)
         configuration = {"runnerHash": "fixture"}
-        (control / "version").write_text(runner.session_identity(configuration, {}))
+        cpus = runner.available_vcpus()
+        (control / "version").write_text(runner.session_identity(configuration, {}, cpus))
         (control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
         (control / "ready.json").write_text("{}")
         (control / "request.json").write_text(json.dumps({}))
@@ -381,6 +391,28 @@ class MicroVMRunnerTests(unittest.TestCase):
         (job / "status").write_text("0")
         self.assertFalse(runner.active_invocations(control))
 
+    def test_cpu_affinity_change_applies_after_running_jobs_finish(self):
+        scope, control, configuration = self.cached_session()
+        (control / "version").write_text(runner.session_identity(configuration, {}, 2))
+
+        class RestartRequested(Exception):
+            pass
+
+        with (
+            patch.object(runner.os, "sched_getaffinity", return_value={0, 2, 4, 6}, create=True),
+            patch.object(runner, "guest_responding", return_value=True),
+            patch.object(runner, "active_invocations", return_value=True) as active,
+            patch.object(runner, "stop_session", side_effect=RestartRequested) as stop,
+        ):
+            self.assertEqual(
+                runner.ensure_session(scope, configuration, None, None, None, {}), control
+            )
+            stop.assert_not_called()
+            active.return_value = False
+            with self.assertRaises(RestartRequested):
+                runner.ensure_session(scope, configuration, None, None, None, {})
+            stop.assert_called_once_with(scope)
+
     def test_warm_session_never_claims_a_vm_boot(self):
         scope, control, configuration = self.cached_session()
         output = io.StringIO()
@@ -393,8 +425,8 @@ class MicroVMRunnerTests(unittest.TestCase):
                 scope, configuration, None, None, None, {"startupProgress": True}), control)
         fork.assert_not_called()
         self.assertEqual(output.getvalue(), "")
-        self.assertEqual(runner.session_identity(configuration, {}),
-                         runner.session_identity(configuration, {"startupProgress": True}))
+        self.assertEqual(runner.session_identity(configuration, {}, 2),
+                         runner.session_identity(configuration, {"startupProgress": True}, 2))
 
     def test_boot_phase_is_emitted_only_after_new_supervisor_is_forked(self):
         for observe in (False, True):
