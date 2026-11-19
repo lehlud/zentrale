@@ -87,6 +87,19 @@ class MicroVMRunnerTests(unittest.TestCase):
         self.assertLessEqual(len(diagnostic["log"]), 10000)
         self.assertIn("exit 255", str(error))
 
+    def test_runtime_failure_survives_replacing_the_session(self):
+        control = self.root / "session"
+        control.mkdir()
+        (control / "ready.json").touch()
+        (control / "boot.log").write_text("x" * 20000 + "runtime failure details")
+        runner.record_session_failure(control, {"error": "MicroVM stopped unexpectedly", "exit": 125})
+        runner.stop_session(self.root)
+        diagnostic = json.loads((self.root / "runtime-failure.json").read_text())
+        self.assertFalse(control.exists())
+        self.assertEqual(diagnostic["exit"], 125)
+        self.assertLessEqual(len(diagnostic["output"]), 10000)
+        self.assertTrue(diagnostic["output"].endswith("runtime failure details"))
+
     def test_fedora_bootstrap_stages_archive_inside_the_9p_export(self):
         digest = "a" * 64
         archive = self.cache / ("fedora-" + digest + ".tar.gz")

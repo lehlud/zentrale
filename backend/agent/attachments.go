@@ -163,31 +163,35 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 		ProjectID:          project.ID,
 		Workspace:          project.Directory,
 		TemporaryDirectory: temporary,
-		Command:            baseCommand + " check " + remote.Quote(attachment.Name),
 		Tooling:            true,
 	}
-	checkCommand, level, err := engine.sandboxWithRecovery(ctx, connection, machine, execution, false)
-	if err != nil {
-		return attachment, err
-	}
-	if err := engine.rememberExecutionSandbox(machine, level, false); err != nil {
-		return attachment, err
-	}
-	if level == remote.SandboxDisabled {
-		return attachment, errors.New("attachments require an isolated agent sandbox")
-	}
-	state, err := remote.Run(ctx, connection, checkCommand)
-	if err != nil {
-		return attachment, fmt.Errorf("check attachment: %w", err)
-	}
-	if strings.TrimSpace(state) != "present" {
-		execution.Command = baseCommand + " upload " + remote.Quote(attachment.Name)
-		command, _, err := engine.sandboxWithRecovery(ctx, connection, machine, execution, false)
+	var level string
+	for attempt := 0; ; attempt++ {
+		execution.Command = baseCommand + " check " + remote.Quote(attachment.Name)
+		var state string
+		state, level, err = engine.runAttachmentOperation(ctx, connection, machine, execution, nil)
 		if err != nil {
+			err = fmt.Errorf("check attachment: %w", err)
+		} else if strings.TrimSpace(state) != "present" {
+			execution.Command = baseCommand + " upload " + remote.Quote(attachment.Name)
+			_, level, err = engine.runAttachmentOperation(ctx, connection, machine, execution, bytes.NewReader(data))
+			if err != nil {
+				err = fmt.Errorf("stage attachment: %w", err)
+			}
+		}
+		if err == nil {
+			break
+		}
+		var interrupted *remote.VMInvocationInterrupted
+		if attempt > 0 || !errors.As(err, &interrupted) {
 			return attachment, err
 		}
-		if _, err := remote.RunPipe(ctx, connection, command, bytes.NewReader(data)); err != nil {
-			return attachment, fmt.Errorf("stage attachment: %w", err)
+		// Stage a fresh check after the old invocation has exited. The check
+		// also recognizes a complete upload whose acknowledgement was lost.
+		select {
+		case <-ctx.Done():
+			return attachment, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 
@@ -195,6 +199,28 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 	attachment.Path = path.Join(paths.TemporaryDirectory, "attachments", attachment.ID, filename)
 	attachment.MachineID = machine.ID
 	return attachment, nil
+}
+
+func (engine *Engine) runAttachmentOperation(ctx context.Context, connection *remote.Connection, machine domain.Machine, execution remote.Execution, input io.Reader) (string, string, error) {
+	command, level, err := engine.sandboxWithRecovery(ctx, connection, machine, execution, false)
+	if err != nil {
+		return "", level, err
+	}
+	if input == nil {
+		if err := engine.rememberExecutionSandbox(machine, level, false); err != nil {
+			return "", level, err
+		}
+	}
+	if level == remote.SandboxDisabled {
+		return "", level, errors.New("attachments require an isolated agent sandbox")
+	}
+	output, err := remote.RunPipe(ctx, connection, command, input)
+	if level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
+		if interrupted := remote.ParseVMInvocationFailure(output, err); interrupted != nil {
+			return output, level, interrupted
+		}
+	}
+	return output, level, err
 }
 
 func (engine *Engine) AttachmentImage(agentID, id string) (domain.Attachment, []byte, error) {

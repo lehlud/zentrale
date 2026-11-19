@@ -810,6 +810,25 @@ def run_job(job):
             process.wait()
 
 
+def dispatch_jobs(requests, workers):
+    for job in requests.iterdir():
+        worker = workers.get(job.name)
+        if (job / "acknowledged").exists():
+            if worker is None or not worker.is_alive():
+                # Once the worker has drained its streams, the host owns
+                # cleanup. Keep recursive deletion off the 9p dispatcher.
+                try:
+                    (job / "reclaimable").touch()
+                except FileNotFoundError:
+                    pass  # The host already retired the mailbox.
+                workers.pop(job.name, None)
+            continue
+        if worker is None and (job / "started").exists() and not (job / "status").exists():
+            worker = threading.Thread(target=run_job, args=(job,), daemon=True)
+            workers[job.name] = worker
+            worker.start()
+
+
 def serve_jobs(request):
     prepare_fedora(request)
     if request.get("provision"):
@@ -845,7 +864,9 @@ def serve_jobs(request):
     if nvidia:
         proof["gpuBackend"] = "nvidia"
         proof["gpuInventory"] = nvidia["verify_guest"](Path(FEDORA))
-    heartbeat = Path(CONTROL, "heartbeat")
+    control = Path(CONTROL)
+    requests = control / "requests"
+    heartbeat = control / "heartbeat"
     heartbeat.touch()
     temporary = Path(CONTROL, "ready.new")
     temporary.write_text(json.dumps(proof))
@@ -853,26 +874,12 @@ def serve_jobs(request):
 
     workers = {}
     last_heartbeat = time.monotonic()
-    while not Path(CONTROL, "stop").exists():
-        respond_to_health_check(Path(CONTROL))
+    while not (control / "stop").exists():
+        respond_to_health_check(control)
         if time.monotonic() - last_heartbeat >= 1:
             heartbeat.touch()
             last_heartbeat = time.monotonic()
-        for job in Path(CONTROL, "requests").iterdir():
-            if (
-                (job / "started").exists()
-                and job.name not in workers
-                and not (job / "status").exists()
-            ):
-                worker = threading.Thread(target=run_job, args=(job,), daemon=True)
-                workers[job.name] = worker
-                worker.start()
-            worker = workers.get(job.name)
-            if (job / "acknowledged").exists() and (
-                worker is None or not worker.is_alive()
-            ):
-                shutil.rmtree(job)
-                workers.pop(job.name, None)
+        dispatch_jobs(requests, workers)
         time.sleep(0.05)
     for worker in workers.values():
         worker.join(timeout=5)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -105,6 +106,68 @@ func TestAttachmentSandboxNeverRecoversOrResetsVM(t *testing.T) {
 	var recovery *remote.VMRecoveryRequired
 	if !errors.As(err, &recovery) || stages.Load() != 1 || stops.Load() != 0 {
 		t.Fatalf("attachment triggered recovery: stages=%d stops=%d error=%v", stages.Load(), stops.Load(), err)
+	}
+}
+
+func TestAttachmentRestagesAfterConfirmedVMInterruption(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		interrupt  int32
+		exitStatus int
+		runs       int32
+	}{
+		{"check", 1, 77, 2},
+		{"upload acknowledgement", 2, 77, 3},
+		{"ordinary failure with a marker", 1, 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stages, runs, stops atomic.Int32
+			shell := shellPeerHandler("/bin/sh", os.Environ())
+			engine, record, _ := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+				if !strings.Contains(command, "<zentrale-microvm>") {
+					return shell(command, input, stdout, stderr)
+				}
+				command = strings.ReplaceAll(command, `'"'"'`, `'`)
+				switch {
+				case strings.Contains(command, " 'ensure'"), strings.Contains(command, " 'select'"):
+					fmt.Fprintln(stdout, "microvm")
+				case strings.Contains(command, " 'stage'"):
+					io.Copy(io.Discard, input)
+					fmt.Fprintf(stdout, "/tmp/test-vm/session/requests/%032x\n", stages.Add(1))
+				case strings.Contains(command, " 'stop'"), strings.Contains(command, " 'reset'"):
+					stops.Add(1)
+					fmt.Fprintln(stdout, `{}`)
+				case strings.Contains(command, " 'run'"):
+					run := runs.Add(1)
+					if !strings.Contains(command, fmt.Sprintf("/%032x", run)) {
+						t.Error("replayed a VM invocation instead of staging a fresh one")
+					}
+					if tc.interrupt == 2 && run == 2 {
+						data, err := io.ReadAll(input)
+						if err != nil || string(data) != "attachment" {
+							t.Error("upload did not receive the original bytes", err)
+						}
+					}
+					if run == tc.interrupt {
+						fmt.Fprintln(stderr, `ZENTRALE_VM_INVOCATION_INTERRUPTED {"reason":"supervisor_stopped"}`)
+						return tc.exitStatus
+					}
+					if tc.interrupt == 2 && run == 1 {
+						fmt.Fprintln(stdout, "missing")
+					} else {
+						fmt.Fprintln(stdout, "present")
+					}
+				}
+				return 0
+			})
+			release := engine.useEnvironment(record.ID)
+			defer release()
+			attachment := domain.Attachment{ID: "document", AgentID: record.ID, ProjectID: record.ProjectID, Name: "document.txt"}
+			result, err := engine.stageAttachment(context.Background(), record, attachment, attachment.Name, []byte("attachment"))
+			if (err == nil) != (tc.exitStatus == 77) || runs.Load() != tc.runs || stages.Load() != tc.runs || stops.Load() != 0 {
+				t.Fatalf("attachment=%+v error=%v stages=%d runs=%d stops=%d", result, err, stages.Load(), runs.Load(), stops.Load())
+			}
+		})
 	}
 }
 

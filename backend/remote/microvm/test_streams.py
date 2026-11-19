@@ -1,5 +1,6 @@
 """Exercise the real guest/host stream pumps without booting KVM or mounting."""
 
+import errno
 import hashlib
 import importlib.util
 import json
@@ -40,6 +41,28 @@ class StreamingTests(unittest.TestCase):
         )
         self.job = self.control / "requests" / "job"
         self.job.mkdir(parents=True)
+
+    def test_acknowledged_job_is_retired_before_retryable_cleanup(self):
+        retired = self.control / "retired"
+        retired.mkdir()
+        (self.job / "started").touch()
+        (self.job / "acknowledged").touch()
+        workers = {}
+
+        with patch.object(guest.threading, "Thread") as worker:
+            guest.dispatch_jobs(self.job.parent, workers)
+            worker.assert_not_called()
+        self.assertTrue((self.job / "reclaimable").exists())
+
+        moved = retired / self.job.name
+        with patch.object(runner.shutil, "rmtree", side_effect=OSError(errno.ENOTEMPTY, "late file")):
+            runner.supervise_invocations(self.control)
+        self.assertFalse(self.job.exists())
+        with self.assertRaises(FileNotFoundError):
+            (self.job / "cancel").touch()
+        self.assertTrue(moved.is_dir())
+        runner.supervise_invocations(self.control)
+        self.assertFalse(moved.exists())
 
     def test_guest_preserves_large_regular_and_persistent_protocol_streams(self):
         for protocol in (False, True):

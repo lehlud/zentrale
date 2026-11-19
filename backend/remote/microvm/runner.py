@@ -901,6 +901,7 @@ def prepare_control(directory, configuration, runtime, request):
         )
 
     private_directory(directory / "requests")
+    private_directory(directory / "retired")
 
 
 def launch_vm(runtime, kernel, control):
@@ -1151,6 +1152,42 @@ class DaemonLease:
         return now - self.last_contact < 15 * 60
 
 
+def record_session_failure(control, failure):
+    atomic_json(control / "failure.json", failure)
+    if (control / "ready.json").is_file():
+        # The next boot replaces the session directory, while the scope and
+        # its disk survive. Retain the evidence of an unexpected runtime exit.
+        atomic_json(control.parent / "runtime-failure.json", {
+            **failure, "time": time.time(), "output": boot_log_tail(control),
+        })
+
+
+def supervise_invocations(control):
+    retired = control / "retired"
+    for job in (control / "requests").iterdir():
+        try:
+            if (job / "reclaimable").exists():
+                # Remove the mailbox name before deleting its contents. A late
+                # writer to its old name can no longer recreate a file there.
+                job.rename(retired / job.name)
+            elif (
+                not (job / "acknowledged").exists()
+                and (job / "started").exists()
+                and not alive((job / "client.pid").read_text())
+            ):
+                (job / "cancel").touch()
+                (job / "acknowledged").touch()
+            elif not (job / "started").exists() and time.time() - job.stat().st_mtime > 3600:
+                job.rename(retired / job.name)
+        except FileNotFoundError:
+            pass  # An older guest may still remove an acknowledged mailbox.
+    for job in retired.iterdir():
+        try:
+            shutil.rmtree(job)
+        except OSError:
+            pass  # A late writer may still be finishing. Try again next pass.
+
+
 def supervise(runtime, kernel, control, gpu_leases=()):
     """Own QEMU independently of individual SSH tool sessions."""
     os.setsid()
@@ -1184,28 +1221,13 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 except ProcessLookupError:
                     pass
                 child = None
-                atomic_json(
-                    control / "failure.json",
-                    {
+                if not (control / "stop").exists():
+                    record_session_failure(control, {
                         "error": "MicroVM stopped unexpectedly",
                         "exit": os.waitstatus_to_exitcode(status),
-                    },
-                )
+                    })
                 return
-            for job in (control / "requests").iterdir():
-                try:
-                    if (job / "started").exists() and not alive(
-                        (job / "client.pid").read_text()
-                    ):
-                        (job / "cancel").touch()
-                        (job / "acknowledged").touch()
-                    elif (
-                        not (job / "started").exists()
-                        and time.time() - job.stat().st_mtime > 3600
-                    ):
-                        shutil.rmtree(job)
-                except FileNotFoundError:
-                    pass  # PID 1 may have removed an acknowledged mailbox.
+            supervise_invocations(control)
             if (control / "stop").exists():
                 return
             if daemon_lease is not None and not daemon_lease.active():
@@ -1223,6 +1245,9 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 )
                 return
             time.sleep(0.1)
+    except Exception as error:
+        traceback.print_exc()
+        record_session_failure(control, {"error": str(error), "reason": "supervisor_error"})
     finally:
         if child is not None:
             terminate_vm(child, control)
@@ -1447,11 +1472,15 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
     raise failure
 
 
-def startup_failure(scope, control):
+def boot_log_tail(control):
     with (control / "boot.log").open("rb") as source:
         source.seek(0, os.SEEK_END)
         source.seek(max(0, source.tell() - 10000))
-        logs = source.read().decode("utf-8", errors="replace")
+        return source.read().decode("utf-8", errors="replace")
+
+
+def startup_failure(scope, control):
+    logs = boot_log_tail(control)
     reason = "startup_failed"
     for name in ("failure.json", "startup-failure.json"):
         try:
@@ -1496,7 +1525,7 @@ def run_invocation(invocation):
     cancelled = lambda: (
         (invocation / "cancel").exists() or (invocation / "status").exists()
     )
-    (invocation / "client.pid").write_text(json.dumps(process_reference()))
+    atomic_json(invocation / "client.pid", process_reference())
     (invocation / "stdin").touch()
 
     def copy_input():
