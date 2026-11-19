@@ -707,6 +707,62 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertEqual(subprocess.check_output([*git, "rev-parse", "HEAD"]), head)
         self.assertEqual(edit.read_text(), "uncommitted change")
 
+    def test_repository_replacement_archives_edits_after_the_new_clone_succeeds(self):
+        self.staged_clone(receipt=True)
+        self.assertEqual(self.run_helper("prepare").returncode, 0)
+        edited = self.directory / "README.md"
+        edited.write_text("local edit")
+        attached = self.directory / "attachment"
+        attached.mkdir()
+        (attached / "draft").write_text("keep in place")
+        git = ["git", "-C", str(self.directory)]
+        previous_head = subprocess.check_output([*git, "rev-parse", "HEAD"])
+        new = self.root / "new.git"
+        selection = {"url": str(new), "replaceFrom": [str(self.origin)], "attachedNames": [attached.name]}
+        result = self.run_helper("inspect", sources=[{**self.source, **selection}])
+        self.assertEqual(json.loads(result.stdout), ["root"])
+        failed = self.run_helper("prepare", **selection)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(edited.read_text(), "local edit")
+        subprocess.run(["git", "clone", "--bare", str(self.origin), str(new)], check=True, capture_output=True)
+        prepared = self.run_helper("prepare", **selection)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertEqual(edited.read_text(), "repository content\n")
+        history = self.directory / ".git" / repository_helper.ARCHIVE_DIRECTORY
+        [saved] = [path for path in history.iterdir() if path.is_dir()]
+        self.assertEqual((saved / "README.md").read_text(), "local edit")
+        self.assertEqual(subprocess.check_output(["git", "-C", str(saved), "rev-parse", "HEAD"]), previous_head)
+        self.assertEqual((attached / "draft").read_text(), "keep in place")
+        self.assertEqual(subprocess.check_output([*git, "status", "--porcelain"]), b"?? attachment/\n")
+
+    def test_repository_archive_resumes_after_an_interrupted_rename(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        old = str(self.root / "old.git")
+        source = {**self.source, "replaceFrom": [old]}
+        subprocess.run(["git", "init", str(self.directory)], check=True, capture_output=True)
+        self.git("remote", "add", "origin", old)
+        receipt_file = stage / "clone.json"
+        receipt = json.loads(receipt_file.read_text())
+        receipt["archiveEntries"] = [".git", "work.txt"]
+        receipt_file.write_text(json.dumps(receipt))
+        archive_name = repository_helper.ARCHIVE_DIRECTORY
+        backup_name = stage.name.removeprefix(".zentrale-clone-")
+        backup = checkout / ".git" / archive_name / backup_name
+        backup.mkdir(parents=True)
+        (self.directory / ".git").rename(backup / ".git")
+        (self.directory / "work.txt").write_text("to archive")
+
+        inspected = self.run_helper("inspect", sources=[source])
+        self.assertEqual(inspected.returncode, 0, inspected.stderr)
+        self.assertEqual(json.loads(inspected.stdout), ["root"])
+
+        prepared = self.run_helper("prepare", replaceFrom=[old])
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertFalse(stage.exists())
+        saved = self.directory / ".git" / archive_name / backup_name
+        self.assertEqual((saved / "work.txt").read_text(), "to archive")
+        self.assertTrue((saved / ".git" / "config").is_file())
+
     def test_https_origin_is_repaired_only_for_the_selected_repository(self):
         self.assertEqual(self.run_helper("prepare").returncode, 0)
         url = "git@github.com:team/demo.git"

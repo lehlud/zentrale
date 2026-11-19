@@ -342,7 +342,7 @@ func (editors *Editors) HasActive(agents map[string]bool, machineID string) bool
 	defer editors.mutex.Unlock()
 	for _, session := range editors.sessions {
 		if (!agents[EditorScopeID(session.project.ID, session.target.AgentID)] && !agents[session.target.AgentID]) ||
-			(session.target.MachineID != "" && session.target.MachineID != machineID) {
+			(machineID != "" && session.target.MachineID != "" && session.target.MachineID != machineID) {
 			continue
 		}
 		select {

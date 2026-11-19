@@ -96,12 +96,17 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	stop := context.AfterFunc(engine.ctx, cancel)
 	defer stop()
 
+	unlockProject, err := engine.projectGates.LockContext(ctx, projectID)
+	if err != nil {
+		return domain.EditorSession{}, err
+	}
 	engine.configMu.Lock()
 	engine.mu.Lock()
 
 	if err := engine.ctx.Err(); err != nil {
 		engine.mu.Unlock()
 		engine.configMu.Unlock()
+		unlockProject()
 
 		return domain.EditorSession{}, err
 	}
@@ -115,6 +120,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 	project, selected, err := engine.editorSelection(projectID, agentID)
 	if err != nil {
 		engine.configMu.Unlock()
+		unlockProject()
 		return domain.EditorSession{}, err
 	}
 
@@ -125,6 +131,7 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 
 	engine.mu.Unlock()
 	engine.configMu.Unlock()
+	unlockProject()
 	defer func() {
 		engine.mu.Lock()
 		engine.editorPreparing[projectID]--

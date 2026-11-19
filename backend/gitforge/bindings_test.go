@@ -59,6 +59,10 @@ func TestSelectingMovedRepositoryRetainsThePreviousCheckoutOrigin(t *testing.T) 
 	if err := fixture.service.Store.Load("source", rootSourceID(project.ID), &after); err != nil {
 		t.Fatal(err)
 	}
+	previousOrigins, err := fixture.service.Store.PreviousCheckoutOrigins(project.ID)
+	if err != nil || !slices.Equal(previousOrigins, []string{before.URL}) {
+		t.Fatalf("previous checkout origins = %v, error = %v", previousOrigins, err)
+	}
 	httpURLs, movedFrom, err := fixture.service.RepositoryCheckoutURLs(after.BindingID, after.URL)
 	if err != nil || before.BindingID != after.BindingID || before.KeyID != after.KeyID ||
 		!slices.Equal(httpURLs, []string{"https://github.com/moved/demo"}) ||

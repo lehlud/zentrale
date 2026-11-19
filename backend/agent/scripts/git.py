@@ -351,6 +351,22 @@ def git_environment():
     return environment
 
 
+ARCHIVE_DIRECTORY = ".zentrale-previous-checkouts"
+
+
+def archive_checkout(directory, stage, metadata, entries):
+    archive = private_directory(metadata / ARCHIVE_DIRECTORY)
+    backup = private_directory(archive / stage.name.removeprefix(".zentrale-clone-"))
+    for entry in entries:
+        source, target = directory / entry, backup / entry
+        if os.path.lexists(source):
+            if os.path.lexists(target):
+                raise ValueError(f"Repository archive conflicts with {target}")
+            source.rename(target)
+        elif not os.path.lexists(target):
+            raise ValueError(f"Repository archive is missing {entry}")
+
+
 def checkout_exists(source, timeout=20, apply_move=False):
     directory = Path(source["directory"])
     if not directory.is_absolute() or directory.resolve() != directory:
@@ -363,10 +379,11 @@ def checkout_exists(source, timeout=20, apply_move=False):
     if not (directory / ".git").exists():
         entries = list(directory.iterdir())
         stages = interrupted_clones(source, timeout)
-        allowed = {stage.name for stage, _ in stages}
+        allowed = {*(source.get("attachedNames") or []), *(stage.name for stage, _ in stages)}
         for _, receipt in stages:
             if receipt and receipt["phase"] == "ready":
                 allowed.update(receipt["entries"])
+                allowed.update(receipt.get("archiveEntries", []))
         if any(entry.name not in allowed for entry in entries):
             raise ValueError(
                 f"Repository directory is not empty and has no checkout: {directory}. "
@@ -428,6 +445,13 @@ def checkout_exists(source, timeout=20, apply_move=False):
                 env=git_environment(), check=True, capture_output=True, timeout=timeout,
             )
             return True
+        if normalized_repository_url(origin) in {
+            normalized_repository_url(alias) for alias in (source.get("replaceFrom") or [])
+        }:
+            metadata = directory / ".git"
+            if not metadata.is_dir() or metadata.resolve() != metadata:
+                raise ValueError("Repository replacement requires a self-contained checkout")
+            return False  # The selected repository gets a separate checkout.
         raise ValueError(
             f"Repository origin does not match the configured source: {directory}. "
             "Existing files were preserved; check the project repository selection."
@@ -467,6 +491,13 @@ def clone_is_running(receipt):
         return False
 
 
+def valid_entry_names(entries):
+    return isinstance(entries, list) and all(
+        isinstance(name, str) and name not in ("", ".", "..") and Path(name).name == name
+        for name in entries
+    )
+
+
 def interrupted_clones(source, timeout=20):
     directory = Path(source["directory"])
     stages = []
@@ -488,17 +519,23 @@ def interrupted_clones(source, timeout=20):
             try:
                 receipt = json.loads(receipt_file.read_text())
                 entries = receipt["entries"]
+                archive_entries = receipt.get("archiveEntries")
                 valid = (
                     receipt["version"] == 1
                     and receipt["directory"] == str(directory)
                     and receipt["url"] == source["url"]
                     and receipt["phase"] in ("cloning", "fetched", "ready")
-                    and isinstance(entries, list)
-                    and all(
-                        isinstance(name, str)
-                        and name not in ("", ".", "..")
-                        and Path(name).name == name
-                        for name in entries
+                    and valid_entry_names(entries)
+                    and (
+                        "archiveEntries" not in receipt
+                        or (
+                            source.get("replaceFrom")
+                            and receipt["phase"] == "ready"
+                            and valid_entry_names(archive_entries)
+                            and ".git" in archive_entries
+                            and stage.name not in archive_entries
+                            and (checkout / ".git").is_dir()
+                        )
                     )
                     and (receipt["phase"] != "ready" or ".git" in entries)
                 )
@@ -553,8 +590,22 @@ def publish_clone(source, stage, receipt, previous):
         raise ValueError(
             "Interrupted clone has no safe Git metadata; existing files were preserved"
         )
+    replacing = (directory / ".git").exists() and not checkout_exists(source)
+    attached = set(source.get("attachedNames") or [])
+    if attached.intersection(receipt["entries"]):
+        raise ValueError("The new repository contains a directory reserved for an attached source")
     receipt["owner"] = clone_owner()
+    if replacing and "archiveEntries" not in receipt:
+        preserved = attached | {stage.name, *(old.name for old, _ in previous)}
+        receipt["archiveEntries"] = [
+            entry.name for entry in directory.iterdir() if entry.name not in preserved
+        ]
+    # Use the completed clone's receipt to resume the archive without accepting
+    # instructions from files in either repository's worktree.
     atomic_secret(stage, "clone.json", json.dumps(receipt))
+    if "archiveEntries" in receipt:
+        archive_checkout(directory, stage, metadata, receipt.pop("archiveEntries"))
+        atomic_secret(stage, "clone.json", json.dumps(receipt))
     for abandoned, _ in previous:
         if abandoned == stage:
             continue
@@ -971,8 +1022,11 @@ def clone_repository(configuration, environment):
 
         if configuration["readOnly"]:
             disable_push(checkout)
-        allowed = {stage, *(old for old, _ in previous)}
-        if any(entry not in allowed for entry in directory.iterdir()):
+        allowed = {stage, *(old for old, _ in previous),
+                   *(directory / name for name in (configuration.get("attachedNames") or []))}
+        if any(entry not in allowed for entry in directory.iterdir()) and (
+            not (directory / ".git").exists() or checkout_exists(configuration)
+        ):
             raise ValueError(
                 f"Repository directory changed during checkout: {directory}"
             )

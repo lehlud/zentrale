@@ -325,6 +325,14 @@ func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string
 	stop := context.AfterFunc(engine.ctx, cancel)
 	defer stop()
 
+	// Take the project snapshot after any repository selection already in
+	// progress. New selections will see the preparation count above.
+	unlock, err := engine.projectGates.LockContext(ctx, record.ProjectID)
+	if err != nil {
+		return domain.MachineConnectionCheck{Error: err.Error()}, err
+	}
+	unlock()
+
 	var result domain.MachineConnectionCheck
 	if reuseSources {
 		// The background worker already retries transport failures. Its phases

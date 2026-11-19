@@ -161,6 +161,21 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 
 	var previous domain.Project
 	if err := engine.Store.Load("project", project.ID, &previous); err == nil {
+		if (previous.RepositoryID != "" || previous.RepositorySSHURL != "") &&
+			(previous.RepositoryID != project.RepositoryID || previous.GitConnectionID != project.GitConnectionID ||
+				previous.RepositorySSHURL != strings.TrimSpace(project.RepositorySSHURL)) {
+			family, err := engine.agentFamily(domain.Agent{ID: remote.EditorScopeID(project.ID, ""), ProjectID: project.ID})
+			if err != nil {
+				return project, err
+			}
+			terminal, err := engine.Store.HasTerminalAttachment(project.ID, "")
+			if err != nil {
+				return project, err
+			}
+			if terminal || engine.agentsAreBusy(family) || engine.Editors.HasActive(family, "") {
+				return project, errors.New("finish project work and close its editors and terminals before changing the repository")
+			}
+		}
 		if previous.ManagedWorkspace {
 			project.ManagedWorkspace = true
 		} else if project.Directory == "" {

@@ -22,7 +22,7 @@ func (i *Instance) PruneTerminalAttachments() error {
 func (i *Instance) HasTerminalAttachment(projectID, machineID string) (bool, error) {
 	var active bool
 	err := i.readDB().QueryRow(`SELECT EXISTS(SELECT 1 FROM resources WHERE kind='terminal_attachment'
-	 AND parent_id=? AND json_extract(data,'$.machineId')=?
-	 AND julianday(json_extract(data,'$.expiresAt'))>julianday('now'))`, projectID, machineID).Scan(&active)
+	 AND parent_id=? AND (?='' OR json_extract(data,'$.machineId')=?)
+	 AND julianday(json_extract(data,'$.expiresAt'))>julianday('now'))`, projectID, machineID, machineID).Scan(&active)
 	return active, err
 }

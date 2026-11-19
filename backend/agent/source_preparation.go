@@ -141,6 +141,19 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	}
 
 	checkouts := make([]map[string]any, 0, len(sources))
+	var replacedOrigins []string
+	var attachedNames []string
+	if rootFound {
+		replacedOrigins, err = engine.Store.PreviousCheckoutOrigins(project.ID)
+		if err != nil {
+			return err
+		}
+		for _, source := range sources {
+			if !source.ProjectRoot {
+				attachedNames = append(attachedNames, source.Name)
+			}
+		}
+	}
 	for _, source := range sources {
 		directory, err := sourceDirectory(project, source)
 		if err != nil {
@@ -152,13 +165,18 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return err
 		}
 
-		checkouts = append(checkouts, map[string]any{
+		checkout := map[string]any{
 			"id":        source.ID,
 			"url":       source.URL,
 			"directory": directory,
 			"httpUrls":  httpURLs,
 			"movedFrom": movedFrom,
-		})
+		}
+		if source.ProjectRoot {
+			checkout["replaceFrom"] = replacedOrigins
+			checkout["attachedNames"] = attachedNames
+		}
+		checkouts = append(checkouts, checkout)
 	}
 
 	// Separate 9p guests cannot coordinate using directory flock locks. Hold
@@ -288,6 +306,10 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		cancelConfiguration()
 		if err == nil {
 			configuration["operation"] = "prepare"
+			if source.ProjectRoot {
+				configuration["replaceFrom"] = replacedOrigins
+				configuration["attachedNames"] = attachedNames
+			}
 			if source.ProjectRoot && len(project.RepositoryCheckoutPaths) > 0 {
 				configuration["checkoutPaths"] = project.RepositoryCheckoutPaths
 			}
