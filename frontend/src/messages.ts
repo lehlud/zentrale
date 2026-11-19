@@ -108,8 +108,7 @@ export const english: Record<string, string> = {
   "Gesamtprüfung / Abbruchgrund":
     "Integration verification / cancellation reason",
 
-  "Bestehende Umgebung wird kurz geprüft …":
-    "Checking the existing environment …",
+  "Bestehende Umgebung wird geprüft …": "Checking the existing environment …",
   "Vorbereitete Umgebung ist bereit …": "Prepared environment is ready …",
   Zeitlimit: "Time limit",
   "Zeitlimit erreicht": "Time limit reached",

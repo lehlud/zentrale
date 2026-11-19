@@ -350,11 +350,7 @@ func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string
 // strings and must not be used to classify authentication or permission errors.
 func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record domain.Agent, reuseSources bool) (domain.MachineConnectionCheck, error) {
 	agentID := record.ID
-	if reuseSources {
-		engine.setRunState(agentID, "checking_ready", nil)
-	} else {
-		engine.setRunState(agentID, "connecting", nil)
-	}
+	engine.setRunState(agentID, "connecting", nil)
 	connectContext, cancelConnect := context.WithTimeout(ctx, 3*time.Minute)
 	connection, machine, project, err := engine.connect(connectContext, record)
 	cancelConnect()
@@ -367,6 +363,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 		}
 	}()
 	if reuseSources {
+		engine.setRunState(agentID, "checking_ready", nil)
 		if status, ok := engine.reuseReadyConnection(ctx, record, connection, machine, project); ok {
 			engine.setRunState(agentID, "ready", nil)
 			return domain.MachineConnectionCheck{Connected: true, Sandbox: status}, nil
@@ -376,6 +373,7 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 			reconnect := entry.connection == nil
 			entry.mutex.Unlock()
 			if reconnect {
+				engine.setRunState(agentID, "connecting", nil)
 				connection.Close()
 				reconnectContext, cancel := context.WithTimeout(ctx, 3*time.Minute)
 				connection, machine, project, err = engine.connect(reconnectContext, record)

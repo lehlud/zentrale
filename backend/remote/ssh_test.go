@@ -343,6 +343,16 @@ func TestSingleUserFailoverSkipsOccupiedMachine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	offlinePort, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	offline := available.machine("offline", key.ID)
+	offline.Port = offlinePort.Addr().(*net.TCPAddr).Port
+	if err := offlinePort.Close(); err != nil {
+		t.Fatal(err)
+	}
+	members = []domain.Machine{members[0], offline, members[1]}
 
 	if err := store.Save("pool", "failover", "", domain.Pool{ID: "failover", KeyID: key.ID, MaxMachines: 2, Sandbox: SandboxDisabled, SingleUser: true, Machines: members}); err != nil {
 		t.Fatal(err)

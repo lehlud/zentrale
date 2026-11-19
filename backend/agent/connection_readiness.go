@@ -127,20 +127,21 @@ func (engine *Engine) connectionReadinessKey(record domain.Agent, machine domain
 }
 
 func (engine *Engine) probeReadyGeneration(ctx context.Context, record domain.Agent, connection *remote.Connection, machine domain.Machine, project domain.Project, expectedBootID ...string) (string, error) {
+	probeContext, cancel := context.WithTimeout(ctx, 7*time.Second)
+	defer cancel()
+
 	owner, err := engine.vmOwner(record.ID)
 	if err != nil {
 		return "", err
 	}
 	operation := engine.vmOperation(owner.ID, machine.ID)
-	if err := operation.Lock(ctx); err != nil {
+	if err := operation.Lock(probeContext); err != nil {
 		return "", err
 	}
 	defer operation.Unlock()
 	if operation.stopped {
 		return "", errors.New("VM scope was stopped")
 	}
-	probeContext, cancel := context.WithTimeout(ctx, 7*time.Second)
-	defer cancel()
 	identity := map[string]string{"agentId": owner.ID, "projectId": project.ID, "workspace": project.Directory, "temporaryDirectory": engine.environmentTemporaryDirectory(owner.ID)}
 	if strings.HasPrefix(owner.ID, "project-") {
 		identity["installationId"] = connection.InstallationID()

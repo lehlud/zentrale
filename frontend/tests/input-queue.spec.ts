@@ -199,6 +199,18 @@ for (const english of [false, true]) {
         ),
       ).toBeVisible();
 
+      phase = "checking_ready";
+      await update();
+      await expect(
+        page.getByText(
+          label(
+            "Bestehende Umgebung wird geprüft …",
+            "Checking the existing environment …",
+          ),
+          { exact: true },
+        ),
+      ).toBeVisible();
+
       phase = "sandbox";
       await update();
 

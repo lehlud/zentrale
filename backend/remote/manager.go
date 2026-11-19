@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -137,8 +139,27 @@ func (manager *Manager) Connect(
 
 	manager.Release(ownerID)
 	failures := []error{}
-	for _, candidate := range candidates {
+	// Give the preferred connection its usual chance first. Then screen small
+	// batches of direct pool routes so blackholed TCP ports do not serially
+	// consume the entire connection budget before a reachable host is tried.
+	const probeBatchSize = 8
+	probeEnd := 1
+	var unreachable map[string]error
+	for index, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			failures = append(failures, err)
+			break
+		}
+
 		if excludedMachines[candidate.id] {
+			continue
+		}
+		if candidate.pool != nil && index >= probeEnd {
+			probeEnd = min(index+probeBatchSize, len(candidates))
+			unreachable = probeDirectPoolRoutes(ctx, candidates[index:probeEnd], excludedMachines)
+		}
+		if err := unreachable[candidate.id]; err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", candidate.id, err))
 			continue
 		}
 
@@ -146,7 +167,15 @@ func (manager *Manager) Connect(
 			continue
 		}
 
-		connection, machine, err := manager.connectCandidate(ctx, candidate)
+		attempt := ctx
+		cancel := func() {}
+		if candidate.pool != nil {
+			// The SSH handshake, daemon attach and availability check belong
+			// to this candidate's budget, even when its TCP port responds.
+			attempt, cancel = context.WithTimeout(ctx, 35*time.Second)
+		}
+		connection, machine, err := manager.connectCandidate(attempt, candidate)
+		cancel()
 		if err == nil {
 			return connection, machine, nil
 		}
@@ -167,6 +196,37 @@ func (manager *Manager) Connect(
 		return nil, domain.Machine{}, errors.New("no available machine: all assigned machines are excluded or reserved")
 	}
 	return nil, domain.Machine{}, fmt.Errorf("no available machine: %w", errors.Join(failures...))
+}
+
+// Only screen TCP reachability. SSH authentication, host keys, leases and
+// availability are still checked in preference order on the normal path.
+func probeDirectPoolRoutes(ctx context.Context, candidates []machineCandidate, excluded map[string]bool) map[string]error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	dialer := net.Dialer{}
+	var workers sync.WaitGroup
+	var mutex sync.Mutex
+	failed := make(map[string]error)
+	for _, candidate := range candidates {
+		if excluded[candidate.id] || candidate.configured == nil || len(candidate.configured.Jumps) != 0 {
+			continue
+		}
+		workers.Go(func() {
+			machine := WithMachineDefaults(*candidate.configured)
+			address := net.JoinHostPort(machine.Host, strconv.Itoa(machine.Port))
+			connection, err := dialer.DialContext(ctx, "tcp", address)
+			if err == nil {
+				_ = connection.Close()
+				return
+			}
+			mutex.Lock()
+			failed[candidate.id] = err
+			mutex.Unlock()
+		})
+	}
+	workers.Wait()
+	return failed
 }
 
 func (manager *Manager) projectCandidates(project domain.Project) ([]machineCandidate, error) {

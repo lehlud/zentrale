@@ -14,7 +14,7 @@ import { WorkingIndicator } from "./working-indicator";
 const phaseLabels: Record<string, string> = {
   accepted: "Nachricht übernommen …",
   goal_review: "Auto-Approver prüft den Zielabschluss …",
-  checking_ready: "Bestehende Umgebung wird kurz geprüft …",
+  checking_ready: "Bestehende Umgebung wird geprüft …",
   ready: "Vorbereitete Umgebung ist bereit …",
   connecting: "Verbindung zur Maschine wird hergestellt …",
   retrying_connection:
