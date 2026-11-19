@@ -45,7 +45,21 @@ export function ProviderEditor({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState<Record<string, unknown>>(() => {
+    const destination = String(initial.baseUrl ?? "");
+    const native =
+      initial.kind === "modal" && destination.startsWith("modal://");
+    const [modalEnvironment = "main", modalApp = "", modalFunction = ""] =
+      native ? destination.slice("modal://".length).split("/") : [];
+    return {
+      ...initial,
+      baseUrl: native ? "" : destination,
+      modalMode: native ? "native" : "proxy",
+      modalEnvironment,
+      modalApp,
+      modalFunction,
+    };
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [invalid, setInvalid] = useState<Record<string, string>>({});
@@ -56,7 +70,10 @@ export function ProviderEditor({
   const methods = kinds.find((kind) => kind.id === value.kind)?.authMethods ?? [
     "api",
   ];
-  const requiresEndpoint = value.kind === "litellm" || value.kind === "modal";
+  const isModal = value.kind === "modal";
+  const nativeModal = isModal && value.modalMode === "native";
+  const requiresEndpoint =
+    value.kind === "litellm" || (isModal && !nativeModal);
   const update = (key: string, next: unknown) =>
     setValue((previous) => ({ ...previous, [key]: next }));
   const focus = (field: string) =>
@@ -80,11 +97,67 @@ export function ProviderEditor({
       return;
     }
 
-    if (requiresEndpoint && !String(value.baseUrl ?? "").trim()) {
+    let endpoint = String(value.baseUrl ?? "").trim();
+    let credential = value.credential ?? "";
+    if (requiresEndpoint && !endpoint) {
       setInvalid({ baseUrl: t("Dieses Feld ist erforderlich.") });
       focus("baseUrl");
 
       return;
+    }
+
+    if (isModal) {
+      if (nativeModal) {
+        const fields = ["modalEnvironment", "modalApp", "modalFunction"];
+        const segments = fields.map((field) =>
+          String(value[field] ?? "").trim(),
+        );
+        const invalidSegment = segments.findIndex(
+          (segment) => !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(segment),
+        );
+        if (invalidSegment >= 0) {
+          const field = fields[invalidSegment];
+          setInvalid({ [field]: t("Gib einen gültigen Modal-Namen ein.") });
+          focus(field);
+          return;
+        }
+        endpoint = `modal://${segments.join("/")}`;
+      } else {
+        endpoint = endpoint.replace(/\/+$/, "");
+      }
+      const tokenID = String(value.modalTokenID ?? "").trim();
+      const tokenSecret = String(value.modalTokenSecret ?? "").trim();
+      const keepToken =
+        initial.kind === "modal" &&
+        initial.connected &&
+        endpoint === String(initial.baseUrl ?? "").replace(/\/+$/, "") &&
+        !tokenID &&
+        !tokenSecret;
+      if (!keepToken) {
+        const idPrefix = nativeModal ? "ak-" : "wk-";
+        const secretPrefix = nativeModal ? "as-" : "ws-";
+        for (const [field, token, prefix] of [
+          ["modalTokenID", tokenID, idPrefix],
+          ["modalTokenSecret", tokenSecret, secretPrefix],
+        ]) {
+          if (
+            !token.startsWith(prefix) ||
+            !/^[A-Za-z0-9_-]+$/.test(token.slice(prefix.length))
+          ) {
+            setInvalid({
+              [field]: t(
+                "Dieses Feld braucht einen gültigen Wert mit Präfix {prefix}.",
+                { prefix },
+              ),
+            });
+            focus(field);
+            return;
+          }
+        }
+        credential = `${tokenID}.${tokenSecret}`;
+      } else {
+        credential = "";
+      }
     }
 
     submitting.current = true;
@@ -106,9 +179,8 @@ export function ProviderEditor({
               value.kind === "openai" ? value.responsesTransport || "auto" : "",
             promptCacheMode:
               value.kind === "openai" ? value.promptCacheMode || "auto" : "",
-            baseUrl: value.authMode === "api" ? (value.baseUrl ?? "") : "",
-            credential:
-              value.authMode === "api" ? (value.credential ?? "") : "",
+            baseUrl: value.authMode === "api" ? endpoint : "",
+            credential: value.authMode === "api" ? credential : "",
             oauthClientId:
               value.authMode === "oauth" ? value.oauthClientId : "",
             oauthProjectId:
@@ -180,6 +252,12 @@ export function ProviderEditor({
                 oauthClientId: "",
                 oauthProjectId: "",
                 oauthClientSecret: "",
+                modalMode: "proxy",
+                modalEnvironment: "main",
+                modalApp: "",
+                modalFunction: "",
+                modalTokenID: "",
+                modalTokenSecret: "",
               }))
             }
             isDisabled={busy}
@@ -267,40 +345,153 @@ export function ProviderEditor({
                   )}
                 </p>
               )}
-              <TextField
-                value={String(value.credential ?? "")}
-                onChange={(credential) => update("credential", credential)}
-                type="password"
-                autoComplete="off"
-                isDisabled={busy}
-                className="gap-2"
-                data-field="credential"
-              >
-                <Label>
-                  {t(
-                    value.kind === "modal"
-                      ? "Modal-Proxy-Token"
-                      : "API-Schlüssel",
+              {isModal ? (
+                <>
+                  <Select
+                    value={nativeModal ? "native" : "proxy"}
+                    onChange={(mode) => {
+                      setInvalid({});
+                      setValue((previous) => ({
+                        ...previous,
+                        modalMode: mode,
+                        modalTokenID: "",
+                        modalTokenSecret: "",
+                      }));
+                    }}
+                    isDisabled={busy}
+                    className="gap-2"
+                  >
+                    <Label>{t("Modal-Zugang")}</Label>
+                    <Select.Trigger className="min-h-11">
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        <ListBox.Item
+                          id="proxy"
+                          textValue={t("Proxy-Token (Web Function)")}
+                          className="min-h-11"
+                        >
+                          <Label>{t("Proxy-Token (Web Function)")}</Label>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                        <ListBox.Item
+                          id="native"
+                          textValue={t("API-Token (Modal-Funktion)")}
+                          className="min-h-11"
+                        >
+                          <Label>{t("API-Token (Modal-Funktion)")}</Label>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                  <p className="text-sm leading-6 text-muted">
+                    {nativeModal
+                      ? t(
+                          "Erstelle das Token-Paar unter API Tokens in den Modal-Einstellungen. Zentrale ruft eine bereitgestellte Modal-Funktion auf.",
+                        )
+                      : t(
+                          "Erstelle das Token-Paar unter Proxy Tokens in den Modal-Einstellungen. Zentrale ruft die URL deiner Web Function auf.",
+                        )}
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {[
+                      {
+                        field: "modalTokenID",
+                        label: "Token-ID",
+                        placeholder: nativeModal ? "ak-…" : "wk-…",
+                        secret: false,
+                      },
+                      {
+                        field: "modalTokenSecret",
+                        label: "Token-Secret",
+                        placeholder: nativeModal ? "as-…" : "ws-…",
+                        secret: true,
+                      },
+                    ].map(({ field, label, placeholder, secret }) => (
+                      <TextField
+                        key={field}
+                        value={String(value[field] ?? "")}
+                        onChange={(next) => update(field, next)}
+                        type={secret ? "password" : "text"}
+                        autoComplete={secret ? "new-password" : "off"}
+                        isDisabled={busy}
+                        isInvalid={Boolean(invalid[field])}
+                        className="gap-2"
+                        data-field={field}
+                      >
+                        <Label>{t(label)}</Label>
+                        <Input className="min-h-11" placeholder={placeholder} />
+                        <FieldError>{invalid[field]}</FieldError>
+                      </TextField>
+                    ))}
+                  </div>
+                  {initial.kind === "modal" && Boolean(initial.connected) && (
+                    <p className="text-sm text-muted">
+                      {t(
+                        "Bei gleichem Ziel kannst du beide Token-Felder leer lassen, um den gespeicherten Zugang zu behalten.",
+                      )}
+                    </p>
                   )}
-                </Label>
-                <Input className="min-h-11" />
-                <Description>
-                  {value.kind === "modal"
-                    ? t("Token-ID und Token-Secret mit einem Punkt verbinden.")
-                    : initial.id
+                  {nativeModal && (
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      {[
+                        ["modalEnvironment", "Modal-Umgebung", "main"],
+                        ["modalApp", "App-Name", "zentrale-humanizer"],
+                        ["modalFunction", "Funktionsname", "run_batch"],
+                      ].map(([field, label, placeholder]) => (
+                        <TextField
+                          key={field}
+                          value={String(value[field] ?? "")}
+                          onChange={(next) => update(field, next)}
+                          isRequired
+                          isDisabled={busy}
+                          isInvalid={Boolean(invalid[field])}
+                          className="gap-2"
+                          data-field={field}
+                        >
+                          <Label>{t(label)}</Label>
+                          <Input
+                            className="min-h-11"
+                            placeholder={placeholder}
+                          />
+                          <FieldError>{invalid[field]}</FieldError>
+                        </TextField>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <TextField
+                  value={String(value.credential ?? "")}
+                  onChange={(credential) => update("credential", credential)}
+                  type="password"
+                  autoComplete="off"
+                  isDisabled={busy}
+                  className="gap-2"
+                  data-field="credential"
+                >
+                  <Label>{t("API-Schlüssel")}</Label>
+                  <Input className="min-h-11" />
+                  <Description>
+                    {initial.id
                       ? t(
                           "Leer lassen, um den vorhandenen Schlüssel zu behalten.",
                         )
                       : t(
                           "Der Schlüssel wird gespeichert und nicht wieder angezeigt.",
                         )}
-                </Description>
-              </TextField>
+                  </Description>
+                </TextField>
+              )}
               {requiresEndpoint && (
                 <ProviderEndpoint
                   value={String(value.baseUrl ?? "")}
                   onChange={(url) => update("baseUrl", url)}
                   error={invalid.baseUrl}
+                  label={isModal ? "Web-Function-URL" : undefined}
                   required
                   disabled={busy}
                 />
@@ -496,12 +687,14 @@ function ProviderEndpoint({
   value,
   onChange,
   error,
+  label = "API-Basis-URL",
   required,
   disabled,
 }: {
   value: string;
   onChange: (value: string) => void;
   error?: string;
+  label?: string;
   required?: boolean;
   disabled: boolean;
 }) {
@@ -516,7 +709,7 @@ function ProviderEndpoint({
       className="gap-2"
       data-field="baseUrl"
     >
-      <Label>{t("API-Basis-URL")}</Label>
+      <Label>{t(label)}</Label>
       <Input placeholder="https://…" className="min-h-11" />
       <Description>
         {required

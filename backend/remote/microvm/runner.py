@@ -1273,7 +1273,7 @@ def session_identity(configuration, execution, vcpus):
     ).hexdigest()
 
 
-def guest_responding(control):
+def guest_responding(control, timeout=5):
     # Guest and host wall clocks need not agree. Ask the actual dispatcher and
     # bound the wait using the host's monotonic clock. An older dispatcher can
     # still prove progress by changing its heartbeat during that interval.
@@ -1285,7 +1285,7 @@ def guest_responding(control):
         initial = (control / "heartbeat").stat().st_mtime_ns
     except FileNotFoundError:
         initial = None
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             if (
@@ -1332,6 +1332,15 @@ def active_invocations(control):
                 and alive((job / "client.pid").read_text())
             ):
                 return True
+            # Stage returns the mailbox before its host-side reader installs
+            # client.pid. A second action must not replace that generation in
+            # the interval between stage and run.
+            if (
+                not (job / "started").exists()
+                and (job / "request.json").is_file()
+                and time.time() - job.stat().st_mtime < 30
+            ):
+                return True
         except FileNotFoundError:
             pass
     return False
@@ -1343,32 +1352,44 @@ def available_vcpus():
     return min(available, MAX_MICROVM_CPUS)
 
 
+def supervisor_running(control):
+    try:
+        return not (control / "stopped").exists() and alive(
+            (control / "supervisor.pid").read_text()
+        )
+    except FileNotFoundError:
+        return False
+
+
 def ensure_session(scope, configuration, runtime, base, kernel, execution):
     control = scope / "session"
     addresses = gpu_devices(configuration)
     vcpus = available_vcpus()
     identity = session_identity(configuration, execution, vcpus)
     if control.is_dir():
-        active = active_invocations(control)
-        alive_supervisor = (
-            not (control / "stopped").exists()
-            and (control / "supervisor.pid").exists()
-            and alive((control / "supervisor.pid").read_text())
-        )
         compatible = compatible_session(control, configuration, execution)
-        responsive = alive_supervisor and guest_responding(control)
+        responsive = supervisor_running(control) and guest_responding(control)
+        if not responsive and supervisor_running(control):
+            # A slow shared control filesystem can delay a heartbeat while
+            # the supervisor and guest jobs are still executing.
+            responsive = guest_responding(control, timeout=10)
+        alive_supervisor = supervisor_running(control)
+        active = active_invocations(control)
         same_version = (control / "version").exists() and (
             control / "version"
         ).read_text() == identity
-        if responsive and compatible:
+        if alive_supervisor and responsive and compatible:
             # Applying a new implementation or CPU count can wait until work
             # ends. Device, mount and protocol changes have to match now.
             if same_version or active:
                 return control
+        if alive_supervisor and not responsive:
+            # Missing heartbeats cannot authorize killing an active guest.
+            # Ask Zentrale to check its own job, terminal and editor state
+            # even when no host mailbox is currently visible.
+            raise RecoveryRequired("guest_busy" if active else "unresponsive")
         if active:
-            raise RecoveryRequired(
-                "configuration_changed" if responsive else "unresponsive"
-            )
+            raise RecoveryRequired("configuration_changed" if alive_supervisor else "supervisor_stopped")
         stop_session(scope)
 
     # Keep disk preparation and device reservations ahead of the detached owner.
@@ -1542,15 +1563,18 @@ def run_invocation(invocation):
             finally:
                 stream.close()
             return
-        with (invocation / "stdin").open("ab", buffering=0) as output:
-            size = 0
-            while block := os.read(0, 65536):
-                size += len(block)
-                if size > 16 * 1024 * 1024:
-                    (invocation / "cancel").touch()
-                    break
-                output.write(block)
-        (invocation / "stdin.eof").touch()
+        try:
+            with (invocation / "stdin").open("ab", buffering=0) as output:
+                size = 0
+                while block := os.read(0, 65536):
+                    size += len(block)
+                    if size > 16 * 1024 * 1024:
+                        (invocation / "cancel").touch()
+                        break
+                    output.write(block)
+            (invocation / "stdin.eof").touch()
+        except FileNotFoundError:
+            pass  # The VM generation and its mailbox have already been removed.
 
     threading.Thread(target=copy_input, daemon=True).start()
     (invocation / "started").touch()

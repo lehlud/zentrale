@@ -18,6 +18,7 @@ image = (
     .env({"HF_HUB_CACHE": "/model-cache"})
     .add_local_python_source("batch_runtime", copy=True)
     .run_function(cache_weights, kwargs={"model_id": MODEL_ID})
+    .pip_install("cbor2")
     .env(
         {
             "HF_HUB_OFFLINE": "1",
@@ -40,9 +41,13 @@ image = (
     retries=0,
     single_use_containers=True,
 )
-def run_batch(model: str, texts: list[str], expires: float):
+def run_batch(payload: dict, expires: float | None = None):
     from batch_runtime import Humanizer
 
+    model, texts = payload["model"], payload["texts"]
+    validate_batch(model, texts, MODEL_ID)
+    if expires is None:
+        expires = time.time() + 135
     if time.time() >= expires:
         raise TimeoutError("The Humanizer job expired before startup.")
     humanizer = Humanizer(MODEL_ID)
@@ -101,7 +106,7 @@ def rewrite():
                 # Start the response before scheduling GPU work. Whitespace
                 # keeps the owner's connection open without changing the JSON.
                 yield b"\n"
-                job = await run_batch.spawn.aio(model, texts, expires)
+                job = await run_batch.spawn.aio(payload, expires)
                 result = asyncio.create_task(job.get.aio())
                 while True:
                     remaining = expires - time.time()

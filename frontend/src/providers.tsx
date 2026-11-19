@@ -215,7 +215,13 @@ export function Providers() {
                     {!compact && ` · ${selected.name}`}
                   </h2>
                   <p className="text-xs text-muted">
-                    {t(loginLabels[selected.authMode] ?? selected.authMode)}
+                    {t(
+                      selected.kind === "modal"
+                        ? selected.baseUrl?.startsWith("modal://")
+                          ? "API-Token (Modal-Funktion)"
+                          : "Proxy-Token (Web Function)"
+                        : (loginLabels[selected.authMode] ?? selected.authMode),
+                    )}
                   </p>
                 </div>
                 <Link href="#/settings" className="min-h-11 text-xs">

@@ -29,6 +29,15 @@ func (engine *Engine) RecoverVM(
 	if err != nil {
 		return err
 	}
+	if reason == "unresponsive" {
+		terminal, err := engine.Store.HasTerminalAttachment(owner.ProjectID, machine.ID)
+		if err != nil {
+			return err
+		}
+		if terminal || engine.Editors.HasActiveExcept(family, machine.ID, execution.EditorSessionID) {
+			return &remote.VMHealthPending{}
+		}
+	}
 	machines := make(map[string]string, len(family))
 	for id := range family {
 		var member domain.Agent
@@ -48,6 +57,11 @@ func (engine *Engine) RecoverVM(
 	for _, running := range engine.jobs {
 		running.mu.Lock()
 		if family[running.job.AgentID] && running.job.MachineID == machine.ID && running.sandbox == remote.SandboxMicroVM {
+			if reason == "unresponsive" {
+				running.mu.Unlock()
+				engine.mu.Unlock()
+				return &remote.VMHealthPending{}
+			}
 			running.terminationReason = "the managed environment was automatically recovered; saved files and installed packages were retained"
 			interrupted = append(interrupted, running)
 		}

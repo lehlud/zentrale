@@ -61,6 +61,12 @@ func (failure *VMRecoveryRequired) Error() string {
 	return "managed environment requires recovery: " + failure.Reason
 }
 
+type VMHealthPending struct{}
+
+func (*VMHealthPending) Error() string {
+	return "the managed MicroVM is slow to respond; existing jobs are still attached. Retry this operation when the guest responds"
+}
+
 // VMRecovery runs under the environment's lifecycle lock, before retrying work.
 type VMRecovery interface {
 	RecoverVM(context.Context, *Connection, domain.Machine, Execution, string) error
@@ -256,8 +262,13 @@ func microVMAction(
 				continue
 			}
 			var failure VMRecoveryRequired
-			if json.Unmarshal([]byte(strings.TrimPrefix(line, marker)), &failure) == nil &&
-				(failure.Reason == "unresponsive" || failure.Reason == "configuration_changed") {
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, marker)), &failure) != nil {
+				continue
+			}
+			switch failure.Reason {
+			case "guest_busy":
+				return "", &VMHealthPending{}
+			case "unresponsive", "configuration_changed", "supervisor_stopped":
 				return "", &failure
 			}
 		}

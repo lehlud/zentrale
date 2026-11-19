@@ -93,7 +93,8 @@ func retryablePreparationFailure(err error) bool {
 	}
 	var startup *remote.VMStartupFailure
 	var interrupted *remote.VMInvocationInterrupted
-	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &startup) || errors.As(err, &interrupted) {
+	var pending *remote.VMHealthPending
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &startup) || errors.As(err, &interrupted) || errors.As(err, &pending) {
 		return true
 	}
 	// SSH authentication, unknown host keys, command exit statuses and ordinary

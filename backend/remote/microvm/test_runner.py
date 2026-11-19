@@ -348,16 +348,14 @@ class MicroVMRunnerTests(unittest.TestCase):
     def test_cached_supervisor_does_not_prove_guest_dispatcher_is_alive(self):
         scope, control, configuration = self.cached_session()
 
-        class RestartRequested(Exception):
-            pass
-
         with (
-            patch.object(runner, "stop_session", side_effect=RestartRequested) as stop,
+            patch.object(runner, "stop_session") as stop,
             patch.object(runner, "guest_responding", return_value=False),
         ):
-            with self.assertRaises(RestartRequested):
+            with self.assertRaises(runner.RecoveryRequired) as failure:
                 runner.ensure_session(scope, configuration, None, None, None, {})
-            stop.assert_called_once_with(scope)
+            self.assertEqual(failure.exception.reason, "unresponsive")
+            stop.assert_not_called()
         (control / "heartbeat").touch()
         with (
             patch.object(runner, "stop_session") as stop,
@@ -386,7 +384,7 @@ class MicroVMRunnerTests(unittest.TestCase):
                 )
                 stop.assert_not_called()
         for responsive, changed, reason in [
-            (False, configuration, "unresponsive"),
+            (False, configuration, "guest_busy"),
             (True, dict(configuration, gpu=True), "configuration_changed"),
         ]:
             with (
@@ -402,6 +400,22 @@ class MicroVMRunnerTests(unittest.TestCase):
         self.assertFalse(runner.active_invocations(control))
         (job / "cancel").unlink()
         (job / "status").write_text("0")
+        self.assertFalse(runner.active_invocations(control))
+
+    def test_delayed_health_response_keeps_staged_invocation_on_same_vm(self):
+        scope, control, configuration = self.cached_session()
+        job = control / "requests" / "staged"
+        job.mkdir()
+        (job / "request.json").write_text("{}")
+        updated = dict(configuration, runnerHash="updated")
+        with (
+            patch.object(runner, "guest_responding", side_effect=[False, True]) as probe,
+            patch.object(runner, "stop_session") as stop,
+        ):
+            self.assertEqual(runner.ensure_session(scope, updated, None, None, None, {}), control)
+            self.assertEqual(probe.call_count, 2)
+            stop.assert_not_called()
+        os.utime(job, (1, 1))
         self.assertFalse(runner.active_invocations(control))
 
     def test_cpu_affinity_change_applies_after_running_jobs_finish(self):

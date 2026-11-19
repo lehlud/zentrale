@@ -16,9 +16,24 @@ export const english: Record<string, string> = {
     "The endpoint processes the entire batch in one job. Use a Humanizer deployed for batch inference.",
   "Modell- oder Deployment-ID": "Model or deployment ID",
   "Textliste in einem Auftrag verarbeiten": "Process the list in one job",
-  "Modal-Proxy-Token": "Modal proxy token",
-  "Token-ID und Token-Secret mit einem Punkt verbinden.":
-    "Join the token ID and token secret with a period.",
+  "Modal-Zugang": "Modal connection",
+  "Proxy-Token (Web Function)": "Proxy token (Web Function)",
+  "API-Token (Modal-Funktion)": "API token (Modal Function)",
+  "Token-ID": "Token ID",
+  "Token-Secret": "Token secret",
+  "Web-Function-URL": "Web Function URL",
+  "Modal-Umgebung": "Modal environment",
+  "App-Name": "App name",
+  Funktionsname: "Function name",
+  "Gib einen gültigen Modal-Namen ein.": "Enter a valid Modal name.",
+  "Dieses Feld braucht einen gültigen Wert mit Präfix {prefix}.":
+    "Enter a valid value starting with {prefix}.",
+  "Erstelle das Token-Paar unter API Tokens in den Modal-Einstellungen. Zentrale ruft eine bereitgestellte Modal-Funktion auf.":
+    "Create the token pair under API Tokens in Modal settings. Zentrale calls a deployed Modal Function.",
+  "Erstelle das Token-Paar unter Proxy Tokens in den Modal-Einstellungen. Zentrale ruft die URL deiner Web Function auf.":
+    "Create the token pair under Proxy Tokens in Modal settings. Zentrale calls your Web Function URL.",
+  "Bei gleichem Ziel kannst du beide Token-Felder leer lassen, um den gespeicherten Zugang zu behalten.":
+    "Leave both token fields blank to keep the saved credentials for the same destination.",
   "GPU-Inferenz": "GPU inference",
   "Zugang ansehen": "View connection",
   "Agenten verwenden diesen Zugang über run_hosted_model mit einem Endpunkt und dessen Eingabedaten.":
@@ -757,6 +772,12 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "the managed MicroVM is slow to respond; existing jobs are still attached. Retry this operation when the guest responds":
+    "Die MicroVM antwortet verzögert. Laufende Jobs bleiben verbunden. Versuche die Aktion erneut, sobald die VM antwortet.",
+  "Modal provider URL must be a Modal HTTPS Web Function endpoint (.modal.run)":
+    "Gib die HTTPS-Adresse einer Modal Web Function mit der Endung .modal.run ein.",
+  "could not find the deployed Modal Function; check the API token, environment and names":
+    "Die bereitgestellte Modal-Funktion wurde nicht gefunden. Prüfe API-Token, Umgebung, App und Funktionsname.",
   "Writing checkout data": "Git schreibt Daten für den Checkout",
   "Checking out selected directories":
     "Ausgewählte Verzeichnisse werden ausgecheckt",

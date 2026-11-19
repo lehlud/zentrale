@@ -338,10 +338,15 @@ func (editors *Editors) expireDisconnected(session *editorSession, after time.Du
 
 // A starting editor also holds its environment, before its readiness receipt.
 func (editors *Editors) HasActive(agents map[string]bool, machineID string) bool {
+	return editors.HasActiveExcept(agents, machineID, "")
+}
+
+func (editors *Editors) HasActiveExcept(agents map[string]bool, machineID, exceptSessionID string) bool {
 	editors.mutex.Lock()
 	defer editors.mutex.Unlock()
 	for _, session := range editors.sessions {
-		if (!agents[EditorScopeID(session.project.ID, session.target.AgentID)] && !agents[session.target.AgentID]) ||
+		if (exceptSessionID != "" && session.info.ID == exceptSessionID) ||
+			(!agents[EditorScopeID(session.project.ID, session.target.AgentID)] && !agents[session.target.AgentID]) ||
 			(machineID != "" && session.target.MachineID != "" && session.target.MachineID != machineID) {
 			continue
 		}

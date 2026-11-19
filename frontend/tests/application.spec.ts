@@ -728,6 +728,65 @@ async function authenticate(page: import("@playwright/test").Page) {
   await page.goto("/");
 }
 
+test("Modal supports separate proxy and API token pairs", async ({ page }) => {
+  await authenticate(page);
+  await page.goto("/#/providers");
+  const dialog = page.getByRole("dialog");
+  const input = (label: string) => dialog.getByLabel(label, { exact: true });
+  const save = dialog.getByRole("button", { name: "Speichern", exact: true });
+  for (const native of [false, true]) {
+    await page
+      .getByRole("button", { name: "Provider hinzufügen", exact: true })
+      .click();
+    await dialog.locator('[data-field="kind"]').getByRole("button").click();
+    await dialog.getByRole("option", { name: "Modal", exact: true }).click();
+    await input("Name").fill(
+      native ? "Modal native fixture" : "Modal proxy fixture",
+    );
+    if (native) {
+      await dialog.getByRole("button", { name: /Modal-Zugang/ }).click();
+      await dialog
+        .getByRole("option", { name: "API-Token (Modal-Funktion)" })
+        .click();
+      await expect(input("Web-Function-URL")).toHaveCount(0);
+      await input("App-Name").fill("zentrale-humanizer");
+      await input("Funktionsname").fill("run_batch");
+    } else {
+      await input("Web-Function-URL").fill(
+        "https://fixture--rewrite.modal.run",
+      );
+      await expect(input("App-Name")).toHaveCount(0);
+    }
+    await input("Token-ID").fill(native ? "ak-fixture" : "wk-fixture");
+    await save.click();
+    await expect(input("Token-Secret")).toBeFocused();
+    await expect(input("Token-Secret")).toHaveAttribute("type", "password");
+    await input("Token-Secret").fill(native ? "as-fixture" : "ws-fixture");
+    await save.click();
+    await expect(dialog).not.toBeVisible();
+  }
+  const response = await page.request.post("/graphql", {
+    data: { query: "{providers(limit:50){name kind baseUrl connected}}" },
+  });
+  const { data } = await response.json();
+  expect(data.providers).toEqual(
+    expect.arrayContaining([
+      {
+        name: "Modal proxy fixture",
+        kind: "modal",
+        baseUrl: "https://fixture--rewrite.modal.run",
+        connected: true,
+      },
+      {
+        name: "Modal native fixture",
+        kind: "modal",
+        baseUrl: "modal://main/zentrale-humanizer/run_batch",
+        connected: true,
+      },
+    ]),
+  );
+});
+
 test("provider forms preserve errors, guided login and inline model catalog", async ({
   page,
 }) => {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -132,7 +133,7 @@ func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) 
 				return 0
 			}
 			if strings.Contains(command, " 'prepare'") && prepares.Add(1) == 1 {
-				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"unresponsive"}`)
+				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"supervisor_stopped"}`)
 				return 75
 			}
 			if strings.Contains(command, " 'stop'") {
@@ -162,6 +163,14 @@ func TestVMPreflightRecoversAutomaticallyAndAccountsForSharedJobs(t *testing.T) 
 		delete(engine.jobs, "other-conversation")
 		engine.mu.Unlock()
 	}()
+	machine, err := engine.Remote.Connector.Machine(project.MachineIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pending *remote.VMHealthPending
+	if err := engine.RecoverVM(context.Background(), nil, machine, remote.Execution{AgentID: main.ID}, "unresponsive"); !errors.As(err, &pending) || cancelled.Load() || affected.terminationReason != "" || stops.Load() != 0 {
+		t.Fatalf("an inconclusive health check changed the active job: %v", err)
+	}
 	check := engine.CheckAgentConnection(context.Background(), main.ID)
 	if !check.Connected {
 		t.Fatalf("recovery reached the user as an error: %s", check.Error)

@@ -196,6 +196,39 @@ func TestModalOnlyCallsTheConfiguredWebFunction(t *testing.T) {
 	}
 }
 
+func TestModalRoutesAPITokensOnlyToConfiguredNativeFunction(t *testing.T) {
+	client := New()
+	client.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
+		t.Fatal("an API token reached the Web Function transport")
+		return nil, nil
+	})
+	var calls int
+	client.invokeModal = func(_ context.Context, provider domain.Provider, input map[string]any) (json.RawMessage, error) {
+		calls++
+		if provider.BaseURL != "modal://main/example/run_batch" || input["prompt"] != "text" {
+			t.Fatalf("unexpected native invocation: %v", input)
+		}
+		return json.RawMessage(`{"text":"reviewed result","echo":"as-sensitive"}`), nil
+	}
+	provider := domain.Provider{Kind: "modal", BaseURL: "modal://main/example/run_batch", Credential: "ak-example.as-sensitive"}
+	output, err := client.Run(context.Background(), provider, "", map[string]any{"prompt": "text"}, Timeout)
+	if err != nil || calls != 1 || string(output) != `{"text":"reviewed result","echo":"[redacted]"}` {
+		t.Fatalf("calls=%d, output=%s, error=%v", calls, output, err)
+	}
+	for _, invalid := range []domain.Provider{
+		{Kind: "modal", BaseURL: "https://example--rewrite.modal.run", Credential: provider.Credential},
+		{Kind: "modal", BaseURL: provider.BaseURL, Credential: "wk-example.ws-sensitive"},
+		{Kind: "modal", BaseURL: "modal://user@main/example/run_batch", Credential: provider.Credential},
+	} {
+		if _, err := client.Run(context.Background(), invalid, "", map[string]any{}, Timeout); err == nil {
+			t.Fatal("invalid Modal destination/credential combination accepted")
+		}
+	}
+	if calls != 1 {
+		t.Fatal("invalid configurations reached the native transport")
+	}
+}
+
 func TestModalUsesDelayedResultWithoutResubmitting(t *testing.T) {
 	const endpoint = "https://test--rewrite.modal.run"
 	receipt := strings.Repeat("a", 737)

@@ -41,6 +41,7 @@ type Client struct {
 	pollInterval time.Duration
 	store        *datastore.Instance
 	owner        string
+	invokeModal  func(context.Context, domain.Provider, map[string]any) (json.RawMessage, error)
 }
 
 type statusError struct {
@@ -58,7 +59,7 @@ func New() *Client {
 	// Run and cancel supply their own deadlines. Synchronous requests stay
 	// open during scheduling, startup and inference.
 	client.Transport.(*http.Transport).ResponseHeaderTimeout = 0
-	return &Client{http: client, pollInterval: time.Second}
+	return &Client{http: client, pollInterval: time.Second, invokeModal: runModalFunction}
 }
 
 func NewWithPredictionStore(store *datastore.Instance) *Client {
@@ -86,8 +87,20 @@ func ValidateProvider(provider *domain.Provider) error {
 		}
 		provider.BaseURL = FalURL
 	case "modal":
+		if strings.HasPrefix(provider.BaseURL, "modal://") {
+			_, _, _, err := modalDestination(provider.BaseURL)
+			if err != nil {
+				return err
+			}
+			if provider.Credential != "" {
+				if _, _, ok := modalAPIToken(provider.Credential); !ok {
+					return errors.New("a Modal API token needs an ak- token ID and an as- token secret")
+				}
+			}
+			return nil
+		}
 		if strings.HasPrefix(strings.TrimSpace(provider.Credential), "ak-") {
-			return errors.New("use a Modal workspace proxy token for Web Functions; Modal SDK tokens are for deployment")
+			return errors.New("use a Modal workspace proxy token for Web Functions, or select an App and Function for API tokens")
 		}
 		address, err := url.Parse(provider.BaseURL)
 		if err != nil || address.Scheme != "https" || address.Port() != "" || address.User != nil ||
@@ -162,10 +175,14 @@ func (client *Client) Run(ctx context.Context, provider domain.Provider, target 
 	var result json.RawMessage
 	switch provider.Kind {
 	case "modal":
-		deadline, _ := ctx.Deadline()
-		err = client.request(ctx, provider, http.MethodPost, "", body, map[string]string{
-			"X-Zentrale-Inference-Deadline": fmt.Sprint(deadline.Unix()),
-		}, &result)
+		if strings.HasPrefix(provider.BaseURL, "modal://") {
+			result, err = client.invokeModal(ctx, provider, input)
+		} else {
+			deadline, _ := ctx.Deadline()
+			err = client.request(ctx, provider, http.MethodPost, "", body, map[string]string{
+				"X-Zentrale-Inference-Deadline": fmt.Sprint(deadline.Unix()),
+			}, &result)
+		}
 	case "replicate":
 		result, err = client.replicate(ctx, provider, target, body)
 	case "fal":
@@ -184,6 +201,14 @@ func (client *Client) Run(ctx context.Context, provider domain.Provider, target 
 	// A custom endpoint may accidentally echo the authorization header.
 	credential, _ := json.Marshal(provider.Credential)
 	result = bytes.ReplaceAll(result, credential[1:len(credential)-1], []byte("[redacted]"))
+	if provider.Kind == "modal" {
+		if id, secret, found := strings.Cut(provider.Credential, "."); found && id != "" && secret != "" {
+			for _, part := range []string{id, secret} {
+				encoded, _ := json.Marshal(part)
+				result = bytes.ReplaceAll(result, encoded[1:len(encoded)-1], []byte("[redacted]"))
+			}
+		}
+	}
 	if !json.Valid(result) {
 		return nil, errors.New("inference provider returned no valid result")
 	}
