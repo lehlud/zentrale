@@ -215,7 +215,8 @@ func TestRepositoryProgressReaderHandlesSplitTransferUpdates(t *testing.T) {
 		detail  string
 	}
 	var updates []progress
-	read := repositoryProgressReader(func(step string, percent int, detail string) {
+	var activity int
+	read := repositoryProgressReader(func() { activity++ }, func(step string, percent int, detail string) {
 		updates = append(updates, progress{step, percent, detail})
 	})
 	read([]byte("Cloning into repository\nZENTRALE_CLONE_PRO"))
@@ -223,6 +224,8 @@ func TestRepositoryProgressReaderHandlesSplitTransferUpdates(t *testing.T) {
 	read([]byte("ZENTRALE_CLONE_PROGRESS Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 101\t2/100\t\n"))
+	read([]byte("ZENTRALE_CLONE_ACT"))
+	read([]byte("IVE\nZENTRALE_CLONE_ACTIVE\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Updating files 2\t2/100\t\n"))
 	read([]byte("ZENTRALE_CLONE_PROGRESS Writing checkout data -1\t11000000\t10.49 MiB\n"))
 	want := []progress{
@@ -233,6 +236,9 @@ func TestRepositoryProgressReaderHandlesSplitTransferUpdates(t *testing.T) {
 	}
 	if !slices.Equal(updates, want) {
 		t.Fatalf("progress = %+v, want %+v", updates, want)
+	}
+	if activity != len(want)+2 {
+		t.Fatalf("activity = %d, want %d", activity, len(want)+2)
 	}
 }
 

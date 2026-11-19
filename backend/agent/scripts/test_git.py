@@ -372,11 +372,17 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertIn("Receiving objects 1\t1/100\t24.00 MiB | 1.00 MiB/s", stderr.getvalue())
         self.assertIn("Updating files 2\t2/100\t", stderr.getvalue())
 
-    @unittest.skipUnless(Path("/proc/self/io").exists(), "Linux process I/O counters")
-    def test_checkout_io_remains_visible_without_git_progress_output(self):
+    @unittest.skipUnless(
+        Path(f"/proc/self/task/{os.getpid()}/children").exists(),
+        "Linux per-child I/O counters",
+    )
+    def test_checkout_io_from_workers_remains_visible_without_git_progress_output(self):
         stderr = io.StringIO()
         writer = (
-            "import sys,time\n"
+            "import os,sys,time\n"
+            "if child := os.fork():\n"
+            "    os.waitpid(child, 0)\n"
+            "    sys.exit(0)\n"
             "with open(sys.argv[1], 'wb', buffering=0) as output:\n"
             "    for _ in range(5):\n"
             "        output.write(bytes(1024 * 1024))\n"
@@ -387,6 +393,17 @@ class RepositoryPreparationTests(unittest.TestCase):
             repository_helper.run_clone(command, repository_helper.git_environment(), True, watch_checkout=True)
         self.assertIn("ZENTRALE_CLONE_PROGRESS Writing checkout data -1\t", stderr.getvalue())
         self.assertIn(" MiB", stderr.getvalue())
+
+    @unittest.skipUnless(Path("/proc/self/stat").exists(), "Linux process CPU counters")
+    def test_preparing_checkout_signals_activity_without_advancing_progress(self):
+        stderr = io.StringIO()
+        prepare = "import time\nend = time.process_time() + 0.2\nwhile time.process_time() < end: pass"
+        with patch("sys.stderr", stderr), patch.object(repository_helper, "CHECKOUT_ACTIVITY_INTERVAL", 0.03):
+            repository_helper.run_clone(
+                [sys.executable, "-c", prepare], repository_helper.git_environment(), True, watch_checkout=True,
+            )
+        self.assertIn("ZENTRALE_CLONE_ACTIVE", stderr.getvalue())
+        self.assertNotIn("ZENTRALE_CLONE_PROGRESS", stderr.getvalue())
 
     def test_finished_publication_is_cleaned_during_configuration(self):
         stage, checkout = self.staged_clone(receipt=True)

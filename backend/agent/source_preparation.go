@@ -22,7 +22,7 @@ var errRepositoryStalled = errors.New("Git stopped reporting progress while prep
 
 // Git uses both CR and LF for its status, but the helper emits bounded LF lines.
 // Consume only new bytes so a long clone never reparses earlier output.
-func repositoryProgressReader(update func(step string, percent int, detail string)) func([]byte) {
+func repositoryProgressReader(active func(), update func(step string, percent int, detail string)) func([]byte) {
 	var pending, previous string
 	return func(chunk []byte) {
 		remaining := pending + string(chunk)
@@ -37,6 +37,10 @@ func repositoryProgressReader(update func(step string, percent int, detail strin
 			}
 			remaining = rest
 			line = strings.TrimSuffix(line, "\r")
+			if line == "ZENTRALE_CLONE_ACTIVE" {
+				active()
+				continue
+			}
 			if line == previous || len(line) > 256 {
 				continue
 			}
@@ -48,6 +52,7 @@ func repositoryProgressReader(update func(step string, percent int, detail strin
 					if detail == "" {
 						detail = match[3]
 					}
+					active()
 					update(match[1], percent, detail)
 				}
 			}
@@ -209,12 +214,12 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 				cancelRun(nil)
 				idle.Stop()
 			}()
-			onChunk := repositoryProgressReader(func(step string, percent int, detail string) {
-				if runContext.Err() != nil {
-					return
+			onChunk := repositoryProgressReader(func() {
+				if runContext.Err() == nil {
+					idle.Reset(timeout)
 				}
-				idle.Reset(timeout)
-				if reportProgress {
+			}, func(step string, percent int, detail string) {
+				if reportProgress && runContext.Err() == nil {
 					engine.publishRunState(domain.AgentRunState{
 						AgentID: scope, Phase: "repository", RepositoryStep: step, RepositoryPercent: percent, RepositoryDetail: detail,
 					})

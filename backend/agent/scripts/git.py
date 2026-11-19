@@ -616,6 +616,25 @@ def written_by_process(pid):
     return None
 
 
+def checkout_activity(pid):
+    process = Path("/proc") / str(pid)
+    try:
+        stat = (process / "stat").read_text().rsplit(")", 1)[1].split()
+        ticks = int(stat[11]) + int(stat[12])
+    except (OSError, ValueError, IndexError):
+        return None
+    try:
+        children = (process / "task" / str(pid) / "children").read_text().split()
+    except OSError:
+        children = []
+    writes = {}
+    for checkout_pid in (str(pid), *children):
+        counter = written_by_process(checkout_pid)
+        if counter is not None:
+            writes[checkout_pid] = counter
+    return ticks, writes
+
+
 def run_clone(arguments, environment, report_progress, watch_checkout=False):
     if not report_progress:
         subprocess.run(arguments, env=environment, check=True)
@@ -631,22 +650,30 @@ def run_clone(arguments, environment, report_progress, watch_checkout=False):
         stopped = threading.Event()
 
         def sample_checkout():
-            last_written = written_by_process(process.pid)
-            while last_written is not None and not stopped.wait(CHECKOUT_ACTIVITY_INTERVAL):
-                written = written_by_process(process.pid)
-                if written is None:
+            activity = checkout_activity(process.pid)
+            written = 0
+            while activity is not None and not stopped.wait(CHECKOUT_ACTIVITY_INTERVAL):
+                last_ticks, last_writes = activity
+                activity = checkout_activity(process.pid)
+                if activity is None:
                     return
+                ticks, writes = activity
+                # Workers can finish between samples. Their previous output
+                # still counts, even after their process counters disappear.
+                delta = sum(max(0, value - last_writes.get(pid, 0)) for pid, value in writes.items())
+                written += delta
                 with output_lock:
                     quiet = time.monotonic() - last_update >= CHECKOUT_ACTIVITY_INTERVAL
-                    if written > last_written and quiet:
-                        # The Git percentage timer can stay quiet while files
-                        # are still being written. Report the exact I/O counter
-                        # for the watchdog and a readable size in the UI.
+                    if delta and quiet:
                         report_clone_progress(
                             "Writing checkout data", count=str(written),
                             transfer=f"{written / (1024 * 1024):.2f} MiB",
                         )
-                last_written = written
+                    elif ticks > last_ticks and quiet:
+                        # Git can spend time queuing paths before any worker
+                        # writes a file. Keep the idle timer alive without
+                        # advancing the visible file counter.
+                        print("ZENTRALE_CLONE_ACTIVE", file=sys.stderr, flush=True)
 
         watcher = None
         if watch_checkout:
@@ -732,9 +759,7 @@ def checkout_files(checkout, receipt, configuration, environment, report_progres
         return  # Empty upstream repository.
     head.check_returncode()
     if configuration.get("managedVM"):
-        # A parallel checkout queues the whole tree over 9p before writing
-        # its regular files. Write incrementally and read attributes from Git.
-        git.extend(["-c", "checkout.workers=1"])
+        # Read attributes from Git instead of consulting the 9p worktree.
         environment = {**environment, "GIT_ATTR_SOURCE": "HEAD"}
     if paths:
         if report_progress:
@@ -752,6 +777,10 @@ def checkout_files(checkout, receipt, configuration, environment, report_progres
         )
     elif report_progress:
         report_clone_progress("Checking out files", "0")
+    if configuration.get("managedVM"):
+        # The guest has two vCPUs. Overlap writes on the shared filesystem
+        # using Git's native parallel checkout and file progress reporting.
+        git.extend(["-c", "checkout.workers=2"])
     run_clone(
         [*git, "checkout", "--force", *(["--progress"] if report_progress else [])],
         environment, report_progress, watch_checkout=True,
