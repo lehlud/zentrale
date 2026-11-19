@@ -1,5 +1,9 @@
 """Prepare configured checkouts and use deployment keys for Git interactions."""
 
+from contextlib import contextmanager
+import fcntl
+import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -597,6 +601,8 @@ CLONE_PROGRESS = re.compile(
     r"(?: \| (\d+(?:\.\d+)? (?:bytes?|[KMGT]iB)/s))?)?"
 )
 CHECKOUT_ACTIVITY_INTERVAL = 5
+FIRST_CHECKOUT_BATCH = 4096
+CHECKOUT_BATCH = 16384
 
 
 def report_clone_progress(step, percent="-1", count="", transfer=""):
@@ -636,13 +642,13 @@ def checkout_activity(pid):
     return ticks, writes
 
 
-def run_clone(arguments, environment, report_progress, watch_checkout=False):
+def run_clone(arguments, environment, report_progress, watch_checkout=False, stdin=None):
     if not report_progress:
-        subprocess.run(arguments, env=environment, check=True)
+        subprocess.run(arguments, env=environment, check=True, stdin=stdin)
         return
 
     with subprocess.Popen(
-        arguments, env={**environment, "LC_ALL": "C"}, stderr=subprocess.PIPE,
+        arguments, env={**environment, "LC_ALL": "C"}, stdin=stdin, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace",
     ) as process:
         previous = None
@@ -665,15 +671,14 @@ def run_clone(arguments, environment, report_progress, watch_checkout=False):
                 written += delta
                 with output_lock:
                     quiet = time.monotonic() - last_update >= CHECKOUT_ACTIVITY_INTERVAL
-                    if delta and quiet:
+                    if delta and quiet and stdin is None:
                         report_clone_progress(
                             "Writing checkout data", count=str(written),
                             transfer=f"{written / (1024 * 1024):.2f} MiB",
                         )
-                    elif ticks > last_ticks and quiet:
-                        # Git can spend time queuing paths before any worker
-                        # writes a file. Keep the idle timer alive without
-                        # advancing the visible file counter.
+                    elif quiet and (delta or ticks > last_ticks):
+                        # Keep the idle timer alive during path queuing or a
+                        # batch in progress without advancing the file count.
                         print("ZENTRALE_CLONE_ACTIVE", file=sys.stderr, flush=True)
 
         watcher = None
@@ -736,6 +741,86 @@ def interrupted_legacy_checkout(source, stage, receipt, environment):
     )
 
 
+def nul_paths(manifest):
+    pending = b""
+    while block := manifest.read(1024 * 1024):
+        *paths, pending = (pending + block).split(b"\0")
+        yield from paths
+    if pending:
+        raise ValueError("Git returned an incomplete checkout path")
+
+
+@contextmanager
+def checkout_scratch(checkout, environment):
+    if environment.get("ZENTRALE_SANDBOX") != "microvm":
+        with tempfile.TemporaryDirectory(prefix="zentrale-checkout-") as directory:
+            yield Path(directory)
+        return
+    # One private scratch index per destination on the guest disk. A process
+    # killed between batches cannot leave a new large index on every retry.
+    key = hashlib.sha256(os.fsencode(checkout.parent.parent)).hexdigest()
+    directory = private_directory(Path("/var/tmp") / ("zentrale-checkout-" + key))
+    with (directory / "lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        index, pending = directory / "index", directory / "index.lock"
+        index.unlink(missing_ok=True)
+        pending.unlink(missing_ok=True)
+        try:
+            yield directory
+        finally:
+            index.unlink(missing_ok=True)
+            pending.unlink(missing_ok=True)
+
+
+def checkout_in_batches(git, checkout, environment, report_progress):
+    # The repository lives on 9p. Repeated index reads and rewrites use the
+    # guest's own disk until the complete index is ready for publication.
+    with checkout_scratch(checkout, environment) as scratch:
+        with tempfile.TemporaryFile(dir=scratch) as manifest:
+            subprocess.run(
+                [*git, "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+                env=environment, stdout=manifest, check=True,
+            )
+            manifest.seek(0)
+            total = sum(block.count(b"\0") for block in iter(lambda: manifest.read(1024 * 1024), b""))
+            if total <= FIRST_CHECKOUT_BATCH:
+                return False
+            index = scratch / "index"
+            indexed = {**environment, "GIT_INDEX_FILE": str(index)}
+            run_clone(
+                [*git, "-c", "index.version=4", "read-tree", "HEAD"], indexed,
+                report_progress, watch_checkout=True, stdin=subprocess.DEVNULL,
+            )
+            manifest.seek(0)
+            paths = nul_paths(manifest)
+            complete = 0
+            batch_size = FIRST_CHECKOUT_BATCH
+            while batch := list(islice(paths, batch_size)):
+                with tempfile.TemporaryFile(dir=scratch) as items:
+                    items.write(b"\0".join(batch) + b"\0")
+                    items.seek(0)
+                    run_clone(
+                        [*git, "checkout-index", "--index", "--force", "-z", "--stdin"],
+                        indexed, report_progress, watch_checkout=True, stdin=items,
+                    )
+                complete += len(batch)
+                if report_progress and complete < total:
+                    report_clone_progress("Updating files", str(100 * complete // total), f"{complete}/{total}")
+                batch_size = CHECKOUT_BATCH
+        lock = checkout / ".git" / "index.lock"
+        target = lock.open("xb")
+        try:
+            with target, index.open("rb") as source:
+                shutil.copyfileobj(source, target, 1024 * 1024)
+            lock.replace(lock.with_name("index"))
+        except BaseException:
+            lock.unlink(missing_ok=True)
+            raise
+        if report_progress:
+            report_clone_progress("Updating files", "100", f"{complete}/{total}")
+        return True
+
+
 def checkout_files(checkout, receipt, configuration, environment, report_progress):
     metadata = checkout / ".git"
     (metadata / "index.lock").unlink(missing_ok=True)
@@ -787,6 +872,8 @@ def checkout_files(checkout, receipt, configuration, environment, report_progres
         if processes != resource.RLIM_INFINITY and processes < cpus + 4:
             workers = max(1, processes - 4)
         git.extend(["-c", f"checkout.workers={workers}"])
+        if not paths and checkout_in_batches(git, checkout, environment, report_progress):
+            return
     run_clone(
         [*git, "checkout", "--force", *(["--progress"] if report_progress else [])],
         environment, report_progress, watch_checkout=True,

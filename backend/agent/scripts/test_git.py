@@ -372,6 +372,38 @@ class RepositoryPreparationTests(unittest.TestCase):
                 )
                 self.assertIn(f"checkout.workers={workers}", clone.call_args.args[0])
 
+    def test_large_checkout_publishes_complete_batches_and_git_index(self):
+        _, checkout = self.staged_clone(receipt=True)
+        unusual = checkout / "file with\na newline"
+        unusual.write_text("new contents\n")
+        unusual.chmod(0o755)
+        link = checkout / "symlink"
+        link.symlink_to(unusual.name)
+        git = ["git", "-C", str(checkout)]
+        environment = repository_helper.git_environment()
+        subprocess.run([*git, "add", "--", unusual.name, link.name], env=environment, check=True)
+        subprocess.run(
+            [*git, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+             "commit", "-qm", "add checkout paths"], env=environment, check=True,
+        )
+        for path in (unusual, link, checkout / "README.md"):
+            path.unlink()
+        stderr = io.StringIO()
+        with (
+            patch("sys.stderr", stderr),
+            patch.object(repository_helper, "FIRST_CHECKOUT_BATCH", 1),
+            patch.object(repository_helper, "CHECKOUT_BATCH", 2),
+        ):
+            repository_helper.checkout_files(checkout, {}, {"managedVM": True}, environment, True)
+        self.assertIn("Updating files 20\t1/5\t", stderr.getvalue())
+        self.assertIn("Updating files 60\t3/5\t", stderr.getvalue())
+        self.assertIn("Updating files 100\t5/5\t", stderr.getvalue())
+        self.assertEqual(unusual.read_text(), "new contents\n")
+        self.assertTrue(unusual.stat().st_mode & 0o100)
+        self.assertEqual(os.readlink(link), unusual.name)
+        self.assertFalse((checkout / ".git/index.lock").exists())
+        self.assertEqual(subprocess.check_output([*git, "status", "--porcelain"], env=environment), b"")
+
     def test_progress_reports_bytes_when_percentage_remains_constant(self):
         stderr = io.StringIO()
         lines = (
