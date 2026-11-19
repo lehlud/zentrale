@@ -687,6 +687,26 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertIn("symlinks", configured.stderr)
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_inspect_updates_a_confirmed_former_origin_and_preserves_the_checkout(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        old = "git@gitea.example:old/demo.git"
+        new = "git@gitea.example:new/demo.git"
+        git = ["git", "-C", str(checkout)]
+        subprocess.run([*git, "remote", "set-url", "origin", old], check=True)
+        head = subprocess.check_output([*git, "rev-parse", "HEAD"])
+        edit = checkout / "README.md"
+        edit.write_text("uncommitted change")
+        source = {**self.source, "directory": str(checkout), "url": new}
+        unrelated = self.run_helper("inspect", sources=[{**source, "movedFrom": ["git@gitea.example:other/demo.git"]}])
+        self.assertNotEqual(unrelated.returncode, 0)
+        self.assertEqual(subprocess.check_output([*git, "config", "--get", "remote.origin.url"]).decode().strip(), old)
+        moved = self.run_helper("inspect", sources=[{**source, "movedFrom": [old]}])
+        self.assertEqual(moved.returncode, 0, moved.stderr)
+        self.assertEqual(json.loads(moved.stdout), [])
+        self.assertEqual(subprocess.check_output([*git, "config", "--get", "remote.origin.url"]).decode().strip(), new)
+        self.assertEqual(subprocess.check_output([*git, "rev-parse", "HEAD"]), head)
+        self.assertEqual(edit.read_text(), "uncommitted change")
+
     def test_https_origin_is_repaired_only_for_the_selected_repository(self):
         self.assertEqual(self.run_helper("prepare").returncode, 0)
         url = "git@github.com:team/demo.git"

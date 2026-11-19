@@ -351,7 +351,7 @@ def git_environment():
     return environment
 
 
-def checkout_exists(source, timeout=20):
+def checkout_exists(source, timeout=20, apply_move=False):
     directory = Path(source["directory"])
     if not directory.is_absolute() or directory.resolve() != directory:
         raise ValueError(f"Repository directory must not contain symlinks: {directory}")
@@ -412,6 +412,22 @@ def checkout_exists(source, timeout=20):
     if normalized_repository_url(origin) not in {
         normalized_repository_url(alias) for alias in aliases
     }:
+        if apply_move and normalized_repository_url(origin) in {
+            normalized_repository_url(alias) for alias in (source.get("movedFrom") or [])
+        }:
+            metadata = directory / ".git"
+            config = metadata / "config"
+            if (
+                not metadata.is_dir() or metadata.resolve() != metadata
+                or not config.is_file() or config.is_symlink()
+                or read_git("config", "--file", str(config), "--get-all", "remote.origin.url") != origin
+            ):
+                raise ValueError("Repository origin is not a single local setting")
+            subprocess.run(
+                ["git", "-C", str(directory), "config", "--file", str(config), "--replace-all", "remote.origin.url", expected],
+                env=git_environment(), check=True, capture_output=True, timeout=timeout,
+            )
+            return True
         raise ValueError(
             f"Repository origin does not match the configured source: {directory}. "
             "Existing files were preserved; check the project repository selection."
@@ -1047,7 +1063,7 @@ def main():
     if configuration["operation"] == "inspect":
         missing = []
         for source in configuration["sources"]:
-            if not checkout_exists(source):
+            if not checkout_exists(source, apply_move=True):
                 missing.append(source["id"])
         print(json.dumps(missing))
         return

@@ -147,7 +147,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return err
 		}
 
-		httpURLs, err := engine.GitForge.RepositoryHTTPURLs(source.BindingID, source.URL)
+		httpURLs, movedFrom, err := engine.GitForge.RepositoryCheckoutURLs(source.BindingID, source.URL)
 		if err != nil {
 			return err
 		}
@@ -157,6 +157,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			"url":       source.URL,
 			"directory": directory,
 			"httpUrls":  httpURLs,
+			"movedFrom": movedFrom,
 		})
 	}
 
@@ -264,8 +265,8 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		return nil
 	}
 
-	// Inspect existing work without contacting its Git server or fetching. Check
-	// on each preparation, including a reconnect, failover or service restart.
+	// Recognize existing checkouts and apply confirmed address changes without
+	// contacting the Git server or touching any files in the worktree.
 	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false, time.Minute)
 	if err != nil {
 		return fmt.Errorf("inspect project repositories: %w", err)

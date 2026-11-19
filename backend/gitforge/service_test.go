@@ -28,6 +28,7 @@ type forgeFixture struct {
 	tokenScopes     *string
 	oauthError      string
 	createdOwner    string
+	repositoryOwner string
 }
 
 func newForgeFixture(t *testing.T, kind string) *forgeFixture {
@@ -64,12 +65,16 @@ func newForgeFixture(t *testing.T, kind string) *forgeFixture {
 
 func (fixture *forgeFixture) repository() map[string]any {
 	if fixture.kind == "github" {
+		owner := fixture.repositoryOwner
+		if owner == "" {
+			owner = "team"
+		}
 		return map[string]any{
 			"id":        42,
 			"name":      "demo",
-			"full_name": "team/demo",
-			"ssh_url":   "git@github.com:team/demo.git",
-			"html_url":  "https://github.com/team/demo",
+			"full_name": owner + "/demo",
+			"ssh_url":   "git@github.com:" + owner + "/demo.git",
+			"html_url":  "https://github.com/" + owner + "/demo",
 			"private":   true,
 			"permissions": map[string]any{
 				"admin": true,
@@ -248,7 +253,7 @@ func (fixture *forgeFixture) serve(response http.ResponseWriter, request *http.R
 		}
 		fixture.keys = retained
 		response.WriteHeader(204)
-	case path == "/repos/team/demo" || path == "/projects/42":
+	case path == "/repos/team/demo" || path == "/repos/moved/demo" || path == "/projects/42":
 		write(fixture.repository())
 	default:
 		response.WriteHeader(404)

@@ -16,13 +16,14 @@ import (
 )
 
 type repositoryBinding struct {
-	ID           string `json:"id"`
-	ConnectionID string `json:"connectionId"`
-	BaseURL      string `json:"baseUrl"`
-	RepositoryID string `json:"repositoryId"`
-	Identity     string `json:"identity"`
-	FullName     string `json:"fullName"`
-	SSHURL       string `json:"sshUrl"`
+	ID           string   `json:"id"`
+	ConnectionID string   `json:"connectionId"`
+	BaseURL      string   `json:"baseUrl"`
+	RepositoryID string   `json:"repositoryId"`
+	Identity     string   `json:"identity"`
+	FullName     string   `json:"fullName"`
+	SSHURL       string   `json:"sshUrl"`
+	MovedFrom    []string `json:"movedFrom,omitempty"`
 
 	KeyID       int      `json:"keyId"`
 	DeployKeyID int      `json:"deployKeyId"`
@@ -34,17 +35,24 @@ type repositoryBinding struct {
 // origin. Git translates these URLs to the binding's SSH transport, including
 // self-hosted forges whose web and SSH hosts or ports differ.
 func (service *Service) RepositoryHTTPURLs(bindingID, sshURL string) ([]string, error) {
+	httpURLs, _, err := service.RepositoryCheckoutURLs(bindingID, sshURL)
+	return httpURLs, err
+}
+
+// RepositoryCheckoutURLs supplies former origins only for recognizing an
+// existing checkout. Git credentials still authorize the current address.
+func (service *Service) RepositoryCheckoutURLs(bindingID, sshURL string) (httpURLs, movedFrom []string, err error) {
 	if bindingID == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var binding repositoryBinding
 	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if binding.SSHURL != sshURL {
-		return nil, errors.New("repository binding does not match its SSH source")
+		return nil, nil, errors.New("repository binding does not match its SSH source")
 	}
-	return []string{strings.TrimRight(binding.BaseURL, "/") + "/" + binding.FullName}, nil
+	return []string{strings.TrimRight(binding.BaseURL, "/") + "/" + binding.FullName}, binding.MovedFrom, nil
 }
 
 func bindingID(account account, repository domain.GitRepository) string {
@@ -132,6 +140,16 @@ func (service *Service) ensureBinding(
 		}
 		binding.KeyID, binding.DeployKeyID = previous.KeyID, previous.DeployKeyID
 		binding.Scopes = previous.Scopes
+		// The binding key includes the forge and its immutable repository ID.
+		// Another repository selected for this project gets a separate binding.
+		binding.MovedFrom = slices.Clone(previous.MovedFrom)
+		if previous.SSHURL != binding.SSHURL || previous.FullName != binding.FullName {
+			for _, address := range []string{previous.SSHURL, strings.TrimRight(previous.BaseURL, "/") + "/" + previous.FullName} {
+				if address != "" && !slices.Contains(binding.MovedFrom, address) {
+					binding.MovedFrom = append(binding.MovedFrom, address)
+				}
+			}
+		}
 	}
 
 	remoteKeys, err := service.Client.deployKeys(ctx, account, repository)
