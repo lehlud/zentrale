@@ -25,7 +25,7 @@ func (engine *Engine) hostedProvider(providerID string) (domain.Provider, error)
 	if !hosted.Kind(provider.Kind) || provider.Credential == "" {
 		return provider, errors.New("choose a connected Modal, Replicate or fal.ai provider")
 	}
-	return provider, nil
+	return provider, hosted.ValidateProvider(&provider)
 }
 
 func (engine *Engine) runHostedModel(ctx context.Context, record domain.Agent, request interaction) (any, error) {

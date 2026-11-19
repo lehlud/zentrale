@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
+	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +15,7 @@ import (
 	"github.com/lehlud/zentrale/domain"
 )
 
-func (client *Client) replicate(ctx context.Context, provider domain.Provider, target string, input json.RawMessage, timeout time.Duration) (_ json.RawMessage, err error) {
+func (client *Client) replicate(ctx context.Context, provider domain.Provider, target string, input json.RawMessage) (_ json.RawMessage, err error) {
 	path := "/models/" + target + "/predictions"
 	payload := map[string]any{"input": input}
 	if deployment, ok := strings.CutPrefix(target, "deployment:"); ok {
@@ -41,8 +43,13 @@ func (client *Client) replicate(ctx context.Context, provider domain.Provider, t
 		Output json.RawMessage `json:"output"`
 	}
 	var response prediction
+	deadline, _ := ctx.Deadline()
+	seconds := int(math.Ceil(time.Until(deadline).Seconds()))
+	if seconds < 5 {
+		return nil, errors.New("the remaining deadline is too short to start a Replicate prediction")
+	}
 	if err := client.request(ctx, provider, http.MethodPost, path, body,
-		map[string]string{"Cancel-After": strconv.Itoa(int(timeout.Seconds())) + "s", "Prefer": "wait=10"}, &response); err != nil {
+		map[string]string{"Cancel-After": strconv.Itoa(seconds) + "s"}, &response); err != nil {
 		return nil, err
 	}
 	if !slug.MatchString(response.ID) {
@@ -50,7 +57,25 @@ func (client *Client) replicate(ctx context.Context, provider domain.Provider, t
 	}
 	path = "/predictions/" + response.ID
 	terminal := false
-	defer client.cancel(ctx, provider, http.MethodPost, path+"/cancel", &terminal, &err)
+	receipt := pendingPrediction{ID: response.ID, ProviderID: provider.ID, Owner: client.owner, Expires: deadline}
+	defer func() {
+		if !terminal {
+			if failure := client.cancelPrediction(context.WithoutCancel(ctx), provider, receipt.ID); failure != nil {
+				err = errors.Join(err, fmt.Errorf("remote cancellation could not be confirmed: %w", failure))
+				return
+			}
+		}
+		if client.store != nil {
+			if failure := client.store.Remove(predictionResource, receipt.ID); failure != nil {
+				slog.Warn("could not release Replicate receipt", "error", failure)
+			}
+		}
+	}()
+	if client.store != nil && (response.Status == "starting" || response.Status == "processing") {
+		if err := client.store.Save(predictionResource, receipt.ID, provider.ID, receipt); err != nil {
+			return nil, fmt.Errorf("could not save Replicate receipt: %w", err)
+		}
+	}
 	for {
 		switch response.Status {
 		case "succeeded":
@@ -73,83 +98,8 @@ func (client *Client) replicate(ctx context.Context, provider domain.Provider, t
 	}
 }
 
-func (client *Client) fal(ctx context.Context, provider domain.Provider, target string, body []byte, timeout time.Duration) (_ json.RawMessage, err error) {
-	var receipt struct {
-		ID       string `json:"request_id"`
-		Status   string `json:"status_url"`
-		Response string `json:"response_url"`
-		Cancel   string `json:"cancel_url"`
-	}
-	headers := map[string]string{
-		"X-Fal-No-Retry":              "1",
-		"X-Fal-Request-Start-Timeout": strconv.Itoa(min(180, int(timeout.Seconds()))),
-		"X-Fal-Store-IO":              "0",
-	}
-	if err := client.request(ctx, provider, http.MethodPost, "/"+target, body, headers, &receipt); err != nil {
-		return nil, err
-	}
-	if !slug.MatchString(receipt.ID) {
-		return nil, errors.New("fal returned an invalid request ID")
-	}
-	parts := strings.SplitN(target, "/", 3)
-	path := "/" + parts[0] + "/" + parts[1] + "/requests/" + receipt.ID
-	terminal := false
-	cancelPath, fail := falRequestPath(receipt.Cancel, path, receipt.ID, "/cancel")
-	if fail != nil {
-		// The receipt ID is valid. Attempt the documented app-root cancel
-		// route without ever sending the account key to the supplied URL.
-		defer client.cancel(ctx, provider, http.MethodPut, path+"/cancel", &terminal, &err)
-		return nil, fail
-	}
-	defer client.cancel(ctx, provider, http.MethodPut, cancelPath, &terminal, &err)
-	statusPath, failure := falRequestPath(receipt.Status, path, receipt.ID, "/status")
-	if failure != nil {
-		return nil, failure
-	}
-	responsePath, failure := falRequestPath(receipt.Response, path, receipt.ID, "")
-	if failure != nil {
-		return nil, failure
-	}
-	for {
-		var state struct {
-			Status string          `json:"status"`
-			Error  json.RawMessage `json:"error"`
-		}
-		if err := client.getQueue(ctx, provider, statusPath, &state); err != nil {
-			return nil, err
-		}
-		switch state.Status {
-		case "COMPLETED":
-			terminal = true
-			if string(state.Error) != "" && string(state.Error) != "null" && string(state.Error) != `""` {
-				return nil, errors.New("fal model execution failed")
-			}
-			var output json.RawMessage
-			err := client.getQueue(ctx, provider, responsePath, &output)
-			return output, err
-		case "IN_QUEUE", "IN_PROGRESS":
-		default:
-			return nil, errors.New("unexpected fal request state")
-		}
-		if err := client.wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-}
-
-func falRequestPath(reference, fallback, id, suffix string) (string, error) {
-	if reference == "" {
-		return fallback + suffix, nil
-	}
-	address, err := url.Parse(reference)
-	if err != nil || address.Scheme != "https" || address.Host != "queue.fal.run" ||
-		address.User != nil || address.RawQuery != "" || address.ForceQuery ||
-		address.Fragment != "" || address.EscapedPath() != address.Path {
-		return "", errors.New("fal returned an invalid result URL")
-	}
-	prefix, found := strings.CutSuffix(address.Path, "/requests/"+id+suffix)
-	if !found || !route(strings.TrimPrefix(prefix, "/"), 2, 8) {
-		return "", errors.New("fal returned a result URL for another operation")
-	}
-	return address.Path, nil
+func (client *Client) cancelPrediction(ctx context.Context, provider domain.Provider, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	return client.request(ctx, provider, http.MethodPost, "/predictions/"+id+"/cancel", nil, nil, nil)
 }

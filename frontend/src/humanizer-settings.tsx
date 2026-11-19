@@ -43,14 +43,16 @@ export function HumanizerSettings() {
   const action = useAction();
   const [choosing, setChoosing] = useState<"model" | "space" | "hosted">();
   const settings = data?.humanizerSettings;
-  const providers =
-    data?.providers.filter(
-      (provider) => provider.connected && provider.modelCount > 0,
-    ) ?? [];
-  const hostedProviders =
-    data?.providers.filter(
-      (provider) => provider.connected && isHostedProvider(provider.kind),
-    ) ?? [];
+  const availableProviders = data?.providers ?? [];
+  const connectedProviders = availableProviders.filter(
+    (provider) => provider.connected,
+  );
+  const providers = connectedProviders.filter(
+    (provider) => provider.modelCount > 0,
+  );
+  const hostedProviders = connectedProviders.filter((provider) =>
+    isHostedProvider(provider.kind),
+  );
   const model = settings?.model;
   const activeModel = settings?.hosted?.providerId ? settings.hosted : model;
 
@@ -79,7 +81,7 @@ export function HumanizerSettings() {
         <Card.Content className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="min-w-0 break-all text-sm">
             {activeModel?.modelId
-              ? `${data?.providers.find((provider) => provider.id === activeModel.providerId)?.name || activeModel.providerId} · ${activeModel.modelId}`
+              ? `${availableProviders.find((provider) => provider.id === activeModel.providerId)?.name || activeModel.providerId} · ${activeModel.modelId}`
               : settings?.spaceUrl
                 ? `${settings.spaceUrl}/${settings.spaceEndpoint}`
                 : t("Ausgeschaltet")}

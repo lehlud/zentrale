@@ -302,8 +302,12 @@ func (engine *Engine) rewriteNativeBatch(ctx context.Context, record domain.Agen
 			if failure == nil {
 				var response struct {
 					Texts []string `json:"texts"`
+					Error string   `json:"error"`
 				}
 				failure = json.Unmarshal(output, &response)
+				if failure == nil && response.Error != "" {
+					failure = errors.New("the hosted Humanizer failed to finish the batch")
+				}
 				outputs = response.Texts
 			}
 		}

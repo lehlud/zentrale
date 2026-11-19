@@ -6,11 +6,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 )
 
@@ -55,56 +58,83 @@ func TestReplicateCancelsPredictionAfterCallerStops(t *testing.T) {
 	}
 }
 
-func TestFalSubmitsOneBatchAndRetriesOnlyResultLookups(t *testing.T) {
-	client := New()
-	client.pollInterval = time.Millisecond
-	var calls []string
-	client.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Host != "queue.fal.run" || request.Header.Get("Authorization") != "Key example-secret" {
-			t.Fatal("unexpected fal destination or key")
-		}
-		calls = append(calls, request.Method+" "+request.URL.Path)
-		if len(calls) == 1 {
-			if request.Header.Get("X-Fal-No-Retry") != "1" || request.Header.Get("X-Fal-Request-Start-Timeout") != "120" {
-				t.Fatal("fal must bound queue time and disable platform retries for this request")
+func TestReplicateRecoversCancellationFromPreviousProcess(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "zentrale.sqlite")
+	store, err := datastore.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	provider := domain.Provider{ID: "replicate", Kind: "replicate", BaseURL: ReplicateURL, Credential: "example-secret"}
+	if err := store.Save("provider", provider.ID, "", provider); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	oldClient := NewWithPredictionStore(store)
+	oldClient.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/v1/models/owner/model/predictions" {
+			if request.Header.Get("Cancel-After") != "120s" || request.Header.Get("Prefer") != "" {
+				t.Fatal("prediction needs a provider deadline and immediate receipt")
 			}
-			return reply(request, `{"request_id":"request-1","status_url":"https://queue.fal.run/canonical/model/requests/request-1/status","response_url":"https://queue.fal.run/canonical/model/requests/request-1"}`), nil
+			stop()
+			return reply(request, `{"id":"previous-job","status":"starting"}`), nil
 		}
-		switch len(calls) {
-		case 2:
-			response := reply(request, `{}`)
-			response.StatusCode = http.StatusServiceUnavailable
-			return response, nil
-		case 3:
-			return reply(request, `{"status":"COMPLETED"}`), nil
-		}
-		return reply(request, `{"texts":["one","two"]}`), nil
+		return nil, errors.New("connection was lost during cancellation")
 	})
-	output, err := client.Run(context.Background(), domain.Provider{Kind: "fal", BaseURL: FalURL, Credential: "example-secret"},
-		"owner/model/rewrite", map[string]any{"texts": []string{"a", "b"}}, Timeout)
-	want := []string{"POST /owner/model/rewrite", "GET /canonical/model/requests/request-1/status", "GET /canonical/model/requests/request-1/status", "GET /canonical/model/requests/request-1"}
-	if err != nil || string(output) != `{"texts":["one","two"]}` || !reflect.DeepEqual(calls, want) {
-		t.Fatalf("output = %s, calls = %v, error = %v", output, calls, err)
+	if _, err := oldClient.Run(ctx, provider, "owner/model", map[string]any{}, Timeout); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled prediction, got %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := datastore.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	current := NewWithPredictionStore(reopened)
+	active := pendingPrediction{ID: "current-job", ProviderID: provider.ID, Owner: current.owner, Expires: time.Now().Add(Timeout)}
+	if err := reopened.Save(predictionResource, active.ID, provider.ID, active); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	current.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.Method != http.MethodPost || request.URL.String() != ReplicateURL+"/predictions/previous-job/cancel" ||
+			request.Header.Get("Authorization") != "Bearer example-secret" {
+			t.Fatal("recovery did not cancel exactly the previous job")
+		}
+		return reply(request, `{}`), nil
+	})
+	for range 2 {
+		current.RecoverPredictions(context.Background())
+	}
+	if calls != 1 {
+		t.Fatalf("wanted exactly one cancellation of the previous job, got %d", calls)
 	}
 }
 
-func TestFalRejectsInvalidReceiptAndCancelsOriginalRequest(t *testing.T) {
-	for _, statusURL := range []string{"https://untrusted.example/owner/model/requests/request-1/status", "https://queue.fal.run/owner/model/requests/wrong-id/status"} {
-		var calls []string
-		client := New()
-		client.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
-			calls = append(calls, request.Method+" "+request.URL.String())
-			if request.Method == http.MethodPost {
-				return reply(request, `{"request_id":"request-1","status_url":"`+statusURL+`"}`), nil
-			}
-			return reply(request, `{}`), nil
-		})
-		_, err := client.Run(context.Background(), domain.Provider{Kind: "fal", BaseURL: FalURL, Credential: "example-secret"},
-			"owner/model/rewrite", map[string]any{}, Timeout)
-		want := []string{"POST " + FalURL + "/owner/model/rewrite", "PUT " + FalURL + "/owner/model/requests/request-1/cancel"}
-		if err == nil || !reflect.DeepEqual(calls, want) {
-			t.Fatalf("unexpected calls for %s: %v, error = %v", statusURL, calls, err)
+func TestFalRunsSynchronouslyAndDisconnectsOnCancellation(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	calls := 0
+	client := New()
+	client.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.Method != http.MethodPost || request.URL.String() != FalURL+"/owner/model/rewrite" ||
+			request.Header.Get("Authorization") != "Key example-secret" ||
+			request.Header.Get("X-App-Fal-Disable-Fallback") != "true" ||
+			request.Header.Get("X-Fal-Request-Start-Timeout") != "120" {
+			t.Fatal("unexpected fal synchronous request")
 		}
+		stop()
+		return nil, request.Context().Err()
+	})
+	_, err := client.Run(ctx, domain.Provider{Kind: "fal", BaseURL: oldFalURL, Credential: "example-secret"},
+		"owner/model/rewrite", map[string]any{"texts": []string{"a", "b"}}, Timeout)
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("calls = %d, error = %v", calls, err)
 	}
 }
 
@@ -143,11 +173,17 @@ func TestReplicateVerifiesPinnedVersionBeforeSubmission(t *testing.T) {
 
 func TestModalOnlyCallsTheConfiguredWebFunction(t *testing.T) {
 	client := New()
+	ctx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stop()
+	deadline, _ := ctx.Deadline()
 	calls := 0
 	client.http.Transport = transportFunc(func(request *http.Request) (*http.Response, error) {
 		calls++
 		if request.URL.String() != "https://test--rewrite.modal.run/run" || request.Method != http.MethodPost {
 			t.Fatal(request.URL)
+		}
+		if request.Header.Get("X-Zentrale-Inference-Deadline") != strconv.FormatInt(deadline.Unix(), 10) {
+			t.Fatal("the remote deadline must include the caller's deadline")
 		}
 		return reply(request, `{"ok":true}`), nil
 	})
@@ -155,7 +191,7 @@ func TestModalOnlyCallsTheConfiguredWebFunction(t *testing.T) {
 	if _, err := client.Run(context.Background(), provider, "https://untrusted.example", map[string]any{}, Timeout); err == nil || calls != 0 {
 		t.Fatal("accepted an arbitrary Modal endpoint override")
 	}
-	if _, err := client.Run(context.Background(), provider, "", map[string]any{"prompt": "text"}, Timeout); err != nil || calls != 1 {
+	if _, err := client.Run(ctx, provider, "", map[string]any{"prompt": "text"}, Timeout); err != nil || calls != 1 {
 		t.Fatalf("calls = %d, error = %v", calls, err)
 	}
 }

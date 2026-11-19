@@ -139,6 +139,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	hostedClient := hosted.NewWithPredictionStore(store)
 	engine := &Engine{
 		installationID:       installationID,
 		Store:                store,
@@ -151,7 +152,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		AccountLogin:         providerlogin.New(),
 		GitForge:             gitforge.New(store),
 		HuggingFace:          huggingface.New(store),
-		hosted:               hosted.New(),
+		hosted:               hostedClient,
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
 		runOwner:             NewID(),
@@ -201,6 +202,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 	engine.workers.Go(engine.superviseVMs)
 	engine.workers.Go(engine.cleanupDeletedVMs)
 	engine.workers.Go(engine.superviseDaemonStops)
+	engine.workers.Go(func() { hostedClient.RecoverPredictions(ctx) })
 
 	return engine, nil
 }

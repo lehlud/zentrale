@@ -14,18 +14,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/netguard"
 )
 
 const ReplicateURL = "https://api.replicate.com/v1"
-const FalURL = "https://queue.fal.run"
+const FalURL = "https://fal.run"
+const oldFalURL = "https://queue.fal.run"
 const Timeout = 120 * time.Second
 
 // Includes cold queue time and a Modal gateway result lookup. The GPU
 // function's own execution timeout is configured separately on its runtime.
 const ModalTimeout = 4 * time.Minute
-const modalHTTPTimeout = 160 * time.Second
 const MaxTimeout = 10 * time.Minute
 const MaxInput = 128 * 1024
 const maxResponse = 512 * 1024
@@ -38,6 +39,8 @@ var errQueueConnection = errors.New("hosted inference connection failed")
 type Client struct {
 	http         *http.Client
 	pollInterval time.Duration
+	store        *datastore.Instance
+	owner        string
 }
 
 type statusError struct {
@@ -52,8 +55,16 @@ func (err statusError) Error() string {
 func New() *Client {
 	client := netguard.HTTPClient(false)
 	client.Timeout = 0
-	client.Transport.(*http.Transport).ResponseHeaderTimeout = modalHTTPTimeout
+	// Run and cancel supply their own deadlines. Synchronous requests stay
+	// open during scheduling, startup and inference.
+	client.Transport.(*http.Transport).ResponseHeaderTimeout = 0
 	return &Client{http: client, pollInterval: time.Second}
+}
+
+func NewWithPredictionStore(store *datastore.Instance) *Client {
+	client := New()
+	client.store, client.owner = store, domain.NewID()
+	return client
 }
 
 func (client *Client) Close() { client.http.CloseIdleConnections() }
@@ -70,9 +81,10 @@ func ValidateProvider(provider *domain.Provider) error {
 			return errors.New("Replicate requires its official API URL")
 		}
 	case "fal":
-		if provider.BaseURL != FalURL {
-			return errors.New("fal requires its official queue API URL")
+		if provider.BaseURL != FalURL && provider.BaseURL != oldFalURL {
+			return errors.New("fal requires its official inference API URL")
 		}
+		provider.BaseURL = FalURL
 	case "modal":
 		if strings.HasPrefix(strings.TrimSpace(provider.Credential), "ak-") {
 			return errors.New("use a Modal workspace proxy token for Web Functions; Modal SDK tokens are for deployment")
@@ -150,11 +162,21 @@ func (client *Client) Run(ctx context.Context, provider domain.Provider, target 
 	var result json.RawMessage
 	switch provider.Kind {
 	case "modal":
-		err = client.request(ctx, provider, http.MethodPost, "", body, nil, &result)
+		deadline, _ := ctx.Deadline()
+		err = client.request(ctx, provider, http.MethodPost, "", body, map[string]string{
+			"X-Zentrale-Inference-Deadline": fmt.Sprint(deadline.Unix()),
+		}, &result)
 	case "replicate":
-		result, err = client.replicate(ctx, provider, target, body, timeout)
+		result, err = client.replicate(ctx, provider, target, body)
 	case "fal":
-		result, err = client.fal(ctx, provider, target, body, timeout)
+		// fal propagates a disconnected synchronous request to its runner.
+		// A queue submission would survive a Zentrale crash, including a crash
+		// before the provider's job ID reaches this process.
+		err = client.request(ctx, provider, http.MethodPost, "/"+target, body, map[string]string{
+			"X-Fal-Request-Start-Timeout": fmt.Sprint(min(180, int(timeout.Seconds()))),
+			"X-Fal-Store-IO":              "0",
+			"X-App-Fal-Disable-Fallback":  "true",
+		}, &result)
 	}
 	if err != nil {
 		return nil, err
@@ -255,16 +277,5 @@ func (client *Client) wait(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-func (client *Client) cancel(ctx context.Context, provider domain.Provider, method, path string, terminal *bool, failure *error) {
-	if *terminal {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
-	defer cancel()
-	if err := client.request(ctx, provider, method, path, nil, nil, nil); err != nil {
-		*failure = errors.Join(*failure, fmt.Errorf("remote cancellation could not be confirmed: %w", err))
 	}
 }

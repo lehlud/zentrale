@@ -33,6 +33,9 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 	if loadErr != nil && !errors.Is(loadErr, sql.ErrNoRows) {
 		return configuration, loadErr
 	}
+	if previous.Kind == "fal" {
+		_ = hosted.ValidateProvider(&previous)
+	}
 
 	preserveAuthorization := loadErr == nil &&
 		configuration.Kind == previous.Kind &&
