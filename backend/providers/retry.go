@@ -28,6 +28,14 @@ type Retry struct {
 // billable at the provider; incomplete attempts never enter conversation replay.
 func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...streamRequest) (map[string]any, error) {
 	var totalWait time.Duration
+	httpClient := client.HTTP
+	attempts := providerAttempts
+	if len(streaming) > 0 && streaming[0].singleAttempt {
+		attempts = 1
+		direct := *httpClient
+		direct.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		httpClient = &direct
+	}
 
 	for attempt := 0; ; attempt++ {
 		if err := original.Context().Err(); err != nil {
@@ -44,7 +52,7 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		request := original.Clone(ctx)
 		request.Body = body
 		applyResponsesRoute(request)
-		response, err := client.HTTP.Do(request)
+		response, err := httpClient.Do(request)
 		received := time.Now()
 		published := false
 		attemptStreams := append([]streamRequest(nil), streaming...)
@@ -105,7 +113,7 @@ func (client *HTTPClient) postWithRetry(original *http.Request, streaming ...str
 		}
 
 		canReset := len(streaming) > 0 && streaming[0].onRetry != nil
-		if attempt+1 == providerAttempts || !temporaryProviderFailure(failure) || (published && !canReset) {
+		if attempt+1 == attempts || !temporaryProviderFailure(failure) || (published && !canReset) {
 			return nil, failure
 		}
 

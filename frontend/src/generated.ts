@@ -201,6 +201,16 @@ export type GoalReview = {
   reason: string;
   status: string;
 };
+export type HostedHumanizer = {
+  modelId: string;
+  providerId: string;
+  target: string;
+};
+export type HostedHumanizerInput = {
+  modelId?: string | null;
+  providerId?: string | null;
+  target?: string | null;
+};
 export type HuggingFaceConnection = {
   authMode: string;
   checkedAt: string;
@@ -220,6 +230,22 @@ export type HuggingFaceOAuthConfigInput = {
   clientId?: string | null;
   clientSecret?: string | null;
   publicClient?: boolean | null;
+};
+export type HumanizerSettings = {
+  hosted: HostedHumanizer;
+  model: ModelChoice;
+  spaceBatch: boolean;
+  spaceEndpoint: string;
+  spaceUrl: string;
+  useHuggingFaceAccount: boolean;
+};
+export type HumanizerSettingsInput = {
+  hosted?: HostedHumanizerInput | null;
+  model?: ModelChoiceInput | null;
+  spaceBatch?: boolean | null;
+  spaceEndpoint?: string | null;
+  spaceUrl?: string | null;
+  useHuggingFaceAccount?: boolean | null;
 };
 export type InferenceAttempt = {
   cachedTokens: number;
@@ -410,6 +436,7 @@ export type Mutation = {
   setCommitIdentity: boolean | null;
   setConversationModel: boolean | null;
   setGitHubToken: boolean | null;
+  setHumanizer: boolean | null;
   setModelDefaults: boolean | null;
   setup: boolean | null;
   startEditor: EditorStartResult | null;
@@ -556,6 +583,7 @@ export type Query = {
   goalHistory: Array<Goal | null> | null;
   goalReviews: Array<GoalReview | null> | null;
   huggingFaceConnection: HuggingFaceConnection | null;
+  humanizerSettings: HumanizerSettings | null;
   inferenceTraces: Array<InferenceTrace | null> | null;
   job: Job | null;
   jobs: Array<Job | null> | null;

@@ -195,6 +195,21 @@ type ModelDefaults struct {
 	Approver ModelChoice `json:"approver"`
 }
 
+type HumanizerSettings struct {
+	Model                 ModelChoice     `json:"model"`
+	SpaceURL              string          `json:"spaceUrl"`
+	SpaceEndpoint         string          `json:"spaceEndpoint"`
+	UseHuggingFaceAccount bool            `json:"useHuggingFaceAccount"`
+	SpaceBatch            bool            `json:"spaceBatch"`
+	Hosted                HostedHumanizer `json:"hosted"`
+}
+
+type HostedHumanizer struct {
+	ProviderID string `json:"providerId"`
+	ModelID    string `json:"modelId"`
+	Target     string `json:"target"`
+}
+
 type ProviderLogin struct {
 	ID         string `json:"id"`
 	ProviderID string `json:"providerId"`

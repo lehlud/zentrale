@@ -15,7 +15,11 @@ import { ResourceContent, useResourcePage } from "./resource-page";
 import type { Provider } from "./generated";
 import { ProviderModels } from "./models";
 import { setRouteParameter, useRoute } from "./navigation";
-import { ProviderEditor, loginLabels } from "./provider-editor";
+import {
+  ProviderEditor,
+  isHostedProvider,
+  loginLabels,
+} from "./provider-editor";
 import { ProviderSignIn } from "./provider-login";
 import { useI18n } from "./preferences";
 import { Empty, Failure, Title } from "./ui";
@@ -78,7 +82,10 @@ export function Providers() {
       {
         id: "refresh",
         label: t("Modelle aktualisieren"),
-        isDisabled: !provider.connected || provider.catalogStatus === "loading",
+        isDisabled:
+          isHostedProvider(provider.kind) ||
+          !provider.connected ||
+          provider.catalogStatus === "loading",
         onAction: () =>
           mutate(
             "mutation($providerId:String!){refreshModels(providerId:$providerId)}",
@@ -212,7 +219,12 @@ export function Providers() {
                   </p>
                 </div>
                 <Link href="#/settings" className="min-h-11 text-xs">
-                  {t("Standardmodelle ändern")} ↗
+                  {t(
+                    isHostedProvider(selected.kind)
+                      ? "Humanizer einrichten"
+                      : "Standardmodelle ändern",
+                  )}{" "}
+                  ↗
                 </Link>
               </div>
               {!selected.connected ? (
@@ -238,6 +250,12 @@ export function Providers() {
                     "Diesen Provider verbinden, um verfügbare Modelle abzurufen.",
                   )}
                 </Empty>
+              ) : isHostedProvider(selected.kind) ? (
+                <p className="text-sm text-muted">
+                  {t(
+                    "Agenten verwenden diesen Zugang über run_hosted_model mit einem Endpunkt und dessen Eingabedaten.",
+                  )}
+                </p>
               ) : (
                 <>
                   <Failure
@@ -308,7 +326,9 @@ function ProviderAccount({
         {t(provider.connected ? "Verbunden" : "Nicht verbunden")}
       </Chip>
       <span className="text-xs text-muted">
-        {t("{count} Sprachmodelle", { count: provider.modelCount })}
+        {isHostedProvider(provider.kind)
+          ? t("GPU-Inferenz")
+          : t("{count} Sprachmodelle", { count: provider.modelCount })}
       </span>
     </div>
   );
@@ -327,7 +347,13 @@ function ProviderAccount({
       variant="ghost"
       onPress={onSelect}
     >
-      {t(needsSignIn ? "Anmelden" : "Modelle ansehen")}
+      {t(
+        needsSignIn
+          ? "Anmelden"
+          : isHostedProvider(provider.kind)
+            ? "Zugang ansehen"
+            : "Modelle ansehen",
+      )}
       <Icon name="arrow" />
     </Button>
   );

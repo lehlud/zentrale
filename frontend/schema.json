@@ -2059,6 +2059,80 @@
       {
         "fields": [
           {
+            "name": "modelId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "providerId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "HostedHumanizer"
+      },
+      {
+        "fields": null,
+        "inputFields": [
+          {
+            "name": "modelId",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "providerId",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        ],
+        "kind": "INPUT_OBJECT",
+        "name": "HostedHumanizerInput"
+      },
+      {
+        "fields": [
+          {
             "name": "authMode",
             "type": {
               "kind": "NON_NULL",
@@ -2232,6 +2306,140 @@
         ],
         "kind": "INPUT_OBJECT",
         "name": "HuggingFaceOAuthConfigInput"
+      },
+      {
+        "fields": [
+          {
+            "name": "hosted",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "HostedHumanizer",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "model",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "ModelChoice",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "spaceBatch",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "spaceEndpoint",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "spaceUrl",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "useHuggingFaceAccount",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "HumanizerSettings"
+      },
+      {
+        "fields": null,
+        "inputFields": [
+          {
+            "name": "hosted",
+            "type": {
+              "kind": "INPUT_OBJECT",
+              "name": "HostedHumanizerInput",
+              "ofType": null
+            }
+          },
+          {
+            "name": "model",
+            "type": {
+              "kind": "INPUT_OBJECT",
+              "name": "ModelChoiceInput",
+              "ofType": null
+            }
+          },
+          {
+            "name": "spaceBatch",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "spaceEndpoint",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "spaceUrl",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "useHuggingFaceAccount",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          }
+        ],
+        "kind": "INPUT_OBJECT",
+        "name": "HumanizerSettingsInput"
       },
       {
         "fields": [
@@ -4099,6 +4307,14 @@
             }
           },
           {
+            "name": "setHumanizer",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "setModelDefaults",
             "type": {
               "kind": "SCALAR",
@@ -5548,6 +5764,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "HuggingFaceConnection",
+              "ofType": null
+            }
+          },
+          {
+            "name": "humanizerSettings",
+            "type": {
+              "kind": "OBJECT",
+              "name": "HumanizerSettings",
               "ofType": null
             }
           },

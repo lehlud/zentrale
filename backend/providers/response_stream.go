@@ -9,13 +9,14 @@ import (
 )
 
 type streamRequest struct {
-	kind    string
-	onText  func(string)
-	onRetry func(Retry)
+	kind          string
+	onText        func(string)
+	onRetry       func(Retry)
+	singleAttempt bool
 }
 
 func (request Request) stream() streamRequest {
-	return streamRequest{onText: request.OnText, onRetry: request.OnRetry}
+	return streamRequest{onText: request.OnText, onRetry: request.OnRetry, singleAttempt: request.SingleAttempt}
 }
 
 var errStreamInterrupted = errors.New("provider stream ended before completion")

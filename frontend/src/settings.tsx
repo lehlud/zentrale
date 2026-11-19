@@ -6,6 +6,7 @@ import { CommitIdentitySettings } from "./commit-identity";
 import { GitConnections } from "./git-connections";
 import { HuggingFaceSettings } from "./huggingface-connection";
 import { GlobalModelDefaults } from "./model-defaults";
+import { HumanizerSettings } from "./humanizer-settings";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Title, useAction } from "./ui";
 
@@ -20,6 +21,7 @@ export function Settings() {
       </Title>
       <div className="max-w-4xl space-y-8">
         <GlobalModelDefaults />
+        <HumanizerSettings />
         <CommitIdentitySettings />
         <GitConnections />
         <HuggingFaceSettings />

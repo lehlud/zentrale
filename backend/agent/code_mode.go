@@ -72,7 +72,11 @@ func (engine *Engine) runCodeMode(
 	failures := []string{}
 	receipts := []codeModeReceipt{}
 	var connectionFailure *ProjectConnectionError
-	result, err := codemode.Run(ctx, stringArg(arguments, "code"), codeModeTools(), func(ctx context.Context, name string, args map[string]any) (any, error) {
+	names := codeModeTools()
+	if engine.humanizerEnabled() {
+		names = append(names, humanizerAction)
+	}
+	result, err := codemode.Run(ctx, stringArg(arguments, "code"), names, func(ctx context.Context, name string, args map[string]any) (any, error) {
 		if connectionFailure != nil {
 			return nil, connectionFailure
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/gitforge"
+	"github.com/lehlud/zentrale/hosted"
 	"github.com/lehlud/zentrale/huggingface"
 	"github.com/lehlud/zentrale/internal/keylock"
 	"github.com/lehlud/zentrale/modelcatalog"
@@ -82,6 +83,7 @@ type Engine struct {
 	AccountLogin      *providerlogin.Client
 	GitForge          *gitforge.Service
 	HuggingFace       *huggingface.Service
+	hosted            hostedInference
 
 	accountGates     keylock.Group
 	loginPollMu      sync.Mutex
@@ -149,6 +151,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		AccountLogin:         providerlogin.New(),
 		GitForge:             gitforge.New(store),
 		HuggingFace:          huggingface.New(store),
+		hosted:               hosted.New(),
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
 		runOwner:             NewID(),
@@ -250,6 +253,7 @@ func (engine *Engine) Close() {
 	engine.cancel()
 	engine.configMu.Unlock()
 	engine.HuggingFace.Close()
+	engine.hosted.Close()
 
 	engine.mu.Lock()
 

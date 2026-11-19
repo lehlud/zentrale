@@ -10,6 +10,28 @@ import (
 	"github.com/lehlud/zentrale/domain"
 )
 
+func TestFeatherlessCatalogIncludesModelsBeyondTheFirstPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/models" || request.URL.Query().Get("per_page") != "1000" ||
+			request.Header.Get("Authorization") != "Bearer key" {
+			t.Errorf("unexpected Featherless catalog request: %s", request.URL)
+		}
+		switch request.URL.Query().Get("page") {
+		case "1":
+			_, _ = writer.Write([]byte(`{"data":[{"id":"team/model"},{"id":"team/unavailable","available_on_current_plan":false}],"pagination":{"current_page":1,"total_pages":2}}`))
+		case "2":
+			_, _ = writer.Write([]byte(`{"data":[{"id":"abacusai/Smaug-Humanizer","context_length":32768,"pricing":{"prompt":"0.0000012","completion":"0.0000048"}}],"pagination":{"current_page":2,"total_pages":2}}`))
+		default:
+			t.Errorf("unexpected Featherless page: %s", request.URL)
+		}
+	}))
+	defer server.Close()
+	models, err := New().List(context.Background(), domain.Provider{ID: "account", Kind: "featherless", BaseURL: server.URL, Credential: "key"})
+	if err != nil || len(models) != 2 || models[0].ID != "abacusai/Smaug-Humanizer" || !models[0].PricesKnown {
+		t.Fatalf("models = %+v, error = %v", models, err)
+	}
+}
+
 func TestCatalogPaginationAuthenticationAndGenerationFilter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("x-goog-api-key") != "secret" {

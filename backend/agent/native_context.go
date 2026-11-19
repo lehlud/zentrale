@@ -89,7 +89,7 @@ func (engine *Engine) tryNativeCompaction(
 	}
 
 	system := engine.buildSystemPrompt(agent)
-	tools := toolsForModel(configuration.Model)
+	tools := engine.agentToolsForModel(configuration.Model)
 
 	if agent.Role == "approver" {
 		system, tools = approverInstructions, []providers.Tool{inspectTool()}

@@ -48,6 +48,9 @@ func (client *HTTPClient) disableFeature(request Request, feature string) {
 }
 
 func (client *HTTPClient) useResponsesSocket(request Request) bool {
+	if request.SingleAttempt {
+		return false
+	}
 	// A custom RoundTripper may provide isolation, replay or test routing. A
 	// socket must never silently bypass that transport's network boundary.
 	if client.HTTP.Transport != nil {

@@ -34,6 +34,9 @@ func (client *Client) List(ctx context.Context, provider domain.Provider) ([]dom
 	if provider.Kind == "anthropic" {
 		endpoint += "?limit=1000"
 	}
+	if provider.Kind == "featherless" {
+		endpoint = featherlessPage(1)
+	}
 
 	if provider.AuthMode == "device" && provider.Kind == "openai" {
 		endpoint += "?client_version=1.0.0"
@@ -173,7 +176,19 @@ func nextPage(provider domain.Provider, response map[string]any) string {
 		}
 	}
 
+	if provider.Kind == "featherless" {
+		pagination := object(response["pagination"])
+		page, total := int(number(pagination["current_page"])), int(number(pagination["total_pages"]))
+		if page > 0 && page < total {
+			return featherlessPage(page + 1)
+		}
+	}
+
 	return ""
+}
+
+func featherlessPage(page int) string {
+	return "/models?per_page=1000&page=" + strconv.Itoa(page)
 }
 
 func object(value any) map[string]any {

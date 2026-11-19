@@ -17,6 +17,7 @@ import (
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/netguard"
 )
 
 const origin = "https://huggingface.co"
@@ -34,8 +35,9 @@ type account struct {
 }
 
 type Service struct {
-	Store  *datastore.Instance
-	Client *http.Client
+	Store       *datastore.Instance
+	Client      *http.Client
+	spaceClient *http.Client
 
 	mu          sync.Mutex
 	refreshMu   sync.Mutex
@@ -49,11 +51,15 @@ type Service struct {
 func New(store *datastore.Instance) *Service {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 30 * time.Second
+	spaceClient := netguard.HTTPClient(false)
+	spaceClient.Timeout = 0 // A ZeroGPU cold start and queue use the caller's context.
+	spaceClient.Transport.(*http.Transport).ResponseHeaderTimeout = 2 * time.Minute
 
 	return &Service{
-		Store:  store,
-		Client: &http.Client{Transport: transport, CheckRedirect: checkRedirect},
-		active: make(map[uint64]context.CancelFunc),
+		Store:       store,
+		Client:      &http.Client{Transport: transport, CheckRedirect: checkRedirect},
+		spaceClient: spaceClient,
+		active:      make(map[uint64]context.CancelFunc),
 	}
 }
 
@@ -105,6 +111,7 @@ func (service *Service) Close() {
 	service.mu.Unlock()
 
 	service.Client.CloseIdleConnections()
+	service.spaceClient.CloseIdleConnections()
 }
 
 func (service *Service) Connect(ctx context.Context, token string) (domain.HuggingFaceConnection, error) {
@@ -225,6 +232,10 @@ func (service *Service) requestContext(parent context.Context) (context.Context,
 }
 
 func (service *Service) beginRequest(ctx context.Context) (context.Context, string, func(), error) {
+	return service.beginRequestFor(ctx, "")
+}
+
+func (service *Service) beginRequestFor(ctx context.Context, username string) (context.Context, string, func(), error) {
 	if err := service.refreshOAuth(ctx); err != nil {
 		return nil, "", nil, err
 	}
@@ -241,6 +252,9 @@ func (service *Service) beginRequest(ctx context.Context) (context.Context, stri
 		return nil, "", nil, err
 	}
 
+	if username != "" && (value.Token == "" || value.Public.UserName != username) {
+		return nil, "", nil, errors.New("the Hugging Face account changed; request approval again")
+	}
 	ctx, release := service.requestContext(ctx)
 	return ctx, value.Token, release, nil
 }

@@ -78,7 +78,7 @@ export function useModels(providerId: string, totalModels?: number) {
 type ModelChoiceFormProps = {
   providers: Pick<Provider, "id" | "name">[];
   value: ModelChoice;
-  role?: "main" | "approver";
+  role?: "main" | "approver" | "humanizer";
   onApply: (choice: ModelChoice) => void | Promise<void>;
 };
 
@@ -166,9 +166,11 @@ export function ModelChoiceForm({
           }
         />
       )}
-      {draft.modelId && draft.providerId === providerId && (
-        <ReasoningSelect choice={draft} onChange={setDraft} role={role} />
-      )}
+      {role !== "humanizer" &&
+        draft.modelId &&
+        draft.providerId === providerId && (
+          <ReasoningSelect choice={draft} onChange={setDraft} role={role} />
+        )}
       <Failure message={action.error} />
       <Button
         className="min-h-11"

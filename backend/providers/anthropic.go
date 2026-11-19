@@ -55,6 +55,9 @@ func (client *HTTPClient) anthropic(ctx context.Context, request Request) (Resul
 		},
 		"messages": messages,
 	}
+	if request.MaxOutputTokens > 0 {
+		body["max_tokens"] = request.MaxOutputTokens
+	}
 
 	if len(tools) > 0 {
 		body["tools"] = tools
@@ -70,7 +73,11 @@ func (client *HTTPClient) anthropic(ctx context.Context, request Request) (Resul
 		return Result{}, err
 	}
 
-	result := Result{Wire: encodeWire(data["content"])}
+	result := Result{
+		Wire:      encodeWire(data["content"]),
+		Truncated: data["stop_reason"] == "max_tokens",
+		Refused:   data["stop_reason"] == "refusal",
+	}
 
 	for _, item := range asArray(data["content"]) {
 		item := asObject(item)

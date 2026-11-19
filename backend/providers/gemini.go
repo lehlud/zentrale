@@ -69,6 +69,11 @@ func (client *HTTPClient) gemini(ctx context.Context, request Request) (Result, 
 	}
 
 	applyReasoning(body, request, "gemini")
+	if request.MaxOutputTokens > 0 {
+		generation := asObject(body["generationConfig"])
+		generation["maxOutputTokens"] = request.MaxOutputTokens
+		body["generationConfig"] = generation
+	}
 	data, err := client.post(ctx, request.Config, endpoint, body, request.stream())
 	if err != nil {
 		return Result{}, err
@@ -79,8 +84,9 @@ func (client *HTTPClient) gemini(ctx context.Context, request Request) (Result, 
 		return Result{}, errors.New("Gemini returned no candidates")
 	}
 
-	content := asObject(asObject(candidates[0])["content"])
-	result := Result{Wire: encodeWire(content)}
+	candidate := asObject(candidates[0])
+	content := asObject(candidate["content"])
+	result := Result{Wire: encodeWire(content), Truncated: candidate["finishReason"] == "MAX_TOKENS"}
 
 	for index, part := range asArray(content["parts"]) {
 		part := asObject(part)

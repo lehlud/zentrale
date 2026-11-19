@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/hosted"
 	"github.com/lehlud/zentrale/providerlogin"
 	"github.com/lehlud/zentrale/providers"
 )
@@ -21,6 +22,14 @@ func (engine *Engine) RefreshProviderModels(ctx context.Context, providerID stri
 	engine.configMu.Lock()
 	revision := engine.catalogRevisions[providerID]
 	engine.configMu.Unlock()
+
+	var public domain.Provider
+	if err := engine.Store.Load("provider", providerID, &public); err != nil {
+		return err
+	}
+	if hosted.Kind(public.Kind) {
+		return errors.New("select a model ID or endpoint for this hosted inference provider")
+	}
 
 	if err := engine.Store.Patch("provider", providerID, map[string]any{
 		"catalogStatus": "loading", "catalogError": "",
@@ -47,17 +56,23 @@ func (engine *Engine) RefreshProviderModels(ctx context.Context, providerID stri
 
 	if err == nil {
 		resources := make(map[string]any, len(models))
-
 		for _, model := range models {
-			var metadata domain.ModelMetadata
-			if engine.Store.Load("model_metadata", modelResourceID(providerID, model.ID), &metadata) == nil {
-				applyModelMetadata(&model, metadata)
-			}
-
 			resources[modelResourceID(providerID, model.ID)] = model
 		}
 
-		err = engine.Store.ReplaceCollection("model", providerID, resources)
+		// Most catalog entries have no custom metadata. Read only the saved
+		// overrides so large catalogs don't issue a database query per model.
+		overrides, loadErr := engine.Store.ModelMetadataOverrides(providerID)
+		for id, override := range overrides {
+			if model, exists := resources[id].(domain.LanguageModel); exists {
+				applyModelMetadata(&model, override)
+				resources[id] = model
+			}
+		}
+		err = loadErr
+		if err == nil {
+			err = engine.Store.ReplaceCollection("model", providerID, resources)
+		}
 		if err == nil {
 			err = engine.Store.Patch("provider", providerID, map[string]any{
 				"catalogStatus": "ready", "catalogError": "", "modelCount": len(models),

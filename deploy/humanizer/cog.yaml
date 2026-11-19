@@ -1,0 +1,9 @@
+build:
+  gpu: true
+  python_version: "3.12"
+  python_requirements: requirements.txt
+  run:
+    - >-
+      HF_HUB_CACHE=/opt/humanizer hf download jialinyyzz/humanizer
+      --include '*.safetensors' '*.json' '*.jinja' '*.model'
+run: "replicate_predict.py:Runner"

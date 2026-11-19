@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/hosted"
 	"github.com/lehlud/zentrale/providers"
 	"github.com/lehlud/zentrale/remote"
 )
@@ -56,6 +57,18 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 	if configuration.AuthMode == "oauth" && configuration.OAuthClientSecret == "" {
 		return configuration, errors.New("Google web OAuth client secret is required")
 	}
+	isHosted := hosted.Kind(configuration.Kind)
+	if configuration.Kind == "featherless" || isHosted {
+		configuration.Credential = strings.TrimSpace(configuration.Credential)
+		if configuration.Credential == "" {
+			return configuration, errors.New("an API key is required for this provider")
+		}
+	}
+	if isHosted {
+		configuration.ModelCount = 0
+		configuration.CatalogStatus = "external"
+		configuration.CatalogError = ""
+	}
 
 	if !preserveAuthorization {
 		configuration.OAuth = nil
@@ -85,7 +98,7 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 
 	engine.catalogRevisions[configuration.ID]++
 
-	if configuration.AuthMode == "api" || configuration.Credential != "" || configuration.OAuth != nil {
+	if !isHosted && (configuration.AuthMode == "api" || configuration.Credential != "" || configuration.OAuth != nil) {
 		engine.scheduleModelRefresh(configuration.ID)
 	}
 

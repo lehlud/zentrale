@@ -65,6 +65,8 @@ var toolPolicies = map[string]toolPolicy{
 	"mcp_tools":            {Review: reviewInHandler},
 	"mcp_call":             {Review: reviewInHandler},
 	"mcp_disconnect":       {Review: reviewInHandler},
+	humanizerAction:        {Review: reviewInHandler, HideInCodeMode: true},
+	hostedModelAction:      {Review: reviewInHandler},
 
 	"code_mode":         {Review: reviewNone, HideInCodeMode: true},
 	"tool_search":       {Review: reviewNone, HideInCodeMode: true},
@@ -235,6 +237,8 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 		requiredArgument = "agentId"
 	case "question_ask":
 		requiredArgument = "title"
+	case humanizerAction:
+		requiredArgument = ""
 	default:
 		return interaction{}, errors.New("unknown tool")
 	}
@@ -264,6 +268,10 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 		return engine.writeStdin(ctx, agentRecord, request)
 	case "mcp_connect", "mcp_list", "mcp_tools", "mcp_call", "mcp_disconnect":
 		return engine.mcpTool(ctx, agentRecord, request)
+	case humanizerAction:
+		return engine.humanize(ctx, agentRecord, request)
+	case hostedModelAction:
+		return engine.runHostedModel(ctx, agentRecord, request)
 	case "code_mode":
 		return engine.runCodeMode(ctx, agentRecord, arguments)
 	case "tool_search":

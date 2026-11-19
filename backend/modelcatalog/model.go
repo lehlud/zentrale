@@ -11,6 +11,9 @@ import (
 // Account discovery determines availability. Metadata never introduces an ID that
 // was absent from the account's response.
 func decodeModel(provider domain.Provider, record map[string]any) (domain.LanguageModel, bool) {
+	if provider.Kind == "featherless" && record["available_on_current_plan"] == false {
+		return domain.LanguageModel{}, false
+	}
 	id := text(record["id"])
 	name := text(record["name"])
 

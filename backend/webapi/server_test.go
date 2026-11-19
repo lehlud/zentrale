@@ -534,6 +534,32 @@ func TestProviderDiscoveryDefaultsMetadataAndAgentModelSnapshots(t *testing.T) {
 		t.Fatalf("non-language models leaked into catalog: %+v", models)
 	}
 
+	gpuAccount := requireData(t, fixture.query(t,
+		`mutation{saveProvider(input:{id:"gpu",kind:"fal",name:"GPU",credential:"test-secret"}){catalogStatus connected}}`, nil),
+	)["saveProvider"].(map[string]any)
+	if gpuAccount["catalogStatus"] != "external" || gpuAccount["connected"] != true {
+		t.Fatalf("GPU account = %+v", gpuAccount)
+	}
+	choices := []struct {
+		input  string
+		model  string
+		space  string
+		target string
+	}{
+		{`{model:{providerId:"account",modelId:"main-model"}}`, "main-model", "", ""},
+		{`{hosted:{providerId:"gpu",modelId:"jialinyyzz/humanizer",target:"team/writer"}}`, "", "", "team/writer"},
+		{`{spaceUrl:"https://writer-demo.hf.space/",spaceEndpoint:"/predict",useHuggingFaceAccount:true,spaceBatch:true}`, "", "https://writer-demo.hf.space", ""},
+		{`{}`, "", "", ""},
+	}
+	for _, choice := range choices {
+		requireData(t, fixture.query(t, `mutation{setHumanizer(input:`+choice.input+`)}`, nil))
+		settings := requireData(t, fixture.query(t, `query{humanizerSettings{model{modelId} hosted{target} spaceUrl}}`, nil))["humanizerSettings"].(map[string]any)
+		if settings["spaceUrl"] != choice.space || settings["model"].(map[string]any)["modelId"] != choice.model ||
+			settings["hosted"].(map[string]any)["target"] != choice.target {
+			t.Fatalf("Humanizer settings = %+v", settings)
+		}
+	}
+
 	if fixture.query(t, `query{providers{oauth}}`, nil)["errors"] == nil {
 		t.Fatal("OAuth token schema exposed")
 	}

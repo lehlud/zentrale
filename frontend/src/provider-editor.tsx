@@ -28,6 +28,10 @@ export const loginLabels: Record<string, string> = {
   oauth: "Google-API-Konto",
 };
 
+export function isHostedProvider(kind: unknown) {
+  return kind === "modal" || kind === "replicate" || kind === "fal";
+}
+
 export function ProviderEditor({
   initial,
   kinds,
@@ -52,6 +56,7 @@ export function ProviderEditor({
   const methods = kinds.find((kind) => kind.id === value.kind)?.authMethods ?? [
     "api",
   ];
+  const requiresEndpoint = value.kind === "litellm" || value.kind === "modal";
   const update = (key: string, next: unknown) =>
     setValue((previous) => ({ ...previous, [key]: next }));
   const focus = (field: string) =>
@@ -75,7 +80,7 @@ export function ProviderEditor({
       return;
     }
 
-    if (value.kind === "litellm" && !String(value.baseUrl ?? "").trim()) {
+    if (requiresEndpoint && !String(value.baseUrl ?? "").trim()) {
       setInvalid({ baseUrl: t("Dieses Feld ist erforderlich.") });
       focus("baseUrl");
 
@@ -271,19 +276,27 @@ export function ProviderEditor({
                 className="gap-2"
                 data-field="credential"
               >
-                <Label>{t("API-Schlüssel")}</Label>
+                <Label>
+                  {t(
+                    value.kind === "modal"
+                      ? "Modal-Proxy-Token"
+                      : "API-Schlüssel",
+                  )}
+                </Label>
                 <Input className="min-h-11" />
                 <Description>
-                  {initial.id
-                    ? t(
-                        "Leer lassen, um den vorhandenen Schlüssel zu behalten.",
-                      )
-                    : t(
-                        "Der Schlüssel wird gespeichert und nicht wieder angezeigt.",
-                      )}
+                  {value.kind === "modal"
+                    ? t("Token-ID und Token-Secret mit einem Punkt verbinden.")
+                    : initial.id
+                      ? t(
+                          "Leer lassen, um den vorhandenen Schlüssel zu behalten.",
+                        )
+                      : t(
+                          "Der Schlüssel wird gespeichert und nicht wieder angezeigt.",
+                        )}
                 </Description>
               </TextField>
-              {value.kind === "litellm" && (
+              {requiresEndpoint && (
                 <ProviderEndpoint
                   value={String(value.baseUrl ?? "")}
                   onChange={(url) => update("baseUrl", url)}
@@ -308,7 +321,7 @@ export function ProviderEditor({
                   </Accordion.Heading>
                   <Accordion.Panel>
                     <Accordion.Body className="space-y-5 pb-3">
-                      {value.kind !== "litellm" && (
+                      {!requiresEndpoint && !isHostedProvider(value.kind) && (
                         <ProviderEndpoint
                           value={String(value.baseUrl ?? "")}
                           onChange={(url) => update("baseUrl", url)}

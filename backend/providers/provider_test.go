@@ -6,10 +6,68 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lehlud/zentrale/domain"
 )
+
+func TestFeatherlessRewriteBoundsOutputAndDoesNotRetry(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.URL.Path != "/chat/completions" || request.Header.Get("Authorization") != "Bearer example-key" ||
+			request.Header.Get("X-Title") != "Zentrale" {
+			t.Error("unexpected Featherless request")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil ||
+			body["model"] != "abacusai/Smaug-Humanizer" || body["max_completion_tokens"] != float64(4096) || body["tools"] != nil {
+			t.Errorf("request body = %v, error = %v", body, err)
+		}
+		messages, _ := body["messages"].([]any)
+		stop, _ := body["stop"].([]any)
+		if len(messages) != 1 || messages[0].(map[string]any)["role"] != "user" || len(stop) != 1 || stop[0] != "<end_of_turn>" {
+			t.Errorf("unexpected Smaug prompt or stop sequence: %v, %v", messages, stop)
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client := New()
+	_, err := client.Complete(context.Background(), Request{
+		Config:          domain.Provider{Kind: "featherless", Credential: "example-key", BaseURL: server.URL},
+		Model:           domain.LanguageModel{ID: "abacusai/Smaug-Humanizer"},
+		Messages:        []domain.Message{{Role: "user", Content: "Revise this sentence."}},
+		StopSequences:   []string{"<end_of_turn>"},
+		MaxOutputTokens: 4096, SingleAttempt: true,
+	})
+	if err == nil || calls.Load() != 1 {
+		t.Fatalf("expected one Featherless request, got %d with error %v", calls.Load(), err)
+	}
+}
+
+func TestChatCompletionReportsTruncationAndRefusal(t *testing.T) {
+	for _, test := range []struct {
+		choice             string
+		truncated, refused bool
+	}{
+		{`{"finish_reason":"length","message":{"content":"partial rewrite"}}`, true, false},
+		{`{"finish_reason":"content_filter","message":{}}`, false, true},
+		{`{"finish_reason":"stop","message":{"refusal":"request refused"}}`, false, true},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte(`{"choices":[` + test.choice + `]}`))
+		}))
+		result, err := New().Complete(context.Background(), Request{
+			Config: domain.Provider{Kind: "featherless", BaseURL: server.URL, Credential: "example-key"},
+			Model:  domain.LanguageModel{ID: "team/model"},
+		})
+		server.Close()
+		if err != nil || result.Truncated != test.truncated || result.Refused != test.refused {
+			t.Errorf("choice %s, flags %v/%v, error %v", test.choice, result.Truncated, result.Refused, err)
+		}
+	}
+}
 
 func TestAllProviderProtocolsAndReplay(tool *testing.T) {
 	tests := []struct{ kind, path, response string }{

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/hosted"
 	"github.com/lehlud/zentrale/providerlogin"
 )
 
@@ -30,12 +31,14 @@ type Call struct {
 }
 
 type Result struct {
-	TraceID string
-	Purpose string
-	Text    string
-	Wire    string
-	Phase   string
-	Calls   []Call
+	TraceID   string
+	Purpose   string
+	Text      string
+	Wire      string
+	Phase     string
+	Calls     []Call
+	Truncated bool
+	Refused   bool
 
 	InputTokens          int
 	OutputTokens         int
@@ -50,9 +53,12 @@ type Result struct {
 }
 
 type Request struct {
-	ReasoningLevel string
-	Config         domain.Provider
-	Model          domain.LanguageModel
+	ReasoningLevel  string
+	Config          domain.Provider
+	Model           domain.LanguageModel
+	MaxOutputTokens int
+	SingleAttempt   bool // A separately approved, potentially billable request.
+	StopSequences   []string
 
 	System   string
 	Messages []domain.Message
@@ -89,12 +95,15 @@ func New() *HTTPClient {
 }
 
 var defaults = map[string]string{
-	"openai":     "https://api.openai.com/v1",
-	"anthropic":  "https://api.anthropic.com/v1",
-	"openrouter": "https://openrouter.ai/api/v1",
-	"opencode":   "https://opencode.ai/zen/v1",
-	"mistral":    "https://api.mistral.ai/v1",
-	"gemini":     "https://generativelanguage.googleapis.com/v1beta",
+	"openai":      "https://api.openai.com/v1",
+	"anthropic":   "https://api.anthropic.com/v1",
+	"openrouter":  "https://openrouter.ai/api/v1",
+	"featherless": "https://api.featherless.ai/v1",
+	"opencode":    "https://opencode.ai/zen/v1",
+	"mistral":     "https://api.mistral.ai/v1",
+	"replicate":   hosted.ReplicateURL,
+	"fal":         hosted.FalURL,
+	"gemini":      "https://generativelanguage.googleapis.com/v1beta",
 }
 
 func Validate(configuration *domain.Provider) error {
@@ -105,7 +114,7 @@ func Validate(configuration *domain.Provider) error {
 		return errors.New("prompt cache mode must be auto, off or explicit")
 	}
 	switch configuration.Kind {
-	case "openai", "anthropic", "openrouter", "opencode", "mistral", "litellm", "gemini":
+	case "openai", "anthropic", "openrouter", "opencode", "mistral", "litellm", "gemini", "featherless", "modal", "replicate", "fal":
 	default:
 		return errors.New("unsupported provider")
 	}
@@ -144,6 +153,9 @@ func Validate(configuration *domain.Provider) error {
 
 	if configuration.BillingMode != "metered" && configuration.BillingMode != "fixed" {
 		return errors.New("billing mode must be metered or fixed")
+	}
+	if hosted.Kind(configuration.Kind) {
+		return hosted.ValidateProvider(configuration)
 	}
 
 	if configuration.AuthMode == "oauth" {
@@ -231,6 +243,11 @@ func (client *HTTPClient) post(
 		req.Header.Set("Authorization", "Bearer "+credential)
 	}
 
+	if configuration.Kind == "featherless" {
+		req.Header.Set("HTTP-Referer", "https://github.com/lehlud/zentrale")
+		req.Header.Set("X-Title", "Zentrale")
+	}
+
 	if configuration.Kind == "openai" && configuration.OAuth != nil {
 		req.Header.Set("originator", "zentrale")
 
@@ -247,6 +264,7 @@ func (client *HTTPClient) post(
 	if len(callbacks) > 0 {
 		stream.onText = callbacks[0].onText
 		stream.onRetry = callbacks[0].onRetry
+		stream.singleAttempt = callbacks[0].singleAttempt
 	}
 
 	result, failure := client.postWithRetry(req, stream)
@@ -293,6 +311,12 @@ func (client *HTTPClient) Complete(ctx context.Context, request Request) (result
 
 	if err := Validate(&request.Config); err != nil {
 		return Result{}, err
+	}
+	if hosted.Kind(request.Config.Kind) {
+		return Result{}, errors.New("use the hosted inference tool for this provider")
+	}
+	if request.Config.Kind == "featherless" && strings.TrimSpace(request.Config.Credential) == "" {
+		return Result{}, errors.New("connect Featherless with an API key before requesting inference")
 	}
 
 	switch request.Config.Kind {

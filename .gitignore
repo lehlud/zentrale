@@ -18,4 +18,5 @@ frontend/artifacts/
 __pycache__/
 *.pdf
 *.yaml
+!deploy/humanizer/cog.yaml
 .env*

@@ -47,6 +47,8 @@ const toolLabels: Record<string, string> = {
   container: "Container ausführen",
   websearch: "Im Web suchen",
   webfetch: "Webseite abrufen",
+  humanize_text: "Text umformulieren",
+  run_hosted_model: "Gehostetes Modell ausführen",
   github: "GitHub-Anfrage",
   clone_source: "Quelle klonen",
   source_git: "Git ausführen",

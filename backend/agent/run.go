@@ -135,7 +135,7 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		}
 
 		engine.setRunState(agentID, "model", nil)
-		system, tools := engine.buildSystemPrompt(agentRecord), toolsForModel(configuration.Model)
+		system, tools := engine.buildSystemPrompt(agentRecord), engine.agentToolsForModel(configuration.Model)
 		agentRecord, messages, err := engine.prepareContext(turnContext, agentRecord, configuration, false, estimatedPromptTokens(system, tools))
 		if err != nil {
 			return processedRevision, err

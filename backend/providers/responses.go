@@ -64,6 +64,9 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 		"store":            false,
 		"include":          []string{"reasoning.encrypted_content"},
 	}
+	if request.MaxOutputTokens > 0 {
+		body["max_output_tokens"] = request.MaxOutputTokens
+	}
 
 	if request.Config.AuthMode == "device" || request.OnText != nil {
 		body["stream"] = true
@@ -78,7 +81,7 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 	// Keep the unmarked request for a narrowly scoped unsupported-parameter
 	// fallback. Do not retry unrelated model/authentication/quota errors.
 	unmarked, _ := json.Marshal(body)
-	if client.useResponsesBreakpoints(request) {
+	if !request.SingleAttempt && client.useResponsesBreakpoints(request) {
 		addResponsesBreakpoints(body)
 	}
 	data, err := client.responsesTransport(ctx, request, body)
@@ -116,6 +119,7 @@ func (client *HTTPClient) responses(ctx context.Context, request Request) (Resul
 				if asString(part["type"]) == "output_text" {
 					result.Text += asString(part["text"])
 				} else if asString(part["type"]) == "refusal" {
+					result.Refused = true
 					result.Text += asString(part["refusal"])
 				}
 			}

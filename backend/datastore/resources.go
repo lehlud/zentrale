@@ -321,6 +321,26 @@ func (i *Instance) TrustedKeys() ([][]byte, error) {
 	return result, rows.Err()
 }
 
+func (i *Instance) ModelMetadataOverrides(providerID string) (map[string]domain.ModelMetadata, error) {
+	rows, err := i.readDB().Query(`SELECT id,data FROM resources WHERE kind='model_metadata' AND parent_id=?`, providerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	overrides := make(map[string]domain.ModelMetadata)
+	for rows.Next() {
+		var id, encoded string
+		if err := rows.Scan(&id, &encoded); err != nil {
+			return nil, err
+		}
+		var metadata domain.ModelMetadata
+		if json.Unmarshal([]byte(encoded), &metadata) == nil {
+			overrides[id] = metadata
+		}
+	}
+	return overrides, rows.Err()
+}
+
 // ReplaceCollection publishes a complete model catalog in one transaction so
 // readers never observe a half-refreshed list.
 func (i *Instance) ReplaceCollection(kind, parent string, values map[string]any) error {
@@ -338,20 +358,19 @@ func (i *Instance) ReplaceCollection(kind, parent string, values map[string]any)
 		return err
 	}
 
+	insert, err := transaction.Prepare(`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer insert.Close()
+
 	for id, value := range values {
 		encoded, err := json.Marshal(value)
 		if err != nil {
 			return err
 		}
 
-		if _, err := transaction.Exec(
-			`INSERT INTO resources(kind,id,parent_id,data,created_at) VALUES (?,?,?,?,?)`,
-			kind,
-			id,
-			parent,
-			string(encoded),
-			resourceCreatedAt(),
-		); err != nil {
+		if _, err := insert.Exec(kind, id, parent, string(encoded), resourceCreatedAt()); err != nil {
 			return err
 		}
 	}

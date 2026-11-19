@@ -7,7 +7,10 @@ import (
 )
 
 func (client *HTTPClient) chat(ctx context.Context, request Request) (Result, error) {
-	messages := []any{map[string]any{"role": "system", "content": request.System}}
+	messages := make([]any, 0, len(request.Messages)+1)
+	if request.System != "" {
+		messages = append(messages, map[string]any{"role": "system", "content": request.System})
+	}
 	for _, message := range request.Messages {
 		if message.Role == "tool" {
 			messages = append(messages, map[string]any{
@@ -41,6 +44,16 @@ func (client *HTTPClient) chat(ctx context.Context, request Request) (Result, er
 	}
 
 	body := map[string]any{"model": request.Model.ID, "messages": messages}
+	if len(request.StopSequences) > 0 {
+		body["stop"] = request.StopSequences
+	}
+	if request.MaxOutputTokens > 0 {
+		key := "max_tokens"
+		if request.Config.Kind == "featherless" {
+			key = "max_completion_tokens"
+		}
+		body[key] = request.MaxOutputTokens
+	}
 
 	if request.OnText != nil {
 		body["stream"] = true
@@ -65,8 +78,11 @@ func (client *HTTPClient) chat(ctx context.Context, request Request) (Result, er
 		return Result{}, errors.New("provider returned no choices")
 	}
 
-	message := asObject(asObject(choices[0])["message"])
+	choice := asObject(choices[0])
+	message := asObject(choice["message"])
 	result := Result{Text: chatVisibleText(message["content"]), Wire: encodeWire(message)}
+	result.Truncated = choice["finish_reason"] == "length"
+	result.Refused = choice["finish_reason"] == "content_filter" || asString(message["refusal"]) != ""
 	if result.Text == "" {
 		result.Text = asString(message["refusal"])
 	}

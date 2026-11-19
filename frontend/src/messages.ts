@@ -1,6 +1,34 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Der Auto-Approver prüft jede angeforderte Textumformulierung, bevor der Text gesendet wird. Aufrufe können Kosten verursachen.":
+    "The Auto-Approver reviews each requested rewrite before the text is sent. Calls can incur charges.",
+  Ausgeschaltet: "Off",
+  "Katalogmodell auswählen": "Choose a catalog model",
+  "ZeroGPU-Space einrichten": "Configure a ZeroGPU Space",
+  Ausschalten: "Turn off",
+  "Humanizer-Modell auswählen": "Choose a Humanizer model",
+  "Verwende die .hf.space-Adresse und einen Gradio-Endpunkt für Text. Für Batch-Inferenz muss der Endpunkt eine Liste annehmen und zurückgeben.":
+    "Use the .hf.space address and a Gradio endpoint for text. For batch inference, the endpoint must accept and return a list.",
+  "GPU-Humanizer einrichten": "Configure a GPU Humanizer",
+  "Humanizer einrichten": "Configure Humanizer",
+  "Der Endpunkt verarbeitet den gesamten Batch in einem Auftrag. Verwende einen für Batch-Inferenz bereitgestellten Humanizer.":
+    "The endpoint processes the entire batch in one job. Use a Humanizer deployed for batch inference.",
+  "Modell- oder Deployment-ID": "Model or deployment ID",
+  "Textliste in einem Auftrag verarbeiten": "Process the list in one job",
+  "Modal-Proxy-Token": "Modal proxy token",
+  "Token-ID und Token-Secret mit einem Punkt verbinden.":
+    "Join the token ID and token secret with a period.",
+  "GPU-Inferenz": "GPU inference",
+  "Zugang ansehen": "View connection",
+  "Agenten verwenden diesen Zugang über run_hosted_model mit einem Endpunkt und dessen Eingabedaten.":
+    "Agents use this connection through run_hosted_model with an endpoint and its input data.",
+  "Gehostetes Modell ausführen": "Run a hosted model",
+  "Space-Adresse": "Space address",
+  "Gradio-Endpunkt": "Gradio endpoint",
+  "Verbundenes Hugging-Face-Konto und dessen ZeroGPU-Kontingent verwenden":
+    "Use the connected Hugging Face account and its ZeroGPU quota",
+  "Text umformulieren": "Rewrite text",
   "Checkout-Verzeichnisse (optional)": "Checkout directories (optional)",
   "Ein Verzeichnis pro Zeile. Beim ersten Checkout werden diese Verzeichnisse und die Dateien auf oberster Ebene angelegt. Leer lassen für einen vollständigen Checkout.":
     "Enter one directory per line. The initial checkout includes these directories and top-level files. Leave blank for a full checkout.",

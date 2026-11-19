@@ -31,6 +31,7 @@ export function InferenceDiagnostics({ agentId }: { agentId: string }) {
     goal_review: t("Zielprüfung"),
     summary: t("Zusammenfassung"),
     native_compaction: t("Kontextverdichtung"),
+    humanizer: t("Text umformulieren"),
     side: t("Nebenfrage"),
     connection_test: t("Verbindungstest"),
   };

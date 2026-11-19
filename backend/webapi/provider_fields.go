@@ -81,6 +81,13 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 			return mapOf(defaults), err
 		}),
 	}
+	queries["humanizerSettings"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.HumanizerSettings]()),
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			settings, err := server.Engine.HumanizerSettings()
+			return mapOf(settings), err
+		}),
+	}
 	queries["conversationModels"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ModelDefaults]()),
 		Args: gitStringArgs("agentId"),
@@ -136,6 +143,10 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 				{"openai", "OpenAI"},
 				{"anthropic", "Anthropic"},
 				{"openrouter", "OpenRouter"},
+				{"featherless", "Featherless"},
+				{"modal", "Modal"},
+				{"replicate", "Replicate"},
+				{"fal", "fal.ai"},
 
 				{
 					"opencode",
@@ -226,6 +237,20 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			}
 
 			return true, server.Engine.SaveModelDefaults(defaults)
+		}),
+	}
+	mutations["setHumanizer"] = &graphql.Field{
+		Type: graphql.Boolean,
+		Args: graphql.FieldConfigArgument{
+			"input": {Type: graphql.NewNonNull(builder.input(reflect.TypeFor[domain.HumanizerSettings]()))},
+		},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			settings, err := convert[domain.HumanizerSettings](params.Args["input"])
+			if err != nil {
+				return false, err
+			}
+			err = server.Engine.SaveHumanizer(settings)
+			return err == nil, err
 		}),
 	}
 
