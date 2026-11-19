@@ -22,7 +22,7 @@ func (engine *Engine) hostedProvider(providerID string) (domain.Provider, error)
 	if err := engine.loadProvider(providerID, &provider); err != nil {
 		return provider, err
 	}
-	if !hosted.Kind(provider.Kind) || provider.Credential == "" {
+	if !hosted.Kind(provider.Kind) || provider.Credential == "" || (provider.ModalModelID != "" && !provider.Connected) {
 		return provider, errors.New("choose a connected Modal, Replicate or fal.ai provider")
 	}
 	return provider, hosted.ValidateProvider(&provider)
@@ -33,14 +33,14 @@ func (engine *Engine) runHostedModel(ctx context.Context, record domain.Agent, r
 		return nil, errors.New("only working agents can request hosted inference")
 	}
 	if len(request.Arguments) == 0 {
-		rows, err := engine.Store.ListFields("provider", nil, 500, 0, []string{"id", "name", "kind", "credential"})
+		rows, err := engine.Store.ListFields("provider", nil, 500, 0, []string{"id", "name", "kind", "credential", "connected"})
 		if err != nil {
 			return nil, err
 		}
 		accounts := []map[string]string{}
 		for _, row := range rows {
 			kind := stringArg(row, "kind")
-			if hosted.Kind(kind) && stringArg(row, "credential") != "" {
+			if hosted.Kind(kind) && (stringArg(row, "credential") != "" || row["connected"] == true) {
 				accounts = append(accounts, map[string]string{"id": stringArg(row, "id"), "name": stringArg(row, "name"), "kind": kind})
 			}
 		}

@@ -32,6 +32,8 @@ export function isHostedProvider(kind: unknown) {
   return kind === "modal" || kind === "replicate" || kind === "fal";
 }
 
+const modalPresets = ["jialinyyzz/humanizer", "abacusai/Smaug-Humanizer"];
+
 export function ProviderEditor({
   initial,
   kinds,
@@ -54,7 +56,13 @@ export function ProviderEditor({
     return {
       ...initial,
       baseUrl: native ? "" : destination,
-      modalMode: native ? "native" : "proxy",
+      modalMode:
+        initial.modalModelId || !initial.id
+          ? "managed"
+          : native
+            ? "native"
+            : "proxy",
+      modalModelId: initial.modalModelId || modalPresets[0],
       modalEnvironment,
       modalApp,
       modalFunction,
@@ -71,9 +79,10 @@ export function ProviderEditor({
     "api",
   ];
   const isModal = value.kind === "modal";
+  const managedModal = isModal && value.modalMode === "managed";
   const nativeModal = isModal && value.modalMode === "native";
-  const requiresEndpoint =
-    value.kind === "litellm" || (isModal && !nativeModal);
+  const apiModal = nativeModal || managedModal;
+  const requiresEndpoint = value.kind === "litellm" || (isModal && !apiModal);
   const update = (key: string, next: unknown) =>
     setValue((previous) => ({ ...previous, [key]: next }));
   const focus = (field: string) =>
@@ -90,7 +99,7 @@ export function ProviderEditor({
       return;
     }
 
-    if (!String(value.name ?? "").trim()) {
+    if (!managedModal && !String(value.name ?? "").trim()) {
       setInvalid({ name: t("Dieses Feld ist erforderlich.") });
       focus("name");
 
@@ -99,6 +108,8 @@ export function ProviderEditor({
 
     let endpoint = String(value.baseUrl ?? "").trim();
     let credential = value.credential ?? "";
+    const tokenID = String(value.modalTokenID ?? "").trim();
+    const tokenSecret = String(value.modalTokenSecret ?? "").trim();
     if (requiresEndpoint && !endpoint) {
       setInvalid({ baseUrl: t("Dieses Feld ist erforderlich.") });
       focus("baseUrl");
@@ -125,17 +136,18 @@ export function ProviderEditor({
       } else {
         endpoint = endpoint.replace(/\/+$/, "");
       }
-      const tokenID = String(value.modalTokenID ?? "").trim();
-      const tokenSecret = String(value.modalTokenSecret ?? "").trim();
       const keepToken =
         initial.kind === "modal" &&
-        initial.connected &&
-        endpoint === String(initial.baseUrl ?? "").replace(/\/+$/, "") &&
+        (managedModal
+          ? initial.modalModelId === value.modalModelId &&
+            initial.catalogStatus !== "disconnected"
+          : initial.connected &&
+            endpoint === String(initial.baseUrl ?? "").replace(/\/+$/, "")) &&
         !tokenID &&
         !tokenSecret;
       if (!keepToken) {
-        const idPrefix = nativeModal ? "ak-" : "wk-";
-        const secretPrefix = nativeModal ? "as-" : "ws-";
+        const idPrefix = apiModal ? "ak-" : "wk-";
+        const secretPrefix = apiModal ? "as-" : "ws-";
         for (const [field, token, prefix] of [
           ["modalTokenID", tokenID, idPrefix],
           ["modalTokenSecret", tokenSecret, secretPrefix],
@@ -166,6 +178,15 @@ export function ProviderEditor({
     setInvalid({});
 
     try {
+      if (managedModal) {
+        const result = await api.mutate<{ setupModalHumanizer: Provider }>(
+          "mutation($tokenId:String,$tokenSecret:String,$modelId:String){setupModalHumanizer(tokenId:$tokenId,tokenSecret:$tokenSecret,modelId:$modelId){id}}",
+          { tokenId: tokenID, tokenSecret, modelId: value.modalModelId },
+        );
+        onSaved?.(result.setupModalHumanizer);
+        onClose();
+        return;
+      }
       const result = await api.mutate<{ saveProvider: Provider }>(
         "mutation($input:ProviderInput!){saveProvider(input:$input){id name kind authMode billingMode connected accountLabel modelCount catalogStatus catalogError}}",
         {
@@ -252,7 +273,8 @@ export function ProviderEditor({
                 oauthClientId: "",
                 oauthProjectId: "",
                 oauthClientSecret: "",
-                modalMode: "proxy",
+                modalMode: "managed",
+                modalModelId: modalPresets[0],
                 modalEnvironment: "main",
                 modalApp: "",
                 modalFunction: "",
@@ -260,7 +282,7 @@ export function ProviderEditor({
                 modalTokenSecret: "",
               }))
             }
-            isDisabled={busy}
+            isDisabled={busy || Boolean(initial.modalModelId)}
             className="gap-2"
             data-field="kind"
           >
@@ -285,22 +307,24 @@ export function ProviderEditor({
               </ListBox>
             </Select.Popover>
           </Select>
-          <TextField
-            value={String(value.name ?? "")}
-            onChange={(name) => update("name", name)}
-            isRequired
-            isInvalid={Boolean(invalid.name)}
-            isDisabled={busy}
-            className="gap-2"
-            data-field="name"
-          >
-            <Label>{t("Name")}</Label>
-            <Input
-              className="min-h-11"
-              placeholder={t("z. B. Forschungsteam")}
-            />
-            <FieldError>{invalid.name}</FieldError>
-          </TextField>
+          {!managedModal && (
+            <TextField
+              value={String(value.name ?? "")}
+              onChange={(name) => update("name", name)}
+              isRequired
+              isInvalid={Boolean(invalid.name)}
+              isDisabled={busy}
+              className="gap-2"
+              data-field="name"
+            >
+              <Label>{t("Name")}</Label>
+              <Input
+                className="min-h-11"
+                placeholder={t("z. B. Forschungsteam")}
+              />
+              <FieldError>{invalid.name}</FieldError>
+            </TextField>
+          )}
           {methods.length > 1 && (
             <RadioGroup
               value={String(value.authMode ?? "api")}
@@ -348,7 +372,7 @@ export function ProviderEditor({
               {isModal ? (
                 <>
                   <Select
-                    value={nativeModal ? "native" : "proxy"}
+                    value={String(value.modalMode)}
                     onChange={(mode) => {
                       setInvalid({});
                       setValue((previous) => ({
@@ -358,7 +382,7 @@ export function ProviderEditor({
                         modalTokenSecret: "",
                       }));
                     }}
-                    isDisabled={busy}
+                    isDisabled={busy || Boolean(initial.modalModelId)}
                     className="gap-2"
                   >
                     <Label>{t("Modal-Zugang")}</Label>
@@ -368,6 +392,16 @@ export function ProviderEditor({
                     </Select.Trigger>
                     <Select.Popover>
                       <ListBox>
+                        <ListBox.Item
+                          id="managed"
+                          textValue={t("Humanizer automatisch bereitstellen")}
+                          className="min-h-11"
+                        >
+                          <Label>
+                            {t("Humanizer automatisch bereitstellen")}
+                          </Label>
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
                         <ListBox.Item
                           id="proxy"
                           textValue={t("Proxy-Token (Web Function)")}
@@ -388,26 +422,30 @@ export function ProviderEditor({
                     </Select.Popover>
                   </Select>
                   <p className="text-sm leading-6 text-muted">
-                    {nativeModal
+                    {managedModal
                       ? t(
-                          "Erstelle das Token-Paar unter API Tokens in den Modal-Einstellungen. Zentrale ruft eine bereitgestellte Modal-Funktion auf.",
+                          "Zentrale stellt den Humanizer in deinem Modal-Workspace bereit. Das erste Deployment kann einige Minuten dauern.",
                         )
-                      : t(
-                          "Erstelle das Token-Paar unter Proxy Tokens in den Modal-Einstellungen. Zentrale ruft die URL deiner Web Function auf.",
-                        )}
+                      : nativeModal
+                        ? t(
+                            "Erstelle das Token-Paar unter API Tokens in den Modal-Einstellungen. Zentrale ruft eine bereitgestellte Modal-Funktion auf.",
+                          )
+                        : t(
+                            "Erstelle das Token-Paar unter Proxy Tokens in den Modal-Einstellungen. Zentrale ruft die URL deiner Web Function auf.",
+                          )}
                   </p>
                   <div className="grid gap-4 sm:grid-cols-2">
                     {[
                       {
                         field: "modalTokenID",
                         label: "Token-ID",
-                        placeholder: nativeModal ? "ak-…" : "wk-…",
+                        placeholder: apiModal ? "ak-…" : "wk-…",
                         secret: false,
                       },
                       {
                         field: "modalTokenSecret",
                         label: "Token-Secret",
-                        placeholder: nativeModal ? "as-…" : "ws-…",
+                        placeholder: apiModal ? "as-…" : "ws-…",
                         secret: true,
                       },
                     ].map(({ field, label, placeholder, secret }) => (
@@ -428,12 +466,45 @@ export function ProviderEditor({
                       </TextField>
                     ))}
                   </div>
-                  {initial.kind === "modal" && Boolean(initial.connected) && (
-                    <p className="text-sm text-muted">
-                      {t(
-                        "Bei gleichem Ziel kannst du beide Token-Felder leer lassen, um den gespeicherten Zugang zu behalten.",
-                      )}
-                    </p>
+                  {initial.kind === "modal" &&
+                    (Boolean(initial.connected) ||
+                      Boolean(
+                        initial.modalModelId &&
+                        initial.catalogStatus !== "disconnected",
+                      )) && (
+                      <p className="text-sm text-muted">
+                        {t(
+                          "Bei gleichem Ziel kannst du beide Token-Felder leer lassen, um den gespeicherten Zugang zu behalten.",
+                        )}
+                      </p>
+                    )}
+                  {managedModal && (
+                    <Select
+                      value={String(value.modalModelId)}
+                      onChange={(model) => update("modalModelId", model)}
+                      isDisabled={busy || Boolean(initial.modalModelId)}
+                      className="gap-2"
+                    >
+                      <Label>{t("Humanizer-Modell")}</Label>
+                      <Select.Trigger className="min-h-11">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {modalPresets.map((model) => (
+                            <ListBox.Item
+                              key={model}
+                              id={model}
+                              className="min-h-11"
+                            >
+                              <Label>{model}</Label>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
                   )}
                   {nativeModal && (
                     <div className="grid gap-4 sm:grid-cols-3">
@@ -496,65 +567,67 @@ export function ProviderEditor({
                   disabled={busy}
                 />
               )}
-              <Accordion
-                hideSeparator
-                expandedKeys={new Set(advanced ? ["advanced"] : [])}
-                onExpandedChange={(keys) => setAdvanced(keys.has("advanced"))}
-              >
-                <Accordion.Item id="advanced">
-                  <Accordion.Heading>
-                    <Accordion.Trigger className="min-h-11 text-sm">
-                      <span className="flex-1 text-left">
-                        {t("Erweiterte Einstellungen")}
-                      </span>
-                      <Accordion.Indicator />
-                    </Accordion.Trigger>
-                  </Accordion.Heading>
-                  <Accordion.Panel>
-                    <Accordion.Body className="space-y-5 pb-3">
-                      {!requiresEndpoint && !isHostedProvider(value.kind) && (
-                        <ProviderEndpoint
-                          value={String(value.baseUrl ?? "")}
-                          onChange={(url) => update("baseUrl", url)}
-                          error={invalid.baseUrl}
-                          disabled={busy}
-                        />
-                      )}
-                      <Select
-                        value={String(value.billingMode ?? "metered")}
-                        onChange={(billing) =>
-                          update("billingMode", String(billing))
-                        }
-                        isDisabled={busy}
-                        className="gap-2"
-                      >
-                        <Label>{t("Kostenmodell")}</Label>
-                        <Select.Trigger className="min-h-11">
-                          <Select.Value />
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {[
-                              { id: "metered", label: t("Nach Verbrauch") },
-                              { id: "fixed", label: t("Festpreis / Abo") },
-                            ].map((choice) => (
-                              <ListBox.Item
-                                key={choice.id}
-                                id={choice.id}
-                                textValue={choice.label}
-                              >
-                                <Label>{choice.label}</Label>
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                    </Accordion.Body>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
+              {!managedModal && (
+                <Accordion
+                  hideSeparator
+                  expandedKeys={new Set(advanced ? ["advanced"] : [])}
+                  onExpandedChange={(keys) => setAdvanced(keys.has("advanced"))}
+                >
+                  <Accordion.Item id="advanced">
+                    <Accordion.Heading>
+                      <Accordion.Trigger className="min-h-11 text-sm">
+                        <span className="flex-1 text-left">
+                          {t("Erweiterte Einstellungen")}
+                        </span>
+                        <Accordion.Indicator />
+                      </Accordion.Trigger>
+                    </Accordion.Heading>
+                    <Accordion.Panel>
+                      <Accordion.Body className="space-y-5 pb-3">
+                        {!requiresEndpoint && !isHostedProvider(value.kind) && (
+                          <ProviderEndpoint
+                            value={String(value.baseUrl ?? "")}
+                            onChange={(url) => update("baseUrl", url)}
+                            error={invalid.baseUrl}
+                            disabled={busy}
+                          />
+                        )}
+                        <Select
+                          value={String(value.billingMode ?? "metered")}
+                          onChange={(billing) =>
+                            update("billingMode", String(billing))
+                          }
+                          isDisabled={busy}
+                          className="gap-2"
+                        >
+                          <Label>{t("Kostenmodell")}</Label>
+                          <Select.Trigger className="min-h-11">
+                            <Select.Value />
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {[
+                                { id: "metered", label: t("Nach Verbrauch") },
+                                { id: "fixed", label: t("Festpreis / Abo") },
+                              ].map((choice) => (
+                                <ListBox.Item
+                                  key={choice.id}
+                                  id={choice.id}
+                                  textValue={choice.label}
+                                >
+                                  <Label>{choice.label}</Label>
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              ))}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                      </Accordion.Body>
+                    </Accordion.Panel>
+                  </Accordion.Item>
+                </Accordion>
+              )}
             </>
           ) : (
             <p className="rounded-lg bg-default p-3 text-sm leading-6 text-muted">
@@ -674,7 +747,7 @@ export function ProviderEditor({
               {t("Abbrechen")}
             </Button>
             <Button type="submit" className="min-h-11" isPending={busy}>
-              {t("Speichern")}
+              {t(managedModal ? "Bereitstellen" : "Speichern")}
             </Button>
           </div>
         </form>

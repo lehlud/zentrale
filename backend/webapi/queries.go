@@ -238,7 +238,8 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 
 				if kind == "provider" {
 					for _, row := range rows {
-						if row["authMode"] == "oauth" {
+						modalModel, _ := row["modalModelId"].(string)
+						if row["authMode"] == "oauth" || modalModel != "" {
 							delete(row, "oauth")
 							delete(row, "credential")
 							continue

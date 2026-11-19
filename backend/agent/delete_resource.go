@@ -75,6 +75,9 @@ func (engine *Engine) Delete(kind, id string) error {
 		if err := engine.Store.DeleteCredential("google_provider/" + id); err != nil {
 			return err
 		}
+		if err := engine.Store.DeleteCredential("modal_provider/" + id); err != nil {
+			return err
+		}
 
 		for _, collection := range []string{"model", "model_metadata"} {
 			if err := engine.Store.ReplaceCollection(collection, id, nil); err != nil {
@@ -85,6 +88,9 @@ func (engine *Engine) Delete(kind, id string) error {
 
 	if err := engine.Store.Remove(kind, id); err != nil {
 		return err
+	}
+	if kind == "provider" {
+		engine.cancelModalDeployment(id)
 	}
 	engine.Emit("resources", "", nil)
 

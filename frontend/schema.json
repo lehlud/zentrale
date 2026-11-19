@@ -4331,6 +4331,14 @@
             }
           },
           {
+            "name": "setupModalHumanizer",
+            "type": {
+              "kind": "OBJECT",
+              "name": "Provider",
+              "ofType": null
+            }
+          },
+          {
             "name": "startEditor",
             "type": {
               "kind": "OBJECT",
@@ -5234,6 +5242,18 @@
           },
           {
             "name": "kind",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "modalModelId",
             "type": {
               "kind": "NON_NULL",
               "name": null,

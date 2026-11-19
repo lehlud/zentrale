@@ -17,6 +17,13 @@ export const english: Record<string, string> = {
   "Modell- oder Deployment-ID": "Model or deployment ID",
   "Textliste in einem Auftrag verarbeiten": "Process the list in one job",
   "Modal-Zugang": "Modal connection",
+  "Humanizer automatisch bereitstellen": "Deploy Humanizer automatically",
+  "Zentrale stellt den Humanizer in deinem Modal-Workspace bereit. Das erste Deployment kann einige Minuten dauern.":
+    "Zentrale deploys the Humanizer in your Modal workspace. The first deployment can take a few minutes.",
+  "Modal-Humanizer wird bereitgestellt …": "Deploying Modal Humanizer …",
+  "Wird bereitgestellt": "Deploying",
+  Bereitstellen: "Deploy",
+  "Humanizer-Modell": "Humanizer model",
   "Proxy-Token (Web Function)": "Proxy token (Web Function)",
   "API-Token (Modal-Funktion)": "API token (Modal Function)",
   "Token-ID": "Token ID",
@@ -772,6 +779,16 @@ Object.assign(english, {
 });
 
 export const germanErrors: Record<string, string> = {
+  "Modal deployment runtime is missing from this Zentrale installation":
+    "Dieser Zentrale-Installation fehlt die Modal-Laufzeit.",
+  "could not install the bundled Modal SDK; this Zentrale server needs Python with venv and access to PyPI":
+    "Das Modal SDK konnte nicht installiert werden. Der Zentrale-Server benötigt Python mit venv und Zugriff auf PyPI.",
+  "Modal refused the deployment; check that the API token has deployment access":
+    "Modal hat das Deployment abgelehnt. Prüfe, ob das API-Token Deployments erstellen darf.",
+  "Modal deployment failed; check the build in the Modal dashboard and retry":
+    "Das Modal-Deployment ist fehlgeschlagen. Prüfe den Build im Modal-Dashboard und versuche es erneut.",
+  "could not determine the Modal environment; check the API token and workspace access":
+    "Die Modal-Umgebung konnte nicht ermittelt werden. Prüfe API-Token und Workspace-Zugang.",
   "the managed MicroVM is slow to respond; existing jobs are still attached. Retry this operation when the guest responds":
     "Die MicroVM antwortet verzögert. Laufende Jobs bleiben verbunden. Versuche die Aktion erneut, sobald die VM antwortet.",
   "Modal provider URL must be a Modal HTTPS Web Function endpoint (.modal.run)":

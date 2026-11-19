@@ -77,6 +77,7 @@ export function Providers() {
       {
         id: "edit",
         label: t("Bearbeiten"),
+        isDisabled: provider.catalogStatus === "deploying",
         onAction: () => setEditing({ ...provider, credential: "" }),
       },
       {
@@ -100,7 +101,7 @@ export function Providers() {
         onAction: () => setSigningIn(provider),
       });
 
-    if (provider.connected)
+    if (provider.connected || provider.catalogStatus === "deploying")
       actions.push({
         id: "disconnect",
         label: t("Trennen"),
@@ -217,7 +218,8 @@ export function Providers() {
                   <p className="text-xs text-muted">
                     {t(
                       selected.kind === "modal"
-                        ? selected.baseUrl?.startsWith("modal://")
+                        ? selected.modalModelId ||
+                          selected.baseUrl?.startsWith("modal://")
                           ? "API-Token (Modal-Funktion)"
                           : "Proxy-Token (Web Function)"
                         : (loginLabels[selected.authMode] ?? selected.authMode),
@@ -233,7 +235,16 @@ export function Providers() {
                   ↗
                 </Link>
               </div>
-              {!selected.connected ? (
+              {selected.catalogStatus === "deploying" ? (
+                <p role="status" className="text-sm text-muted">
+                  {t("Modal-Humanizer wird bereitgestellt …")}
+                </p>
+              ) : selected.catalogStatus === "deployment_failed" ? (
+                <Failure
+                  message={t(selected.catalogError)}
+                  onRetry={() => setEditing({ ...selected, credential: "" })}
+                />
+              ) : !selected.connected ? (
                 <Empty
                   action={
                     <Button
@@ -329,7 +340,13 @@ function ProviderAccount({
         variant="soft"
         color={provider.connected ? "success" : "default"}
       >
-        {t(provider.connected ? "Verbunden" : "Nicht verbunden")}
+        {t(
+          provider.catalogStatus === "deploying"
+            ? "Wird bereitgestellt"
+            : provider.connected
+              ? "Verbunden"
+              : "Nicht verbunden",
+        )}
       </Chip>
       <span className="text-xs text-muted">
         {isHostedProvider(provider.kind)

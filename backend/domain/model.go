@@ -130,6 +130,7 @@ type Provider struct {
 	CatalogStatus string `json:"catalogStatus"`
 	CatalogError  string `json:"catalogError"`
 	ModelCount    int    `json:"modelCount"`
+	ModalModelID  string `json:"modalModelId,omitempty"`
 }
 
 type OAuthTokens struct {

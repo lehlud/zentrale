@@ -182,6 +182,7 @@ func (builder *schemaBuilder) input(goType reflect.Type) graphql.Input {
 			name != "catalogStatus" &&
 			name != "catalogError" &&
 			name != "modelCount" &&
+			name != "modalModelId" &&
 			name != "connected" &&
 			name != "accountLabel" {
 			fields[name] = &graphql.InputObjectFieldConfig{Type: builder.input(field.Type)}

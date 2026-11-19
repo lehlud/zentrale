@@ -40,7 +40,39 @@ func runModalFunction(ctx context.Context, provider domain.Provider, input map[s
 	if err != nil {
 		return nil, err
 	}
-	id, secret, ok := modalAPIToken(provider.Credential)
+	client, err := newModalAPIClient(provider.Credential, environment)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	remoteFunction, err := client.Functions.FromName(ctx, app, function, &modal.FunctionFromNameParams{Environment: environment})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("could not find the deployed Modal Function; check the API token, environment and names")
+	}
+	// Modal cancels synchronous invocations after the caller disconnects.
+	value, err := remoteFunction.Remote(ctx, []any{input}, nil)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("the Modal Function call failed; check its arguments and logs")
+	}
+	value, err = modalJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil || len(encoded) > maxResponse {
+		return nil, errors.New("invalid or oversized Modal inference response")
+	}
+	return encoded, nil
+}
+
+func newModalAPIClient(credential, environment string) (*modal.Client, error) {
+	id, secret, ok := modalAPIToken(credential)
 	if !ok {
 		return nil, errors.New("invalid Modal API token pair")
 	}
@@ -67,32 +99,7 @@ func runModalFunction(ctx context.Context, provider domain.Provider, input map[s
 	if err != nil {
 		return nil, errors.New("could not initialize the Modal API connection")
 	}
-	defer client.Close()
-	remoteFunction, err := client.Functions.FromName(ctx, app, function, &modal.FunctionFromNameParams{Environment: environment})
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, errors.New("could not find the deployed Modal Function; check the API token, environment and names")
-	}
-	// Modal cancels synchronous invocations after the caller disconnects.
-	// Keep a single invocation tied to Zentrale instead of spawning a job.
-	value, err := remoteFunction.Remote(ctx, []any{input}, nil)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, errors.New("the Modal Function call failed; check its arguments and logs")
-	}
-	value, err = modalJSON(value)
-	if err != nil {
-		return nil, err
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil || len(encoded) > maxResponse {
-		return nil, errors.New("invalid or oversized Modal inference response")
-	}
-	return encoded, nil
+	return client, nil
 }
 
 // CBOR decodes untyped dictionaries with arbitrary key types. Accept only

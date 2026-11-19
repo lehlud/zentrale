@@ -31,6 +31,8 @@ func (engine *Engine) HumanizerSettings() (domain.HumanizerSettings, error) {
 }
 
 func (engine *Engine) SaveHumanizer(settings domain.HumanizerSettings) error {
+	engine.configMu.Lock()
+	defer engine.configMu.Unlock()
 	settings.SpaceURL = strings.TrimSpace(settings.SpaceURL)
 	settings.Model.ReasoningLevel = ""
 	hasModel := settings.Model.ProviderID != "" || settings.Model.ModelID != ""
@@ -49,6 +51,9 @@ func (engine *Engine) SaveHumanizer(settings domain.HumanizerSettings) error {
 		provider, err := engine.hostedProvider(settings.Hosted.ProviderID)
 		if err != nil {
 			return err
+		}
+		if provider.ModalModelID != "" && settings.Hosted.ModelID != provider.ModalModelID {
+			return errors.New("choose the model deployed by this managed Modal connection")
 		}
 		if err := hosted.ValidateTarget(provider.Kind, settings.Hosted.Target); err != nil {
 			return err

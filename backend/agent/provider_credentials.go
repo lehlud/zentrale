@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"github.com/lehlud/zentrale/domain"
 )
@@ -20,6 +22,13 @@ func (engine *Engine) loadProvider(id string, provider *domain.Provider) error {
 	}
 
 	if provider.AuthMode != "oauth" {
+		if provider.ModalModelID != "" && provider.CatalogStatus != "disconnected" {
+			private, err := engine.Store.Credential("modal_provider/" + id)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			provider.Credential = string(private)
+		}
 		return nil
 	}
 
@@ -42,6 +51,11 @@ func (engine *Engine) loadProvider(id string, provider *domain.Provider) error {
 func (engine *Engine) saveProvider(provider domain.Provider) error {
 	if provider.AuthMode != "oauth" {
 		provider.OAuthClientSecret = ""
+		if provider.ModalModelID != "" {
+			credential := []byte(provider.Credential)
+			provider.Credential = ""
+			return engine.Store.SaveCredentialResource("modal_provider/"+provider.ID, credential, "provider", provider.ID, "", provider)
+		}
 		return engine.Store.Save("provider", provider.ID, "", provider)
 	}
 

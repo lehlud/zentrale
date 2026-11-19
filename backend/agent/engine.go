@@ -84,6 +84,8 @@ type Engine struct {
 	GitForge          *gitforge.Service
 	HuggingFace       *huggingface.Service
 	hosted            hostedInference
+	deployModal       func(context.Context, string, string, string) (string, error)
+	modalDeployments  map[string]*modalDeployment
 
 	accountGates     keylock.Group
 	loginPollMu      sync.Mutex
@@ -153,6 +155,8 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		GitForge:             gitforge.New(store),
 		HuggingFace:          huggingface.New(store),
 		hosted:               hostedClient,
+		deployModal:          hosted.DeployModalHumanizer,
+		modalDeployments:     make(map[string]*modalDeployment),
 		Remote:               remote.NewManager(&remote.Connector{Store: store}),
 		ctx:                  ctx,
 		runOwner:             NewID(),
@@ -196,6 +200,10 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		return nil, err
 	}
 	if err := engine.recoverInputs(); err != nil {
+		engine.Close()
+		return nil, err
+	}
+	if err := engine.recoverModalDeployments(); err != nil {
 		engine.Close()
 		return nil, err
 	}

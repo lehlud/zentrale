@@ -60,6 +60,7 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 			selected["credential"] = true
 			selected["oauth"] = true
 			selected["catalogStatus"] = true
+			selected["modalModelId"] = true
 		}
 
 		if selected["accountLabel"] {

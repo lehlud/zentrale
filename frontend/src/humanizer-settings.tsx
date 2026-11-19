@@ -27,10 +27,10 @@ const settingsQuery = `query {
     hosted { providerId modelId target }
     spaceUrl spaceEndpoint spaceBatch useHuggingFaceAccount
   }
-  providers(limit:500) { id name kind connected modelCount }
+  providers(limit:500) { id name kind connected modelCount modalModelId }
 }`;
 
-type HostedProvider = Pick<Provider, "id" | "name" | "kind">;
+type HostedProvider = Pick<Provider, "id" | "name" | "kind" | "modalModelId">;
 const presets = ["jialinyyzz/humanizer", "abacusai/Smaug-Humanizer"];
 
 export function HumanizerSettings() {
@@ -182,10 +182,16 @@ function HostedEditor({
   const [modelId, setModelId] = useState(settings?.modelId || presets[0]);
   const [target, setTarget] = useState(settings?.target ?? "");
   const provider = providers.find((entry) => entry.id === providerId);
+  const selectedModel = provider?.modalModelId || modelId;
   const needsTarget = provider && provider.kind !== "modal";
-  const valid = Boolean(provider && modelId && (!needsTarget || target.trim()));
-  const models =
-    modelId && !presets.includes(modelId) ? [...presets, modelId] : presets;
+  const valid = Boolean(
+    provider && selectedModel && (!needsTarget || target.trim()),
+  );
+  const models = provider?.modalModelId
+    ? [provider.modalModelId]
+    : modelId && !presets.includes(modelId)
+      ? [...presets, modelId]
+      : presets;
   return (
     <Inspect
       title={t("GPU-Humanizer einrichten")}
@@ -201,7 +207,7 @@ function HostedEditor({
             onSave({
               hosted: {
                 providerId,
-                modelId,
+                modelId: selectedModel,
                 target: needsTarget ? target : "",
               },
             }),
@@ -238,8 +244,9 @@ function HostedEditor({
           </Select.Popover>
         </Select>
         <Select
-          value={modelId}
+          value={selectedModel}
           onChange={(id) => setModelId(String(id))}
+          isDisabled={Boolean(provider?.modalModelId)}
           className="gap-2"
         >
           <Label>{t("Modell")}</Label>

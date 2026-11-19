@@ -370,12 +370,19 @@ func (engine *Engine) DisconnectProvider(providerID string) error {
 
 	if err := engine.Store.Patch("provider", providerID, map[string]any{
 		"credential":    "",
+		"connected":     false,
 		"oauth":         nil,
 		"catalogStatus": "disconnected",
 		"catalogError":  "",
 		"modelCount":    0,
 	}); err != nil {
 		return err
+	}
+	if provider.ModalModelID != "" {
+		engine.cancelModalDeployment(providerID)
+		if err := engine.Store.DeleteCredential("modal_provider/" + providerID); err != nil {
+			return err
+		}
 	}
 
 	if err := engine.Store.ReplaceCollection("model", providerID, nil); err != nil {

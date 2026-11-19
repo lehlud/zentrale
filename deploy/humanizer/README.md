@@ -13,9 +13,13 @@ Zentrale sends one JSON request per approved batch. The endpoint takes a model I
 { "texts": ["First rewrite", "Second rewrite"] }
 ```
 
-The two presets use the same batch runtime. It uses the published completion format for `jialinyyzz/humanizer` and the model chat template for `abacusai/Smaug-Humanizer`. Run the deployment commands from this directory with the platform's CLI already configured. [jialinyyzz model card](https://huggingface.co/jialinyyzz/humanizer) · [Smaug model card](https://huggingface.co/abacusai/Smaug-Humanizer)
+The two presets use the same batch runtime. It uses the published completion format for `jialinyyzz/humanizer` and the model chat template for `abacusai/Smaug-Humanizer`. For manual deployments, run the commands from this directory with the platform's CLI already configured. [jialinyyzz model card](https://huggingface.co/jialinyyzz/humanizer) · [Smaug model card](https://huggingface.co/abacusai/Smaug-Humanizer)
 
 ## Modal
+
+Choose **Provider hinzufügen → Modal → Humanizer automatisch bereitstellen** in Zentrale and enter the Modal API token ID and secret. The token must have permission to deploy in its workspace. Select a preset or keep `jialinyyzz/humanizer`. Zentrale deploys the App in the background and displays its status in the provider list. The Docker image includes the Modal SDK. When running Zentrale from a source checkout, automatic setup uses Python with `venv` and installs the pinned SDK from PyPI.
+
+### Manual deployment
 
 ```sh
 modal deploy modal_app.py

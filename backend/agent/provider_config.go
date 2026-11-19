@@ -36,6 +36,9 @@ func (engine *Engine) SaveProvider(configuration domain.Provider) (domain.Provid
 	if previous.Kind == "fal" {
 		_ = hosted.ValidateProvider(&previous)
 	}
+	if previous.ModalModelID != "" {
+		return configuration, errors.New("use the managed Modal setup to edit this connection")
+	}
 
 	preserveAuthorization := loadErr == nil &&
 		configuration.Kind == previous.Kind &&

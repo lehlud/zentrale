@@ -23,17 +23,22 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
+    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 zentrale \
     && useradd --uid 10001 --gid zentrale --home-dir /data \
         --no-create-home --shell /usr/sbin/nologin zentrale \
     && install -d -o zentrale -g zentrale -m 0700 /data
 WORKDIR /app
+COPY deploy/humanizer/modal-requirements.txt /opt/zentrale-modal-requirements.txt
+RUN python3 -m venv /opt/zentrale-modal \
+    && /opt/zentrale-modal/bin/pip install --no-cache-dir -r /opt/zentrale-modal-requirements.txt
+COPY deploy/humanizer/modal_app.py deploy/humanizer/batch_runtime.py /opt/zentrale-modal-app/
 COPY --from=backend /out/zentrale /usr/local/bin/zentrale
 COPY --from=backend /out/import-duckdb /usr/local/bin/import-duckdb
 COPY --from=frontend /src/frontend/dist/ ./frontend/
 ENV ZENTRALE_VSCODE_CACHE=/data/cache/vscode
+ENV ZENTRALE_MODAL_PYTHON=/opt/zentrale-modal/bin/python ZENTRALE_MODAL_ASSETS=/opt/zentrale-modal-app
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8080

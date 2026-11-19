@@ -728,6 +728,44 @@ async function authenticate(page: import("@playwright/test").Page) {
   await page.goto("/");
 }
 
+test("Modal automatic setup only requires an API token pair", async ({
+  page,
+}) => {
+  await authenticate(page);
+  await page.goto("/#/providers");
+  await page.route("**/graphql", async (route) => {
+    const request = route.request().postDataJSON();
+    if (!request?.query?.includes("setupModalHumanizer")) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      json: { data: { setupModalHumanizer: { id: "modal-managed-fixture" } } },
+    });
+  });
+  await page.getByRole("button", { name: "Provider hinzufügen" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator('[data-field="kind"]').getByRole("button").click();
+  await dialog.getByRole("option", { name: "Modal", exact: true }).click();
+  for (const field of ["Name", "App-Name", "Web-Function-URL"]) {
+    await expect(dialog.getByLabel(field, { exact: true })).toHaveCount(0);
+  }
+  await dialog.getByLabel("Token-ID", { exact: true }).fill("ak-fixture");
+  await dialog.getByLabel("Token-Secret", { exact: true }).fill("as-fixture");
+  const request = page.waitForRequest(
+    (request) => request.postData()?.includes("setupModalHumanizer") ?? false,
+  );
+  await dialog
+    .getByRole("button", { name: "Bereitstellen", exact: true })
+    .click();
+  expect((await request).postDataJSON().variables).toEqual({
+    tokenId: "ak-fixture",
+    tokenSecret: "as-fixture",
+    modelId: "jialinyyzz/humanizer",
+  });
+  await expect(dialog).not.toBeVisible();
+});
+
 test("Modal supports separate proxy and API token pairs", async ({ page }) => {
   await authenticate(page);
   await page.goto("/#/providers");
@@ -740,14 +778,18 @@ test("Modal supports separate proxy and API token pairs", async ({ page }) => {
       .click();
     await dialog.locator('[data-field="kind"]').getByRole("button").click();
     await dialog.getByRole("option", { name: "Modal", exact: true }).click();
+    await dialog.getByRole("button", { name: /Modal-Zugang/ }).click();
+    await dialog
+      .getByRole("option", {
+        name: native
+          ? "API-Token (Modal-Funktion)"
+          : "Proxy-Token (Web Function)",
+      })
+      .click();
     await input("Name").fill(
       native ? "Modal native fixture" : "Modal proxy fixture",
     );
     if (native) {
-      await dialog.getByRole("button", { name: /Modal-Zugang/ }).click();
-      await dialog
-        .getByRole("option", { name: "API-Token (Modal-Funktion)" })
-        .click();
       await expect(input("Web-Function-URL")).toHaveCount(0);
       await input("App-Name").fill("zentrale-humanizer");
       await input("Funktionsname").fill("run_batch");

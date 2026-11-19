@@ -6,6 +6,11 @@
 !backend/**
 !frontend/
 !frontend/**
+!deploy/
+!deploy/humanizer/
+!deploy/humanizer/modal_app.py
+!deploy/humanizer/batch_runtime.py
+!deploy/humanizer/modal-requirements.txt
 
 # Generated files, caches, local credentials, and databases stay on the host.
 **/.git

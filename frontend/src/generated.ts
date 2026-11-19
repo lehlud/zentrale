@@ -439,6 +439,7 @@ export type Mutation = {
   setHumanizer: boolean | null;
   setModelDefaults: boolean | null;
   setup: boolean | null;
+  setupModalHumanizer: Provider | null;
   startEditor: EditorStartResult | null;
   stopAgent: boolean | null;
   stopEditor: boolean | null;
@@ -527,6 +528,7 @@ export type Provider = {
   connected: boolean;
   id: string;
   kind: string;
+  modalModelId: string;
   modelCount: number;
   name: string;
   oauthClientId: string;

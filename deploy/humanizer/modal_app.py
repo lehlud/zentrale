@@ -64,9 +64,6 @@ web_image = (
 )
 
 
-@app.function(image=web_image, min_containers=0, scaledown_window=2, timeout=245)
-@modal.concurrent(max_inputs=16)
-@modal.asgi_app(requires_proxy_auth=True)
 def rewrite():
     import anyio
     from fastapi import FastAPI, HTTPException, Request
@@ -135,3 +132,9 @@ def rewrite():
         return BatchResponse(stream(), media_type="application/json")
 
     return api
+
+
+if os.environ.get("ZENTRALE_MODAL_NATIVE_ONLY") != "1":
+    rewrite = app.function(image=web_image, min_containers=0, scaledown_window=2, timeout=245)(
+        modal.concurrent(max_inputs=16)(modal.asgi_app(requires_proxy_auth=True)(rewrite))
+    )

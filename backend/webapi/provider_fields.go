@@ -206,6 +206,18 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 	requiredString := func(name string) graphql.FieldConfigArgument {
 		return graphql.FieldConfigArgument{name: {Type: graphql.NewNonNull(graphql.String)}}
 	}
+	mutations["setupModalHumanizer"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.Provider]()),
+		Args: graphql.FieldConfigArgument{
+			"tokenId":     {Type: graphql.String, DefaultValue: ""},
+			"tokenSecret": {Type: graphql.String, DefaultValue: ""},
+			"modelId":     {Type: graphql.String, DefaultValue: ""},
+		},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			provider, err := server.Engine.SetupModalHumanizer(params.Args["tokenId"].(string), params.Args["tokenSecret"].(string), params.Args["modelId"].(string))
+			return mapOf(provider), err
+		}),
+	}
 	mutations["setConversationModel"] = &graphql.Field{
 		Type: graphql.Boolean,
 		Args: graphql.FieldConfigArgument{
