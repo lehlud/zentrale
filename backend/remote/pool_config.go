@@ -1,10 +1,12 @@
 package remote
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/lehlud/zentrale/domain"
@@ -33,6 +35,42 @@ func ParsePool(configuration string) (domain.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// FormatPoolYAML reconstructs editable YAML for pools without stored source.
+// Members inherit settings again when the exported YAML is edited and imported.
+func FormatPoolYAML(pool domain.Pool) (string, error) {
+	// Removing a jump host can leave an older pool with fewer members than its limit.
+	pool.MaxMachines = min(pool.MaxMachines, len(pool.Machines))
+	pool.Machines = slices.Clone(pool.Machines)
+	sandbox := pool.Sandbox
+	if sandbox == "" {
+		sandbox = SandboxAutomatic
+	}
+	for index := range pool.Machines {
+		machine := &pool.Machines[index]
+		machine.WorkspaceRoot = ""
+		if slices.Equal(machine.Storage, pool.Storage) {
+			machine.Storage = nil
+		}
+		if slices.Equal(machine.QuotaCommand, pool.QuotaCommand) {
+			machine.QuotaCommand = nil
+		}
+		if machine.Sandbox == sandbox {
+			machine.Sandbox = ""
+		}
+		if pool.SingleUser {
+			machine.SingleUser = false
+		}
+	}
+
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(pool); err != nil {
+		return "", err
+	}
+	return output.String(), encoder.Close()
 }
 
 // A pool uses one shared root on every member, including projects created later.

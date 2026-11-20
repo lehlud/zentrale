@@ -8,10 +8,25 @@ import (
 	"github.com/lehlud/zentrale/domain"
 )
 
+type storedPool struct {
+	domain.Pool
+	YAML string `json:"configurationYaml,omitempty"`
+}
+
+func (instance *Instance) LoadPoolConfiguration(id string) (domain.Pool, string, error) {
+	var pool storedPool
+	err := instance.Load("pool", id, &pool)
+	return pool.Pool, pool.YAML, err
+}
+
 // SaveManagedPool commits the pool and its automatically allocated SSH identity
 // together. Callers supply topology, never a key identifier. Existing identities
 // remain stable when members are added, removed or reordered.
 func (instance *Instance) SaveManagedPool(pool domain.Pool) (domain.Pool, error) {
+	return instance.SaveManagedPoolConfiguration(pool, "")
+}
+
+func (instance *Instance) SaveManagedPoolConfiguration(pool domain.Pool, configuration string) (domain.Pool, error) {
 	if instance == nil || instance.Closed() {
 		return pool, errClosed
 	}
@@ -96,7 +111,7 @@ func (instance *Instance) SaveManagedPool(pool domain.Pool) (domain.Pool, error)
 		pool.Machines[index].KeyID = keyID
 	}
 
-	encoded, err := json.Marshal(pool)
+	encoded, err := json.Marshal(storedPool{Pool: pool, YAML: configuration})
 	if err != nil {
 		return pool, err
 	}

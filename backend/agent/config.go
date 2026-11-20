@@ -79,13 +79,40 @@ func (engine *Engine) SaveMachine(machine domain.Machine) (domain.Machine, error
 	return machine, err
 }
 
+func (engine *Engine) PoolConfiguration(id string) (string, error) {
+	pool, configuration, err := engine.Store.LoadPoolConfiguration(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New("pool no longer exists")
+	}
+	if err != nil || configuration != "" {
+		return configuration, err
+	}
+	return remote.FormatPoolYAML(pool)
+}
+
 func (engine *Engine) SavePool(data string) (domain.Pool, error) {
+	return engine.SavePoolConfiguration("", data)
+}
+
+func (engine *Engine) SavePoolConfiguration(id, data string) (domain.Pool, error) {
 	engine.configMu.Lock()
 	defer engine.configMu.Unlock()
 
 	pool, err := remote.ParsePool(data)
 	if err != nil {
 		return pool, err
+	}
+
+	if id != "" {
+		if pool.ID != id {
+			return pool, errors.New("pool id cannot be changed while editing")
+		}
+		if _, _, err := engine.Store.LoadPoolConfiguration(id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				err = errors.New("pool no longer exists")
+			}
+			return pool, err
+		}
 	}
 
 	for _, machine := range pool.Machines {
@@ -100,7 +127,7 @@ func (engine *Engine) SavePool(data string) (domain.Pool, error) {
 		}
 	}
 
-	pool, err = engine.Store.SaveManagedPool(pool)
+	pool, err = engine.Store.SaveManagedPoolConfiguration(pool, data)
 	if err == nil {
 		engine.Emit("resources", "", nil)
 	}

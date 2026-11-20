@@ -1,8 +1,12 @@
 package webapi
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/remote"
 )
 
 func TestPoolKeyIsGeneratedAndExposedOnlyAsPublicSetupData(t *testing.T) {
@@ -65,8 +69,9 @@ func TestPoolKeyIsGeneratedAndExposedOnlyAsPublicSetupData(t *testing.T) {
 	}
 
 	knownHosts := "@cert-authority *.example.org " + key["publicKey"].(string) + "\n"
+	configured := "# Shared pool for test runs\n" + yaml + "known_hosts: |\n  " + knownHosts
 	requireData(t, fixture.query(t, mutation, map[string]any{
-		"yaml": yaml + "known_hosts: |\n  " + knownHosts,
+		"yaml": configured,
 	}))
 	listed := requireData(t, fixture.query(t, `query{pools{id knownHosts}}`, nil))["pools"].([]any)
 	if len(listed) != 1 || listed[0].(map[string]any)["knownHosts"] != knownHosts {
@@ -83,5 +88,47 @@ func TestPoolKeyIsGeneratedAndExposedOnlyAsPublicSetupData(t *testing.T) {
 
 	if fixture.query(t, `query{sshKeys{x509Data}}`, nil)["errors"] == nil {
 		t.Fatal("private key material entered the public schema")
+	}
+
+	readConfiguration := `query($id:String!){poolConfiguration(poolId:$id)}`
+	variables := map[string]any{"id": "pool"}
+	if got := requireData(t, fixture.query(t, readConfiguration, variables))["poolConfiguration"]; got != configured {
+		t.Fatal("editor did not receive the original YAML")
+	}
+	edit := `mutation($id:String!,$yaml:String!){savePool(poolId:$id,yaml:$yaml){id name keyId}}`
+	if response := fixture.query(t, edit, map[string]any{
+		"id": "pool", "yaml": strings.Replace(configured, "id: pool", "id: another", 1),
+	}); response["errors"] == nil {
+		t.Fatal("edit accepted a different pool ID in the YAML")
+	}
+	if response := fixture.query(t, edit, map[string]any{
+		"id": "missing", "yaml": strings.Replace(configured, "id: pool", "id: missing", 1),
+	}); response["errors"] == nil {
+		t.Fatal("edit recreated a missing pool")
+	}
+	editedYAML := strings.Replace(configured, "name: Pool", "name: Edited pool", 1)
+	edited := requireData(t, fixture.query(t, edit, map[string]any{
+		"id": "pool", "yaml": editedYAML,
+	}))["savePool"].(map[string]any)
+	if edited["id"] != "pool" || edited["name"] != "Edited pool" || edited["keyId"] != keyID {
+		t.Fatalf("edit did not update the original pool in place: %v", edited)
+	}
+	if got := requireData(t, fixture.query(t, readConfiguration, variables))["poolConfiguration"]; got != editedYAML {
+		t.Fatal("editor did not receive the last saved YAML")
+	}
+
+	// Pools saved before the editor, or rewritten after losing a member, have no YAML source.
+	var stored domain.Pool
+	if err := fixture.engine.Store.Load("pool", "pool", &stored); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.engine.Store.Save("pool", stored.ID, "", stored); err != nil {
+		t.Fatal(err)
+	}
+	legacyYAML := requireData(t, fixture.query(t, readConfiguration, variables))["poolConfiguration"].(string)
+	legacy, err := remote.ParsePool(legacyYAML)
+	expected, expectedErr := remote.ParsePool(editedYAML)
+	if err != nil || expectedErr != nil || !reflect.DeepEqual(legacy, expected) {
+		t.Fatalf("reconstructed YAML changed the configuration: %v\n%s", err, legacyYAML)
 	}
 }

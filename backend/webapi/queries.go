@@ -13,6 +13,13 @@ import (
 func (builder *schemaBuilder) queries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["poolConfiguration"] = &graphql.Field{
+		Type: graphql.NewNonNull(graphql.String),
+		Args: graphql.FieldConfigArgument{"poolId": {Type: graphql.NewNonNull(graphql.String)}},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			return server.Engine.PoolConfiguration(params.Args["poolId"].(string))
+		}),
+	}
 	queries["projectMove"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ProjectMove]()),
 		Args: graphql.FieldConfigArgument{"projectId": {Type: graphql.NewNonNull(graphql.String)}},

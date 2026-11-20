@@ -18,7 +18,7 @@ type StorageMount struct {
 }
 
 type Machine struct {
-	WorkspaceRoot string `json:"workspaceRoot" yaml:"workspace_root"`
+	WorkspaceRoot string `json:"workspaceRoot" yaml:"workspace_root,omitempty"`
 
 	ID   string `json:"id" yaml:"id"`
 	Name string `json:"name" yaml:"name"`
@@ -27,30 +27,30 @@ type Machine struct {
 	Port         int      `json:"port" yaml:"port"`
 	User         string   `json:"user" yaml:"user"`
 	KeyID        int      `json:"keyId" yaml:"-"`
-	Jumps        []string `json:"jumps" yaml:"jumps"`
-	JumpHostOnly bool     `json:"jumpHostOnly" yaml:"jump_host_only"`
+	Jumps        []string `json:"jumps" yaml:"jumps,omitempty"`
+	JumpHostOnly bool     `json:"jumpHostOnly" yaml:"jump_host_only,omitempty"`
 
-	Properties []string `json:"properties" yaml:"properties"`
+	Properties []string `json:"properties" yaml:"properties,omitempty"`
 
-	Sandbox    string   `json:"sandbox" yaml:"sandbox"`
-	GPUDevices []string `json:"gpuDevices" yaml:"gpu_devices"`
+	Sandbox    string   `json:"sandbox" yaml:"sandbox,omitempty"`
+	GPUDevices []string `json:"gpuDevices" yaml:"gpu_devices,omitempty"`
 
-	Storage       []StorageVolume `json:"storage" yaml:"storage"`
-	QuotaCommand  []string        `json:"quotaCommand" yaml:"quota_command"`
+	Storage       []StorageVolume `json:"storage" yaml:"storage,omitempty"`
+	QuotaCommand  []string        `json:"quotaCommand" yaml:"quota_command,omitempty"`
 	StorageMounts []StorageMount  `json:"-" yaml:"-"`
 
-	SingleUser bool `json:"singleUser" yaml:"single_user"`
-	Containers bool `json:"containers" yaml:"containers"`
+	SingleUser bool `json:"singleUser" yaml:"single_user,omitempty"`
+	Containers bool `json:"containers" yaml:"containers,omitempty"`
 
 	// MicroVMCommand optionally overrides the built-in QEMU/KVM runner with an
 	// administrator-installed runner using the documented root/network protocol.
-	MicroVMCommand string `json:"microVMCommand" yaml:"microvm_command"`
+	MicroVMCommand string `json:"microVMCommand" yaml:"microvm_command,omitempty"`
 }
 
 type Pool struct {
 	// Managed by Zentrale. Pool YAML never accepts SSH key identifiers.
 	KeyID      int    `json:"keyId" yaml:"-"`
-	KnownHosts string `json:"knownHosts" yaml:"known_hosts"`
+	KnownHosts string `json:"knownHosts" yaml:"known_hosts,omitempty"`
 
 	WorkspaceRoot string `json:"workspaceRoot" yaml:"workspace_root"`
 
@@ -59,12 +59,12 @@ type Pool struct {
 
 	MaxMachines int  `json:"maxMachines" yaml:"max_machines"`
 	SharedHome  bool `json:"sharedHome" yaml:"shared_home"`
-	SingleUser  bool `json:"singleUser" yaml:"single_user"`
+	SingleUser  bool `json:"singleUser" yaml:"single_user,omitempty"`
 
-	Sandbox string `json:"sandbox" yaml:"sandbox"`
+	Sandbox string `json:"sandbox" yaml:"sandbox,omitempty"`
 
-	Storage      []StorageVolume `json:"storage" yaml:"storage"`
-	QuotaCommand []string        `json:"quotaCommand" yaml:"quota_command"`
+	Storage      []StorageVolume `json:"storage" yaml:"storage,omitempty"`
+	QuotaCommand []string        `json:"quotaCommand" yaml:"quota_command,omitempty"`
 
 	Machines []Machine `json:"machines" yaml:"machines"`
 }

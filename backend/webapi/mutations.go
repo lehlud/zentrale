@@ -87,10 +87,12 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	mutations["savePool"] = &graphql.Field{
 		Type: builder.output(resourceTypes["pool"]),
 		Args: graphql.FieldConfigArgument{
-			"yaml": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			"yaml":   {Type: graphql.NewNonNull(graphql.String)},
+			"poolId": {Type: graphql.String},
 		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			v, err := server.Engine.SavePool(params.Args["yaml"].(string))
+			id, _ := params.Args["poolId"].(string)
+			v, err := server.Engine.SavePoolConfiguration(id, params.Args["yaml"].(string))
 
 			return mapOf(v), err
 		}),

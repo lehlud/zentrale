@@ -604,6 +604,7 @@ export type Query = {
   modelDefaults: ModelDefaults | null;
   models: Array<LanguageModel> | null;
   notes: Array<Note | null> | null;
+  poolConfiguration: string;
   pools: Array<Pool | null> | null;
   project: Project | null;
   projectMove: ProjectMove | null;

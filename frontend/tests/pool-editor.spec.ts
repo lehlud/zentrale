@@ -35,6 +35,7 @@ for (const english of [false, true]) {
     let saved = "";
     let attempts = 0;
     let imported = false;
+    let poolName = "Training";
     const poolKey = {
       id: 89,
       publicKey: "ecdsa-sha2-nistp521 MANAGED_POOL_PUBLIC_KEY",
@@ -56,6 +57,11 @@ for (const english of [false, true]) {
         return send({ status: { needsSetup: false, authenticated: true } });
       }
 
+      if (query.includes("poolConfiguration")) {
+        expect(variables.poolId).toBe("training");
+        return send({ poolConfiguration: saved });
+      }
+
       if (query.includes("savePool")) {
         saved = variables.yaml;
 
@@ -68,7 +74,13 @@ for (const english of [false, true]) {
           );
         }
 
-        imported = true;
+        if (imported) {
+          expect(variables.poolId).toBe("training");
+          poolName = "Edited Training";
+        } else {
+          expect(variables.poolId).toBeUndefined();
+          imported = true;
+        }
 
         return send({ savePool: { id: "training", keyId: poolKey.id } });
       }
@@ -81,7 +93,7 @@ for (const english of [false, true]) {
                 {
                   ...config.pools[0],
                   id: "training",
-                  name: "Training",
+                  name: poolName,
                   keyId: poolKey.id,
                 },
               ],
@@ -256,6 +268,45 @@ for (const english of [false, true]) {
     await page.keyboard.press("Escape");
 
     await expect(dialog).toHaveCount(0);
+
+    async function openPoolEditor(name: string) {
+      await page
+        .getByRole("button", {
+          name: label(`Aktionen für ${name}`, `Actions for ${name}`),
+        })
+        .click();
+      await page
+        .getByRole("menuitem", {
+          name: label("Bearbeiten", "Edit"),
+          exact: true,
+        })
+        .click();
+      await expect(
+        page.getByRole("dialog", {
+          name: label("Pool bearbeiten", "Edit pool"),
+        }),
+      ).toBeVisible();
+      await expect(editor).toBeVisible();
+    }
+
+    await openPoolEditor("Training");
+    await expect(editor).toContainText("name: Training");
+    const editedYAML = yaml.replace("name: Training", "name: Edited Training");
+    await page.evaluate(
+      (value) => navigator.clipboard.writeText(value),
+      editedYAML,
+    );
+    await input.focus();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("ControlOrMeta+v");
+    await dialog
+      .getByRole("button", { name: label("Speichern", "Save"), exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    expect(saved).toBe(editedYAML);
+
+    await openPoolEditor("Edited Training");
+    await expect(editor).toContainText("name: Edited Training");
     expect(errors).toEqual([]);
   });
 }

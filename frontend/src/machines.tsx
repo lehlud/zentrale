@@ -1,6 +1,7 @@
 import { Button, Tabs } from "@heroui/react";
 import { useState } from "react";
 
+import { useAPI, useQuery } from "./api";
 import { MachineCard } from "./machine-card";
 import { MachineAccess } from "./machine-access";
 import { PoolCard } from "./pool-card";
@@ -8,7 +9,7 @@ import { ResourceList, useResourcePage } from "./resource-page";
 import { useBatch } from "./batches";
 import { useI18n } from "./preferences";
 import type { Field } from "./ui";
-import { Editor, Failure, Title } from "./ui";
+import { Editor, Failure, Inspect, Loading, Title } from "./ui";
 import { Icon } from "./icons";
 
 const sandbox = [
@@ -26,7 +27,7 @@ export function Machines() {
   const machines = useBatch(data?.machines ?? []);
   const pools = useBatch(data?.pools ?? []);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
-  const [poolEditor, setPoolEditor] = useState(false);
+  const [poolEditor, setPoolEditor] = useState<{ id?: string } | null>(null);
   const fields: Field[] = [
     { key: "name", label: "Name", required: true },
     { key: "host", label: "Host", required: true },
@@ -195,7 +196,7 @@ export function Machines() {
             <Button
               className="min-h-11"
               variant="secondary"
-              onPress={() => setPoolEditor(true)}
+              onPress={() => setPoolEditor({})}
             >
               {t("YAML importieren / aktualisieren")}
             </Button>
@@ -211,6 +212,7 @@ export function Machines() {
                   pool={pool}
                   keys={data?.sshKeys ?? []}
                   busy={resource.isBusy("pool", pool.id)}
+                  onEdit={() => setPoolEditor({ id: pool.id })}
                   onRemove={() => void remove("pool", pool.id)}
                 />
               )}
@@ -310,34 +312,84 @@ export function Machines() {
         />
       )}
       {poolEditor && (
-        <Editor
-          title={t("Pool-Konfiguration")}
-          className="sm:max-w-4xl"
-          fields={[
-            {
-              key: "yaml",
-              label: "YAML",
-              type: "yaml",
-              required: true,
-              description:
-                t(
-                  "Den Anmeldeschlüssel verwaltet die Zentrale automatisch. Hostschlüssel und CAs können unter known_hosts hinterlegt werden.",
-                ) +
-                " " +
-                t(
-                  "workspace_root muss auf allen Pool-Mitgliedern dieselbe persistente Freigabe bezeichnen. Bei gemeinsamem Home ist auch ein Pfad unter ~/ möglich.",
-                ),
-            },
-          ]}
-          initial={{
-            yaml: "id: rechenpool\nname: Rechenpool\nmax_machines: 1\nshared_home: false\nworkspace_root: /srv/zentrale/projects\nsingle_user: true\nsandbox: auto\nmachines:\n  - id: worker-1\n    name: Worker 1\n    host: worker.example.org\n    user: user\n    properties: [GPU]\n",
-          }}
-          onClose={() => setPoolEditor(false)}
-          onSave={(v) =>
-            api.mutate("mutation($yaml:String!){savePool(yaml:$yaml){id}}", v)
-          }
+        <PoolEditor
+          key={poolEditor.id}
+          poolId={poolEditor.id}
+          onClose={() => setPoolEditor(null)}
         />
       )}
     </>
+  );
+}
+
+const poolTemplate = `id: rechenpool
+name: Rechenpool
+max_machines: 1
+shared_home: false
+workspace_root: /srv/zentrale/projects
+single_user: true
+sandbox: auto
+machines:
+  - id: worker-1
+    name: Worker 1
+    host: worker.example.org
+    user: user
+    properties: [GPU]
+`;
+
+function PoolEditor({
+  poolId,
+  onClose,
+}: {
+  poolId?: string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const api = useAPI();
+  const { data, error, loading } = useQuery<{ poolConfiguration: string }>(
+    "query($poolId:String!){poolConfiguration(poolId:$poolId)}",
+    { poolId },
+    { enabled: Boolean(poolId) },
+  );
+  const title = t(poolId ? "Pool bearbeiten" : "Pool-Konfiguration");
+  const yaml = poolId ? data?.poolConfiguration : poolTemplate;
+
+  if (yaml === undefined) {
+    return (
+      <Inspect title={title} onClose={onClose}>
+        {loading ? <Loading /> : <Failure message={error} />}
+      </Inspect>
+    );
+  }
+
+  return (
+    <Editor
+      title={title}
+      className="sm:max-w-4xl"
+      fields={[
+        {
+          key: "yaml",
+          label: "YAML",
+          type: "yaml",
+          required: true,
+          description:
+            t(
+              "Den Anmeldeschlüssel verwaltet die Zentrale automatisch. Hostschlüssel und CAs können unter known_hosts hinterlegt werden.",
+            ) +
+            " " +
+            t(
+              "workspace_root muss auf allen Pool-Mitgliedern dieselbe persistente Freigabe bezeichnen. Bei gemeinsamem Home ist auch ein Pfad unter ~/ möglich.",
+            ),
+        },
+      ]}
+      initial={{ yaml }}
+      onClose={onClose}
+      onSave={(value) =>
+        api.mutate(
+          "mutation($yaml:String!,$poolId:String){savePool(yaml:$yaml,poolId:$poolId){id}}",
+          { yaml: value.yaml, poolId },
+        )
+      }
+    />
   );
 }

@@ -27,11 +27,13 @@ export function PoolCard({
   pool,
   keys,
   busy,
+  onEdit,
   onRemove,
 }: {
   pool: Pool;
   keys: Config["sshKeys"];
   busy: boolean;
+  onEdit: () => void;
   onRemove: () => void;
 }) {
   const api = useAPI();
@@ -125,6 +127,7 @@ export function PoolCard({
               label={t("Aktionen für {name}", { name: pool.name })}
               isDisabled={busy || checking}
               actions={[
+                { id: "edit", label: t("Bearbeiten"), onAction: onEdit },
                 {
                   id: "remove",
                   label: t("Entfernen"),

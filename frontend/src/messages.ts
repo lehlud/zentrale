@@ -606,6 +606,7 @@ export const english: Record<string, string> = {
   "Passwort wiederholen": "Confirm password",
   "Pauschale Lesefreigabe angefragt": "Blanket read permission requested",
   "Pool-Konfiguration": "Pool configuration",
+  "Pool bearbeiten": "Edit pool",
   "Preise sind bekannt": "Prices are known",
   "Projekt anlegen": "Create project",
   "Projekt bearbeiten": "Edit project",
@@ -827,6 +828,9 @@ export const germanErrors: Record<string, string> = {
     "Pool-Schlüssel werden automatisch verwaltet.",
   "pool SSH key is assigned to another purpose":
     "Der gespeicherte Pool-Schlüssel ist einem anderen Zweck zugeordnet.",
+  "pool id cannot be changed while editing":
+    "Die ID eines bestehenden Pools kann beim Bearbeiten nicht geändert werden.",
+  "pool no longer exists": "Der Pool existiert nicht mehr.",
   "Paused by the user": "Vom Nutzer pausiert",
   "Cancelled by the user": "Vom Nutzer verworfen",
   "an unfinished goal already exists; continue it or ask the user to change it":
