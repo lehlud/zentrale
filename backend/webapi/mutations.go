@@ -121,6 +121,13 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		err := server.Engine.Delete(kind, id)
 		return err == nil, err
 	})
+	moveArgs := strArg("projectId")
+	moveArgs["machineId"] = &graphql.ArgumentConfig{Type: graphql.String, DefaultValue: ""}
+	moveArgs["poolId"] = &graphql.ArgumentConfig{Type: graphql.String, DefaultValue: ""}
+	simple("moveProject", moveArgs, func(params graphql.ResolveParams) (any, error) {
+		err := server.Engine.StartProjectMove(params.Args["projectId"].(string), params.Args["machineId"].(string), params.Args["poolId"].(string))
+		return err == nil, err
+	})
 	simple("resetProjectVM", strArg("projectId"), func(params graphql.ResolveParams) (any, error) {
 		err := server.Engine.ResetProjectVM(params.Context, params.Args["projectId"].(string))
 		return err == nil, err

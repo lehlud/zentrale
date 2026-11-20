@@ -1,6 +1,16 @@
 // German source labels are stable translation keys. Keep technical identifiers,
 // user content and provider model names outside this dictionary.
 export const english: Record<string, string> = {
+  "Projekt umziehen": "Move project",
+  "Umzug starten": "Start move",
+  "Umzug fortsetzen": "Resume move",
+  "Anderes Ziel wählen": "Choose another destination",
+  "Projektdaten werden übertragen …": "Transferring project data …",
+  "Altes Setup wird bereinigt …": "Cleaning up the old setup …",
+  "Projekt erfolgreich umgezogen.": "Project moved successfully.",
+  "Weiteren Umzug planen": "Plan another move",
+  "Zentrale überträgt Arbeitsbereich und verwalteten Projektspeicher. Nach erfolgreicher Übertragung räumt Zentrale das alte Setup auf. Zentrale baut die Projekt-VM am Ziel neu auf und sichert vorhandene VM-Platten im Arbeitsbereich. Beende vorher laufende Jobs und schließe Editoren und Terminals.":
+    "Zentrale transfers the workspace and managed project storage. After verifying the transfer, Zentrale cleans up the old setup. Zentrale rebuilds the project VM at the destination and saves existing VM disks in the workspace. Finish running jobs and close editors and terminals before starting.",
   "Der Auto-Approver prüft jede angeforderte Textumformulierung, bevor der Text gesendet wird. Aufrufe können Kosten verursachen.":
     "The Auto-Approver reviews each requested rewrite before the text is sent. Calls can incur charges.",
   Ausgeschaltet: "Off",

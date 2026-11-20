@@ -416,6 +416,7 @@ export type Mutation = {
   generateSSHKey: SSHKey | null;
   login: boolean | null;
   logout: boolean | null;
+  moveProject: boolean | null;
   pollGitLogin: GitLogin | null;
   pollProviderLogin: ProviderLogin | null;
   prepareAgent: MachineConnectionCheck | null;
@@ -518,6 +519,14 @@ export type ProjectInput = {
   repositorySshKeyId?: number | null;
   repositorySshUrl?: string | null;
 };
+export type ProjectMove = {
+  error: string;
+  id: string;
+  machineId: string;
+  phase: string;
+  poolId: string;
+  projectId: string;
+};
 export type Provider = {
   accountLabel: string;
   authMode: string;
@@ -597,6 +606,7 @@ export type Query = {
   notes: Array<Note | null> | null;
   pools: Array<Pool | null> | null;
   project: Project | null;
+  projectMove: ProjectMove | null;
   projects: Array<Project | null> | null;
   providerKinds: Array<ProviderKind | null> | null;
   providerLogin: ProviderLogin | null;

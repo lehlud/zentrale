@@ -101,6 +101,11 @@ func (engine *Engine) withEditorEnvironment(ctx context.Context, projectID, agen
 		return domain.EditorSession{}, err
 	}
 	engine.configMu.Lock()
+	if err := engine.projectEnvironmentAvailable(projectID); err != nil {
+		engine.configMu.Unlock()
+		unlockProject()
+		return domain.EditorSession{}, err
+	}
 	engine.mu.Lock()
 
 	if err := engine.ctx.Err(); err != nil {

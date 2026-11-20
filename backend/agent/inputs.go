@@ -68,6 +68,9 @@ func (engine *Engine) SubmitInputWithAttachments(agentID, id, text, mode string,
 	if record.Role == "approver" {
 		return previous, errors.New("send instructions to the main agent")
 	}
+	if err := engine.projectEnvironmentAvailable(record.ProjectID); err != nil {
+		return previous, err
+	}
 	attachments, err := engine.inputAttachments(record, attachmentIDs)
 	if err != nil {
 		return previous, err
@@ -382,6 +385,9 @@ func (engine *Engine) ResumeInputs(agentID string) error {
 		return errors.New("send instructions to the main agent")
 	}
 
+	if err := engine.projectEnvironmentAvailable(record.ProjectID); err != nil {
+		return err
+	}
 	if err := engine.resumeBlockedInputs(agentID); err != nil {
 		return err
 	}
@@ -495,7 +501,7 @@ func (engine *Engine) recoverInputs() error {
 	}
 
 	for _, value := range records {
-		if stringArg(value, "role") == "approver" {
+		if stringArg(value, "role") == "approver" || engine.projectEnvironmentAvailable(stringArg(value, "projectId")) != nil {
 			continue
 		}
 

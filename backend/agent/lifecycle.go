@@ -202,6 +202,10 @@ func (engine *Engine) startOrWakeAgent(agentRecord domain.Agent) error {
 		return err
 	}
 
+	if engine.movingProjects[agentRecord.ProjectID] {
+		engine.mu.Unlock()
+		return errors.New("this project is moving; wait for the move to finish")
+	}
 	engine.inputRevisions[agentID]++
 
 	if wakeChannel := engine.wake[agentID]; wakeChannel != nil {

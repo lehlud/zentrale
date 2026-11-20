@@ -105,6 +105,9 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 	if err := engine.Store.Load("agent", agentRecord.ID, &agentRecord); err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
 	}
+	if err := engine.projectEnvironmentAvailable(agentRecord.ProjectID); err != nil {
+		return nil, domain.Machine{}, domain.Project{}, err
+	}
 	owner, err := engine.vmOwner(agentRecord.ID)
 	if err != nil {
 		return nil, domain.Machine{}, domain.Project{}, err
@@ -303,6 +306,10 @@ func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string
 		return domain.MachineConnectionCheck{Error: err.Error()}, err
 	}
 
+	if err := engine.projectEnvironmentAvailable(record.ProjectID); err != nil {
+		engine.configMu.Unlock()
+		return domain.MachineConnectionCheck{Error: err.Error()}, err
+	}
 	engine.mu.Lock()
 	engine.preparing[agentID]++
 	engine.mu.Unlock()

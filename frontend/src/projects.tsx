@@ -141,6 +141,7 @@ export function Projects() {
   const resource = useResourcePage();
   const { api, data } = resource;
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+  const [moving, setMoving] = useState<Project | null>(null);
   const { params } = useRoute();
 
   useEffect(() => {
@@ -157,7 +158,12 @@ export function Projects() {
     ),
     needle,
   );
-  const fields = projectFields(data, t);
+  const existing = data?.projects.some((project) => project.id === editing?.id);
+  const canReassign =
+    !existing || !projectEditorValue(editing ?? {}).executionTarget;
+  const fields = projectFields(data, t).filter(
+    (field) => canReassign || field.key !== "executionTarget",
+  );
   const create = () => setEditing(newProject());
 
   return (
@@ -243,6 +249,11 @@ export function Projects() {
                     onAction: () => setEditing({ ...project }),
                   },
                   {
+                    id: "move",
+                    label: t("Projekt umziehen"),
+                    onAction: () => setMoving(project),
+                  },
+                  {
                     id: "remove",
                     label: t("Entfernen"),
                     destructive: true,
@@ -254,6 +265,14 @@ export function Projects() {
           </section>
         )}
       </ResourceList>
+      {moving && (
+        <MoveProject
+          project={
+            data?.projects.find((project) => project.id === moving.id) ?? moving
+          }
+          onClose={() => setMoving(null)}
+        />
+      )}
       {editing && (
         <Editor
           placement="top"
@@ -354,6 +373,12 @@ export function ProjectView({ projectId }: { projectId: string }) {
         focusAgentId={focusAgentId}
         onFocusAgent={setFocusAgentId}
       />
+      {projectDialog === "move" && (
+        <MoveProject
+          project={data.project}
+          onClose={() => setProjectDialog("")}
+        />
+      )}
       {projectDialog === "settings" && (
         <ProjectSettings
           project={data.project}
@@ -671,7 +696,11 @@ function ProjectSettings({
     <Editor
       title={t("Projekteinstellungen")}
       placement="top"
-      fields={projectFields(data, t)}
+      fields={projectFields(data, t).filter(
+        (field) =>
+          !projectEditorValue({ ...project }).executionTarget ||
+          field.key !== "executionTarget",
+      )}
       initial={projectEditorValue({ ...project })}
       renderExtra={(value, patch) => (
         <ProjectRepository
@@ -687,6 +716,125 @@ function ProjectSettings({
           { input: projectInput(input) },
         )
       }
+    />
+  );
+}
+
+function MoveProject({
+  project,
+  onClose,
+}: {
+  project: Project;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const api = useAPI();
+  const action = useAction();
+  const { data: config } = useQuery<Config>(CONFIG);
+  const { data, error, loading } = useQuery<{
+    projectMove: {
+      id: string;
+      phase: string;
+      error: string;
+      machineId: string;
+      poolId: string;
+    } | null;
+  }>(
+    "query($projectId:String!){projectMove(projectId:$projectId){id phase error machineId poolId}}",
+    { projectId: project.id },
+  );
+  const move = data?.projectMove;
+  const [acknowledged, setAcknowledged] = useState("");
+  const finished = move?.phase === "done";
+  const showCompletion = finished && acknowledged !== move.id;
+  const preflightFailed = move?.phase === "preflight_failed";
+  const pending =
+    move && !finished && !(preflightFailed && acknowledged === move.id);
+  const field = projectFields(config, t).find(
+    (field) => field.key === "executionTarget",
+  )!;
+  const current = projectEditorValue({ ...project }).executionTarget;
+  const request = (machineId: string, poolId: string) =>
+    api.mutate(
+      "mutation($projectId:String!,$machineId:String,$poolId:String){moveProject(projectId:$projectId,machineId:$machineId,poolId:$poolId)}",
+      { projectId: project.id, machineId, poolId },
+      { announce: false },
+    );
+  if (loading || error || pending || showCompletion) {
+    return (
+      <Inspect title={t("Projekt umziehen")} onClose={onClose}>
+        {loading && <Loading />}
+        <Failure message={error} onRetry={() => api.refresh()} />
+        {pending && (
+          <>
+            <p role="status" className="text-sm">
+              {t(
+                move.phase === "cleanup"
+                  ? "Altes Setup wird bereinigt …"
+                  : "Projektdaten werden übertragen …",
+              )}
+            </p>
+            <Failure message={action.error || t(move.error)} />
+            {preflightFailed && (
+              <Button
+                variant="secondary"
+                onPress={() => setAcknowledged(move.id)}
+              >
+                {t("Anderes Ziel wählen")}
+              </Button>
+            )}
+            {move.error && (
+              <Button
+                isPending={action.busy}
+                onPress={() =>
+                  action.run(() => request(move.machineId, move.poolId))
+                }
+              >
+                {t("Umzug fortsetzen")}
+              </Button>
+            )}
+          </>
+        )}
+        {showCompletion && (
+          <>
+            <p role="status" className="text-sm">
+              {t("Projekt erfolgreich umgezogen.")}
+            </p>
+            <Button onPress={() => setAcknowledged(move.id)}>
+              {t("Weiteren Umzug planen")}
+            </Button>
+          </>
+        )}
+      </Inspect>
+    );
+  }
+  return (
+    <Editor
+      title={t("Projekt umziehen")}
+      renderExtra={() => (
+        <p className="text-sm text-muted">
+          {t(
+            "Zentrale überträgt Arbeitsbereich und verwalteten Projektspeicher. Nach erfolgreicher Übertragung räumt Zentrale das alte Setup auf. Zentrale baut die Projekt-VM am Ziel neu auf und sichert vorhandene VM-Platten im Arbeitsbereich. Beende vorher laufende Jobs und schließe Editoren und Terminals.",
+          )}
+        </p>
+      )}
+      fields={[
+        {
+          ...field,
+          options: field.options?.filter((option) => option.key !== current),
+        },
+      ]}
+      initial={{ executionTarget: "" }}
+      submitLabel={t("Umzug starten")}
+      onClose={onClose}
+      closeOnSave={false}
+      onSave={(value) => {
+        const target = String(value.executionTarget);
+        return request(
+          target.startsWith("machine:") ? target.slice(8) : "",
+          target.startsWith("pool:") ? target.slice(5) : "",
+        );
+      }}
     />
   );
 }

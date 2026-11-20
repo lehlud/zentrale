@@ -34,6 +34,7 @@ func TestProjectRequiresExactlyOneMachineOrPool(t *testing.T) {
 		{nil, []string{"test-pool", "test-pool"}, false},
 	} {
 		candidate := project
+		candidate.ID = NewID()
 		candidate.MachineIDs, candidate.PoolIDs = target.machines, target.pools
 		_, err := engine.SaveProject(candidate)
 		if (err == nil) != target.valid {

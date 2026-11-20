@@ -75,6 +75,7 @@ type Engine struct {
 	projectReadiness  sync.Map
 	terminalGates     keylock.Group
 	resettingProjects map[string]bool
+	movingProjects    map[string]bool
 	Store             *datastore.Instance
 	Remote            *remote.Manager
 	Editors           *remote.Editors
@@ -171,6 +172,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		jobs:                 make(map[string]*runningJob),
 		mcpServers:           make(map[string]*mcpServer),
 		grants:               make(map[string]map[string]grant),
+		movingProjects:       make(map[string]bool),
 		subscribers:          make(map[chan domain.Event]bool),
 		liveResponses:        make(map[string]domain.LiveResponse),
 	}
@@ -196,6 +198,10 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 	}
 
 	if err := engine.recoverLoginProtocols(); err != nil {
+		engine.Close()
+		return nil, err
+	}
+	if err := engine.recoverProjectMoves(); err != nil {
 		engine.Close()
 		return nil, err
 	}

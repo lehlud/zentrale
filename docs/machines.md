@@ -119,6 +119,14 @@ Agents are instructed to check capacity before large datasets and checkpoints.
 Cleanup must preserve valuable results, active checkpoints, and unrelated data.
 For FAU CIP, use `/proj/ciptmp/<user>` and `quota_command: [/usr/bin/cip-quota]`.
 
+## Move a project
+
+Choose **Move project** from the project actions and select a machine or a pool. Finish running jobs and close editors and terminals before starting. The move transfers Zentrale-managed workspaces, full Git state and managed storage. Each used storage volume must have a matching ID at the destination. Volumes on the destination pool must be shared. Resolve independent copies of the same volume before starting a move.
+
+Zentrale verifies the transfer before switching the project's assignment and removing the previous copies. If both assignments reach the same storage, Zentrale keeps that directory in place. The destination starts fresh MicroVMs. Existing managed VM disks are saved as standalone QCOW2 images under `.zentrale-vm-backups` in the project workspace. The source and destination need enough space to stage the data. Keep both routes connected until cleanup finishes. Use **Resume move** to retry after a failure.
+
+Projects that use manually assigned workspace paths need their storage managed by Zentrale before they can be moved through this action.
+
 ## Parallel work and failover
 
 ### Discovering machines without a large inventory response

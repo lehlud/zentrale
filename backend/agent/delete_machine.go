@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -116,6 +117,26 @@ func (engine *Engine) deleteMachineCascade(kind, id string) error {
 		for _, reference := range append(append([]string{}, project.MachineIDs...), project.PoolIDs...) {
 			if removed(reference) {
 				return errors.New("a repository operation using this machine is still in progress")
+			}
+		}
+	}
+	moves, err := loadResources[projectMoveRecord](engine, projectMoveKind)
+	if err != nil {
+		return err
+	}
+	for _, move := range moves {
+		if !pendingProjectMove(move) {
+			continue
+		}
+		needed := slices.Clone(move.Scratch)
+		needed = append(needed, move.Host)
+		for _, project := range []domain.Project{move.From, move.To} {
+			needed = append(needed, project.MachineIDs...)
+			needed = append(needed, project.PoolIDs...)
+		}
+		for _, id := range needed {
+			if removed(id) {
+				return errors.New("this machine or pool is needed by a project move")
 			}
 		}
 	}

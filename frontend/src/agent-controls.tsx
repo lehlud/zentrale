@@ -134,6 +134,13 @@ export function AgentControls({
                     <Label>{t("Quellen verwalten")}</Label>
                   </Dropdown.Item>
                   <Dropdown.Item
+                    id="move"
+                    className="min-h-11"
+                    onAction={() => onProjectDialog("move")}
+                  >
+                    <Label>{t("Projekt umziehen")}</Label>
+                  </Dropdown.Item>
+                  <Dropdown.Item
                     id="reset-vm"
                     className="min-h-11 text-danger"
                     onAction={() =>

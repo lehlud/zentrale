@@ -4147,6 +4147,14 @@
             }
           },
           {
+            "name": "moveProject",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "pollGitLogin",
             "type": {
               "kind": "OBJECT",
@@ -5145,6 +5153,85 @@
       {
         "fields": [
           {
+            "name": "error",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "id",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "machineId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "phase",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "poolId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "ProjectMove"
+      },
+      {
+        "fields": [
+          {
             "name": "accountLabel",
             "type": {
               "kind": "NON_NULL",
@@ -5912,6 +5999,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "Project",
+              "ofType": null
+            }
+          },
+          {
+            "name": "projectMove",
+            "type": {
+              "kind": "OBJECT",
+              "name": "ProjectMove",
               "ofType": null
             }
           },

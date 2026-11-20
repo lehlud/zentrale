@@ -107,13 +107,7 @@ func (manager *Manager) PrepareStorage(
 	}
 
 	for _, volume := range machine.Storage {
-		scope := "machine:" + machine.ID
-
-		if poolID, _, pooled := strings.Cut(machine.ID, "/"); pooled && volume.Shared {
-			scope = "pool:" + poolID
-		}
-
-		id := fmt.Sprintf("%x", sha256.Sum256([]byte(project.ID+"\x00"+scope+"\x00storage:"+volume.ID)))
+		id := storageBindingID(project.ID, machine.ID, volume)
 		directory, err := manager.resolveManagedDirectory(ctx, connection, machine, project, volume.Path, id, "project_storage")
 		if err != nil {
 			return nil, fmt.Errorf("prepare storage %s: %w", volume.ID, err)
@@ -130,4 +124,12 @@ func (manager *Manager) PrepareStorage(
 	}
 
 	return mounts, nil
+}
+
+func storageBindingID(projectID, machineID string, volume domain.StorageVolume) string {
+	scope := "machine:" + machineID
+	if poolID, _, pooled := strings.Cut(machineID, "/"); pooled && volume.Shared {
+		scope = "pool:" + poolID
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(projectID+"\x00"+scope+"\x00storage:"+volume.ID)))
 }

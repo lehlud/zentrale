@@ -32,5 +32,5 @@ func (engine *Engine) projectAvailable(id string) error {
 	if _, busy := engine.projectOperations[id]; busy {
 		return errors.New("a repository operation for this project is still in progress")
 	}
-	return nil
+	return engine.projectEnvironmentAvailable(id)
 }

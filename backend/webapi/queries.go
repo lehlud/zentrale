@@ -13,6 +13,17 @@ import (
 func (builder *schemaBuilder) queries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["projectMove"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[domain.ProjectMove]()),
+		Args: graphql.FieldConfigArgument{"projectId": {Type: graphql.NewNonNull(graphql.String)}},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			move, err := server.Engine.ProjectMove(params.Args["projectId"].(string))
+			if move == nil || err != nil {
+				return nil, err
+			}
+			return mapOf(*move), nil
+		}),
+	}
 	queries["teamwork"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.Teamwork]()),
 		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},

@@ -345,3 +345,13 @@ type Event struct {
 	Data      string    `json:"data"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+// ProjectMove is the public status of a project relocation.
+type ProjectMove struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
+	MachineID string `json:"machineId"`
+	PoolID    string `json:"poolId"`
+	Phase     string `json:"phase"`
+	Error     string `json:"error"`
+}

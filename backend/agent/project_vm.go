@@ -12,7 +12,11 @@ import (
 func (engine *Engine) projectEnvironmentAvailable(projectID string) error {
 	engine.mu.Lock()
 	resetting := engine.resettingProjects[projectID]
+	moving := engine.movingProjects[projectID]
 	engine.mu.Unlock()
+	if moving {
+		return errors.New("this project is moving; wait for the move to finish")
+	}
 	if resetting {
 		return errors.New("the user is resetting this project's VMs; wait until the reset finishes")
 	}
@@ -27,16 +31,23 @@ func (engine *Engine) ResetProjectVM(ctx context.Context, projectID string) erro
 	if err := engine.Store.Load("project", projectID, &project); err != nil {
 		return err
 	}
+	engine.configMu.Lock()
+	if err := engine.projectAvailable(projectID); err != nil {
+		engine.configMu.Unlock()
+		return err
+	}
 	engine.mu.Lock()
 	if engine.resettingProjects == nil {
 		engine.resettingProjects = make(map[string]bool)
 	}
 	if engine.resettingProjects[projectID] {
 		engine.mu.Unlock()
+		engine.configMu.Unlock()
 		return errors.New("project VM reset is already running")
 	}
 	engine.resettingProjects[projectID] = true
 	engine.mu.Unlock()
+	engine.configMu.Unlock()
 	defer func() { engine.mu.Lock(); delete(engine.resettingProjects, projectID); engine.mu.Unlock() }()
 	scope := remote.EditorScopeID(projectID, "")
 	release := engine.useEnvironment(scope)

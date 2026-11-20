@@ -1263,3 +1263,65 @@ test("mobile navigation traps focus, closes on Escape and restores its trigger",
     page.getByRole("link", { name: "Alle Projekte", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
+
+test("project move selects a different target and displays a recoverable failure", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const query = async (
+    query: string,
+    variables: Record<string, unknown> = {},
+  ) => {
+    const response = await page.request.post("/graphql", {
+      data: { query, variables },
+    });
+    const body = await response.json();
+    expect(body.errors).toBeUndefined();
+    return body.data;
+  };
+  const machine = async (name: string) => {
+    const { generateSSHKey } = await query("mutation{generateSSHKey{id}}");
+    const { saveMachine } = await query(
+      "mutation($input:MachineInput!){saveMachine(input:$input){id}}",
+      {
+        input: {
+          name,
+          host: "127.0.0.1",
+          port: 1,
+          user: "developer",
+          keyId: generateSSHKey.id,
+        },
+      },
+    );
+    return saveMachine.id as string;
+  };
+  const origin = await machine("Umzugsquelle");
+  const destination = await machine("Umzugsziel");
+  const { saveProject } = await query(
+    "mutation($input:ProjectInput!){saveProject(input:$input){id}}",
+    { input: { name: "Umzugstest", machineIds: [origin] } },
+  );
+
+  await page.goto("/#/projects");
+  await page.getByRole("button", { name: "Aktionen für Umzugstest" }).click();
+  await page.getByRole("menuitem", { name: "Projekt umziehen" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: /Fernmaschine oder Pool/ }).click();
+  await expect(page.getByRole("option", { name: /Umzugsquelle/ })).toHaveCount(
+    0,
+  );
+  await page.getByRole("option", { name: /Umzugsziel/ }).click();
+  await dialog.getByRole("button", { name: "Umzug starten" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Umzug fortsetzen" }),
+  ).toBeVisible();
+  expect(
+    await query(
+      "query($id:String!){project(id:$id){machineIds} projectMove(projectId:$id){machineId phase}}",
+      { id: saveProject.id },
+    ),
+  ).toEqual({
+    project: { machineIds: [origin] },
+    projectMove: { machineId: destination, phase: "preflight_failed" },
+  });
+});

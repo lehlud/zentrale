@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -161,6 +162,12 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 
 	var previous domain.Project
 	if err := engine.Store.Load("project", project.ID, &previous); err == nil {
+		if err := engine.projectAvailable(project.ID); err != nil {
+			return project, err
+		}
+		if len(previous.MachineIDs)+len(previous.PoolIDs) == 1 && (!slices.Equal(previous.MachineIDs, project.MachineIDs) || !slices.Equal(previous.PoolIDs, project.PoolIDs)) {
+			return project, errors.New("use Move project to change the assigned machine or pool")
+		}
 		if (previous.RepositoryID != "" || previous.RepositorySSHURL != "") &&
 			(previous.RepositoryID != project.RepositoryID || previous.GitConnectionID != project.GitConnectionID ||
 				previous.RepositorySSHURL != strings.TrimSpace(project.RepositorySSHURL)) {
