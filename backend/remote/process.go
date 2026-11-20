@@ -40,7 +40,11 @@ func StartProcess(ctx context.Context, connection *Connection, command string) (
 	if err := connection.requireWorkTarget(); err != nil {
 		return nil, err
 	}
-	session, err := connection.Client.NewSession()
+	return startSSHProcess(ctx, connection.Client, command)
+}
+
+func startSSHProcess(ctx context.Context, client *ssh.Client, command string) (*Process, error) {
+	session, err := commandSession(ctx, client)
 	if err != nil {
 		return nil, err
 	}

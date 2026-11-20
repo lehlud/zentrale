@@ -1,10 +1,12 @@
 package remote
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/lehlud/zentrale/domain"
@@ -12,6 +14,11 @@ import (
 
 //go:embed scripts/workspace_move.py
 var workspaceMoveScript string
+
+//go:embed scripts/workspace_move_stream.py
+var workspaceMoveStreamScript string
+
+var moveStreamSocket = regexp.MustCompile(`^/tmp/zentrale-transfer-[a-z0-9_]{8}/stream$`)
 
 type MoveDirectory struct {
 	Kind      string            `json:"kind"`
@@ -43,35 +50,97 @@ func TransferWorkspace(ctx context.Context, source, destination *Connection, pro
 }
 
 func transferMoveStream(ctx context.Context, source, destination *Connection, sender, recipient string) error {
-	process, err := StartProcess(ctx, source, sender)
+	process, reader, err := startMoveStream(ctx, source, "send", sender)
 	if err != nil {
-		return err
+		return fmt.Errorf("open project transfer on source: %w", err)
 	}
 	defer process.Close()
+	defer reader.Close()
 
-	receiver, err := StartProcess(ctx, destination, recipient)
+	receiver, writer, err := startMoveStream(ctx, destination, "receive", recipient)
 	if err != nil {
-		return err
+		return fmt.Errorf("open project transfer on destination: %w", err)
 	}
 	defer receiver.Close()
-	if _, err := io.Copy(receiver, process.reader); err != nil {
+	defer writer.Close()
+	if _, err := io.Copy(writer, reader.reader); err != nil {
 		return fmt.Errorf("transfer project files: %w", err)
 	}
-	if err := receiver.CloseWrite(); err != nil {
+	if err := writer.CloseWrite(); err != nil {
 		return err
 	}
-	for _, endpoint := range []*Process{process, receiver} {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-endpoint.done:
-			if endpoint.exitError != nil {
-				return commandFailure(endpoint.exitError, endpoint.stderr.String())
-			}
+	// Check archive processes as well as the SSH relays. EOF only confirms
+	// that a stream closed, and a failed tar can still send a valid prefix.
+	for _, endpoint := range []struct {
+		name    string
+		process *Process
+	}{
+		{"source relay", reader}, {"destination relay", writer},
+		{"archive producer", process}, {"archive receiver", receiver},
+	} {
+		if err := waitMoveStream(ctx, endpoint.process); err != nil {
+			return fmt.Errorf("%s: %w", endpoint.name, err)
 		}
 	}
 
 	return nil
+}
+
+// The daemon owns the archive process and captures its diagnostics. Its local
+// socket carries binary data over an extra channel on the already trusted SSH
+// connection, so archives do not enter the daemon's bounded replay log.
+func startMoveStream(ctx context.Context, connection *Connection, mode, command string) (*Process, *Process, error) {
+	helper := "python3 -I -u -c " + Quote(workspaceMoveStreamScript)
+	endpoint, err := StartProcess(ctx, connection, helper+" serve "+Quote(mode)+" "+Quote(command))
+	if err != nil {
+		return nil, nil, err
+	}
+	connect := func() (*Process, error) {
+		line, err := bufio.NewReaderSize(endpoint.reader, 256).ReadSlice('\n')
+		if err != nil {
+			if failure := waitMoveStream(ctx, endpoint); failure != nil {
+				return nil, failure
+			}
+			return nil, fmt.Errorf("read transfer socket address: %w", err)
+		}
+		path := strings.TrimSuffix(string(line), "\n")
+		if !moveStreamSocket.MatchString(path) {
+			return nil, fmt.Errorf("invalid transfer socket address")
+		}
+		if err := connection.requireWorkTarget(); err != nil {
+			return nil, err
+		}
+		client := connection.Client
+		if connection.daemon != nil {
+			wire, err := connection.daemon.connect(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := connection.daemon.connector.VerifyTrust(wire.connection); err != nil {
+				return nil, err
+			}
+			client = wire.connection.Client
+		}
+		return startSSHProcess(ctx, client, helper+" relay "+Quote(mode)+" "+Quote(path))
+	}
+	relay, err := connect()
+	if err != nil {
+		endpoint.Close()
+		return nil, nil, err
+	}
+	return endpoint, relay, nil
+}
+
+func waitMoveStream(ctx context.Context, process *Process) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-process.done:
+		if process.exitError != nil {
+			return commandFailure(process.exitError, process.stderr.String())
+		}
+		return nil
+	}
 }
 
 // MoveDirectories enumerates recorded project-owned storage on the old target.

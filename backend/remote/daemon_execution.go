@@ -228,13 +228,14 @@ func startDaemonProcess(ctx context.Context, connection *Connection, command str
 				chunk, state, err := resource.read(processContext, stream, offset)
 				if err != nil {
 					if stream == "stdout" {
+						process.exitError = err
 						_ = output.CloseWithError(err)
 					}
 					return
 				}
 				if stream == "stderr" {
 					_, _ = process.stderr.Write(chunk)
-				} else {
+				} else if len(chunk) != 0 {
 					if _, err := output.Write(chunk); err != nil {
 						return
 					}
