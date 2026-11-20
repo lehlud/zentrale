@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -363,16 +364,15 @@ func (engine *Engine) planProjectMove(ctx context.Context, move *projectMoveReco
 		seen[path] = true
 		directories = append(directories, projectMoveDirectory{Source: source, Destination: path})
 	}
-	vms, err := engine.listAll("microvm", &move.ProjectID)
+	vms, err := engine.Store.ProjectMicroVMs(move.ProjectID)
 	if err != nil {
-		return err
+		return fmt.Errorf("read the project's VM receipts: %w", err)
 	}
 	records := make(map[string]microVMRecord, len(vms))
-	for _, row := range vms {
-		id := stringArg(row, "id")
+	for id, data := range vms {
 		var vm microVMRecord
-		if err := engine.Store.Load("microvm", id, &vm); err != nil {
-			return err
+		if err := json.Unmarshal(data, &vm); err != nil {
+			return fmt.Errorf("decode VM receipt %q: %w", id, err)
 		}
 		records[id] = vm
 	}

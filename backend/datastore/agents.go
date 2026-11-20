@@ -126,6 +126,29 @@ func queueVMRemovals(tx *sql.Tx, condition string, args ...any) error {
 	return err
 }
 
+// ProjectMicroVMs returns each VM receipt under its storage key. Older
+// receipts may have an agent parent, and the JSON does not contain the key.
+func (instance *Instance) ProjectMicroVMs(projectID string) (map[string]json.RawMessage, error) {
+	if instance == nil || instance.Closed() {
+		return nil, errClosed
+	}
+	rows, err := instance.readDB().Query(`SELECT id,data FROM resources WHERE kind='microvm'
+	 AND json_extract(data,'$.projectId')=?`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	records := make(map[string]json.RawMessage)
+	for rows.Next() {
+		var id, data string
+		if err := rows.Scan(&id, &data); err != nil {
+			return nil, err
+		}
+		records[id] = json.RawMessage(data)
+	}
+	return records, rows.Err()
+}
+
 func (instance *Instance) PendingVMCleanup() ([]map[string]any, error) {
 	if instance.Closed() {
 		return nil, errClosed

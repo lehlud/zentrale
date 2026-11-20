@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,6 +136,70 @@ func TestProjectMoveAcrossSharedStorageKeepsFiles(t *testing.T) {
 	})
 	if data, err := os.ReadFile(file); err != nil || string(data) != "shared" {
 		t.Fatal("moving between two routes to the same storage removed the files", err)
+	}
+}
+
+func TestProjectMoveUsesStoredVMReceiptKeys(t *testing.T) {
+	shell := shellPeerHandler("/bin/sh", os.Environ())
+	var mu sync.Mutex
+	actions := map[string]int{}
+	engine, record, project, old := managedWorkspaceEngine(t, func(command string, stdin io.Reader, stdout, stderr io.Writer) int {
+		if strings.Contains(command, "<zentrale-microvm>") {
+			for _, action := range []string{"stop", "remove"} {
+				if strings.Contains(strings.ReplaceAll(command, `'"'"'`, "'"), "'"+action+"'") {
+					mu.Lock()
+					actions[action]++
+					mu.Unlock()
+					fmt.Fprintln(stdout, "{}")
+					return 0
+				}
+			}
+		}
+		return shell(command, stdin, stdout, stderr)
+	})
+	connection, _, resolved, err := engine.connect(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.Close()
+	target := old
+	target.ID, target.WorkspaceRoot = "vm-move-destination", t.TempDir()
+	if err := engine.Store.Save("machine", target.ID, "", target); err != nil {
+		t.Fatal(err)
+	}
+	vm := microVMRecord{
+		AgentID: remote.EditorScopeID(project.ID, ""), ProjectID: project.ID,
+		MachineID: old.ID, Workspace: resolved.Directory,
+	}
+	currentKey := vm.AgentID + ":" + old.ID
+	if err := engine.Store.Save("microvm", currentKey, project.ID, vm); err != nil {
+		t.Fatal(err)
+	}
+	// Older receipts had an agent parent. The actual storage key is always
+	// authoritative, including for imported receipts.
+	const legacyKey = "imported-vm-receipt"
+	vm.AgentID = NewID()
+	if err := engine.Store.Save("microvm", legacyKey, vm.AgentID, vm); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.StartProjectMove(project.ID, target.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForProjectMove(t, engine, project.ID, func(move *domain.ProjectMove) bool {
+		if move.Error != "" {
+			t.Fatalf("move failed with existing VM receipts: %s", move.Error)
+		}
+		return move.Phase == "done"
+	})
+	for _, id := range []string{currentKey, legacyKey} {
+		if err := engine.Store.Load("microvm", id, &vm); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("old VM receipt %q was not removed: %v", id, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if actions["stop"] != 2 || actions["remove"] != 2 {
+		t.Fatalf("expected both VM receipts to be processed: %v", actions)
 	}
 }
 
