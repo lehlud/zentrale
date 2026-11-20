@@ -153,6 +153,10 @@ class MicroVMRunnerTests(unittest.TestCase):
                     runner.cache_directory([workspace])
             with self.assertRaisesRegex(RuntimeError, "protected MicroVM disk cache"):
                 runner.cache_directory([Path("/var/tmp")])
+            with self.assertRaisesRegex(RuntimeError, "protected daemon runtime storage"):
+                runner.cache_directory(
+                    [Path("/var/tmp") / ("zentrale-daemon-data-" + str(os.getuid()))]
+                )
 
     def test_quota_offload_keeps_original_until_conversion_succeeds(self):
         scope = runner.private_directory(self.cache / "projects" / "project")

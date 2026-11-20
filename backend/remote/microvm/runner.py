@@ -328,11 +328,13 @@ def cache_directory(writable_roots=()):
         raise RuntimeError(
             "the writable workspace contains the protected MicroVM cache: " + str(cache)
         )
-    disks = disk_cache_directory().resolve()
-    if any(within(root, disks) or within(disks, root) for root in writable_roots):
-        raise RuntimeError(
-            "the writable workspace overlaps the protected MicroVM disk cache: " + str(disks)
-        )
+    for description, storage in (
+        ("MicroVM disk cache", disk_cache_directory()),
+        ("daemon runtime storage", Path("/var/tmp") / ("zentrale-daemon-data-" + str(os.getuid()))),
+    ):
+        storage = storage.resolve()
+        if any(within(root, storage) or within(storage, root) for root in writable_roots):
+            raise RuntimeError(f"the writable workspace overlaps the protected {description}: {storage}")
     return cache
 
 

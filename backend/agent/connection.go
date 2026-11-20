@@ -463,6 +463,10 @@ func (engine *Engine) requireConnection(ctx context.Context, agentID string) err
 		if err == nil {
 			err = errors.New(result.Error)
 		}
+		var connectionFailure *ProjectConnectionError
+		if errors.As(err, &connectionFailure) {
+			return err
+		}
 		return &ProjectConnectionError{Cause: err, HostKey: result.HostKey}
 	}, func(failure error) {
 		engine.setRunState(agentID, "retrying_connection", failure)

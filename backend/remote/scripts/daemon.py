@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import struct
 import sys
 import time
@@ -31,17 +32,36 @@ IDENTIFIER = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
 
 def atomic_json(path, value):
     temporary = path.with_suffix(".new")
-    with open(temporary, "w", encoding="utf-8") as target:
-        os.chmod(temporary, 0o600)
-        json.dump(value, target, separators=(",", ":"))
-        target.flush()
-        os.fsync(target.fileno())
-    os.replace(temporary, path)
+    try:
+        with open(temporary, "w", encoding="utf-8") as target:
+            os.chmod(temporary, 0o600)
+            json.dump(value, target, separators=(",", ":"))
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def runtime_storage(directory, disk_root=Path("/var/tmp")):
+    root = disk_root / ("zentrale-daemon-data-" + str(os.getuid()))
+    storage = root / directory.name
+    if not storage.exists() and not storage.is_symlink():
+        if (not disk_root.is_dir() or not os.access(disk_root, os.W_OK | os.X_OK)
+                or disk_root.stat().st_dev == directory.stat().st_dev):
+            return directory
+
+    for path in (root, storage):
+        path.mkdir(mode=0o700, exist_ok=True)
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise RuntimeError("unsafe daemon runtime storage: " + str(path))
+    return storage
 
 
 class Resource:
@@ -60,7 +80,7 @@ class Resource:
         self.idle_timeout = LEASE_SECONDS
 
     def journal(self):
-        atomic_json(self.daemon.directory / (self.id + ".json"), {
+        atomic_json(self.daemon.storage / (self.id + ".json"), {
             "id": self.id, "fingerprint": self.fingerprint, "kind": self.kind,
             "state": self.state, "code": self.code, "error": self.error,
             "generation": self.daemon.generation,
@@ -71,7 +91,7 @@ class Resource:
                 "inputOffset": self.input_offset, "inputEOF": self.input_eof}
 
     async def drain(self, reader, stream):
-        path = self.daemon.directory / (self.id + "." + stream)
+        path = self.daemon.storage / (self.id + "." + stream)
         output = None
         failed = False
         try:
@@ -251,7 +271,7 @@ class Resource:
                     await asyncio.wait_for(self.changed.wait(), 20)
         data = b""
         if offset < self.lengths[stream]:
-            with open(self.daemon.directory / (self.id + "." + stream), "rb") as source:
+            with open(self.daemon.storage / (self.id + "." + stream), "rb") as source:
                 source.seek(offset)
                 data = source.read(CHUNK)
         return {**self.info(), "data": base64.b64encode(data).decode(), "offset": offset + len(data),
@@ -259,8 +279,9 @@ class Resource:
 
 
 class Daemon:
-    def __init__(self, directory, token, lease_seconds=LEASE_SECONDS):
+    def __init__(self, directory, token, lease_seconds=LEASE_SECONDS, storage=None):
         self.directory, self.token = Path(directory), token
+        self.storage = Path(storage) if storage is not None else self.directory
         self.generation = uuid.uuid4().hex
         self.last_contact, self.lease_seconds = time.monotonic(), lease_seconds
         self.resources, self.tasks = {}, set()
@@ -292,13 +313,21 @@ class Daemon:
             if resource is not None and resource.fingerprint != fingerprint:
                 raise ValueError("resource ID already belongs to another operation")
             if resource is None:
-                if (self.directory / (identity + ".json")).exists():
+                receipt = identity + ".json"
+                if (self.storage / receipt).exists() or (
+                    self.storage != self.directory and (self.directory / receipt).exists()
+                ):
                     raise ValueError("resource belonged to a previous daemon; execution state is unknown")
                 if sum(item.state in ("admitted", "running") for item in self.resources.values()) >= RESOURCE_LIMIT:
                     raise ValueError("daemon resource limit reached")
                 resource = Resource(self, identity, fingerprint, request["kind"])
                 # Admission is durable before any side effect or await.
-                resource.journal()
+                try:
+                    resource.journal()
+                except OSError as error:
+                    raise RuntimeError(
+                        f"could not journal a new operation in {self.storage}: {error}"
+                    ) from error
                 self.resources[identity] = resource
             return await resource.start(request)
         if resource is None:
@@ -374,7 +403,7 @@ class Daemon:
                     asyncio.create_task(resource.stop())
                 if resource.finished_at and time.monotonic() - resource.finished_at > LEASE_SECONDS:
                     for suffix in (".stdout", ".stderr"):
-                        path = self.directory / (identity + suffix)
+                        path = self.storage / (identity + suffix)
                         if path.exists():
                             self.output_bytes -= path.stat().st_size
                             path.unlink()
@@ -388,7 +417,7 @@ async def main(directory):
     directory = Path(directory)
     lock = open(directory / "daemon.lock", "a")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    daemon = Daemon(directory, (directory / "token").read_text())
+    daemon = Daemon(directory, (directory / "token").read_text(), storage=runtime_storage(directory))
     socket = directory / "socket"
     socket.unlink(missing_ok=True)
     server = await asyncio.start_unix_server(daemon.handle, path=str(socket), limit=FRAME_LIMIT)

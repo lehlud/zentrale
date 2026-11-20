@@ -11,8 +11,11 @@ account per installation and physical host, including aliases and pool entries.
 
 SSH bootstraps a small authenticated bridge to a private Unix socket under
 `/tmp/zentrale-daemon-<installation hash>`. A filesystem lock prevents duplicate
-daemons. Commands, process IO, VS Code connections and VM terminals use that
-daemon. Connections share transports, while callers hold independent references.
+daemons. When `/var/tmp` is on a separate filesystem, the daemon stores admission
+receipts and output in a private directory there. Existing daemons adopt this
+layout at their next start. Commands, process IO, VS Code connections and VM
+terminals use that daemon. Connections share transports, while callers hold
+independent references.
 Closing a connection releases its reference; it does not terminate remote work.
 Trust checks still apply on reconnect. Changing the configured SSH route never
 migrates an existing process to a different machine.
@@ -53,7 +56,8 @@ old unreferenced processes expire rather than receiving speculative replay.
 Exactly one machine or one pool is assigned to a project. VM identity combines
 the Zentrale installation, project and physical host. Conversations on the same
 project and host share one guest; a pool may hold guests on several hosts.
-VM disks, downloaded runtime artifacts and scratch use private `/tmp` storage.
+VM disks, downloaded runtime artifacts and scratch normally use private `/tmp`
+storage. On hosts with quota-limited tmpfs, guest disks can use `/var/tmp`.
 Ordinary idle shutdown preserves the disk. Remote reboot or `/tmp` cleanup may
 discard it, and the next use builds a fresh guest. Project files and explicitly
 configured storage are separate mounts.

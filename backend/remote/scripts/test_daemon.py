@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import errno
 import json
 from pathlib import Path
 import shlex
@@ -101,6 +102,34 @@ class DaemonTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "previous daemon"):
             await replacement.dispatch({"op": "create", "resource": "job", "generation": replacement.generation,
                                         "kind": "process", "command": "true"})
+
+    async def test_disk_storage_preserves_admission_when_control_quota_is_full(self):
+        await self.request("create", kind="process", command="true", merge=True)
+        await asyncio.wait_for(self.output(), 5)
+        storage = self.directory / "disk-storage"
+        storage.mkdir(mode=0o700)
+        self.server = daemon.Daemon(self.directory, "private-test-token", storage=storage)
+
+        original = open
+        def open_under_quota(path, *args, **kwargs):
+            path = Path(path)
+            if path.parent == self.directory and path.suffix in (".new", ".stdout", ".stderr"):
+                raise OSError(errno.EDQUOT, "Disk quota exceeded")
+            return original(path, *args, **kwargs)
+
+        with patch("builtins.open", open_under_quota):
+            with self.assertRaisesRegex(ValueError, "previous daemon"):
+                await self.request("create", kind="process", command="true", merge=True)
+            await self.request(
+                "create", "fresh", kind="process",
+                command='printf "%s" "$ZENTRALE_DAEMON_LEASE"', merge=True,
+            )
+            output, result = await asyncio.wait_for(self.output("fresh"), 5)
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(output, str(self.directory / "lease").encode())
+        self.assertTrue((storage / "fresh.json").is_file())
+        self.assertTrue((storage / "fresh.stdout").is_file())
+        self.assertFalse((self.directory / "fresh.json").exists())
 
     async def test_lease_expiry_stops_owned_processes(self):
         self.server.lease_seconds = 0.05

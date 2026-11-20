@@ -45,13 +45,8 @@ def bridge(source, instance):
             client.connect(str(directory / "socket"))
         except (FileNotFoundError, ConnectionRefusedError):
             client.close()
-            program = directory / (hashlib.sha256(source.encode()).hexdigest() + ".py")
-            if not program.exists():
-                with open(program, "x") as target:
-                    os.chmod(program, 0o600)
-                    target.write(source)
             with open(directory / "daemon.log", "ab", buffering=0) as log:
-                subprocess.Popen([sys.executable, str(program), str(directory)], stdin=subprocess.DEVNULL,
+                subprocess.Popen([sys.executable, "-c", source, str(directory)], stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=log, start_new_session=True, close_fds=True)
             deadline = time.monotonic() + 10
             while True:
