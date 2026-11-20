@@ -46,10 +46,12 @@ keep their own runtime files through an update.
 Guests use the logical CPUs available to the runner, up to QEMU's `microvm`
 limit, with 4 GiB RAM and a sparse disk capped at 8 GiB. Git uses one checkout
 worker per guest vCPU within the guest process limit. Disks, VM artifacts and
-per-project scratch live in private directories under `/tmp` on the remote
-machine. They survive ordinary stop/start while present. Remote host reboot
-or temporary-file cleanup may remove them. Zentrale creates a new
-guest when needed. Project files and configured storage are mounted separately
+per-project scratch normally live in private directories under `/tmp` on the
+remote machine. When `/tmp` is quota-limited tmpfs and `/var/tmp` is a separate
+filesystem, the runner keeps guest disks under `/var/tmp/zentrale-microvm-disks-<uid>`.
+It moves an existing disk when the guest next starts. Reboots and temporary-file
+cleanup may remove temporary data. Zentrale creates a new guest when needed.
+Project files and configured storage are mounted separately
 and retained. Pool failover does not move a guest disk to another host.
 Deleting a conversation preserves the project's shared VM. Removing the project
 queues cleanup of its VMs on their recorded hosts.
@@ -77,8 +79,8 @@ terminals have stopped. Packages and guest-only files are discarded; mounted
 project files and configured storage remain. Agents cannot invoke this action.
 
 Environments start when needed and stop when no agent, background job,
-preparation, terminal or editor needs them. Idle stops release RAM and GPUs,
-retaining disks while `/tmp` remains present. Transport recovery and service
+preparation, terminal or editor needs them. Idle stops release RAM and GPUs
+and retain the guest disks. Transport recovery and service
 restart behavior are described in [Remote daemon](remote-daemon.md).
 
 The dispatcher answers health probes independently of guest and host clock

@@ -315,6 +315,10 @@ def private_directory(directory, *, create=True):
     return directory.resolve()
 
 
+def disk_cache_directory():
+    return Path("/var/tmp") / ("zentrale-microvm-disks-" + str(os.getuid()))
+
+
 def cache_directory(writable_roots=()):
     # One location per SSH user protects concurrent projects too. Choosing a
     # different cache for a broad workspace would expose another VM's cache.
@@ -323,6 +327,11 @@ def cache_directory(writable_roots=()):
     if any(within(root, cache) for root in writable_roots):
         raise RuntimeError(
             "the writable workspace contains the protected MicroVM cache: " + str(cache)
+        )
+    disks = disk_cache_directory().resolve()
+    if any(within(root, disks) or within(disks, root) for root in writable_roots):
+        raise RuntimeError(
+            "the writable workspace overlaps the protected MicroVM disk cache: " + str(disks)
         )
     return cache
 
@@ -941,10 +950,10 @@ def terminate_vm(child, control):
 
 def provision_base(cache, configuration, runtime, kernel):
     artifact = configuration["release"]["fedora"]
-    archive = install_fedora(cache, artifact)
     base = cache / ("fedora-" + artifact["sha256"] + ".raw")
     if base.is_file():
         return base
+    archive = install_fedora(cache, artifact)
 
     with tempfile.TemporaryDirectory(prefix="fedora-build-", dir=cache) as temporary:
         control = Path(temporary)
@@ -1361,6 +1370,66 @@ def supervisor_running(control):
         return False
 
 
+def quota_limited_tmpfs(scope):
+    with Path("/proc/self/mountinfo").open() as mounts:
+        for line in mounts:
+            mount, filesystem = line.strip().split(" - ", 1)
+            if mount.split()[4] == "/tmp":
+                kind, _, options = filesystem.split()
+                if kind == "tmpfs" and "usrquota" in options.split(","):
+                    disk_root = Path("/var/tmp")
+                    return disk_root.is_dir() and scope.stat().st_dev != disk_root.stat().st_dev
+    return False
+
+
+def offloaded_disk(scope):
+    return disk_cache_directory() / (scope.parent.name + "-" + scope.name + ".qcow2")
+
+
+def prepare_scope_disk(scope, base):
+    local = scope / "root.qcow2"
+    external = offloaded_disk(scope)
+    image_tool = shutil.which("qemu-img", path=SYSTEM_PATH)
+    if not external.exists() and not external.is_symlink() and not quota_limited_tmpfs(scope):
+        if not local.exists():
+            subprocess.run(
+                [image_tool, "create", "-q", "-f", "qcow2", "-F", "raw",
+                 "-b", str(base), str(local)], check=True,
+            )
+        return local
+
+    private_directory(external.parent)
+    if external.is_symlink() or (external.exists() and not external.is_file()):
+        raise RuntimeError("MicroVM disk cache contains an invalid disk file: " + str(external))
+    if external.exists() and not local.exists():
+        return external
+
+    # Only called with the scope locked and its previous supervisor stopped.
+    # A standalone qcow2 file also survives loss of the tmpfs backing image.
+    source, source_format = (local, "qcow2") if local.exists() else (base, "raw")
+    temporary = external.with_suffix(".partial")
+    temporary.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [image_tool, "convert", "-q", "-f", source_format, "-O", "qcow2",
+             str(source), str(temporary)], check=True,
+        )
+        temporary.chmod(0o600)
+        with temporary.open("rb") as image:
+            os.fsync(image.fileno())
+        os.replace(temporary, external)
+        directory = os.open(external.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        # Until this unlink succeeds the original is authoritative.
+        local.unlink(missing_ok=True)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return external
+
+
 def ensure_session(scope, configuration, runtime, base, kernel, execution):
     control = scope / "session"
     addresses = gpu_devices(configuration)
@@ -1393,6 +1462,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         stop_session(scope)
 
     # Keep disk preparation and device reservations ahead of the detached owner.
+    disk = prepare_scope_disk(scope, base)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         editor_port = reservation.getsockname()[1]
@@ -1421,23 +1491,6 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         )
     prepare_control(control, configuration, runtime, request)
     (control / "version").write_text(identity)
-    disk = scope / "root.qcow2"
-    if not disk.exists():
-        subprocess.run(
-            [
-                shutil.which("qemu-img", path=SYSTEM_PATH),
-                "create",
-                "-q",
-                "-f",
-                "qcow2",
-                "-F",
-                "raw",
-                "-b",
-                str(base),
-                str(disk),
-            ],
-            check=True,
-        )
     (control / "root.qcow2").symlink_to(disk)
 
     gpu_leases = []
@@ -1746,6 +1799,11 @@ def main():
             stop_session(scope)
             if action in ("reset", "remove"):
                 (scope / "root.qcow2").unlink(missing_ok=True)
+                external = offloaded_disk(scope)
+                if external.parent.exists() or external.parent.is_symlink():
+                    private_directory(external.parent, create=False)
+                    external.unlink(missing_ok=True)
+                    external.with_suffix(".partial").unlink(missing_ok=True)
             if action == "remove":
                 (scope / "identity.json").unlink(missing_ok=True)
             elif action == "reset":

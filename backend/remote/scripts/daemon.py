@@ -178,7 +178,8 @@ class Resource:
         try:
             self.journal()
         except OSError as error:
-            self.error = "daemon completion journal failed: " + str(error)
+            if not self.error:
+                self.error = "daemon completion journal failed: " + str(error)
         self.changed.set()
 
     async def stop(self):

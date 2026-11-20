@@ -151,6 +151,38 @@ class MicroVMRunnerTests(unittest.TestCase):
             for workspace in [Path("/"), Path("/tmp"), cache]:
                 with self.subTest(workspace=workspace), self.assertRaises(RuntimeError):
                     runner.cache_directory([workspace])
+            with self.assertRaisesRegex(RuntimeError, "protected MicroVM disk cache"):
+                runner.cache_directory([Path("/var/tmp")])
+
+    def test_quota_offload_keeps_original_until_conversion_succeeds(self):
+        scope = runner.private_directory(self.cache / "projects" / "project")
+        disk = scope / "root.qcow2"
+        disk.write_bytes(b"guest data")
+        external = self.root / "disks" / "project.qcow2"
+
+        def convert(command, *, check):
+            self.assertTrue(check)
+            self.assertEqual(command[1:7], ["convert", "-q", "-f", "qcow2", "-O", "qcow2"])
+            self.assertEqual(Path(command[-2]).read_bytes(), b"guest data")
+            Path(command[-1]).write_bytes(b"converted guest data")
+
+        with (
+            patch.object(runner, "offloaded_disk", return_value=external),
+            patch.object(runner, "quota_limited_tmpfs", return_value=True) as quota,
+            patch.object(runner.shutil, "which", return_value="/usr/bin/qemu-img"),
+            patch.object(runner.subprocess, "run", side_effect=OSError("disk quota")) as image,
+        ):
+            with self.assertRaisesRegex(OSError, "disk quota"):
+                runner.prepare_scope_disk(scope, None)
+            self.assertEqual(disk.read_bytes(), b"guest data")
+            self.assertFalse(external.exists())
+            image.side_effect = convert
+            self.assertEqual(runner.prepare_scope_disk(scope, None), external)
+            self.assertFalse(disk.exists())
+            self.assertEqual(external.read_bytes(), b"converted guest data")
+            quota.return_value = False
+            self.assertEqual(runner.prepare_scope_disk(scope, None), external)
+            self.assertEqual(image.call_count, 2)
 
     def test_cold_boot_failure_keeps_disk_and_diagnostics_for_retry(self):
         scope = self.root / "scope"

@@ -74,11 +74,16 @@ class DaemonTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_storage_failure_stops_without_deadlocking(self):
         original = open
+        original_journal = daemon.Resource.journal
         def open_output(path, *args, **kwargs):
             if str(path).endswith(".stdout"):
                 raise OSError("disk full")
             return original(path, *args, **kwargs)
-        with patch("builtins.open", open_output):
+        def journal(resource):
+            if resource.state == "exited":
+                raise OSError("disk full")
+            return original_journal(resource)
+        with patch("builtins.open", open_output), patch.object(daemon.Resource, "journal", journal):
             await self.request("create", kind="process", command="yes large-output", merge=True)
             for _ in range(100):
                 result = await self.request("status")
