@@ -224,6 +224,74 @@ func TestAttachmentRestoresOnCurrentMachineAfterProjectMove(t *testing.T) {
 	}
 }
 
+func TestModelTurnWaitsForBusyAttachmentVM(t *testing.T) {
+	var stages, prepares, checks, stops, modelCalls atomic.Int32
+	shell := shellPeerHandler("/bin/sh", os.Environ())
+	provider := providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+		modelCalls.Add(1)
+		if checks.Load() != 1 || len(request.Messages[0].Attachments) != 1 {
+			t.Error("model received a request before the attachment was ready")
+		}
+		return providers.Result{Text: "ready"}, nil
+	})
+	engine, record, _ := vmExecutionTestEngine(t, provider, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		if !strings.Contains(command, "<zentrale-microvm>") {
+			return shell(command, input, stdout, stderr)
+		}
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
+		switch {
+		case strings.Contains(command, " 'select'"), strings.Contains(command, " 'ensure'"):
+			fmt.Fprintln(stdout, "microvm")
+		case strings.Contains(command, " 'prepare'"):
+			prepares.Add(1)
+			fmt.Fprintln(stdout, `{"os":"fedora","version":"45","bootId":"fixture"}`)
+		case strings.Contains(command, " 'stage'"):
+			io.Copy(io.Discard, input)
+			stage := stages.Add(1)
+			if stage <= 3 {
+				fmt.Fprintln(stderr, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"guest_busy"}`)
+				return 75
+			}
+			fmt.Fprintf(stdout, "/tmp/test-vm/session/requests/%032x\n", stage)
+		case strings.Contains(command, " 'run'"):
+			data, err := io.ReadAll(input)
+			if err != nil {
+				t.Error(err)
+				return 1
+			}
+			if len(data) == 0 {
+				checks.Add(1)
+				fmt.Fprintln(stdout, "present")
+			} else if !bytes.Contains(data, []byte("clear-project-git")) {
+				t.Error("unexpected guest invocation")
+				return 1
+			}
+		case strings.Contains(command, " 'stop'"), strings.Contains(command, " 'reset'"):
+			stops.Add(1)
+		}
+		return 0
+	})
+	data := []byte("document")
+	attachment := domain.Attachment{ID: "document", AgentID: record.ID, ProjectID: record.ProjectID,
+		Name: "document.txt", MimeType: "text/plain; charset=utf-8", Size: int64(len(data))}
+	if err := engine.Store.SaveAttachment(attachment, data); err != nil {
+		t.Fatal(err)
+	}
+	release := engine.useEnvironment(record.ID)
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	request := providers.Request{Messages: []domain.Message{{
+		Role: "user", AgentID: record.ID, Attachments: []domain.Attachment{attachment},
+	}}}
+	_, reply, err := engine.completeVisible(ctx, record.ID, request)
+	if err != nil || reply.Content != "ready" || modelCalls.Load() != 1 || prepares.Load() != 1 ||
+		checks.Load() != 1 || stops.Load() != 0 {
+		t.Fatalf("attachment wait: error=%v reply=%q stages=%d checks=%d prepares=%d modelCalls=%d stops=%d",
+			err, reply.Content, stages.Load(), checks.Load(), prepares.Load(), modelCalls.Load(), stops.Load())
+	}
+}
+
 func TestAttachmentValidationLimitsAndScope(t *testing.T) {
 	engine, record := testEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) { return providers.Result{}, nil }))
 	untitled := record

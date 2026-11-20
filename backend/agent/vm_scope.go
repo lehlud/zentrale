@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
@@ -99,6 +100,27 @@ func (engine *Engine) sandboxWithRecovery(ctx context.Context, connection *remot
 		return "", "", err
 	}
 	operation := engine.vmOperation(execution.AgentID, machine.ID)
+	const maxAttempts = 3
+	for attempt := 1; ; attempt++ {
+		command, level, err := engine.prepareSandbox(ctx, connection, machine, execution, operation, allowRecovery)
+		var pending *remote.VMHealthPending
+		if attempt == maxAttempts || !errors.As(err, &pending) {
+			return command, level, err
+		}
+
+		// The guest command has not been launched. Release the lifecycle lock
+		// between checks so other owners can finish their work or stop it.
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", level, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (engine *Engine) prepareSandbox(ctx context.Context, connection *remote.Connection, machine domain.Machine, execution remote.Execution, operation *vmOperation, allowRecovery bool) (string, string, error) {
 	if err := operation.Lock(ctx); err != nil {
 		return "", "", err
 	}

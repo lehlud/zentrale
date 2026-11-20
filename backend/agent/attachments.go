@@ -238,6 +238,31 @@ func (engine *Engine) AttachmentImage(agentID, id string) (domain.Attachment, []
 	return attachment, data, nil
 }
 
+func (engine *Engine) prepareTurnAttachments(ctx context.Context, agentID string, messages []domain.Message) ([]domain.Message, error) {
+	var prepared []domain.Message
+	waiting := false
+	err := retryConnectionUntilReady(ctx, time.Second, time.Minute, func(attempt context.Context) error {
+		if waiting {
+			// The normal environment check can recover an unresponsive VM after
+			// its jobs finish. The attachment operation itself cannot stop a VM.
+			if err := engine.requireConnection(attempt, agentID); err != nil {
+				return err
+			}
+		}
+		var err error
+		prepared, err = engine.prepareAttachmentRequestMessages(attempt, agentID, messages)
+		return err
+	}, func(failure error) {
+		waiting = true
+		engine.setRunState(agentID, "retrying_connection", failure)
+		engine.releaseConnection(agentID)
+	})
+	if waiting && err == nil {
+		engine.setRunState(agentID, "model", nil)
+	}
+	return prepared, err
+}
+
 // Restore attachments in the current environment and update only the outgoing
 // request. Stored message and receipt metadata keep their original placement.
 func (engine *Engine) prepareAttachmentRequestMessages(ctx context.Context, agentID string, messages []domain.Message) ([]domain.Message, error) {

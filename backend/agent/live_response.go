@@ -165,6 +165,11 @@ func (engine *Engine) completeVisible(
 	agentID string,
 	request providers.Request,
 ) (result providers.Result, message domain.Message, err error) {
+	request.Messages, err = engine.prepareTurnAttachments(ctx, agentID, request.Messages)
+	if err != nil {
+		return result, message, err
+	}
+
 	writer := engine.beginResponse(agentID)
 	request.OnText = writer.append
 	request.OnRetry = func(providers.Retry) { writer.reset() }
@@ -182,10 +187,6 @@ func (engine *Engine) completeVisible(
 		writer.finish(status, result.Text)
 	}()
 
-	request.Messages, err = engine.prepareAttachmentRequestMessages(ctx, agentID, request.Messages)
-	if err != nil {
-		return result, message, err
-	}
 	result, err = engine.completeModel(ctx, agentID, "main", request)
 	if err == nil {
 		message = domain.Message{

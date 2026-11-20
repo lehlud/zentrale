@@ -227,3 +227,40 @@ func TestStagingRecoversBeforeStartingTheRequestedCommand(t *testing.T) {
 		t.Fatalf("stage recovery: stages=%d stops=%d level=%s error=%v", stages.Load(), stops.Load(), level, err)
 	}
 }
+
+func TestFilePatchWaitsForBusyVMBeforeLaunching(t *testing.T) {
+	const patch = "*** Begin Patch\n*** Add File: changed.txt\n+done\n*** End Patch"
+	var stages, launches, stops atomic.Int32
+	shell := shellPeerHandler("/bin/sh", os.Environ())
+	engine, main, _ := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		if !strings.Contains(command, "<zentrale-microvm>") {
+			return shell(command, input, stdout, stderr)
+		}
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
+		switch {
+		case strings.Contains(command, " 'select'"), strings.Contains(command, " 'ensure'"):
+			fmt.Fprintln(stdout, "microvm")
+		case strings.Contains(command, " 'stage'"):
+			io.Copy(io.Discard, input)
+			if stages.Add(1) == 1 {
+				fmt.Fprintln(stdout, `ZENTRALE_VM_RECOVERY_REQUIRED {"reason":"guest_busy"}`)
+				return 75
+			}
+			fmt.Fprintln(stdout, "/tmp/test-vm/session/requests/0123456789abcdef0123456789abcdef")
+		case strings.Contains(command, " 'run'"):
+			launches.Add(1)
+			data, err := io.ReadAll(input)
+			if err != nil || string(data) != patch {
+				t.Errorf("file helper did not receive the original patch: %v", err)
+			}
+			fmt.Fprintln(stdout, `{"applied":true}`)
+		case strings.Contains(command, " 'stop'"), strings.Contains(command, " 'reset'"):
+			stops.Add(1)
+		}
+		return 0
+	})
+	result, err := engine.file(context.Background(), main, "apply_patch", map[string]any{"input": patch}, false, false)
+	if err != nil || result["applied"] != true || stages.Load() != 2 || launches.Load() != 1 || stops.Load() != 0 {
+		t.Fatalf("patch after delayed VM response: result=%v err=%v stages=%d launches=%d stops=%d", result, err, stages.Load(), launches.Load(), stops.Load())
+	}
+}
