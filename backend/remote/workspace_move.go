@@ -215,32 +215,8 @@ func (manager *Manager) MoveDirectories(project domain.Project) (map[string]Move
 	return result, nil
 }
 
-//go:embed scripts/vm_move_snapshot.py
-var vmMoveSnapshotScript string
-
-func SnapshotMovedVM(ctx context.Context, source, destination *Connection, execution Execution, workspace, token, id string) error {
-	snapshot := func(action string) string {
-		return "python3 -I -c " + Quote(vmMoveSnapshotScript) + " " + Quote(action) + " " + Quote(source.InstallationID()) + " " + Quote(execution.ProjectID) + " " + Quote(execution.AgentID)
-	}
-	output, err := Run(ctx, source, snapshot("check"))
-	if err != nil {
-		return err
-	}
-	switch strings.TrimSpace(output) {
-	case "missing":
-		return nil
-	case "present":
-	default:
-		return fmt.Errorf("invalid source VM disk receipt")
-	}
-	state, err := MoveDirectoryState(ctx, destination, "snapshot-check", execution.ProjectID, workspace, token, id)
-	if err != nil || state == "published" {
-		return err
-	}
-	if err := transferMoveStream(ctx, source, destination, snapshot("export"), workspaceMoveCommand("snapshot-receive", execution.ProjectID, workspace, token, id)); err != nil {
-		return err
-	}
-	_, err = MoveDirectoryState(ctx, destination, "snapshot-publish", execution.ProjectID, workspace, token, id)
+func DiscardLegacyMoveSnapshots(ctx context.Context, connection *Connection, projectID, workspace, token, id string) error {
+	_, err := MoveDirectoryState(ctx, connection, "discard-legacy-snapshots", projectID, workspace, token, id)
 	return err
 }
 
@@ -252,8 +228,11 @@ func RemoveProjectMoveScratch(ctx context.Context, connection *Connection, proje
 	return err
 }
 
+//go:embed scripts/vm_move_cleanup.py
+var vmMoveCleanupScript string
+
 func RetireMovedVM(ctx context.Context, connection *Connection, execution Execution) error {
-	command := "python3 -I -c " + Quote(vmMoveSnapshotScript) + " retire " + Quote(connection.InstallationID()) + " " + Quote(execution.ProjectID) + " " + Quote(execution.AgentID)
+	command := "python3 -I -c " + Quote(vmMoveCleanupScript) + " " + Quote(connection.InstallationID()) + " " + Quote(execution.ProjectID) + " " + Quote(execution.AgentID)
 	_, err := Run(ctx, connection, command)
 	return err
 }

@@ -52,6 +52,28 @@ def reject_mounts():
                 raise ValueError("The workspace contains a mount point")
 
 
+def discard_legacy_snapshots():
+    backups = directory / ".zentrale-vm-backups"
+    owner = backups / ".owner"
+    # Existing projects may have arbitrarily named files in their workspace.
+    # Only retire files written by the old implementation for this move.
+    if backups.is_symlink() or owner.is_symlink() or not owner.is_file():
+        return
+    if json.loads(owner.read_text()) != "zentrale-vm-backups-v1":
+        return
+    snapshot = re.escape(move) + r"-[0-9a-f]{16}"
+    for artifact in backups.iterdir():
+        if re.fullmatch(snapshot + r"\.(pending|qcow2)", artifact.name) and not artifact.is_symlink() and artifact.is_file():
+            artifact.unlink()
+    prefix = name + "-snapshot-ready-"
+    for artifact in metadata.glob(prefix + move + "-*"):
+        if re.fullmatch(re.escape(prefix) + snapshot, artifact.name) and not artifact.is_symlink() and artifact.is_file():
+            artifact.unlink()
+    if list(backups.iterdir()) == [owner]:
+        owner.unlink()
+        backups.rmdir()
+
+
 def main():
     if operation == "remove-scratch":
         if directory.parent != Path("/tmp") or directory.resolve() != directory or not re.fullmatch(
@@ -119,40 +141,8 @@ def main():
             raise ValueError("The destination already contains a checkout or other files")
         else:
             print("empty")
-    elif operation.startswith("snapshot-"):
-        backups = directory / ".zentrale-vm-backups"
-        owner = backups / ".owner"
-        destination = backups / (move + ".qcow2")
-        pending = backups / (move + ".pending")
-        completed = metadata / (name + "-snapshot-ready-" + move)
-        if any(p.is_symlink() for p in (backups, owner, destination, pending, completed)):
-            raise ValueError("Unsafe VM backup path")
-        if not backups.exists():
-            backups.mkdir(mode=0o700)
-        if not owner.exists():
-            if any(backups.iterdir()):
-                raise ValueError("A directory is already using the VM backup path")
-            save(owner, "zentrale-vm-backups-v1")
-        if json.loads(owner.read_text()) != "zentrale-vm-backups-v1":
-            raise ValueError("The VM backup directory does not belong to this project")
-        if operation == "snapshot-check":
-            print("published" if destination.is_file() else "empty")
-        elif operation == "snapshot-receive":
-            completed.unlink(missing_ok=True)
-            with open(pending, "wb") as file:
-                shutil.copyfileobj(sys.stdin.buffer, file, 1024 * 1024)
-                file.flush()
-                os.fsync(file.fileno())
-            save(completed, pending.stat().st_size)
-        elif operation == "snapshot-publish":
-            if not pending.is_file() or not completed.is_file() or pending.stat().st_size != json.loads(completed.read_text()) or pending.stat().st_size == 0:
-                raise ValueError("VM snapshot transfer is incomplete")
-            os.chmod(pending, 0o600)
-            os.replace(pending, destination)
-            completed.unlink(missing_ok=True)
-            subprocess.run(["sync", "-f", str(backups)], check=True)
-        else:
-            raise ValueError("Invalid snapshot operation")
+    elif operation == "discard-legacy-snapshots":
+        discard_legacy_snapshots()
     elif operation == "pack":
         reject_mounts()
         # GNU tar preserves hardlinks, modes, timestamps, symlinks and sparse files.

@@ -9,8 +9,8 @@ export const english: Record<string, string> = {
   "Altes Setup wird bereinigt …": "Cleaning up the old setup …",
   "Projekt erfolgreich umgezogen.": "Project moved successfully.",
   "Weiteren Umzug planen": "Plan another move",
-  "Zentrale überträgt Arbeitsbereich und verwalteten Projektspeicher. Nach erfolgreicher Übertragung räumt Zentrale das alte Setup auf. Zentrale baut die Projekt-VM am Ziel neu auf und sichert vorhandene VM-Platten im Arbeitsbereich. Beende vorher laufende Jobs und schließe Editoren und Terminals.":
-    "Zentrale transfers the workspace and managed project storage. After verifying the transfer, Zentrale cleans up the old setup. Zentrale rebuilds the project VM at the destination and saves existing VM disks in the workspace. Finish running jobs and close editors and terminals before starting.",
+  "Zentrale überträgt den Arbeitsbereich samt Git-Daten und verwaltetem Projektspeicher. Nach der Prüfung räumt Zentrale das alte Setup auf. Am Ziel startet bei Bedarf eine frische VM. Beende vorher laufende Jobs und schließe Editoren und Terminals.":
+    "Zentrale transfers the workspace, Git data, and managed project storage. After verifying the transfer, Zentrale cleans up the old setup. A fresh VM starts on demand at the destination. Finish running jobs and close editors and terminals before starting.",
   "Der Auto-Approver prüft jede angeforderte Textumformulierung, bevor der Text gesendet wird. Aufrufe können Kosten verursachen.":
     "The Auto-Approver reviews each requested rewrite before the text is sent. Calls can incur charges.",
   Ausgeschaltet: "Off",

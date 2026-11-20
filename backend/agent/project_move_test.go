@@ -198,8 +198,11 @@ func TestProjectMoveUsesStoredVMReceiptKeys(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if actions["stop"] != 2 || actions["remove"] != 2 {
-		t.Fatalf("expected both VM receipts to be processed: %v", actions)
+	if actions["stop"] != 0 || actions["remove"] != 2 {
+		t.Fatalf("expected the old VMs to be removed without being prepared for export: %v", actions)
+	}
+	if _, err := os.Stat(filepath.Join(target.WorkspaceRoot, "project-"+project.ID, ".zentrale-vm-backups")); !os.IsNotExist(err) {
+		t.Fatalf("the move created a VM backup directory: %v", err)
 	}
 }
 

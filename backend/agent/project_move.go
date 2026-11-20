@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -35,12 +34,12 @@ type projectMoveDirectory struct {
 
 type projectMoveRecord struct {
 	domain.ProjectMove
-	From, To    domain.Project
-	Host        string
-	Workspace   string
-	Directories []projectMoveDirectory
-	VMs         map[string]microVMRecord
-	Scratch     []string
+	From, To                domain.Project
+	Host                    string
+	LegacySnapshotWorkspace string `json:"Workspace,omitempty"`
+	Directories             []projectMoveDirectory
+	VMs                     map[string]microVMRecord
+	Scratch                 []string
 }
 
 func (engine *Engine) ProjectMove(id string) (*domain.ProjectMove, error) {
@@ -217,19 +216,22 @@ func (engine *Engine) executeProjectMove(ctx context.Context, move *projectMoveR
 		return fmt.Errorf("connect to move destination: %w", err)
 	}
 	defer target.Close()
+	// Older versions could leave an incomplete VM export in the destination
+	// workspace. Retrying the same move also discards those generated files.
+	if move.LegacySnapshotWorkspace != "" {
+		if err := remote.DiscardLegacyMoveSnapshots(ctx, target, move.ProjectID, move.LegacySnapshotWorkspace, token, move.ID); err != nil {
+			return fmt.Errorf("discard previous VM transfer artifacts: %w", err)
+		}
+		move.LegacySnapshotWorkspace = ""
+		if err := engine.saveProjectMove(*move); err != nil {
+			return err
+		}
+	}
 	if move.Phase == "copying" {
 		for index := range move.Directories {
 			directory := &move.Directories[index]
 			if err := engine.copyMoveDirectory(ctx, move, directory, target, token, index); err != nil {
 				return fmt.Errorf("copy project storage: %w", err)
-			}
-		}
-		for _, key := range slices.Sorted(maps.Keys(move.VMs)) {
-			vm := move.VMs[key]
-			sum := sha256.Sum256([]byte(key))
-			snapshot := fmt.Sprintf("%s-%x", move.ID, sum[:8])
-			if err := engine.archiveMovedVM(ctx, vm, target, move.Workspace, token, snapshot); err != nil {
-				return fmt.Errorf("save old VM on %s: %w", vm.MachineID, err)
 			}
 		}
 		if err := engine.cutOverProjectMove(move); err != nil {
@@ -386,7 +388,7 @@ func (engine *Engine) planProjectMove(ctx context.Context, move *projectMoveReco
 		scratch[vm.MachineID] = true
 	}
 	move.Scratch = slices.Sorted(maps.Keys(scratch))
-	move.Directories, move.VMs, move.Host, move.Workspace = directories, records, machine.ID, prepared.Directory
+	move.Directories, move.VMs, move.Host = directories, records, machine.ID
 	return engine.saveProjectMove(*move)
 }
 
@@ -466,6 +468,9 @@ func (engine *Engine) removeMovedVM(ctx context.Context, vm microVMRecord) error
 	if err != nil {
 		return err
 	}
+	if machine.MicroVMCommand != "" {
+		return errors.New("restore the built-in VM runner on the source machine to remove the old VM")
+	}
 	operation := engine.vmOperation(vm.AgentID, vm.MachineID)
 	if err := operation.Lock(ctx); err != nil {
 		return err
@@ -487,36 +492,4 @@ func (engine *Engine) removeMovedVM(ctx context.Context, vm microVMRecord) error
 	}
 	operation.stopped = true
 	return remote.RetireMovedVM(ctx, connection, execution)
-}
-
-func (engine *Engine) archiveMovedVM(ctx context.Context, vm microVMRecord, target *remote.Connection, workspace, token, id string) error {
-	machine, err := engine.Remote.Connector.Machine(vm.MachineID)
-	if err != nil {
-		return err
-	}
-	if machine.MicroVMCommand != "" {
-		return errors.New("restore the built-in VM runner on the source machine before moving")
-	}
-	operation := engine.vmOperation(vm.AgentID, vm.MachineID)
-	if err := operation.Lock(ctx); err != nil {
-		return err
-	}
-	defer operation.Unlock()
-	connection, err := engine.dialMoveHost(ctx, vm.MachineID)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	execution := remote.Execution{
-		AgentID: vm.AgentID, ProjectID: vm.ProjectID, Workspace: vm.Workspace,
-		TemporaryDirectory: engine.environmentTemporaryDirectory(vm.AgentID),
-	}
-	stop, cancel := context.WithTimeout(ctx, time.Minute)
-	_, err = remote.ManageMicroVM(stop, connection, machine, "stop", execution)
-	cancel()
-	if err != nil {
-		return err
-	}
-	operation.stopped = true
-	return remote.SnapshotMovedVM(ctx, connection, target, execution, workspace, token, id)
 }

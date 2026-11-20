@@ -814,7 +814,7 @@ function MoveProject({
       renderExtra={() => (
         <p className="text-sm text-muted">
           {t(
-            "Zentrale überträgt Arbeitsbereich und verwalteten Projektspeicher. Nach erfolgreicher Übertragung räumt Zentrale das alte Setup auf. Zentrale baut die Projekt-VM am Ziel neu auf und sichert vorhandene VM-Platten im Arbeitsbereich. Beende vorher laufende Jobs und schließe Editoren und Terminals.",
+            "Zentrale überträgt den Arbeitsbereich samt Git-Daten und verwaltetem Projektspeicher. Nach der Prüfung räumt Zentrale das alte Setup auf. Am Ziel startet bei Bedarf eine frische VM. Beende vorher laufende Jobs und schließe Editoren und Terminals.",
           )}
         </p>
       )}
