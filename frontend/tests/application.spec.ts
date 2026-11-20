@@ -763,7 +763,7 @@ test("Modal automatic setup only requires an API token pair", async ({
     tokenSecret: "as-fixture",
     modelId: "jialinyyzz/humanizer",
   });
-  await expect(dialog).not.toBeVisible();
+  await expect(dialog).toHaveCount(0);
 });
 
 test("Modal supports separate proxy and API token pairs", async ({ page }) => {
