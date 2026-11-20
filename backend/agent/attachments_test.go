@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,14 +55,6 @@ func TestAttachmentQueueReceiptsAndHistoryMetadata(t *testing.T) {
 	history, err := engine.loadHistory(record.ID)
 	if err != nil || len(history) != 1 || history[0].Content != "" || len(history[0].Attachments) != 1 {
 		t.Fatal(history, err)
-	}
-	request := engine.attachmentRequestMessages(history)
-	if len(request[0].Images) != 1 || len(history[0].Images) != 0 {
-		t.Fatal("request-local hydration failed", request, history)
-	}
-	persisted, _ := json.Marshal(request)
-	if strings.Contains(string(persisted), "base64") || strings.Contains(string(persisted), "Images") {
-		t.Fatal("blob leaked", string(persisted))
 	}
 	instructions, err := engine.ownInstructions(record)
 	if err != nil || len(instructions) != 1 || !strings.Contains(JSON(instructions), "picture.png") {
@@ -168,6 +161,66 @@ func TestAttachmentRestagesAfterConfirmedVMInterruption(t *testing.T) {
 				t.Fatalf("attachment=%+v error=%v stages=%d runs=%d stops=%d", result, err, stages.Load(), runs.Load(), stops.Load())
 			}
 		})
+	}
+}
+
+func TestAttachmentRestoresOnCurrentMachineAfterProjectMove(t *testing.T) {
+	data := []byte("\x89PNG\r\n\x1a\nimage")
+	shell := shellPeerHandler("/bin/sh", os.Environ())
+	var stages, runs atomic.Int32
+	engine, record, project := vmExecutionTestEngine(t, nil, func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		if !strings.Contains(command, "<zentrale-microvm>") {
+			return shell(command, input, stdout, stderr)
+		}
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
+		switch {
+		case strings.Contains(command, " 'ensure'"), strings.Contains(command, " 'select'"):
+			fmt.Fprintln(stdout, "microvm")
+		case strings.Contains(command, " 'stage'"):
+			io.Copy(io.Discard, input)
+			fmt.Fprintf(stdout, "/tmp/test-vm/session/requests/%032x\n", stages.Add(1))
+		case strings.Contains(command, " 'run'"):
+			if runs.Add(1) == 1 {
+				fmt.Fprintln(stdout, "missing")
+			} else if actual, err := io.ReadAll(input); err != nil || !bytes.Equal(actual, data) {
+				t.Errorf("staged wrong attachment: %v", err)
+			}
+		}
+		return 0
+	})
+	attachment := domain.Attachment{
+		ID: "picture", AgentID: record.ID, ProjectID: project.ID,
+		Name: "picture.png", MimeType: "image/png", Size: int64(len(data)),
+		Path: "/old/scratch/attachments/picture/picture.png", MachineID: "previous-machine",
+	}
+	if err := engine.Store.SaveAttachment(attachment, data); err != nil {
+		t.Fatal(err)
+	}
+	message := domain.Message{AgentID: record.ID, Role: "user", Attachments: []domain.Attachment{attachment}}
+	history := []domain.Message{message, message}
+	request, err := engine.prepareAttachmentRequestMessages(context.Background(), record.ID, history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs.Load() != 2 || stages.Load() != 2 {
+		t.Fatalf("expected one check and one upload, got %d calls", runs.Load())
+	}
+	for _, prepared := range request {
+		got := prepared.Attachments[0]
+		if got.MachineID != project.MachineIDs[0] || got.Path != "/tmp/zentrale/attachments/picture/picture.png" {
+			t.Fatalf("outgoing attachment uses the wrong machine or path: %+v", got)
+		}
+		if len(prepared.Images) != 1 || !bytes.Equal(prepared.Images[0].Data, data) {
+			t.Fatal("request-local image hydration failed")
+		}
+	}
+	stored, _, err := engine.Store.Attachment(record.ID, attachment.ID)
+	if err != nil || stored != attachment || history[0].Attachments[0] != attachment || len(history[0].Images) != 0 {
+		t.Fatal("restoration modified persisted or original message metadata", err)
+	}
+	encoded, err := json.Marshal(request)
+	if err != nil || strings.Contains(string(encoded), "base64") || strings.Contains(string(encoded), "Images") {
+		t.Fatal("attachment bytes entered the message JSON", err)
 	}
 }
 

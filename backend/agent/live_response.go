@@ -182,10 +182,10 @@ func (engine *Engine) completeVisible(
 		writer.finish(status, result.Text)
 	}()
 
-	if err = engine.ensureMessageAttachments(ctx, agentID, request.Messages); err != nil {
+	request.Messages, err = engine.prepareAttachmentRequestMessages(ctx, agentID, request.Messages)
+	if err != nil {
 		return result, message, err
 	}
-	request.Messages = engine.attachmentRequestMessages(request.Messages)
 	result, err = engine.completeModel(ctx, agentID, "main", request)
 	if err == nil {
 		message = domain.Message{

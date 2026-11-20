@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -133,11 +134,10 @@ func (engine *Engine) stageAttachment(ctx context.Context, record domain.Agent, 
 	defer stop()
 	releaseEnvironment := engine.useEnvironment(record.ID)
 	defer releaseEnvironment()
-	connection, machine, project, release, err := engine.connectForJob(ctx, record, &executionRequest{MachineID: attachment.MachineID})
+	connection, machine, project, err := engine.connect(ctx, record)
 	if err != nil {
 		return attachment, err
 	}
-	defer release()
 	defer connection.Close()
 	temporary, err := engine.temporaryDirectory(record.ID)
 	if err != nil {
@@ -238,70 +238,79 @@ func (engine *Engine) AttachmentImage(agentID, id string) (domain.Attachment, []
 	return attachment, data, nil
 }
 
-// Hydrate a private outgoing request copy, never persisted history.
-func (engine *Engine) attachmentRequestMessages(messages []domain.Message) []domain.Message {
-	result := append([]domain.Message(nil), messages...)
-	for i := range result {
-		message := &result[i]
+// Restore attachments in the current environment and update only the outgoing
+// request. Stored message and receipt metadata keep their original placement.
+func (engine *Engine) prepareAttachmentRequestMessages(ctx context.Context, agentID string, messages []domain.Message) ([]domain.Message, error) {
+	if !slices.ContainsFunc(messages, func(message domain.Message) bool {
+		return message.Role == "user" && len(message.Attachments) > 0
+	}) {
+		return messages, nil
+	}
+
+	var current domain.Agent
+	if err := engine.Store.Load("agent", agentID, &current); err != nil {
+		return nil, err
+	}
+	type preparedAttachment struct {
+		metadata domain.Attachment
+		image    domain.AttachmentImage
+	}
+	prepared := make(map[domain.Attachment]preparedAttachment)
+	result := slices.Clone(messages)
+	for index := range result {
+		message := &result[index]
 		if message.Role != "user" || len(message.Attachments) == 0 {
 			continue
 		}
+		message.Attachments = slices.Clone(message.Attachments)
 		message.Images = nil
-		for _, metadata := range message.Attachments {
-			attachment, data, err := engine.Store.Attachment(message.AgentID, metadata.ID)
-			if err != nil || attachment != metadata || metadata.AgentID != message.AgentID {
-				continue
+		for i, metadata := range message.Attachments {
+			if metadata.AgentID != message.AgentID || metadata.ProjectID != current.ProjectID {
+				return nil, errors.New("attachment message scope mismatch")
 			}
-			if rasterMIME(data) != "" && rasterMIME(data) == metadata.MimeType {
-				message.Images = append(message.Images, domain.AttachmentImage{MimeType: metadata.MimeType, Data: data})
+
+			restored, ok := prepared[metadata]
+			if !ok {
+				attachment, data, err := engine.restoreMessageAttachment(ctx, current, metadata)
+				if err != nil {
+					return nil, fmt.Errorf("restore attachment %q: %w", metadata.Name, err)
+				}
+				restored.metadata = attachment
+				if mime := rasterMIME(data); mime != "" && mime == metadata.MimeType {
+					restored.image = domain.AttachmentImage{MimeType: mime, Data: data}
+				}
+				prepared[metadata] = restored
+			}
+			message.Attachments[i] = restored.metadata
+			if restored.image.Data != nil {
+				message.Images = append(message.Images, restored.image)
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
-// Durable bytes restore missing guest /tmp files after a restart/reset without
-// ever replacing changed files, resetting a VM, or widening host isolation.
-func (engine *Engine) ensureMessageAttachments(ctx context.Context, agentID string, messages []domain.Message) error {
-	var current domain.Agent
-	if err := engine.Store.Load("agent", agentID, &current); err != nil {
-		return err
+func (engine *Engine) restoreMessageAttachment(ctx context.Context, current domain.Agent, metadata domain.Attachment) (domain.Attachment, []byte, error) {
+	var owner domain.Agent
+	if err := engine.Store.Load("agent", metadata.AgentID, &owner); err != nil {
+		return metadata, nil, err
 	}
-	seen := map[string]bool{}
-	for _, message := range messages {
-		if message.Role != "user" {
-			continue
-		}
-		for _, metadata := range message.Attachments {
-			key := metadata.AgentID + ":" + metadata.ID
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			var owner domain.Agent
-			if err := engine.Store.Load("agent", metadata.AgentID, &owner); err != nil {
-				return err
-			}
-			if owner.ProjectID != current.ProjectID || owner.ProjectID != metadata.ProjectID || owner.ID != message.AgentID {
-				return errors.New("attachment message scope mismatch")
-			}
-			attachment, data, err := engine.Store.Attachment(owner.ID, metadata.ID)
-			if err != nil {
-				return err
-			}
-			if attachment != metadata {
-				return errors.New("attachment metadata mismatch")
-			}
-			filename, err := attachmentFilename(metadata.Name)
-			if err != nil {
-				return err
-			}
-			if _, err := engine.stageAttachment(ctx, owner, metadata, filename, data); err != nil {
-				return err
-			}
-		}
+	if owner.ProjectID != metadata.ProjectID || owner.ID != metadata.AgentID {
+		return metadata, nil, errors.New("attachment owner scope mismatch")
 	}
-	return nil
+	attachment, data, err := engine.Store.Attachment(owner.ID, metadata.ID)
+	if err != nil {
+		return metadata, nil, err
+	}
+	if attachment != metadata {
+		return metadata, nil, errors.New("attachment metadata mismatch")
+	}
+	filename, err := attachmentFilename(metadata.Name)
+	if err != nil {
+		return metadata, nil, err
+	}
+	restored, err := engine.stageAttachment(ctx, current, attachment, filename, data)
+	return restored, data, err
 }
 
 func (engine *Engine) inputAttachments(record domain.Agent, ids []string) ([]domain.Attachment, error) {
