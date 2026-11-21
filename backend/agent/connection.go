@@ -188,7 +188,7 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 				return nil, machine, project, &ProjectConnectionError{Cause: err}
 			}
 
-			engine.setRunState(agentRecord.ID, "workspace", nil)
+			engine.reportConnectionPhase(ctx, agentRecord.ID, "workspace")
 			resolved, err := engine.Remote.ResolveProject(ctx, connection, machine, project)
 			if err == nil {
 				machine.StorageMounts, err = engine.Remote.PrepareStorage(ctx, connection, machine, resolved)
@@ -275,7 +275,15 @@ func (engine *Engine) connectWithEditorCandidate(ctx context.Context, agentRecor
 // prevents deletion while a handshake is in flight;
 // the global configuration lock is released before any network operation.
 func (engine *Engine) CheckAgentConnection(ctx context.Context, agentID string) domain.MachineConnectionCheck {
-	return engine.checkAgentConnection(ctx, agentID, false)
+	return engine.checkAgentConnection(context.WithValue(ctx, manualConnectionCheck{}, true), agentID, false)
+}
+
+type manualConnectionCheck struct{}
+
+func (engine *Engine) reportConnectionPhase(ctx context.Context, agentID, phase string) {
+	if ctx.Value(manualConnectionCheck{}) == nil {
+		engine.setRunState(agentID, phase, nil)
+	}
 }
 
 func (engine *Engine) checkAgentConnection(ctx context.Context, agentID string, reuseSources bool) domain.MachineConnectionCheck {
@@ -365,7 +373,7 @@ func (engine *Engine) prepareAgentConnection(ctx context.Context, agentID string
 // strings and must not be used to classify authentication or permission errors.
 func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record domain.Agent, reuseSources bool) (domain.MachineConnectionCheck, error) {
 	agentID := record.ID
-	engine.setRunState(agentID, "connecting", nil)
+	engine.reportConnectionPhase(ctx, agentID, "connecting")
 	connectContext, cancelConnect := context.WithTimeout(ctx, 3*time.Minute)
 	connection, machine, project, err := engine.connect(connectContext, record)
 	cancelConnect()
@@ -409,11 +417,11 @@ func (engine *Engine) checkAgentConnectionAttempt(ctx context.Context, record do
 	// VM setup has its own budget, including a possible cold boot. It must not
 	// consume the time allowed for the subsequent repository inspection.
 	sandboxContext, cancelSandbox := context.WithTimeout(ctx, remote.ManagedVMSetupTimeout)
-	engine.setRunState(agentID, "checking_sandbox", nil)
+	engine.reportConnectionPhase(ctx, agentID, "checking_sandbox")
 	status, preparationError := remote.InspectSandboxWithError(sandboxContext, connection, machine)
 	preparedBootID := ""
 	if status.Error == "" && status.Level == remote.SandboxMicroVM && machine.MicroVMCommand == "" {
-		engine.setRunState(agentID, "sandbox", nil)
+		engine.reportConnectionPhase(ctx, agentID, "sandbox")
 		temporary, err := engine.temporaryDirectory(record.ID)
 		if err != nil {
 			status.Error = err.Error()

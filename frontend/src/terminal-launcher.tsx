@@ -12,10 +12,12 @@ export function TerminalLauncher({
   projectId,
   projectName,
   agentId = "",
+  hasRepository,
 }: {
   projectId: string;
   projectName: string;
   agentId?: string;
+  hasRepository: boolean;
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -49,6 +51,7 @@ export function TerminalLauncher({
             projectId={projectId}
             projectName={projectName}
             agentId={agentId}
+            hasRepository={hasRepository}
             onClose={close}
           />
         </Suspense>

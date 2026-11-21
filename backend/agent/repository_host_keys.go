@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -31,35 +32,26 @@ func (engine *Engine) gitKnownHosts(ctx context.Context, source domain.Source) (
 		name = "[" + host + "]:" + port
 	}
 	challenge := domain.SSHHostKey{Host: endpoint, RepositorySourceID: source.ID}
-	var pin datastore.RepositoryHostKey
-	if err := engine.Store.Load("repository_host_key", endpoint, &pin); err == nil {
-		challenge.PreviousFingerprint = pin.Fingerprint
-		return name + " " + pin.PublicKey + "\n", challenge, nil
+	var trust datastore.RepositoryHostTrust
+	if err := engine.Store.Load("repository_host_key", endpoint, &trust); err == nil {
+		challenge.PreviousFingerprint = trust.Fingerprint
+		var hosts strings.Builder
+		for _, pin := range append([]datastore.RepositoryHostKey{trust.RepositoryHostKey}, trust.OtherKeys...) {
+			hosts.WriteString(name + " " + pin.PublicKey + "\n")
+		}
+		return hosts.String(), challenge, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", domain.SSHHostKey{}, err
 	}
 
-	// Keep existing manual trust usable until this Git endpoint has its own pin.
-	trusted, err := engine.Store.TrustedKeys()
-	if err != nil {
-		return "", domain.SSHHostKey{}, err
-	}
-	var hosts strings.Builder
-	for _, raw := range trusted {
-		key, err := ssh.ParsePublicKey(raw)
-		if err != nil {
-			return "", domain.SSHHostKey{}, err
-		}
-		hosts.WriteString(name + " ")
-		hosts.Write(ssh.MarshalAuthorizedKey(key))
-	}
-	return hosts.String(), challenge, nil
+	// Machine trust has no hostname association. Including those keys also
+	// changes OpenSSH's algorithm preference based on unrelated servers.
+	return "", challenge, nil
 }
 
 func repositoryHostKeyFailure(output string, failure error, configuration map[string]any) error {
 	var exit interface{ ExitStatus() int }
-	challenge, _ := configuration["repositoryHostKey"].(domain.SSHHostKey)
-	if challenge.RepositorySourceID == "" || !errors.As(failure, &exit) || exit.ExitStatus() != 79 {
+	if !errors.As(failure, &exit) || exit.ExitStatus() != 79 {
 		return failure
 	}
 	const marker = "ZENTRALE_REPOSITORY_HOST_KEY "
@@ -71,6 +63,17 @@ func repositoryHostKeyFailure(output string, failure error, configuration map[st
 	if !ok {
 		return failure
 	}
+	if sources, ok := configuration["sources"].([]map[string]any); ok {
+		index, encoded := splitRepositoryHostKeySource(value, len(sources))
+		if index < 0 || sources[index]["verifyHostKey"] != true {
+			return failure
+		}
+		value, configuration = encoded, sources[index]
+	}
+	challenge, _ := configuration["repositoryHostKey"].(domain.SSHHostKey)
+	if challenge.RepositorySourceID == "" {
+		return failure
+	}
 	key, err := repositoryPublicKey(value)
 	if err != nil {
 		return failure
@@ -79,6 +82,15 @@ func repositoryHostKeyFailure(output string, failure error, configuration map[st
 		Host: challenge.Host, Fingerprint: key.Fingerprint, PublicKey: key.PublicKey,
 		RepositorySourceID: challenge.RepositorySourceID, PreviousFingerprint: challenge.PreviousFingerprint,
 	}
+}
+
+func splitRepositoryHostKeySource(value string, count int) (int, string) {
+	rawIndex, key, found := strings.Cut(value, " ")
+	index, err := strconv.Atoi(rawIndex)
+	if !found || err != nil || index < 0 || index >= count {
+		return -1, ""
+	}
+	return index, key
 }
 
 func repositoryPublicKey(value string) (datastore.RepositoryHostKey, error) {

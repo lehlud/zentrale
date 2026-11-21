@@ -6,6 +6,7 @@ import "@wterm/dom/css";
 import { Icon } from "./icons";
 import { useAPI } from "./api";
 import { useI18n } from "./preferences";
+import { RepositoryConnection } from "./repository-connection";
 import {
   TerminalHeartbeat,
   TerminalInputQueue,
@@ -44,11 +45,13 @@ export default function VMTerminal({
   projectId,
   projectName,
   agentId,
+  hasRepository,
   onClose,
 }: {
   projectId: string;
   projectName: string;
   agentId: string;
+  hasRepository: boolean;
   onClose: () => void;
 }) {
   const { t, theme, locale } = useI18n();
@@ -64,6 +67,7 @@ export default function VMTerminal({
     useState<TerminalStartupPhase>("starting");
   const [error, setError] = useState("");
   const [exitCode, setExitCode] = useState<number>();
+  const [checkingRepository, setCheckingRepository] = useState(false);
 
   useEffect(() => {
     host.current?.classList.toggle("theme-light", theme === "light");
@@ -367,6 +371,15 @@ export default function VMTerminal({
                     {t("Erneut verbinden")}
                   </Button>
                 )}
+                {agentId && hasRepository && (
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    onPress={() => setCheckingRepository(true)}
+                  >
+                    {t("Git-Verbindung prüfen")}
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   className="min-h-11"
@@ -412,6 +425,12 @@ export default function VMTerminal({
                   "Esc bleibt im Terminal. Alt+Umschalt+T oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.",
                 )}
               </p>
+              {checkingRepository && (
+                <RepositoryConnection
+                  agentId={agentId}
+                  onClose={() => setCheckingRepository(false)}
+                />
+              )}
             </div>
           </Modal.Dialog>
         </Modal.Container>

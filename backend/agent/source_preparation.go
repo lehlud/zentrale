@@ -141,7 +141,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		}
 	}
 	var preparing domain.Agent
-	reportProgress := engine.Store.Load("agent", scope, &preparing) == nil
+	reportProgress := ctx.Value(manualConnectionCheck{}) == nil && engine.Store.Load("agent", scope, &preparing) == nil
 	if reportProgress {
 		engine.setRunState(scope, "repository", nil)
 	}
@@ -367,6 +367,8 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		return err
 	}
 	configurations := make([]map[string]any, 0, len(sources))
+	verifiedEndpoints := make(map[string]bool)
+	verifyHostKeys := false
 	for _, source := range sources {
 		directory, _ := sourceDirectory(project, source)
 		configurationContext, cancelConfiguration := context.WithTimeout(ctx, time.Minute)
@@ -376,13 +378,20 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return fmt.Errorf("configure repository %q: %w", source.Name, err)
 		}
 		configuration["identity"] = map[string]string{"name": identity.Name, "email": identity.Email}
+		challenge, _ := configuration["repositoryHostKey"].(domain.SSHHostKey)
+		if challenge.RepositorySourceID != "" && !verifiedEndpoints[challenge.Host] && !slices.Contains(missing, source.ID) {
+			configuration["verifyHostKey"] = true
+			verifiedEndpoints[challenge.Host] = true
+			verifyHostKeys = true
+		}
 		configurations = append(configurations, configuration)
 	}
-	if _, err := run(map[string]any{
+	configure := map[string]any{
 		"operation": "configure-project-git", "project": ".",
 		"sources": configurations,
-	}, false, time.Minute, nil); err != nil {
-		return fmt.Errorf("configure project Git: %w", err)
+	}
+	if output, err := run(configure, verifyHostKeys, time.Minute, nil); err != nil {
+		return fmt.Errorf("configure project Git: %w", repositoryHostKeyFailure(output, err, configure))
 	}
 
 	rememberPrepared()

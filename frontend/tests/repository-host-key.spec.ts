@@ -1,4 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
+import { installPushFixture } from "./fixtures/push-fixture";
+import { agent, config, project, transcript } from "./fixtures/visual-data";
 
 test("a rotated Git host key requires explicit confirmation before retrying preparation", async ({
   page,
@@ -68,4 +71,87 @@ test("a rotated Git host key requires explicit confirmation before retrying prep
     page.getByRole("heading", { name: "Editor ready" }),
   ).toBeVisible();
   expect(attempts).toBe(2);
+});
+
+test("Git trust can be updated without closing the running VM terminal", async ({
+  page,
+}) => {
+  const repository = {
+    ...project,
+    repositorySshUrl: "git@gitea.example.test:project/repo.git",
+  };
+  const challenge = {
+    host: "gitea.example.test:22",
+    fingerprint: "SHA256:offered-fingerprint",
+    publicKey: "ssh-ed25519 offered-public-key",
+    repositorySourceId: "git-root",
+    previousFingerprint: "SHA256:previous-fingerprint",
+  };
+  const resolve = (query: string) =>
+    query.includes("status{")
+      ? { status: { authenticated: true, needsSetup: false } }
+      : isTranscriptQuery(query)
+        ? bootstrapData(query, transcript, { project: repository })
+        : config;
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  await installPushFixture(page, resolve);
+  let confirmed = false;
+  await page.route("**/graphql", async (route) => {
+    const { query, variables } = route.request().postDataJSON();
+    if (query.includes("prepareAgent(")) {
+      expect(variables.agentId).toBe(agent.id);
+      return route.fulfill({
+        json: {
+          data: {
+            prepareAgent: {
+              connected: confirmed,
+              error: confirmed ? "" : "host key needs confirmation",
+              hostKey: confirmed ? {} : challenge,
+            },
+          },
+        },
+      });
+    }
+    if (query.includes("trustRepositoryHostKey(")) {
+      expect(variables).toEqual({
+        sourceId: challenge.repositorySourceId,
+        host: challenge.host,
+        publicKey: challenge.publicKey,
+        previousFingerprint: challenge.previousFingerprint,
+      });
+      confirmed = true;
+      return route.fulfill({
+        json: { data: { trustRepositoryHostKey: true } },
+      });
+    }
+    return route.fulfill({ json: { data: resolve(query) } });
+  });
+  let opened = 0;
+  let closed = 0;
+  await page.routeWebSocket("**/terminal/**", (socket) => {
+    opened++;
+    socket.onClose(() => closed++);
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await page.getByRole("button", { name: "Terminal in der VM öffnen" }).click();
+  const terminal = page.getByRole("dialog", { name: "VM-Terminal" });
+  await expect(terminal.getByText("Verbunden", { exact: true })).toBeVisible();
+  await terminal.getByRole("button", { name: "Git-Verbindung prüfen" }).click();
+  const check = page.getByRole("dialog", { name: "Git-Verbindung prüfen" });
+  await expect(
+    check.getByText(challenge.fingerprint, { exact: true }),
+  ).toBeVisible();
+  expect(confirmed).toBe(false);
+  await check
+    .getByRole("button", { name: "Schlüssel vertrauen und erneut verbinden" })
+    .click();
+  await expect(
+    check.getByText("Repository-Verbindung vorbereitet."),
+  ).toBeVisible();
+  await check.getByRole("button", { name: "Fertig" }).click();
+  await expect(terminal.getByText("Verbunden", { exact: true })).toBeVisible();
+  expect(opened).toBe(1);
+  expect(closed).toBe(0);
 });

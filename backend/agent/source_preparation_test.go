@@ -113,14 +113,6 @@ func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
 	}
 	fixture.server = server
 	t.Cleanup(server.Close)
-	public, err := remote.DecodePublicKey(server.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := engine.Store.TrustSSHKey(public); err != nil {
-		t.Fatal(err)
-	}
-
 	address := &url.URL{
 		Scheme: "ssh", User: url.User("git"),
 		Host: net.JoinHostPort(server.Host, strconv.Itoa(server.Port)), Path: bare,
@@ -130,6 +122,9 @@ func newRepositoryFixture(t *testing.T, beforeClone func()) *repositoryFixture {
 		URL: address.String(), KeyID: machine.KeyID, ProjectRoot: true,
 	}
 	if err := engine.Store.Save("source", fixture.source.ID, project.ID, fixture.source); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.ConfirmRepositoryHostKey(fixture.source.ID, address.Host, server.PublicKey, ""); err != nil {
 		t.Fatal(err)
 	}
 	return fixture
@@ -471,7 +466,11 @@ func TestRepositoryCloneFailureStopsInferenceAndRetainsThePromptForRetry(t *test
 	fixture := newRepositoryFixture(t, nil)
 	engine, record := fixture.engine, fixture.record
 	public, _ := remote.DecodePublicKey(fixture.server.PublicKey)
-	if err := engine.Store.DistrustSSHKey(public); err != nil {
+	endpoint, err := domain.RepositorySSHAddress(fixture.source.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Store.Remove("repository_host_key", endpoint); err != nil {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32

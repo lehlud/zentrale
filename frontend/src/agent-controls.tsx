@@ -13,6 +13,7 @@ import { Icon } from "./icons";
 import { editorLaunchHref } from "./navigation";
 import { TerminalLauncher } from "./terminal-launcher";
 import { ConversationModelDialog } from "./conversation-models";
+import { RepositoryConnection } from "./repository-connection";
 
 export function AgentControls({
   current,
@@ -41,6 +42,12 @@ export function AgentControls({
   const api = useAPI();
   const canRemove = current && current.role !== "approver";
   const [modelAgentId, setModelAgentId] = useState("");
+  const [repositoryAgentId, setRepositoryAgentId] = useState("");
+  const workspaceAgentId =
+    current?.role === "approver" ? current.parentId : current?.id;
+  const hasRepository = Boolean(
+    project.repositorySshUrl || project.repositoryId,
+  );
 
   return (
     <div
@@ -81,9 +88,8 @@ export function AgentControls({
           <TerminalLauncher
             projectId={project.id}
             projectName={project.name}
-            agentId={
-              current?.role === "approver" ? current.parentId : current?.id
-            }
+            agentId={workspaceAgentId}
+            hasRepository={hasRepository}
           />
           {(current || project) && (
             <Dropdown>
@@ -133,6 +139,15 @@ export function AgentControls({
                   >
                     <Label>{t("Quellen verwalten")}</Label>
                   </Dropdown.Item>
+                  {workspaceAgentId && hasRepository && (
+                    <Dropdown.Item
+                      id="repository-connection"
+                      className="min-h-11"
+                      onAction={() => setRepositoryAgentId(workspaceAgentId)}
+                    >
+                      <Label>{t("Git-Verbindung prüfen")}</Label>
+                    </Dropdown.Item>
+                  )}
                   <Dropdown.Item
                     id="move"
                     className="min-h-11"
@@ -184,6 +199,12 @@ export function AgentControls({
         <ConversationModelDialog
           agentId={modelAgentId}
           onClose={() => setModelAgentId("")}
+        />
+      )}
+      {repositoryAgentId && (
+        <RepositoryConnection
+          agentId={repositoryAgentId}
+          onClose={() => setRepositoryAgentId("")}
         />
       )}
     </div>

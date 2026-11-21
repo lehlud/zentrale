@@ -31,6 +31,24 @@ if sys.argv[1] == "HOSTNAME":
     Path(__file__).with_name("observed-host-key").write_text(" ".join(sys.argv[2:]), encoding="ascii")
 """
 
+def host_key_observer(directory):
+    observer = write_secret(directory, "observe.py", HOST_KEY_OBSERVER)
+    command = shlex.join([
+        sys.executable.replace("%", "%%"), "-I", observer.replace("%", "%%"),
+        "%I", "%t", "%K",
+    ])
+    return ["-o", "IgnoreUnknown=KnownHostsCommand", "-o", "KnownHostsCommand=" + command]
+
+
+def untrusted_host_key(directory, known):
+    observed = Path(directory) / "observed-host-key"
+    if observed.is_file():
+        offered = observed.read_text(encoding="ascii").split()
+        trusted = [line.split()[1:3] for line in known.splitlines()]
+        if len(offered) == 2 and offered not in trusted:
+            return " ".join(offered)
+    return None
+
 
 # Installed only in a checkout's private Git metadata, never ~/.ssh or the
 # working tree. Validate Git's destination before exposing its deployment key.
@@ -228,6 +246,20 @@ def clear_project_git(project, storage_root):
 def configure_project_git(configuration):
     project = configuration["project"]
     sources = configuration["sources"]
+    # A reused checkout never goes through git clone. Observe the key from this
+    # workspace, without authenticating or running anything on the Git server.
+    # Leave time to configure local Git even when several endpoints are down.
+    deadline = time.monotonic() + 15
+    for index, source in enumerate(sources):
+        if not source.get("verifyHostKey"):
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        offered = probe_repository_host_key(source, min(7, remaining))
+        if offered:
+            print(f"ZENTRALE_REPOSITORY_HOST_KEY {index} {offered}", file=sys.stderr)
+            sys.exit(79)
     state = project_git_state(project, create=bool(sources))
     if state is None:
         return
@@ -1088,6 +1120,27 @@ def prepare_clone(configuration, environment):
             shutil.rmtree(stage)
 
 
+def probe_repository_host_key(source, timeout):
+    destination = ssh_destination(source["url"])
+    with tempfile.TemporaryDirectory(prefix="git-host-") as temporary:
+        known = write_secret(temporary, "known_hosts", source["known"])
+        try:
+            subprocess.run([
+                "ssh", "-F", "/dev/null", "-N", "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5", "-o", "PreferredAuthentications=none",
+                "-o", "IdentityFile=none", "-o", "IdentityAgent=none",
+                "-o", "StrictHostKeyChecking=yes", "-o", "GlobalKnownHostsFile=/dev/null",
+                "-o", "UserKnownHostsFile=" + json.dumps(known, ensure_ascii=False),
+                *host_key_observer(temporary),
+                "-p", destination["port"], "--", destination["host"],
+            ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # An offline remote must not make the existing worktree unusable.
+            pass
+        return untrusted_host_key(temporary, source["known"])
+
+
 def run_git(configuration):
     temporary_directory = tempfile.mkdtemp(prefix="git-")
     os.chmod(temporary_directory, 0o700)
@@ -1113,17 +1166,8 @@ def run_git(configuration):
         observe_key = configuration["operation"] == "prepare" and configuration.get(
             "repositoryHostKey", {}
         ).get("repositorySourceId")
-        observed = Path(temporary_directory) / "observed-host-key"
         if observe_key:
-            observer = write_secret(temporary_directory, "observe.py", HOST_KEY_OBSERVER)
-            command = shlex.join([
-                sys.executable.replace("%", "%%"), "-I", observer.replace("%", "%%"),
-                "%I", "%t", "%K",
-            ])
-            environment["GIT_SSH_COMMAND"] += (
-                " -o IgnoreUnknown=KnownHostsCommand -o "
-                + shlex.quote("KnownHostsCommand=" + command)
-            )
+            environment["GIT_SSH_COMMAND"] += " " + shlex.join(host_key_observer(temporary_directory))
         try:
             if configuration["operation"] in ("clone", "prepare"):
                 clone_repository(configuration, environment)
@@ -1131,12 +1175,10 @@ def run_git(configuration):
                 arguments = ["git", "-C", directory, *configuration["arguments"]]
                 subprocess.run(arguments, env=environment, check=True)
         except subprocess.CalledProcessError:
-            if observe_key and observed.is_file():
-                offered = observed.read_text(encoding="ascii").split()
-                trusted = [line.split()[1:3] for line in configuration["known"].splitlines()]
-                if len(offered) == 2 and offered not in trusted:
-                    print("ZENTRALE_REPOSITORY_HOST_KEY " + " ".join(offered), file=sys.stderr)
-                    sys.exit(79)
+            offered = untrusted_host_key(temporary_directory, configuration["known"]) if observe_key else None
+            if offered:
+                print("ZENTRALE_REPOSITORY_HOST_KEY " + offered, file=sys.stderr)
+                sys.exit(79)
             raise
         print(
             json.dumps({"directory": directory, "readOnly": configuration["readOnly"]})

@@ -28,7 +28,7 @@ export function HostKeyTrust({
         <p className="text-sm">
           {challenge.previousFingerprint
             ? t(
-                "Der Schlüssel dieses Git-Hosts hat sich geändert. Vergleiche den neuen Fingerprint mit einer vertrauenswürdigen Quelle, bevor du ihn bestätigst.",
+                "Der Git-Host bietet einen anderen Schlüssel an. Vergleiche den Fingerprint mit einer vertrauenswürdigen Quelle, bevor du ihn bestätigst.",
               )
             : t(
                 "Diesem Host-Schlüssel wird noch nicht vertraut. Den Fingerprint vor dem Verbinden prüfen.",
