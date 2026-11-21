@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch, MagicMock
@@ -151,6 +152,24 @@ class GuestShellTests(unittest.TestCase):
         self.assertEqual(
             json.loads((self.root / "health.response").read_text()), {"nonce": nonce}
         )
+
+    def test_blocked_workspace_probe_leaves_dispatcher_responsive(self):
+        request = self.root / "health.request"
+        response = self.root / "health.response"
+        release = threading.Event()
+        request.write_text(json.dumps({"nonce": "a" * 32, "checkWorkspace": True}))
+        with patch.object(guest_init, "confirm_workspace_health", side_effect=lambda *_: release.wait(2)):
+            worker = guest_init.respond_to_health_check(self.root)
+            try:
+                self.assertTrue(worker.is_alive())
+                self.assertIs(guest_init.respond_to_health_check(self.root, worker), worker)
+                request.write_text(json.dumps({"nonce": "b" * 32}))
+                guest_init.respond_to_health_check(self.root, worker)
+                self.assertEqual(json.loads(response.read_text()), {"nonce": "b" * 32})
+                self.assertTrue(worker.is_alive())
+            finally:
+                release.set()
+                worker.join(timeout=1)
 
     def test_installs_fish_once_and_migrates_existing_identity(self):
         (self.root / "usr/bin/microdnf").touch()

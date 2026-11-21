@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
@@ -19,6 +20,11 @@ import (
 var cloneProgress = regexp.MustCompile(`^ZENTRALE_CLONE_PROGRESS (Connecting to repository|Waiting for checkout|Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files|Checking out selected directories|Writing checkout data) (-1|[0-9]{1,3})(?:\t([0-9/]*)\t([0-9.A-Za-z /|]*))?$`)
 
 var errRepositoryStalled = errors.New("Git stopped reporting progress while preparing the repository")
+
+type repositoryCheckoutAttempt struct {
+	checkedOut     atomic.Int64
+	checkWorkspace bool
+}
 
 // Git uses both CR and LF for its status, but the helper emits bounded LF lines.
 // Consume only new bytes so a long clone never reparses earlier output.
@@ -203,7 +209,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 		return fmt.Errorf("prepare repository workspace: %w", err)
 	}
 
-	run := func(configuration map[string]any, network bool, timeout time.Duration) (string, error) {
+	run := func(configuration map[string]any, network bool, timeout time.Duration, checkout *repositoryCheckoutAttempt) (string, error) {
 		// Staging can prepare a guest, so give it a separate cold-boot budget.
 		// Start the command timeout only once its runtime is ready.
 		stageContext, cancelStage := context.WithTimeout(ctx, remote.ManagedVMSetupTimeout)
@@ -214,6 +220,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			TemporaryDirectory: temporary,
 			Command:            "python3 -I -c " + remote.Quote(gitScript),
 			Network:            network,
+			CheckWorkspace:     checkout != nil && checkout.checkWorkspace,
 		})
 		cancelStage()
 		if err != nil {
@@ -238,7 +245,16 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 					idle.Reset(timeout)
 				}
 			}, func(step string, percent int, detail string) {
-				if reportProgress && runContext.Err() == nil {
+				if runContext.Err() != nil {
+					return
+				}
+				if checkout != nil && step == "Updating files" {
+					count, _, ok := strings.Cut(detail, "/")
+					if completed, err := strconv.ParseInt(count, 10, 64); ok && err == nil && completed > checkout.checkedOut.Load() {
+						checkout.checkedOut.Store(completed)
+					}
+				}
+				if reportProgress {
 					engine.publishRunState(domain.AgentRunState{
 						AgentID: scope, Phase: "repository", RepositoryStep: step, RepositoryPercent: percent, RepositoryDetail: detail,
 					})
@@ -275,7 +291,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	if _, err := run(map[string]any{
 		"operation": "clear-project-git", "project": ".",
 		"storageRoot": project.Directory,
-	}, false, time.Minute); err != nil {
+	}, false, time.Minute, nil); err != nil {
 		return fmt.Errorf("clear project Git credentials: %w", err)
 	}
 	if len(sources) == 0 {
@@ -285,7 +301,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 
 	// Recognize existing checkouts and apply confirmed address changes without
 	// contacting the Git server or touching any files in the worktree.
-	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false, time.Minute)
+	output, err := run(map[string]any{"operation": "inspect", "sources": checkouts}, false, time.Minute, nil)
 	if err != nil {
 		return fmt.Errorf("inspect project repositories: %w", err)
 	}
@@ -314,8 +330,28 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 				configuration["checkoutPaths"] = project.RepositoryCheckoutPaths
 			}
 			var output string
-			output, err = run(configuration, true, 15*time.Minute)
-			err = repositoryHostKeyFailure(output, err, configuration)
+			var previous int64
+			// Retry a managed checkout after a stall. Further retries require
+			// progress so a dead filesystem cannot keep the preparation busy.
+			for firstAttempt := true; ; firstAttempt = false {
+				attempt := repositoryCheckoutAttempt{checkWorkspace: !firstAttempt}
+				output, err = run(configuration, true, 15*time.Minute, &attempt)
+				err = repositoryHostKeyFailure(output, err, configuration)
+				var pending *remote.VMHealthPending
+				if attempt.checkWorkspace && errors.As(err, &pending) && ctx.Err() == nil {
+					// Staging waits for live jobs or terminals. Keep the
+					// workspace check armed until a retry can actually run.
+					continue
+				}
+				if !errors.Is(err, errRepositoryStalled) || configuration["managedVM"] != true || ctx.Err() != nil {
+					break
+				}
+				completed := attempt.checkedOut.Load()
+				if !firstAttempt && completed <= previous {
+					break
+				}
+				previous = completed
+			}
 		}
 
 		if err != nil {
@@ -345,7 +381,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 	if _, err := run(map[string]any{
 		"operation": "configure-project-git", "project": ".",
 		"sources": configurations,
-	}, false, time.Minute); err != nil {
+	}, false, time.Minute, nil); err != nil {
 		return fmt.Errorf("configure project Git: %w", err)
 	}
 

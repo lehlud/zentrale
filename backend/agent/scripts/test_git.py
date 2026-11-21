@@ -404,6 +404,64 @@ class RepositoryPreparationTests(unittest.TestCase):
         self.assertFalse((checkout / ".git/index.lock").exists())
         self.assertEqual(subprocess.check_output([*git, "status", "--porcelain"], env=environment), b"")
 
+    def test_large_checkout_resumes_after_interruption_and_guest_scratch_loss(self):
+        stage, checkout = self.staged_clone(receipt=True)
+        manifest = stage / "clone.json"
+        receipt = json.loads(manifest.read_text())
+        receipt.update(phase="fetched", entries=[])
+        manifest.write_text(json.dumps(receipt))
+        paths = [b"README.md", b"assets/data.txt", b"docs/notes.txt"]
+        for name in paths:
+            (checkout / os.fsdecode(name)).unlink()
+        self.origin.rename(self.origin.with_name("unavailable.git"))
+        source = {**self.source, "readOnly": False, "managedVM": True, "reportProgress": True}
+        environment = {**repository_helper.git_environment(), "ZENTRALE_SANDBOX": "microvm"}
+        scratch = self.root / "guest-scratch"
+        scratch.mkdir()
+        run_clone = repository_helper.run_clone
+        batches = []
+        interrupt = True
+
+        def capture(arguments, env, report, watch_checkout=False, stdin=None):
+            if "checkout-index" in arguments:
+                batches.append(stdin.read().removesuffix(b"\0"))
+                stdin.seek(0)
+                if interrupt and len(batches) == 2:
+                    (checkout / "assets/data.txt").write_bytes(b"partial")
+                    raise subprocess.CalledProcessError(-15, arguments)
+            return run_clone(arguments, env, report, watch_checkout, stdin)
+
+        with (
+            patch.object(repository_helper, "checkout_scratch_directory", return_value=scratch),
+            patch.object(repository_helper, "FIRST_CHECKOUT_BATCH", 1),
+            patch.object(repository_helper, "CHECKOUT_BATCH", 1),
+            patch.object(repository_helper, "run_clone", side_effect=capture),
+            patch("sys.stderr", io.StringIO()) as progress,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                repository_helper.clone_repository(source, environment)
+            self.assertEqual(batches, paths[:2])
+            checkpoint = checkout / ".git" / repository_helper.CHECKOUT_PROGRESS_FILE
+            self.assertEqual(json.loads(checkpoint.read_text())["completed"], 1)
+
+            receipt = json.loads(manifest.read_text())
+            receipt["owner"]["boot"] = "previous-guest"
+            manifest.write_text(json.dumps(receipt))
+            (scratch / "identity").unlink()
+            (scratch / "index").unlink()
+            interrupt = False
+            batches.clear()
+            progress.seek(0)
+            progress.truncate()
+            repository_helper.clone_repository(source, environment)
+
+        self.assertEqual(batches, paths[1:])
+        self.assertTrue(progress.getvalue().startswith("ZENTRALE_CLONE_PROGRESS Updating files 33\t1/3\t"))
+        self.assertEqual((self.directory / "assets/data.txt").read_text(), "tracked asset\n")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertFalse(stage.exists())
+        self.assertFalse((self.directory / ".git" / repository_helper.CHECKOUT_PROGRESS_FILE).exists())
+
     def test_progress_reports_bytes_when_percentage_remains_constant(self):
         stderr = io.StringIO()
         lines = (

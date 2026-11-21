@@ -546,6 +546,29 @@ class MicroVMRunnerTests(unittest.TestCase):
         ):
             self.assertFalse(runner.guest_responding(control))
 
+    def test_workspace_health_requires_a_workspace_reply_even_with_a_live_heartbeat(self):
+        _, control, _ = self.cached_session()
+        (control / "ready.json").write_text('{"workspaceHealth": true}')
+        heartbeat = control / "heartbeat"
+        heartbeat.touch()
+
+        for healthy in (False, True):
+            with self.subTest(healthy=healthy):
+                def respond(_):
+                    request = json.loads((control / "health.request").read_text())
+                    self.assertTrue(request["checkWorkspace"])
+                    runner.atomic_json(
+                        control / "health.response",
+                        {"nonce": request["nonce"], "workspace": healthy},
+                    )
+                    os.utime(heartbeat, (1, heartbeat.stat().st_mtime + 1))
+
+                with (
+                    patch.object(runner.time, "monotonic", side_effect=[0, 0, 0, 6]),
+                    patch.object(runner.time, "sleep", side_effect=respond),
+                ):
+                    self.assertEqual(runner.guest_responding(control, check_workspace=True), healthy)
+
     def test_scope_is_stable_but_separates_agents_and_projects(self):
         execution = {
             "agentId": "agent-a",

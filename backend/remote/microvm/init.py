@@ -849,6 +849,7 @@ def serve_jobs(request):
         "os": "fedora",
         "version": "45",
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+        "workspaceHealth": True,
         "gpuDevices": request.get("gpuDevices", []),
         "storage": [
             {"id": entry["id"], "path": entry["guestPath"]}
@@ -873,9 +874,10 @@ def serve_jobs(request):
     os.replace(temporary, Path(CONTROL, "ready.json"))
 
     workers = {}
+    workspace_probe = None
     last_heartbeat = time.monotonic()
     while not (control / "stop").exists():
-        respond_to_health_check(control)
+        workspace_probe = respond_to_health_check(control, workspace_probe)
         if time.monotonic() - last_heartbeat >= 1:
             heartbeat.touch()
             last_heartbeat = time.monotonic()
@@ -885,20 +887,51 @@ def serve_jobs(request):
         worker.join(timeout=5)
 
 
-def respond_to_health_check(control):
+def write_health_response(response, nonce, workspace=False):
+    temporary = response.with_name(".health-response-" + nonce)
+    proof = {"nonce": nonce}
+    if workspace:
+        proof["workspace"] = True
+    temporary.write_text(json.dumps(proof))
+    os.replace(temporary, response)
+
+
+def confirm_workspace_health(response, nonce):
+    healthy = True
+    try:
+        # A fresh name forces a lookup through the workspace export.
+        Path("/run/zentrale-workspace", ".zentrale-health-" + nonce).stat()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        healthy = False
+    try:
+        write_health_response(response, nonce, workspace=healthy)
+    except FileNotFoundError:
+        pass  # The session is already being removed.
+
+
+def respond_to_health_check(control, workspace_probe=None):
     request, response = control / "health.request", control / "health.response"
     try:
         query = json.loads(request.read_text())
         nonce = query.get("nonce", "")
         if not re.fullmatch(r"[a-f0-9]{32}", nonce):
-            return
+            return workspace_probe
         if response.exists() and json.loads(response.read_text()).get("nonce") == nonce:
-            return
-        temporary = control / "health.response.new"
-        temporary.write_text(json.dumps({"nonce": nonce}))
-        os.replace(temporary, response)
+            return workspace_probe
+        if query.get("checkWorkspace") is True:
+            # A blocked 9p lookup must not stop the heartbeat or other jobs.
+            if workspace_probe is None or not workspace_probe.is_alive():
+                workspace_probe = threading.Thread(
+                    target=confirm_workspace_health, args=(response, nonce), daemon=True
+                )
+                workspace_probe.start()
+        else:
+            write_health_response(response, nonce)
     except (FileNotFoundError, ValueError):
         pass  # The host may replace a request while it is being inspected.
+    return workspace_probe
 
 
 def guest_gpus():

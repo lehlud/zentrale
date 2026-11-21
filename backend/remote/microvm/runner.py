@@ -1284,14 +1284,24 @@ def session_identity(configuration, execution, vcpus):
     ).hexdigest()
 
 
-def guest_responding(control, timeout=5):
+def guest_responding(control, timeout=5, check_workspace=False):
     # Guest and host wall clocks need not agree. Ask the actual dispatcher and
     # bound the wait using the host's monotonic clock. An older dispatcher can
     # still prove progress by changing its heartbeat during that interval.
     if not (control / "ready.json").is_file():
         return False
     nonce = secrets.token_hex(16)
-    atomic_json(control / "health.request", {"nonce": nonce})
+    request = {"nonce": nonce}
+    if check_workspace:
+        try:
+            proof = json.loads((control / "ready.json").read_text())
+        except (FileNotFoundError, ValueError):
+            return False
+        # Keep active VMs from before the feature upgrade usable.
+        check_workspace = proof.get("workspaceHealth") is True
+        if check_workspace:
+            request["checkWorkspace"] = True
+    atomic_json(control / "health.request", request)
     try:
         initial = (control / "heartbeat").stat().st_mtime_ns
     except FileNotFoundError:
@@ -1299,15 +1309,15 @@ def guest_responding(control, timeout=5):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            if (
-                json.loads((control / "health.response").read_text()).get("nonce")
-                == nonce
+            response = json.loads((control / "health.response").read_text())
+            if response.get("nonce") == nonce and (
+                not check_workspace or response.get("workspace") is True
             ):
                 return True
         except (FileNotFoundError, ValueError):
             pass
         try:
-            if (control / "heartbeat").stat().st_mtime_ns != initial:
+            if not check_workspace and (control / "heartbeat").stat().st_mtime_ns != initial:
                 return True
         except FileNotFoundError:
             pass
@@ -1439,11 +1449,14 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
     identity = session_identity(configuration, execution, vcpus)
     if control.is_dir():
         compatible = compatible_session(control, configuration, execution)
-        responsive = supervisor_running(control) and guest_responding(control)
+        check_workspace = execution.get("checkWorkspace") is True
+        responsive = supervisor_running(control) and guest_responding(
+            control, check_workspace=check_workspace
+        )
         if not responsive and supervisor_running(control):
             # A slow shared control filesystem can delay a heartbeat while
             # the supervisor and guest jobs are still executing.
-            responsive = guest_responding(control, timeout=10)
+            responsive = guest_responding(control, timeout=10, check_workspace=check_workspace)
         alive_supervisor = supervisor_running(control)
         active = active_invocations(control)
         same_version = (control / "version").exists() and (
@@ -1484,6 +1497,7 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
     # UI observers are invocation-local, never part of a persistent VM request
     # or of the readiness generation/configuration identity.
     request.pop("startupProgress", None)
+    request.pop("checkWorkspace", None)
     if configuration.get("gpuBackend") == "nvidia":
         request.update(
             {

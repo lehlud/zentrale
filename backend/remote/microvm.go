@@ -221,8 +221,9 @@ func microVMAction(
 			"command": execution.Command,
 			"network": execution.Network,
 
-			"guestRoot": execution.GuestRoot,
-			"tooling":   execution.Tooling,
+			"guestRoot":      execution.GuestRoot,
+			"tooling":        execution.Tooling,
+			"checkWorkspace": execution.CheckWorkspace,
 
 			"protocolIO": execution.ProtocolIO,
 
