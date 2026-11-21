@@ -192,6 +192,94 @@ func TestSideKeepsRoomForQuestionsAndToolResults(t *testing.T) {
 	}
 }
 
+func TestSideFinishesWithAnAnswerAtTheRetrievalLimit(t *testing.T) {
+	const question = "Was steht im Prüfprotokoll?"
+	const answer = "Die Messung war erfolgreich. Die Rohwerte fehlen im gelesenen Verlauf."
+	const worker = "measurement-worker"
+	calls := 0
+	engine, root := testEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+		calls++
+		switch {
+		case calls < sideInferenceRounds:
+			if len(request.Tools) != 2 {
+				t.Fatal("retrieval tools were withdrawn too early")
+			}
+			if calls == sideInferenceRounds-1 {
+				request.OnText("Ich prüfe noch das Protokoll.")
+			}
+			return responseCalls(providers.Call{
+				ID: fmt.Sprintf("lookup-%d", calls), Name: "thread_history",
+				Arguments: map[string]any{
+					"agentId": worker, "messageId": fmt.Sprintf("measurement-%d", calls),
+				},
+			}), nil
+		case calls == sideInferenceRounds:
+			if len(request.Tools) != 0 || !strings.Contains(request.System, "Retrieval is finished") {
+				t.Fatal("last round allowed another search")
+			}
+			last := request.Messages[len(request.Messages)-1]
+			if last.Role != "user" || last.Content != question {
+				t.Fatal("final prompt lost the current question")
+			}
+			context := JSON(request.Messages)
+			for index := 1; index < sideInferenceRounds; index++ {
+				if !strings.Contains(context, fmt.Sprintf("Messung %d erfolgreich", index)) {
+					t.Fatalf("final prompt lost public evidence from round %d", index)
+				}
+			}
+			for _, message := range request.Messages {
+				if message.Role == "tool" || message.Wire != "" || message.CallID != "" {
+					t.Fatal("tool-free request retained provider-specific call state")
+				}
+			}
+			request.OnText(answer)
+			return providers.Result{Text: answer}, nil
+		case calls == sideInferenceRounds+1:
+			if !strings.Contains(JSON(request.Messages), answer) {
+				t.Fatal("follow-up lost the completed answer")
+			}
+			return providers.Result{Text: "Die Rohwerte wurden im Protokoll nicht abgelegt."}, nil
+		default:
+			t.Fatal("side question exceeded its inference budget")
+			return providers.Result{}, nil
+		}
+	}))
+	member := domain.Agent{ID: worker, ParentID: root.ID, ProjectID: root.ProjectID, Role: "subagent"}
+	if err := engine.Store.Save("agent", worker, root.ProjectID, member); err != nil {
+		t.Fatal(err)
+	}
+	for index := 1; index < sideInferenceRounds; index++ {
+		message := domain.Message{
+			ID: fmt.Sprintf("measurement-%d", index), AgentID: worker, Role: "assistant",
+			Content: fmt.Sprintf("Messung %d erfolgreich", index),
+		}
+		if err := engine.Store.Save("message", message.ID, worker, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session, err := engine.OpenSide(context.Background(), root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	var visible string
+	result, err := session.Ask(question, func(update SideUpdate) {
+		switch update.Type {
+		case "reset":
+			visible = ""
+		case "delta":
+			visible += update.Text
+		}
+	})
+	if err != nil || result != answer || visible != answer || calls != sideInferenceRounds {
+		t.Fatalf("retrieval limit did not finish with the streamed answer: %q, %q, calls=%d, %v", result, visible, calls, err)
+	}
+	if followUp, err := session.Ask("Und die Rohwerte?", nil); err != nil || followUp == "" {
+		t.Fatal(followUp, err)
+	}
+}
+
 func TestSideAdmissionIsBoundedAndPrivateAgentsAreRejected(t *testing.T) {
 	engine, root := testEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) {
 		t.Fatal("opening an empty modal must not call a model")
