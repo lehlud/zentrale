@@ -8,6 +8,7 @@ import { useAPI } from "./api";
 import { useI18n } from "./preferences";
 import {
   TerminalHeartbeat,
+  TerminalInputQueue,
   terminalConnectionError,
   terminalHeartbeatInterval,
 } from "./terminal-connection";
@@ -77,12 +78,11 @@ export default function VMTerminal({
     let disposed = false;
     let ready = false;
     let opened = false;
+    let established = false;
     let finished = false;
     const sessionId = crypto.randomUUID();
     let cursor = 0;
-    let sequence = 0;
-    let pendingBytes = 0;
-    const pending = new Map<number, string>();
+    const input = new TerminalInputQueue();
     const diagnosis = new AbortController();
     let socket: WebSocket | undefined;
     let resizeFrame = 0;
@@ -141,20 +141,30 @@ export default function VMTerminal({
     };
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("pageshow", resume);
+    const sendPending = () => {
+      const current = socket;
+      if (!ready || current?.readyState !== WebSocket.OPEN) return;
+      try {
+        input.send((frame) => current.send(frame));
+      } catch {
+        current.close();
+        reconnect();
+      }
+    };
     const send = (frame: Record<string, unknown>) => {
-      if (!ready || socket?.readyState !== WebSocket.OPEN) return;
-      const number = ++sequence;
-      const encoded = JSON.stringify({ ...frame, sequence: number });
-      if (pendingBytes + encoded.length > 1024 * 1024) {
+      if (!established || disposed || finished) return;
+      if (!input.enqueue(frame)) {
         fail("Zu viele ausstehende Terminal-Eingaben. Verbindung beendet.");
         return;
       }
-      pending.set(number, encoded);
-      pendingBytes += encoded.length;
-      socket.send(encoded);
+      sendPending();
     };
     const sendBytes = (bytes: Uint8Array) => {
-      for (let offset = 0; offset < bytes.byteLength; offset += 16384) {
+      for (
+        let offset = 0;
+        !finished && offset < bytes.byteLength;
+        offset += 16384
+      ) {
         const chunk = bytes.subarray(offset, offset + 16384);
         send({
           type: "input",
@@ -164,7 +174,7 @@ export default function VMTerminal({
       }
     };
     const sendResize = () => {
-      if (disposed) return;
+      if (!ready || disposed) return;
       send({
         type: "resize",
         cols: Math.min(500, Math.max(2, terminal.cols)),
@@ -210,26 +220,19 @@ export default function VMTerminal({
           if (message.type === "pong") {
             heartbeat.acknowledge(performance.now());
           } else if (message.type === "ack") {
-            if (
-              !Number.isSafeInteger(message.sequence) ||
-              message.sequence < 0 ||
-              message.sequence > sequence
-            ) {
+            if (!input.acknowledge(message.sequence)) {
               fail("Ungültige Antwort der Terminal-Verbindung.");
               return;
             }
-            for (const [number, frame] of pending) {
-              if (number <= message.sequence) {
-                pendingBytes -= frame.length;
-                pending.delete(number);
-              }
-            }
+            sendPending();
           } else if (message.type === "status" && message.status === "ready") {
+            established = true;
             ready = true;
             disconnectedAt = undefined;
             retryDelay = 500;
             setState("ready");
-            for (const frame of pending.values()) current.send(frame);
+            input.resume();
+            sendPending();
             terminal.fit();
             sendResize();
             terminal.focus();

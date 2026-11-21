@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import shutil
+import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -41,6 +42,68 @@ class StreamingTests(unittest.TestCase):
         )
         self.job = self.control / "requests" / "job"
         self.job.mkdir(parents=True)
+
+    def test_terminal_uses_authenticated_socket_in_both_directions(self):
+        (self.job / "request.json").write_text('{"terminalStream": true}')
+        stream_file = self.control / "streams.py"
+        stream_file.write_text(stream_file.read_text().replace('"10.0.2.2"', '"127.0.0.1"'))
+        (self.control / "supervisor.pid").write_text(json.dumps(runner.process_reference()))
+        input_read, input_write = os.pipe()
+        self.addCleanup(os.close, input_read)
+        self.addCleanup(os.close, input_write)
+        payload = b"terminal input\x00\x1b"
+        os.write(input_write, payload)
+        results = {1: bytearray(), 2: bytearray()}
+        failures = []
+        original_read, original_popen = os.read, subprocess.Popen
+
+        def run_guest():
+            try:
+                deadline = time.monotonic() + 5
+                while not (self.job / "started").exists():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("terminal stream was not started")
+                    time.sleep(0.005)
+                endpoint = json.loads((self.job / "terminal.json").read_text())
+                # A loopback connection alone cannot impersonate the guest.
+                with socket.create_connection(("127.0.0.1", endpoint["port"]), timeout=3) as impostor:
+                    impostor.sendall(b"0" * 32)
+                    if impostor.recv(1):
+                        raise RuntimeError("unauthenticated peer received data")
+                guest.run_job(self.job)
+            except BaseException as error:
+                failures.append(error)
+
+        def fake_guest(_args, **kwargs):
+            return original_popen(
+                [sys.executable, "-c",
+                 f"import sys; data=sys.stdin.buffer.read({len(payload)}); "
+                 "sys.stdout.buffer.write(data); sys.stderr.write('diagnostic'); sys.exit(7)"],
+                **kwargs,
+            )
+
+        def partial_write(descriptor, data):
+            count = min(3, len(data))
+            results[descriptor].extend(data[:count])
+            return count
+
+        with (
+            patch.object(guest, "CONTROL", str(self.control)),
+            patch.object(guest.subprocess, "Popen", side_effect=fake_guest),
+            patch.object(runner.os, "read", side_effect=lambda fd, size: original_read(input_read if fd == 0 else fd, size)),
+            patch.object(runner.os, "write", side_effect=partial_write),
+        ):
+            worker = threading.Thread(target=run_guest, daemon=True)
+            worker.start()
+            self.assertEqual(runner.run_invocation(self.job), 7)
+            worker.join(timeout=3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(results[1], payload)
+        self.assertEqual(results[2], b"diagnostic")
+        self.assertEqual((self.job / "status").read_text(), "7")
+        self.assertTrue((self.job / "acknowledged").exists())
+        self.assertFalse(list(self.job.glob("*.chunk")))
 
     def test_acknowledged_job_is_retired_before_retryable_cleanup(self):
         retired = self.control / "retired"

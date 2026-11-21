@@ -2,9 +2,38 @@ import { expect, test } from "@playwright/test";
 
 import {
   TerminalHeartbeat,
+  TerminalInputQueue,
   terminalConnectionError,
   terminalHeartbeatInterval,
 } from "../src/terminal-connection";
+
+test("a large paste respects the receive window and replays only unacknowledged frames", () => {
+  const queue = new TerminalInputQueue();
+  const frame = { type: "input", encoding: "base64", data: "A".repeat(21_848) };
+  for (let index = 0; index < 42; index++) {
+    expect(queue.enqueue(frame)).toBe(true);
+  }
+
+  let sent: number[] = [];
+  const send = (encoded: string) => sent.push(JSON.parse(encoded).sequence);
+  queue.send(send);
+  expect(sent).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(queue.acknowledge(9)).toBe(false);
+  expect(queue.acknowledge(6)).toBe(true);
+
+  sent = [];
+  queue.resume();
+  queue.send(send);
+  expect(sent).toEqual([7, 8, 9, 10, 11, 12, 13, 14]);
+  for (let acknowledged = 7; acknowledged <= 42; acknowledged++) {
+    expect(queue.acknowledge(acknowledged)).toBe(true);
+    queue.send(send);
+  }
+  expect(sent).toEqual(Array.from({ length: 36 }, (_, index) => index + 7));
+  expect(queue.enqueue(frame)).toBe(true);
+  queue.send(send);
+  expect(sent.at(-1)).toBe(43);
+});
 
 test("terminal heartbeat detects missing replies but tolerates hidden pages and browser suspension", () => {
   const interval = terminalHeartbeatInterval;

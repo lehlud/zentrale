@@ -9,6 +9,7 @@ import json
 import os
 import runpy
 import re
+import select
 import selectors
 from pathlib import Path
 import subprocess
@@ -715,13 +716,61 @@ def save_status(job, code):
     os.replace(temporary, job / "status")
 
 
+def run_terminal_job(job, streams):
+    endpoint = json.loads((job / "terminal.json").read_text())
+    with socket.create_connection((streams["TERMINAL_HOST"], endpoint["port"]), timeout=10) as connection:
+        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        streams["authenticate_terminal"](connection, bytes.fromhex(endpoint["key"]), host=False)
+        connection.settimeout(None)
+        process = subprocess.Popen(
+            ["/usr/bin/python3", "-I", CONTROL + "/guest.py", str(job)],
+            stdin=connection,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            poller = select.poll()
+            peer = connection.fileno()
+            poller.register(peer, select.POLLRDHUP)
+            channels = {process.stdout.fileno(): 1, process.stderr.fileno(): 2}
+            for descriptor in channels:
+                poller.register(descriptor, select.POLLIN)
+            while channels:
+                for descriptor, _ in poller.poll():
+                    if descriptor == peer:
+                        # The daemon's host-side relay owns this terminal.
+                        # Closing its socket releases the shell even when 9p hangs.
+                        return
+                    data = os.read(descriptor, streams["TERMINAL_CHUNK_BYTES"])
+                    if data:
+                        streams["send_terminal_frame"](connection, channels[descriptor], data)
+                    else:
+                        poller.unregister(descriptor)
+                        del channels[descriptor]
+            code = process.wait()
+            streams["send_terminal_frame"](connection, 0, bytes([code if code >= 0 else 128 - code]))
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            process.stdout.close()
+            process.stderr.close()
+
+
 def run_job(job):
     process = None
     try:
         request = json.loads((job / "request.json").read_text())
-        MailboxStream = runpy.run_path(str(Path(CONTROL, "streams.py")))[
-            "MailboxStream"
-        ]
+        streams = runpy.run_path(str(Path(CONTROL, "streams.py")))
+        if request.get("terminalStream"):
+            run_terminal_job(job, streams)
+            return
+        MailboxStream = streams["MailboxStream"]
         cancelled = lambda: (job / "cancel").exists() or Path(CONTROL, "stop").exists()
         process = subprocess.Popen(
             ["/usr/bin/python3", "-I", CONTROL + "/guest.py", str(job)],
@@ -850,6 +899,7 @@ def serve_jobs(request):
         "version": "45",
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
         "workspaceHealth": True,
+        "terminalStream": True,
         "gpuDevices": request.get("gpuDevices", []),
         "storage": [
             {"id": entry["id"], "path": entry["guestPath"]}

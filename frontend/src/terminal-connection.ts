@@ -1,6 +1,63 @@
 export const terminalHeartbeatInterval = 25_000;
 const terminalHeartbeatTimeout = 75_000;
 
+// The server accepts eight queued input frames. Keep excess paste data locally
+// and advance the window only after the server commits an input receipt.
+const terminalInputWindow = 8;
+const terminalPendingLimit = 1024 * 1024;
+
+export class TerminalInputQueue {
+  private frames = new Map<number, string>();
+  private pendingBytes = 0;
+  private sequence = 0;
+  private sent = 0;
+  private acknowledged = 0;
+
+  enqueue(frame: Record<string, unknown>): boolean {
+    const sequence = this.sequence + 1;
+    const encoded = JSON.stringify({ ...frame, sequence });
+    if (this.pendingBytes + encoded.length > terminalPendingLimit) return false;
+    this.pendingBytes += encoded.length;
+    this.frames.set(sequence, encoded);
+    this.sequence = sequence;
+    return true;
+  }
+
+  send(write: (frame: string) => void) {
+    while (
+      this.sent < this.sequence &&
+      this.sent - this.acknowledged < terminalInputWindow
+    ) {
+      const sequence = this.sent + 1;
+      const frame = this.frames.get(sequence);
+      if (frame === undefined) return;
+      write(frame);
+      this.sent = sequence;
+    }
+  }
+
+  acknowledge(sequence: unknown): boolean {
+    if (
+      typeof sequence !== "number" ||
+      !Number.isSafeInteger(sequence) ||
+      sequence < 0 ||
+      sequence > this.sent
+    )
+      return false;
+    for (const [number, frame] of this.frames) {
+      if (number > sequence) break;
+      this.pendingBytes -= frame.length;
+      this.frames.delete(number);
+    }
+    this.acknowledged = Math.max(sequence, this.acknowledged);
+    return true;
+  }
+
+  resume() {
+    this.sent = this.acknowledged;
+  }
+}
+
 // Native WebSocket pongs are invisible to JavaScript. Track application-level
 // replies so a half-open socket cannot leave the UI saying "connected" forever.
 export class TerminalHeartbeat {

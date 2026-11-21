@@ -1599,9 +1599,92 @@ def stage(cache, execution, configuration, runtime, base, kernel):
         invocation = private_directory(control / "requests" / secrets.token_hex(16))
         request = dict(execution)
         command = request.pop("command")
+        if request.get("terminalProtocol"):
+            proof = json.loads((control / "ready.json").read_text())
+            request["terminalStream"] = proof.get("terminalStream") is True
         (invocation / "command.sh").write_text(command, encoding="utf-8")
         atomic_json(invocation / "request.json", request)
     return invocation
+
+
+def write_all(descriptor, block):
+    remaining = memoryview(block)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise BrokenPipeError("MicroVM output channel closed")
+        remaining = remaining[written:]
+
+
+def invocation_status(invocation):
+    diagnostic = invocation / "stderr"
+    if diagnostic.exists():
+        with diagnostic.open("rb") as source:
+            write_all(2, source.read(8192))
+    return int((invocation / "status").read_text())
+
+
+def acknowledge_invocation(invocation):
+    try:
+        (invocation / "cancel").touch()
+        # PID 1 releases completed mailboxes once the reader acknowledges them.
+        (invocation / "acknowledged").touch()
+    except FileNotFoundError:
+        pass  # Automatic recovery has already removed this old session.
+
+
+def relay_terminal(connection, streams):
+    def copy_input():
+        try:
+            while block := os.read(0, streams["TERMINAL_CHUNK_BYTES"]):
+                connection.sendall(block)
+            connection.shutdown(socket.SHUT_WR)
+        except OSError:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # Output may have already finished and closed the socket.
+
+    threading.Thread(target=copy_input, daemon=True).start()
+    while True:
+        channel, data = streams["receive_terminal_frame"](connection)
+        if channel == 0:
+            return data[0]
+        write_all(channel, data)
+
+
+def run_terminal_invocation(invocation, streams):
+    key = secrets.token_bytes(32)
+    deadline = time.monotonic() + 20
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        listener.settimeout(0.25)
+        atomic_json(invocation / "terminal.json", {
+            "port": listener.getsockname()[1], "key": key.hex(),
+        })
+        (invocation / "started").touch()
+        while time.monotonic() < deadline:
+            if (invocation / "status").exists():
+                return invocation_status(invocation)
+            try:
+                connection, _ = listener.accept()
+            except socket.timeout:
+                continue
+            with connection:
+                connection.settimeout(1)
+                try:
+                    streams["authenticate_terminal"](connection, key, host=True)
+                except (OSError, EOFError):
+                    continue
+                listener.close()
+                (invocation / "terminal.json").unlink(missing_ok=True)
+                connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                connection.settimeout(None)
+                code = relay_terminal(connection, streams)
+                atomic_json(invocation / "status", code)
+                return code
+    raise TimeoutError("MicroVM terminal stream did not connect")
 
 
 def run_invocation(invocation):
@@ -1610,12 +1693,20 @@ def run_invocation(invocation):
         supervisor = (control / "supervisor.pid").read_text()
     except FileNotFoundError:
         supervisor = None
-    MailboxStream = runpy.run_path(str(control / "streams.py"))["MailboxStream"]
+    streams = runpy.run_path(str(control / "streams.py"))
+    MailboxStream = streams["MailboxStream"]
     request = json.loads((invocation / "request.json").read_text())
     cancelled = lambda: (
         (invocation / "cancel").exists() or (invocation / "status").exists()
     )
     atomic_json(invocation / "client.pid", process_reference())
+    if request.get("terminalStream"):
+        try:
+            return run_terminal_invocation(invocation, streams)
+        except EOFError:
+            raise InvocationInterrupted("terminal_stream_closed") from None
+        finally:
+            acknowledge_invocation(invocation)
     (invocation / "stdin").touch()
 
     def copy_input():
@@ -1649,14 +1740,6 @@ def run_invocation(invocation):
     (invocation / "started").touch()
     streams = {name: MailboxStream(invocation, name) for name in ("stdout", "stderr")}
 
-    def write_all(descriptor, block):
-        remaining = memoryview(block)
-        while remaining:
-            written = os.write(descriptor, remaining)
-            if written <= 0:
-                raise BrokenPipeError("MicroVM output channel closed")
-            remaining = remaining[written:]
-
     def copy_output():
         for name, descriptor in [("stdout", 1), ("stderr", 2)]:
             # Bound each pass so a busy stdout cannot starve stderr or status.
@@ -1672,11 +1755,7 @@ def run_invocation(invocation):
             if (invocation / "status").exists():
                 copy_output()
                 # PID 1 can fail before it has created output streams.
-                diagnostic = invocation / "stderr"
-                if diagnostic.exists():
-                    with diagnostic.open("rb") as source:
-                        write_all(2, source.read(8192))
-                return int((invocation / "status").read_text())
+                return invocation_status(invocation)
             try:
                 current_supervisor = (control / "supervisor.pid").read_text()
             except FileNotFoundError:
@@ -1694,12 +1773,7 @@ def run_invocation(invocation):
                 )
             time.sleep(0.03)
     finally:
-        try:
-            (invocation / "cancel").touch()
-            # PID 1 removes completed mailboxes once the reader acknowledges them.
-            (invocation / "acknowledged").touch()
-        except FileNotFoundError:
-            pass  # Automatic recovery has already removed this old session.
+        acknowledge_invocation(invocation)
 
 
 def validate_execution(execution):
