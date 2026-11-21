@@ -1,4 +1,4 @@
-import { Button, Label, TextArea, TextField } from "@heroui/react";
+import { Button } from "@heroui/react";
 import { memo, useEffect, useRef, useState, type Ref } from "react";
 import { useAPI } from "./api";
 import { useDraft } from "./drafts";
@@ -6,6 +6,7 @@ import type { Agent, AgentInput, SandboxStatus } from "./generated";
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 import { AgentInbox } from "./agent-inbox";
+import { ChatInput } from "./chat-input";
 import { SandboxBadge } from "./sandbox-badge";
 import { Icon } from "./icons";
 import { useComposerAttachments } from "./composer-attachments";
@@ -243,57 +244,48 @@ export const AgentComposer = memo(function AgentComposer({
               onCommand={(name) => void send("steer", `/${name}`)}
             >
               {(commandsOpen) => (
-                <TextField
-                  fullWidth
-                  className="min-w-0 flex-1"
+                <ChatInput
                   value={prompt}
                   onChange={setPrompt}
                   autoFocus={autoFocus}
                   isDisabled={attachments.uploading}
-                >
-                  <Label className="sr-only">
-                    {t("Aufgabe oder neue Instruktion")}
-                  </Label>
-                  <TextArea
-                    className="min-h-16 max-h-40 resize-none [field-sizing:content]"
-                    placeholder={t("Was soll der Agent erledigen?")}
-                    rows={2}
-                    onPaste={attachments.paste}
-                    onKeyDown={(event) => {
-                      if (
-                        commandsOpen &&
-                        [
-                          "ArrowDown",
-                          "ArrowUp",
-                          "Enter",
-                          "Tab",
-                          "Escape",
-                        ].includes(event.key)
-                      )
-                        return;
+                  label={t("Aufgabe oder neue Instruktion")}
+                  placeholder={t("Was soll der Agent erledigen?")}
+                  onPaste={attachments.paste}
+                  onKeyDown={(event) => {
+                    if (
+                      commandsOpen &&
+                      [
+                        "ArrowDown",
+                        "ArrowUp",
+                        "Enter",
+                        "Tab",
+                        "Escape",
+                      ].includes(event.key)
+                    )
+                      return;
 
-                      if (
-                        event.key === "Tab" &&
-                        !event.shiftKey &&
-                        !event.ctrlKey &&
-                        !event.metaKey &&
-                        !event.altKey &&
-                        !event.nativeEvent.isComposing &&
-                        hasMessage
-                      ) {
-                        event.preventDefault();
-                        send("queue");
-                      } else if (
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !event.nativeEvent.isComposing
-                      ) {
-                        event.preventDefault();
-                        if (hasMessage) void send();
-                      }
-                    }}
-                  />
-                </TextField>
+                    if (
+                      event.key === "Tab" &&
+                      !event.shiftKey &&
+                      !event.ctrlKey &&
+                      !event.metaKey &&
+                      !event.altKey &&
+                      !event.nativeEvent.isComposing &&
+                      hasMessage
+                    ) {
+                      event.preventDefault();
+                      send("queue");
+                    } else if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      if (hasMessage) void send();
+                    }
+                  }}
+                />
               )}
             </ComposerCommandMenu>
           </div>

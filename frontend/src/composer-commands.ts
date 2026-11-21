@@ -19,7 +19,7 @@ type ComposerCommand = {
 export const composerCommands: readonly ComposerCommand[] = [
   {
     name: "side",
-    description: "Kurze Nebenfrage zum aktuellen Verlauf stellen",
+    description: "Nebenfrage zum aktuellen Verlauf stellen",
     execute: (context, args) => {
       context.side(args);
       return true;

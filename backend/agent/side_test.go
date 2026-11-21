@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providers"
@@ -106,6 +109,86 @@ func TestSideCloseCancelsInferenceAndReleasesAdmission(t *testing.T) {
 	}
 	if _, err := session.Ask("Still alive?", nil); err == nil {
 		t.Fatal("closed side accepted another question")
+	}
+}
+
+func TestSideKeepsRoomForQuestionsAndToolResults(t *testing.T) {
+	const messageID = "long-evidence"
+	evidence := strings.Repeat("😀\"\n", 10000)
+	followUp := strings.Repeat("latest question ", 900)
+	inferences := 0
+	var toolCalls []providers.Call
+	engine, root := testEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+		inferences++
+		if tokens := estimatedMessageTokens(request.Messages) + estimatedPromptTokens(request.System, request.Tools); tokens > 12000 {
+			t.Fatalf("side prompt exceeded its budget: %d", tokens)
+		}
+		switch inferences {
+		case 1, 2, 3:
+			return providers.Result{Text: strings.Repeat("Previous answer. ", 400)}, nil
+		case 4:
+			if request.Messages[len(request.Messages)-1].Content != followUp {
+				t.Fatal("older side exchanges displaced the user's question")
+			}
+		default:
+			results := request.Messages[len(request.Messages)-len(toolCalls):]
+			for i, result := range results {
+				var page struct {
+					Result struct {
+						Content    string
+						Offset     int
+						NextOffset int
+						HasMore    bool
+					}
+				}
+				if err := json.Unmarshal([]byte(result.Content), &page); err != nil {
+					t.Fatal(err)
+				}
+				slice := page.Result
+				if result.Role != "tool" || result.CallID != toolCalls[i].ID ||
+					len(slice.Content) == 0 || !utf8.ValidString(slice.Content) ||
+					!slice.HasMore || slice.NextOffset != slice.Offset+len(slice.Content) ||
+					!strings.HasPrefix(evidence[slice.Offset:], slice.Content) {
+					t.Fatal("a bounded tool page lost its content, cursor, or call association", result.CallID, slice.NextOffset)
+				}
+			}
+			if inferences == 7 {
+				return providers.Result{Text: "Read the requested evidence."}, nil
+			}
+		}
+		toolCalls = nil
+		for index := range 6 {
+			toolCalls = append(toolCalls, providers.Call{
+				ID: fmt.Sprintf("read-%d-%d", inferences, index), Name: "thread_history",
+				Arguments: map[string]any{"messageId": messageID, "offset": index * 6000, "bytes": 16000},
+			})
+		}
+		return responseCalls(toolCalls...), nil
+	}))
+	if err := engine.Store.Save("message", messageID, root.ID, domain.Message{
+		ID: messageID, AgentID: root.ID, Role: "assistant", Content: evidence,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := engine.OpenSide(context.Background(), root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	for i := range 3 {
+		if _, err := session.Ask(fmt.Sprintf("Previous question %d", i), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answer, err := session.Ask(followUp, nil)
+	if err != nil || answer != "Read the requested evidence." {
+		t.Fatal(answer, err)
+	}
+	for _, message := range session.history {
+		if (message.Role != "user" && message.Role != "assistant") || message.Wire != "" {
+			t.Fatal("unfinished retrieval or provider state was retained between questions")
+		}
 	}
 }
 

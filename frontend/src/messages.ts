@@ -66,8 +66,8 @@ export const english: Record<string, string> = {
     "Enter one directory per line. The initial checkout includes these directories and top-level files. Leave blank for a full checkout.",
   Befehle: "Commands",
   "Anweisung des Hauptagenten": "Instruction from main agent",
-  "Kurze Nebenfrage zum aktuellen Verlauf stellen":
-    "Ask a brief side question about this thread",
+  "Nebenfrage zum aktuellen Verlauf stellen":
+    "Ask a side question about this thread",
   "Teamwork-Board öffnen; mit Aufgabe Teamwork beauftragen":
     "Open the teamwork board; add a task to request teamwork",
   "An der aktuellen Aufgabe weiterarbeiten":
@@ -137,20 +137,20 @@ export const english: Record<string, string> = {
   // Temporary side questions and explicit collaboration.
   "Nebenfrage (/side)": "Side question (/side)",
   Nebenunterhaltung: "Side conversation",
-  "Kurze Frage zum Hauptthread": "Short question about the main thread",
+  "Frage zum Hauptthread": "Question about the main thread",
+  "Was möchtest du zum Hauptthread wissen?":
+    "What would you like to know about the main thread?",
+  "Was möchtest du wissen?": "What would you like to know?",
   "Nebenfrage senden": "Send side question",
   "Nebenunterhaltung wird geöffnet …": "Opening side conversation …",
   "Nebenunterhaltung beendet. Für weitere Fragen das Modal neu öffnen.":
     "Side conversation ended. Reopen the modal for more questions.",
-  "Antwort wird erarbeitet …": "Working on an answer …",
   "Nur lesender Zugriff · temporär": "Read-only access · temporary",
   "Die Nebenfrage darf höchstens 16000 Bytes lang sein.":
     "The side question must not exceed 16000 bytes.",
   "Ungültige Antwort der Nebenunterhaltung.":
     "Invalid side conversation response.",
   "Nebenfrage fehlgeschlagen.": "Side question failed.",
-  "Liest den Hauptthread und seine Unteragenten, ohne die Hauptarbeit zu verändern. Beim Schließen werden Unterhaltung und Agent beendet. Die Nutzung wird dem Hauptagenten zugerechnet.":
-    "Reads the main thread and its subagents without changing the main work. Closing ends the conversation and agent. Usage is attributed to the main agent.",
   "Teamwork-Board öffnen": "Open teamwork board",
   "Teamwork-Board": "Teamwork board",
   "Worker-Limit": "Worker limit",

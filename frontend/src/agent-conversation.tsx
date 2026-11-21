@@ -63,7 +63,7 @@ const ToolEntry = memo(function ToolEntry({
     "id" | "toolName" | "content" | "change" | "changes" | "activities"
   >;
   call?: ToolCall;
-  onInspect: (wire: string) => void;
+  onInspect?: (wire: string) => void;
   hasParentChanges?: boolean;
 }) {
   const { t, showDiagnostics } = useI18n();
@@ -204,7 +204,7 @@ const ToolEntry = memo(function ToolEntry({
                       changes.map((change) => (
                         <FileDiff key={change.id} change={change} />
                       ))}
-                    {showDiagnostics && call?.wire && (
+                    {showDiagnostics && onInspect && call?.wire && (
                       <Button
                         className="min-h-11"
                         size="sm"
@@ -237,7 +237,7 @@ function CodeModeActivities({
   activities: ToolActivity[];
   hasChanges: boolean;
   parentId: string;
-  onInspect: (wire: string) => void;
+  onInspect?: (wire: string) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -424,7 +424,7 @@ export const AgentConversation = memo(function AgentConversation({
 }: {
   messages: Message[];
   working: boolean;
-  onInspect: (wire: string) => void;
+  onInspect?: (wire: string) => void;
   projectDirectory?: string;
   projectId?: string;
 }) {
@@ -529,7 +529,7 @@ export const AgentConversation = memo(function AgentConversation({
                             </span>
                           </p>
                         ))}
-                        {showDiagnostics && (
+                        {showDiagnostics && onInspect && (
                           <Button
                             className="min-h-11"
                             size="sm"
@@ -543,7 +543,12 @@ export const AgentConversation = memo(function AgentConversation({
                     );
                   }
 
-                  if (calls.length || !message.wire || !showDiagnostics) {
+                  if (
+                    calls.length ||
+                    !message.wire ||
+                    !showDiagnostics ||
+                    !onInspect
+                  ) {
                     return null;
                   }
 
@@ -582,7 +587,7 @@ export const AgentConversation = memo(function AgentConversation({
                       </span>
                     </div>
                     <MessageContent message={message} />
-                    {showDiagnostics && !user && message.wire && (
+                    {showDiagnostics && onInspect && !user && message.wire && (
                       <Button
                         className="mt-1 min-h-11 text-xs text-muted"
                         size="sm"

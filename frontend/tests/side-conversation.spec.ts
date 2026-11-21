@@ -95,6 +95,11 @@ test("/side answers in an ephemeral modal without steering the main agent", asyn
 
   const modal = page.getByRole("dialog", { name: "Nebenfrage (/side)" });
   await expect(modal).toBeVisible();
+  await expect
+    .poll(() => modal.boundingBox())
+    .toMatchObject({ x: 0, y: 0, ...page.viewportSize() });
+  const history = modal.getByRole("region", { name: "Nebenunterhaltung" });
+  await expect(history.locator("[data-message-id]")).toHaveCount(2);
   await expect(modal).toContainText("Geprüfte Messung aus dem Unteragenten.");
   await expect(modal.locator("img")).toHaveCount(0);
   await expect(composer).toHaveValue("");
@@ -106,7 +111,7 @@ test("/side answers in an ephemeral modal without steering the main agent", asyn
   );
 
   await modal
-    .getByRole("textbox", { name: "Kurze Frage zum Hauptthread" })
+    .getByRole("textbox", { name: "Frage zum Hauptthread" })
     .fill("Und welcher Test?");
   await modal.getByRole("button", { name: "Nebenfrage senden" }).click();
   await expect.poll(() => fixture.questions.length).toBe(2);
@@ -125,20 +130,74 @@ test("/side answers in an ephemeral modal without steering the main agent", asyn
 test("side conversation controls follow the selected UI language", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "en"));
   await sideFixture(page);
   await openComposerCommand(page, "side");
 
   const modal = page.getByRole("dialog", { name: "Side question (/side)" });
-  await expect(modal).toContainText("Usage is attributed to the main agent.");
+  await expect(modal).toBeVisible();
+  await expect
+    .poll(() => modal.boundingBox())
+    .toEqual({
+      x: 0,
+      y: 0,
+      width: 390,
+      height: 844,
+    });
+  await expect(modal).toContainText("Read-only access · temporary");
   await expect(
     modal.getByRole("textbox", {
-      name: "Short question about the main thread",
+      name: "Question about the main thread",
     }),
   ).toBeVisible();
   await expect(
     modal.getByRole("button", { name: "Send side question" }),
   ).toBeVisible();
+});
+
+test("side chat follows new output until the reader scrolls back", async ({
+  page,
+}) => {
+  const fixture = await sideFixture(page, false);
+  await openComposerCommand(page, "side");
+  const modal = page.getByRole("dialog", { name: "Nebenfrage (/side)" });
+  const composer = modal.getByRole("textbox", {
+    name: "Frage zum Hauptthread",
+  });
+  await composer.fill("Zeig mir die Ergebnisse.");
+  await composer.press("Enter");
+  await expect.poll(() => fixture.questions.length).toBe(1);
+
+  const id = fixture.questions[0].id;
+  const scroll = modal.getByRole("region", { name: "Nebenunterhaltung" });
+  const text = Array.from(
+    { length: 90 },
+    (_, index) => `Ergebnis ${index + 1}`,
+  ).join("\n");
+  fixture.connections[0].send(JSON.stringify({ type: "delta", id, text }));
+  await expect(scroll).toContainText("Ergebnis 90");
+  const remaining = () =>
+    scroll.evaluate(({ scrollHeight, clientHeight, scrollTop }) =>
+      Math.round(scrollHeight - clientHeight - scrollTop),
+    );
+  await expect.poll(remaining).toBe(0);
+  await expect(composer).toBeInViewport();
+
+  await scroll.evaluate((container) => {
+    container.scrollTop = 0;
+  });
+  const jump = modal.getByRole("button", { name: "Zu neuesten Einträgen ↓" });
+  await expect(jump).toBeVisible();
+  const answer = text + "\nLetztes Ergebnis";
+  fixture.connections[0].send(
+    JSON.stringify({ type: "done", id, text: answer }),
+  );
+  await expect(scroll).toContainText("Letztes Ergebnis");
+  expect(await scroll.evaluate((container) => container.scrollTop)).toBe(0);
+
+  await jump.click();
+  await expect.poll(remaining).toBe(0);
 });
 
 test("closing /side cancels its socket even while an answer is running", async ({
@@ -148,10 +207,10 @@ test("closing /side cancels its socket even while an answer is running", async (
   await openComposerCommand(page, "side");
   const modal = page.getByRole("dialog", { name: "Nebenfrage (/side)" });
   await modal
-    .getByRole("textbox", { name: "Kurze Frage zum Hauptthread" })
+    .getByRole("textbox", { name: "Frage zum Hauptthread" })
     .fill("Laufende Frage");
   await modal.getByRole("button", { name: "Nebenfrage senden" }).click();
-  await expect(modal).toContainText("Antwort wird erarbeitet");
+  await expect(modal).toContainText("Antwort wird vorbereitet");
   await modal.getByRole("button", { name: "Schließen", exact: true }).click();
   await expect.poll(fixture.closed).toBe(1);
   expect(fixture.connections).toHaveLength(1);

@@ -54,7 +54,7 @@ func TestPublicThreadIncludesDescendantsButNotPrivateOrUnrelatedAgents(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := result.(map[string]any)["content"].(string)
+	content := result["content"].(string)
 	if !utf8.ValidString(content) || len(content) > 8 || !strings.HasPrefix(message.Content, content) {
 		t.Fatal("slice lost byte bounds or UTF-8 integrity", content)
 	}

@@ -76,7 +76,7 @@ func (engine *Engine) threadMember(root domain.Agent, agentID string) (domain.Ag
 	return member, nil
 }
 
-func (engine *Engine) threadHistory(root domain.Agent, arguments map[string]any) (any, error) {
+func (engine *Engine) threadHistory(root domain.Agent, arguments map[string]any) (map[string]any, error) {
 	if boolArg(arguments, "members") {
 		return engine.threadMembersPage(root, arguments)
 	}
@@ -91,7 +91,7 @@ func (engine *Engine) threadHistory(root domain.Agent, arguments map[string]any)
 
 // The caller establishes ownership before using the common bounded projection.
 // Public threads and independent reviewers keep their separate access policies.
-func (engine *Engine) messageHistoryPage(member domain.Agent, arguments map[string]any) (any, error) {
+func (engine *Engine) messageHistoryPage(member domain.Agent, arguments map[string]any) (map[string]any, error) {
 	if messageID := stringArg(arguments, "messageId"); messageID != "" {
 		return engine.threadMessage(member, messageID, arguments)
 	}
@@ -122,7 +122,7 @@ func (engine *Engine) messageHistoryPage(member domain.Agent, arguments map[stri
 	}, nil
 }
 
-func (engine *Engine) threadMembersPage(root domain.Agent, arguments map[string]any) (any, error) {
+func (engine *Engine) threadMembersPage(root domain.Agent, arguments map[string]any) (map[string]any, error) {
 	current, err := engine.threadMember(root, root.ID)
 	if err != nil {
 		return nil, err
@@ -152,7 +152,7 @@ func (engine *Engine) threadMembersPage(root domain.Agent, arguments map[string]
 	return map[string]any{"agents": members[start:end], "nextOffset": end, "hasMore": end < len(members)}, nil
 }
 
-func (engine *Engine) threadMessage(member domain.Agent, messageID string, arguments map[string]any) (any, error) {
+func (engine *Engine) threadMessage(member domain.Agent, messageID string, arguments map[string]any) (map[string]any, error) {
 	var message domain.Message
 	if err := engine.Store.Load("message", messageID, &message); err != nil {
 		return nil, err
