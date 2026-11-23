@@ -58,6 +58,50 @@ func TestHostedHumanizerSendsTheEntireApprovedBatchInOneJob(t *testing.T) {
 	}
 }
 
+func TestToolSearchFindsConfiguredHumanizer(t *testing.T) {
+	engine, record := testEngine(t, nil)
+	search := func(agent domain.Agent, query string) []string {
+		t.Helper()
+		result, err := engine.dispatch(context.Background(), agent, providers.Call{
+			Name: "tool_search", Arguments: map[string]any{"query": query},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.([]string)
+	}
+	if hits := search(record, "humanize_text"); len(hits) != 0 {
+		t.Fatalf("disabled Humanizer appeared in search: %v", hits)
+	}
+
+	settings := domain.HumanizerSettings{Model: domain.ModelChoice{ProviderID: "main-provider", ModelID: "test"}}
+	if err := engine.SaveHumanizer(settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{
+		"humanize_text",
+		"Humanizer",
+		"humanize_text batch ordered texts in code_mode retain results external Humanizer",
+	} {
+		hits := search(record, query)
+		if !slices.Contains(hits, humanizerToolHelp) || len(hits) > 8 {
+			t.Fatalf("query %q: unexpected results %v", query, hits)
+		}
+	}
+	approver := record
+	approver.Role = "approver"
+	if hits := search(approver, "humanize_text"); len(hits) != 0 {
+		t.Fatalf("Humanizer appeared for an approver: %v", hits)
+	}
+
+	if err := engine.SaveHumanizer(domain.HumanizerSettings{}); err != nil {
+		t.Fatal(err)
+	}
+	if hits := search(record, "Humanizer"); len(hits) != 0 {
+		t.Fatalf("removed Humanizer appeared in search: %v", hits)
+	}
+}
+
 func TestHumanizerRequiresFreshApprovalAndSendsOnlyReviewedText(t *testing.T) {
 	var engine *Engine
 	var phases []string

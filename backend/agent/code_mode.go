@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -174,25 +175,33 @@ func (engine *Engine) runCodeMode(
 	return response, err
 }
 
-func searchToolCatalog(query string) []string {
+func searchToolCatalog(query string, additionalEntries ...string) []string {
 	terms := strings.Fields(strings.ToLower(query))
+	exact := []string{}
 	result := []string{}
-	for _, line := range strings.Split(toolHelp, "\n") {
+	for _, line := range append(strings.Split(toolHelp, "\n"), additionalEntries...) {
 		if !strings.Contains(line, "{") {
 			continue
 		}
 
+		lower := strings.ToLower(line)
+		name, _, _ := strings.Cut(lower, " ")
+		if slices.Contains(terms, name) {
+			exact = append(exact, line)
+			continue
+		}
+		if len(result) == 8 {
+			continue
+		}
+
 		for _, term := range terms {
-			if strings.Contains(strings.ToLower(line), term) {
+			if strings.Contains(lower, term) {
 				result = append(result, line)
 				break
 			}
 		}
-
-		if len(result) == 8 {
-			break
-		}
 	}
 
-	return result
+	result = append(exact, result...)
+	return result[:min(8, len(result))]
 }

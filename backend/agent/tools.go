@@ -275,7 +275,11 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 	case "code_mode":
 		return engine.runCodeMode(ctx, agentRecord, arguments)
 	case "tool_search":
-		return searchToolCatalog(stringArg(arguments, "query")), nil
+		query := stringArg(arguments, "query")
+		if agentRecord.Role != "approver" && engine.humanizerEnabled() {
+			return searchToolCatalog(query, humanizerToolHelp), nil
+		}
+		return searchToolCatalog(query), nil
 	case "instructions_read":
 		return engine.ownInstructions(agentRecord)
 	case "approval_clarify":

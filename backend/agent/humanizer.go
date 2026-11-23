@@ -15,6 +15,10 @@ import (
 )
 
 const humanizerAction = "humanize_text"
+const humanizerToolHelp = humanizerAction + " {text?,texts?:[string],network:true,justification?} " +
+	"(Humanizer for natural rewrites requested by the user. Use either text or one ordered texts batch. " +
+	"Up to 12,000 UTF-8 bytes per text, 24 texts and 64,000 bytes per batch. " +
+	"Sends text to the configured external service after Auto-Approver review; may consume credits.)"
 const maxHumanizerInput = 12000
 const maxHumanizerBatchItems = 24
 const maxHumanizerBatchBytes = 64000
