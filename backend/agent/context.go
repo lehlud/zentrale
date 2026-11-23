@@ -30,7 +30,13 @@ func (engine *Engine) prepareContext(
 		return agentRecord, nil, err
 	}
 
-	history, err := engine.loadHistory(agentRecord.ID)
+	var history []domain.Message
+	var offset int
+	if agentRecord.Role == "approver" && !force {
+		history, offset, err = engine.Store.ReviewHistory(ctx, agentRecord.ID, reviewHistoryGroups)
+	} else {
+		history, err = engine.Store.MessageHistory(ctx, agentRecord.ID)
+	}
 	if err != nil {
 		return agentRecord, nil, err
 	}
@@ -40,11 +46,13 @@ func (engine *Engine) prepareContext(
 		return agentRecord, nil, err
 	}
 
-	floor, err := engine.contextFloor(agentRecord.ID, len(history))
+	floor, err := engine.contextFloor(agentRecord.ID, offset+len(history))
 	if err != nil {
 		return agentRecord, nil, err
 	}
 
+	floor = max(0, floor-offset)
+	contextStart := max(0, agentRecord.ContextStart-offset)
 	// Keep original instructions available even when their messages leave the active window.
 	evidenceHistory := history
 	evidenceFloor := 0
@@ -62,7 +70,7 @@ func (engine *Engine) prepareContext(
 		)
 	}
 
-	start := min(max(agentRecord.ContextStart, floor), len(history))
+	start := min(max(contextStart, floor), len(history))
 	messages := modelHistory(history[start:], configuration.Model.ContextWindow)
 	overhead := 0
 
@@ -90,6 +98,11 @@ func (engine *Engine) prepareContext(
 
 	activeOverhead += estimatedMessageTokens([]domain.Message{{Wire: nativeWire}})
 	if shouldCompact(agentRecord, configuration, messages, force, activeOverhead) {
+		if offset > 0 {
+			// Compaction persists an absolute boundary and may need older
+			// evidence. Use the full audit history only for this rare path.
+			return engine.prepareContext(ctx, agentRecord, configuration, true, promptTokens...)
+		}
 		requestWindow := restoreConversationBoundary(window)
 		originals := originalsBefore(start)
 		requestWindow = append(missingOriginals(originals, requestWindow), requestWindow...)
@@ -164,6 +177,7 @@ func (engine *Engine) prepareContext(
 
 		messages = messages[cut:]
 		start = nextStart
+		contextStart = agentRecord.ContextStart
 	}
 
 	// Rebuild the request around current runtime state and any persisted summary.
@@ -175,12 +189,12 @@ func (engine *Engine) prepareContext(
 			Content: "Context was compacted. Persistent summary:\n" + agentRecord.Summary,
 		}
 
-		anchors := originalsBefore(agentRecord.ContextStart)
+		anchors := originalsBefore(contextStart)
 		messages = append(append(missingOriginals(anchors, messages), summary), messages...)
 	}
 
 	if nativeWire != "" {
-		anchors := originalsBefore(agentRecord.ContextStart)
+		anchors := originalsBefore(contextStart)
 		messages = append(append([]domain.Message{
 			{
 				Role: "context",

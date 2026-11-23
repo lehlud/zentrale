@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"time"
 
@@ -149,13 +149,5 @@ func (engine *Engine) persistMessage(
 }
 
 func (engine *Engine) loadHistory(agentID string) ([]domain.Message, error) {
-	rows, err := engine.listAll("message", &agentID)
-	if err != nil {
-		return nil, err
-	}
-
-	var messages []domain.Message
-	err = json.Unmarshal([]byte(JSON(rows)), &messages)
-
-	return messages, err
+	return engine.Store.MessageHistory(context.Background(), agentID)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -92,6 +93,59 @@ func TestApprovalQueueDeadlineDoesNotRunReview(t *testing.T) {
 	_, err = engine.approve(ctx, record, interaction{Action: "read_file"})
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "review queue") {
 		t.Fatalf("queue did not return a bounded failure: %v", err)
+	}
+}
+
+func TestApprovalQueueLeavesAFullReviewBudget(t *testing.T) {
+	modelDeadline := make(chan time.Time, 1)
+	engine, record := testEngine(t, providerFunction(func(ctx context.Context, _ providers.Request) (providers.Result, error) {
+		deadline, _ := ctx.Deadline()
+		modelDeadline <- deadline
+		return providers.Result{Text: `{"allowed":true}`, UsageKnown: true}, nil
+	}))
+	approver, err := engine.familyApprover(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := engine.acquireReview(context.Background(), approver.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock := sync.OnceFunc(release)
+	defer unlock()
+
+	reads := engine.Store.ReadQueryCount()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.approve(ctx, record, interaction{Action: "write_file"})
+		done <- err
+	}()
+
+	// The first store lookup is after the queue deadline has started.
+	limit := time.After(5 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for engine.Store.ReadQueryCount() == reads {
+		select {
+		case <-ticker.C:
+		case <-limit:
+			t.Fatal("review did not enter its queue")
+		}
+	}
+	releasedAt := time.Now()
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-limit:
+		t.Fatal("review did not complete after the gate was released")
+	}
+	if deadline := <-modelDeadline; deadline.Before(releasedAt.Add(approvalTimeout)) {
+		t.Fatal("queue waiting reduced the time available to review")
 	}
 }
 

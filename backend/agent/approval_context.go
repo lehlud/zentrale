@@ -14,6 +14,10 @@ import (
 // review tokens. Current instructions, the request and inspections are separate.
 const maximumReviewHistoryTokens = 8192
 
+// Only recent, complete reviews are candidates for the optional history.
+// Fetch them at the database boundary before decoding snapshots and outputs.
+const reviewHistoryGroups = 16
+
 // The current review and its ongoing inspections are mandatory. Earlier reviews
 // are optional evidence, admitted as complete groups under a separate budget.
 // Every newest request still carries all current original user instructions.

@@ -124,6 +124,53 @@ func TestReviewerHistoryUsesAnIndependentBudgetWithoutSummaryCalls(t *testing.T)
 	}
 }
 
+func TestReviewerLoadsRecentGroupsAndPreservesTheAuditBoundary(t *testing.T) {
+	engine, record := testEngine(t, nil)
+	approver, err := engine.familyApprover(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for group := range reviewHistoryGroups + 8 {
+		content := JSON(map[string]any{
+			"mainAgentId": record.ID, "action": "exec",
+			"arguments":        map[string]any{"command": fmt.Sprintf("review-group-%d-marker", group)},
+			"userInstructions": "Preserve original user restrictions.",
+		})
+		if err := engine.appendMessage(approver.ID, "event", content, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := engine.appendMessage(approver.ID, "assistant", `{"allowed":true}`, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, offset, err := engine.Store.ReviewHistory(context.Background(), approver.ID, reviewHistoryGroups)
+	if err != nil || offset != 16 || len(history) != reviewHistoryGroups*2 || history[0].Role != "event" {
+		t.Fatalf("review window has offset %d, %d messages: %v", offset, len(history), err)
+	}
+
+	// Rotation stores an absolute boundary, which must not become relative to
+	// the shorter window. The new review still needs the original instructions.
+	approver.ContextStart = offset + 4
+	if err := engine.saveAgentContext(approver); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := engine.inferenceConfiguration(context.Background(), approver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, messages, err := engine.prepareContext(context.Background(), approver, configuration, false)
+	view := JSON(messages)
+	if err != nil || prepared.ContextStart != approver.ContextStart ||
+		strings.Contains(view, "review-group-9-marker") || !strings.Contains(view, "review-group-10-marker") ||
+		!strings.Contains(view, "Preserve original user restrictions.") {
+		t.Fatalf("review window did not respect the saved boundary: %v", err)
+	}
+	fullHistory, err := engine.loadHistory(approver.ID)
+	if err != nil || len(fullHistory) != offset+len(history) {
+		t.Fatalf("original audit history was lost: %d messages, %v", len(fullHistory), err)
+	}
+}
+
 type compactingProvider struct {
 	providerFunction
 	compact func(context.Context, providers.Request) (providers.Result, error)

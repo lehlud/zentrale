@@ -12,8 +12,8 @@ import (
 
 const maximumInspectionTurns = 20
 
-// Bound both queueing and all model/inspection turns. A reviewer emitting a
-// trickle of output must not monopolize the family's gate forever.
+// Queueing and active review each have a deadline. A waiting action should
+// still have time to reach a decision once it holds the family's review gate.
 const approvalTimeout = 2 * time.Minute
 
 const approverInstructions = `You are the independent auto-approval agent for one Zentrale main-agent family, shared by its main agent and subagents.
@@ -61,26 +61,31 @@ func (engine *Engine) approve(
 	agentRecord domain.Agent,
 	request interaction,
 ) (blanket bool, err error) {
-	ctx = providers.WithResponsesTurn(ctx)
-	defer providers.CloseResponsesTurn(ctx)
-	ctx, cancel := context.WithTimeout(ctx, approvalTimeout)
-	defer cancel()
+	queue, stopWaiting := context.WithTimeout(ctx, approvalTimeout)
+	defer stopWaiting()
+	phaseContext := queue
 	phase := "review queue"
 	defer func() {
-		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if err != nil && errors.Is(phaseContext.Err(), context.DeadlineExceeded) {
 			blanket = false
-			err = fmt.Errorf("auto-approval timed out during %s; action not authorized: %w", phase, ctx.Err())
+			err = fmt.Errorf("auto-approval timed out during %s; action not authorized: %w", phase, phaseContext.Err())
 		}
 	}()
 	approver, err := engine.familyApprover(agentRecord)
 	if err != nil {
 		return false, err
 	}
-	release, err := engine.acquireReview(ctx, approver.ID)
+	release, err := engine.acquireReview(queue, approver.ID)
 	if err != nil {
 		return false, err
 	}
 	defer release()
+	stopWaiting()
+	ctx = providers.WithResponsesTurn(ctx)
+	defer providers.CloseResponsesTurn(ctx)
+	ctx, cancel := context.WithTimeout(ctx, approvalTimeout)
+	phaseContext = ctx
+	defer cancel()
 	phase = "review preparation"
 	revision := engine.instructionRevision(agentRecord.ProjectID)
 
@@ -108,6 +113,10 @@ func (engine *Engine) approve(
 	defer engine.finishAgent(approver.ID, nil)
 
 	for range maximumInspectionTurns {
+		phase = "review preparation"
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		if err := engine.Store.Load("agent", approver.ID, &approver); err != nil {
 			return false, err
 		}
@@ -116,6 +125,9 @@ func (engine *Engine) approve(
 		tools := []providers.Tool{inspectTool()}
 		approver, messages, err := engine.prepareContext(ctx, approver, configuration, false, estimatedPromptTokens(system, tools))
 		if err != nil {
+			return false, err
+		}
+		if err := ctx.Err(); err != nil {
 			return false, err
 		}
 
