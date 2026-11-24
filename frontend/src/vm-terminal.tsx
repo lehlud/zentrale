@@ -455,16 +455,6 @@ export default function VMTerminal({
                   </div>
                 )}
               </div>
-              <p className="shrink-0 border-t border-border px-3 py-2 text-xs text-muted">
-                {t(
-                  "Esc bleibt im Terminal. {shortcut} oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.",
-                  {
-                    shortcut: t(
-                      macKeyboard ? "Ctrl+Option+Umschalt+T" : "Alt+Umschalt+T",
-                    ),
-                  },
-                )}
-              </p>
               {checkingRepository && (
                 <RepositoryConnection
                   agentId={agentId}

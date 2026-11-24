@@ -1517,10 +1517,6 @@ Object.assign(english, {
     "Invalid terminal connection response.",
   "Zu viele ausstehende Terminal-Eingaben. Verbindung beendet.":
     "Too much pending terminal input. Connection closed.",
-  "Ctrl+Option+Umschalt+T": "Ctrl+Option+Shift+T",
-  "Alt+Umschalt+T": "Alt+Shift+T",
-  "Esc bleibt im Terminal. {shortcut} oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.":
-    "Esc stays in the terminal. {shortcut} or Close ends this session. The VM stops automatically when no longer in use.",
   "Stopp angefordert.": "Stop requested.",
   "Optionaler Token für GitHub-API-Werkzeuge. Die Repo-Auswahl verwendet die Git-Verbindung.":
     "Optional token for GitHub API tools. Repository selection uses the Git connection.",
