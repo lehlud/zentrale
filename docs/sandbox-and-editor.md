@@ -44,11 +44,20 @@ Runtime directories include the resolved artifact identity, so running VMs
 keep their own runtime files through an update.
 
 Guests use the logical CPUs available to the runner, up to QEMU's `microvm`
-limit, with 4 GiB RAM and a sparse disk capped at 8 GiB. Git uses one checkout
-worker per guest vCPU within the guest process limit. Disks, VM artifacts and
-per-project scratch normally live in private directories under `/tmp` on the
-remote machine. When `/tmp` is quota-limited tmpfs and `/var/tmp` is a separate
-filesystem, the runner keeps guest disks under `/var/tmp/zentrale-microvm-disks-<uid>`.
+limit, with 4 GiB of addressable RAM and a sparse disk capped at 8 GiB. With QEMU
+and Linux support, VirtIO free-page reporting returns free guest pages to the
+host. QEMU allocates backing again as the guest touches those pages. The guest
+can use its full RAM capacity throughout, including for its Linux page cache.
+This also works with NVIDIA forwarding. VFIO passthrough pins guest RAM for
+device access and prevents this form of reclaim. `microvm_info` reports whether
+the guest negotiated `freePageReporting`. The feature takes effect when a VM
+starts with the updated runner.
+
+Git uses one checkout worker per guest vCPU within the guest process limit.
+Disks, VM artifacts and per-project scratch normally live in private directories
+under `/tmp` on the remote machine. When `/tmp` is quota-limited tmpfs and
+`/var/tmp` is a separate filesystem, the runner keeps guest disks under
+`/var/tmp/zentrale-microvm-disks-<uid>`.
 It moves an existing disk when the guest next starts. Reboots and temporary-file
 cleanup may remove temporary data. Zentrale creates a new guest when needed.
 Project files and configured storage are mounted separately

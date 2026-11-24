@@ -44,6 +44,7 @@ MAX_MICROVM_CPUS = 288  # QEMU's microvm machine limit.
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 MAX_KERNEL_EXTRACT_BYTES = 256 * 1024 * 1024
+BALLOON_DEVICE = "virtio-balloon-device"
 
 
 class UnavailableError(RuntimeError):
@@ -660,6 +661,21 @@ def guard_parent(expected_parent):
         os._exit(125)
 
 
+def supports_free_page_reporting(qemu):
+    if qemu is None:
+        return False
+    try:
+        features = subprocess.run(
+            [qemu, "-device", BALLOON_DEVICE + ",help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return features.returncode == 0 and "free-page-reporting=" in features.stdout
+
+
 def virtme_arguments(runtime, kernel, invocation, request):
     addresses = gpu_devices(request)
     if request.get("provision"):
@@ -678,14 +694,18 @@ def virtme_arguments(runtime, kernel, invocation, request):
             )
         ):
             raise RuntimeError("invalid GPU PCI addresses")
+    nvidia = request.get("gpuBackend") == "nvidia" and not request.get("provision")
+    qemu = (
+        str(Path(request["gpuRuntime"]) / "qemu/bin/qemu-system-x86_64")
+        if nvidia
+        else shutil.which("qemu-system-x86_64", path=SYSTEM_PATH)
+    )
     arguments = [
         "virtme-run",
         "--arch",
         "microvm",
         "--qemu-bin",
-        str(Path(request["gpuRuntime"]) / "qemu/bin/qemu-system-x86_64")
-        if request.get("gpuBackend") == "nvidia" and not request.get("provision")
-        else shutil.which("qemu-system-x86_64", path=SYSTEM_PATH),
+        qemu,
         "--kimg",
         str(kernel),
         "--mods",
@@ -713,7 +733,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         arguments.extend(
             ["--rodir", "/run/zentrale-kernel=" + str(kernel.parent.parent)]
         )
-    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+    if nvidia:
         arguments.extend(
             [
                 "--rodir",
@@ -757,9 +777,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
                 "virtio-net-device,netdev=zentrale",
             ]
         )
-    if not request.get("provision") and (
-        addresses or request.get("gpuBackend") == "nvidia"
-    ):
+    if addresses or nvidia:
         arguments.extend(
             [
                 "-machine",
@@ -768,7 +786,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
                 "-no-user-config",
             ]
         )
-    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+    if nvidia:
         arguments.extend(
             [
                 "-device",
@@ -793,6 +811,14 @@ def virtme_arguments(runtime, kernel, invocation, request):
         if function == "0":
             option += ",multifunction=on"
         arguments.extend(["-device", option])
+    # Demand allocation with free-page reporting leaves the full memory limit
+    # available to the guest. VFIO passthrough pins the guest's system RAM.
+    if (
+        not request.get("provision")
+        and not addresses
+        and supports_free_page_reporting(qemu)
+    ):
+        arguments.extend(["-device", BALLOON_DEVICE + ",free-page-reporting=on"])
     return arguments
 
 

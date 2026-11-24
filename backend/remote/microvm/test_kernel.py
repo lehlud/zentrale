@@ -73,6 +73,33 @@ class GuestKernelTests(unittest.TestCase):
             )
         )
 
+    def test_free_page_reporting_loads_the_balloon_driver_and_checks_negotiation(self):
+        device = self.cache / "virtio0"
+        device.mkdir()
+        (device / "device").write_text("0x0005\n")
+        features = device / "features"
+        features.write_text("000001000\n")
+        driver = device / "driver"
+        with patch.object(
+            guest, "load_module", side_effect=lambda name: driver.symlink_to(name)
+        ) as load:
+            self.assertTrue(guest.enable_free_page_reporting(self.cache))
+            load.assert_called_once_with("virtio_balloon")
+            features.write_text("000000000\n")
+            self.assertFalse(guest.enable_free_page_reporting(self.cache))
+            self.assertEqual(load.call_count, 1)
+
+    def test_missing_balloon_driver_does_not_fail_guest_boot(self):
+        device = self.cache / "virtio0"
+        device.mkdir()
+        (device / "device").write_text("0x0005\n")
+        with (
+            patch.object(guest, "load_module", side_effect=RuntimeError("module missing")),
+            patch.object(guest.sys, "stderr", new=io.StringIO()) as log,
+        ):
+            self.assertFalse(guest.enable_free_page_reporting(self.cache))
+            self.assertIn("module missing", log.getvalue())
+
     def test_fedora_base_is_not_acknowledged_if_unmount_fails(self):
         root = self.cache / "fedora"
         exists = Path.exists

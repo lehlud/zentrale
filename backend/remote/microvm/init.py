@@ -94,6 +94,22 @@ def load_module(name):
         )
 
 
+def enable_free_page_reporting(devices=Path("/sys/bus/virtio/devices")):
+    try:
+        for device in devices.glob("virtio*"):
+            if (device / "device").read_text().strip() != "0x0005":  # Balloon
+                continue
+            if not (device / "driver").is_symlink():
+                load_module("virtio_balloon")
+            if not (device / "driver").is_symlink():
+                return False
+            # sysfs lists feature bits starting at bit zero.
+            return (device / "features").read_text()[5:6] == "1"  # VIRTIO_BALLOON_F_REPORTING
+    except (OSError, RuntimeError) as error:
+        print("MicroVM free-page reporting unavailable: " + str(error), file=sys.stderr)
+    return False
+
+
 def discover_ports():
     load_module("virtio_console")
     expected = {
@@ -879,6 +895,7 @@ def dispatch_jobs(requests, workers):
 
 
 def serve_jobs(request):
+    free_page_reporting = enable_free_page_reporting()
     prepare_fedora(request)
     if request.get("provision"):
         return
@@ -900,6 +917,7 @@ def serve_jobs(request):
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
         "workspaceHealth": True,
         "terminalStream": True,
+        "freePageReporting": free_page_reporting,
         "gpuDevices": request.get("gpuDevices", []),
         "storage": [
             {"id": entry["id"], "path": entry["guestPath"]}

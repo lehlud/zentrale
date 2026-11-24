@@ -70,6 +70,52 @@ class MicroVMRunnerTests(unittest.TestCase):
         ):
             runner.check_guest_kernel_modules()
 
+    def test_qemu_must_advertise_free_page_reporting(self):
+        qemu = "/usr/bin/qemu-system-x86_64"
+        for status, output, supported in (
+            (0, "  free-page-reporting=<bool>\n", True),
+            (0, "  free-page-hint=<bool>\n", False),
+            (1, "  free-page-reporting=<bool>\n", False),
+        ):
+            with (
+                self.subTest(status=status, output=output),
+                patch.object(
+                    runner.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], status, output, ""),
+                ),
+            ):
+                self.assertEqual(runner.supports_free_page_reporting(qemu), supported)
+        with patch.object(
+            runner.subprocess, "run", side_effect=subprocess.TimeoutExpired(qemu, 5)
+        ):
+            self.assertFalse(runner.supports_free_page_reporting(qemu))
+
+    def test_free_page_reporting_excludes_provisioning_and_vfio(self):
+        balloon = "virtio-balloon-device,free-page-reporting=on"
+        for request, supported, enabled in (
+            ({}, True, True),
+            ({}, False, False),
+            ({"provision": True}, True, False),
+            ({"gpuDevices": ["0000:65:00.0"]}, True, False),
+            ({"gpuBackend": "nvidia", "gpuRuntime": "/runtime"}, True, True),
+            ({"gpuBackend": "nvidia", "gpuRuntime": "/runtime"}, False, False),
+        ):
+            with (
+                self.subTest(request=request, supported=supported),
+                patch.object(
+                    runner.shutil, "which", return_value="/usr/bin/qemu-system-x86_64"
+                ),
+                patch.object(
+                    runner, "supports_free_page_reporting", return_value=supported
+                ),
+            ):
+                arguments = runner.virtme_arguments(
+                    self.cache, Path("/boot/kernel"), self.root, request
+                )
+                self.assertEqual(balloon in arguments, enabled)
+                self.assertEqual(arguments[arguments.index("--memory") + 1], "4096M")
+
     def test_bootstrap_failure_retains_a_bounded_diagnostic_after_cleanup(self):
         control = self.root / "bootstrap"
         control.mkdir()
