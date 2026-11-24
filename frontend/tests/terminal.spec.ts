@@ -396,6 +396,110 @@ test("opened startup transports reconnect to the same session, and missing exit 
   expect(probes).toBe(0);
 });
 
+test("macOS Neo2 Option keys and dead keys reach the VM as text", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel" });
+    localStorage.setItem("zentrale-locale", "de");
+  });
+  const resolve = (query: string) =>
+    query.includes("status{")
+      ? { status: { needsSetup: false, authenticated: true } }
+      : isTranscriptQuery(query)
+        ? bootstrapData(query, { ...transcript, agent })
+        : config;
+  await installPushFixture(page, resolve);
+  await page.route("**/graphql", (route) =>
+    route.fulfill({
+      json: { data: resolve(route.request().postDataJSON().query) },
+    }),
+  );
+  const input: Buffer[] = [];
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket("**/terminal/**", (socket) => {
+    sockets.push(socket);
+    socket.onMessage((data) => {
+      const bytes = terminalInput(socket, data);
+      if (bytes) input.push(bytes);
+    });
+    socket.send(JSON.stringify({ type: "status", status: "ready" }));
+  });
+
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await page.getByRole("button", { name: "Terminal in der VM öffnen" }).click();
+  const dialog = page.getByRole("dialog", { name: "VM-Terminal" });
+  const field = dialog.getByRole("textbox", { name: "Terminal-Eingabe" });
+  await expect(field).toBeFocused();
+
+  // Playwright supplies the layout-resolved key and the browser text commit
+  // separately, since the CI host has no macOS keyboard layout or Karabiner.
+  const optionKeyDown = async (key: string, code: string, shiftKey = false) => {
+    expect(
+      await field.evaluate(
+        (element, init) =>
+          element.dispatchEvent(new KeyboardEvent("keydown", init)),
+        { key, code, shiftKey, altKey: true, bubbles: true, cancelable: true },
+      ),
+    ).toBe(true);
+  };
+
+  await optionKeyDown("[", "KeyE");
+  await page.keyboard.insertText("[");
+  await optionKeyDown("ω", "KeyT", true);
+  await page.keyboard.insertText("ω");
+  await optionKeyDown("PageDown", "PageDown", true);
+  await optionKeyDown("Dead", "PageDown", true);
+  await field.evaluate((element: HTMLTextAreaElement) => {
+    element.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
+    element.value = "∞";
+    element.dispatchEvent(
+      new InputEvent("input", {
+        data: "∞",
+        inputType: "insertCompositionText",
+        bubbles: true,
+      }),
+    );
+    element.dispatchEvent(
+      new CompositionEvent("compositionend", { data: "∞", bubbles: true }),
+    );
+    element.value = "∞";
+    element.dispatchEvent(
+      new InputEvent("input", {
+        data: "∞",
+        inputType: "insertText",
+        bubbles: true,
+      }),
+    );
+  });
+  await page.keyboard.press("PageDown");
+  await page.keyboard.press("Alt+ArrowLeft");
+  await page.keyboard.press("Control+c");
+  const legacyInput = "[ω∞\x1b[6~\x1b[1;3D\x03";
+  await expect
+    .poll(() => Buffer.concat(input).toString("utf8"))
+    .toBe(legacyInput);
+
+  sockets[0].send(Buffer.from("\x1b[>1u\r\nKEYBOARD_READY"));
+  const screen = dialog.getByRole("group", {
+    name: "Terminal-Ein- und Ausgabe",
+  });
+  await expect(screen).toContainText("KEYBOARD_READY");
+  await optionKeyDown("λ", "KeyR", true);
+  await page.keyboard.insertText("λ");
+  await expect
+    .poll(() => Buffer.concat(input).toString("utf8"))
+    .toBe(legacyInput + "λ");
+
+  await expect(
+    dialog.getByRole("button", { name: "Schließen" }),
+  ).toHaveAttribute("aria-keyshortcuts", "Control+Alt+Shift+T");
+  await page.keyboard.press("Control+Alt+Shift+T");
+  await expect(dialog).not.toBeVisible();
+});
+
 for (const variant of [
   { locale: "de", theme: "light", width: 1440, height: 1000 },
   { locale: "en", theme: "dark", width: 390, height: 844 },
@@ -407,6 +511,7 @@ for (const variant of [
       variant.locale === "en" ? en : de;
     await page.setViewportSize(variant);
     await page.addInitScript(({ locale, theme }) => {
+      Object.defineProperty(navigator, "platform", { value: "Linux x86_64" });
       localStorage.setItem("zentrale-locale", locale);
       localStorage.setItem("zentrale-theme", theme);
     }, variant);
@@ -543,10 +648,11 @@ for (const variant of [
     await page.keyboard.press("Enter");
     await page.keyboard.press("Control+c");
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Alt+b");
     await expect(dialog).toBeVisible();
     await expect
       .poll(() => Buffer.concat(input).toString("utf8"))
-      .toContain("echo grüße\r\u0003\u001b");
+      .toContain("echo grüße\r\u0003\u001b\u001bb");
     await expect.poll(() => sizes.length).toBeGreaterThan(0);
     const before = sizes.at(-1)!;
     const dimensions =

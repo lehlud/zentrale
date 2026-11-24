@@ -21,6 +21,17 @@ import {
 
 type State = "starting" | "ready" | "closed" | "error";
 
+function isMacOptionInput(event: KeyboardEvent): boolean {
+  if (!event.altKey || event.ctrlKey || event.metaKey) return false;
+  // Karabiner's Neo2 rule also starts a dead-key sequence with this
+  // chord. Browsers can identify the key as PageDown instead of Dead.
+  return (
+    event.key === "Dead" ||
+    (event.key === "PageDown" && event.shiftKey) ||
+    /^[^\p{C}]$/u.test(event.key)
+  );
+}
+
 function terminalURL(
   projectId: string,
   agentId: string,
@@ -56,6 +67,8 @@ export default function VMTerminal({
 }) {
   const { t, theme, locale } = useI18n();
   const api = useAPI();
+  const macKeyboard = navigator.platform.startsWith("Mac");
+  const closeShortcut = macKeyboard ? "Control+Alt+Shift+T" : "Alt+Shift+T";
   const host = useRef<HTMLDivElement>(null);
   const themeRef = useRef(theme);
   themeRef.current = theme;
@@ -345,7 +358,26 @@ export default function VMTerminal({
             <div
               className="flex h-full min-h-0 flex-col"
               onKeyDownCapture={(event) => {
-                if (event.altKey && event.shiftKey && event.code === "KeyT") {
+                if (
+                  macKeyboard &&
+                  event.target instanceof HTMLTextAreaElement &&
+                  host.current?.contains(event.target) &&
+                  isMacOptionInput(event.nativeEvent)
+                ) {
+                  // WTerm handles the textarea's input and composition events.
+                  // Leave the browser's text insertion intact by stopping only
+                  // keydown, which WTerm would encode as a terminal shortcut.
+                  event.stopPropagation();
+                  return;
+                }
+                if (
+                  event.altKey &&
+                  event.shiftKey &&
+                  event.ctrlKey === macKeyboard &&
+                  !event.metaKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.code === "KeyT"
+                ) {
                   event.preventDefault();
                   event.stopPropagation();
                   onClose();
@@ -381,9 +413,12 @@ export default function VMTerminal({
                   </Button>
                 )}
                 <Button
+                  ref={(element) => {
+                    // React Aria filters aria-keyshortcuts from Button props.
+                    element?.setAttribute("aria-keyshortcuts", closeShortcut);
+                  }}
                   variant="ghost"
                   className="min-h-11"
-                  aria-keyshortcuts="Alt+Shift+T"
                   onPress={onClose}
                 >
                   {t("Schließen")}
@@ -422,7 +457,12 @@ export default function VMTerminal({
               </div>
               <p className="shrink-0 border-t border-border px-3 py-2 text-xs text-muted">
                 {t(
-                  "Esc bleibt im Terminal. Alt+Umschalt+T oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.",
+                  "Esc bleibt im Terminal. {shortcut} oder Schließen beendet diese Sitzung. Die VM wird automatisch gestoppt, wenn sie nicht mehr genutzt wird.",
+                  {
+                    shortcut: t(
+                      macKeyboard ? "Ctrl+Option+Umschalt+T" : "Alt+Umschalt+T",
+                    ),
+                  },
                 )}
               </p>
               {checkingRepository && (
