@@ -21,7 +21,7 @@
 * Both methods reject unauthenticated calls, foreign origins / cross-site Fetch
   Metadata, missing projects/agents, and subagent/approver targets. The API has
   the same root-main-agent boundary as the existing prompt/submitInput API.
-* Limits: 25 MiB per file, 10 files / 100 MiB per submitted message. There is no
+* Limits: 25 MiB per file, 30 files / 100 MiB per submitted message. There is no
   additional agent-wide file-count/storage quota and no automatic expiry or
   eviction of uploaded files. Agent/project deletion performs scope cleanup.
 * Oversized bodies return 413, authentication errors 401, target/origin errors

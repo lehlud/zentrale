@@ -304,6 +304,34 @@ func TestModelTurnStagesAttachmentAfterBusyVMBecomesReady(t *testing.T) {
 	}
 }
 
+func TestAttachmentCountPerMessage(t *testing.T) {
+	engine, record := testEngine(t, nil)
+	data := []byte("file")
+	ids := make([]string, 31)
+	for index := range ids {
+		ids[index] = fmt.Sprintf("file-%d", index+1)
+		attachment := domain.Attachment{
+			ID:        ids[index],
+			AgentID:   record.ID,
+			ProjectID: record.ProjectID,
+			Name:      ids[index] + ".txt",
+			Size:      int64(len(data)),
+		}
+		if err := engine.Store.SaveAttachment(attachment, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	attachments, err := engine.inputAttachments(record, ids[:30])
+	if err != nil || len(attachments) != 30 {
+		t.Fatalf("expected 30 accepted attachments, got %d: %v", len(attachments), err)
+	}
+
+	if _, err := engine.inputAttachments(record, ids); !errors.Is(err, errTooManyAttachments) {
+		t.Fatalf("expected an attachment count error for 31 files, got %v", err)
+	}
+}
+
 func TestAttachmentValidationLimitsAndScope(t *testing.T) {
 	engine, record := testEngine(t, providerFunction(func(context.Context, providers.Request) (providers.Result, error) { return providers.Result{}, nil }))
 	untitled := record
@@ -318,9 +346,6 @@ func TestAttachmentValidationLimitsAndScope(t *testing.T) {
 	}
 	if name, err := attachmentFilename("normal file.png"); err != nil || name != "normal_file.png" {
 		t.Fatal(name, err)
-	}
-	if _, err := engine.inputAttachments(record, make([]string, 11)); err == nil {
-		t.Fatal("11 attachments allowed")
 	}
 	for _, test := range []struct {
 		sizes []int64

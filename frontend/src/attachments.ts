@@ -11,7 +11,7 @@ export type Attachment = {
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 export const MAX_ATTACHMENT_TOTAL = 100 * 1024 * 1024;
-export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENTS = 30;
 
 export function isPreviewImage(mimeType: string) {
   return /^image\/(png|jpeg|gif|webp)$/.test(mimeType);

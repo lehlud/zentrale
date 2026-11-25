@@ -296,20 +296,20 @@ test("attachment count is bounded without discarding an existing draft", async (
   });
   await form
     .locator('input[type="file"]')
-    .setInputFiles(Array.from({ length: 10 }, (_, n) => file(n)));
+    .setInputFiles(Array.from({ length: 30 }, (_, n) => file(n + 1)));
   await expect(
     form
       .getByRole("list", { name: "Anhänge", exact: true })
       .getByRole("listitem"),
-  ).toHaveCount(10);
-  await form.locator('input[type="file"]').setInputFiles(file(11));
+  ).toHaveCount(30);
+  await form.locator('input[type="file"]').setInputFiles(file(31));
   await expect(
-    form.getByText("Höchstens 10 Anhänge pro Nachricht.", { exact: true }),
+    form.getByText("Höchstens 30 Anhänge pro Nachricht.", { exact: true }),
   ).toBeVisible();
   await expect(
     form
       .getByRole("list", { name: "Anhänge", exact: true })
       .getByRole("listitem"),
-  ).toHaveCount(10);
+  ).toHaveCount(30);
   await expect(input).toHaveValue("Keep this text");
 });

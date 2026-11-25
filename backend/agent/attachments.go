@@ -20,7 +20,12 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-const MaxAttachmentBytes = 25 * 1024 * 1024
+const (
+	MaxAttachmentBytes       = 25 * 1024 * 1024
+	maxAttachmentsPerMessage = 30
+)
+
+var errTooManyAttachments = fmt.Errorf("at most %d attachments per message", maxAttachmentsPerMessage)
 
 //go:embed scripts/attachment.py
 var attachmentScript string
@@ -369,9 +374,10 @@ func (engine *Engine) restoreMessageAttachment(ctx context.Context, current doma
 }
 
 func (engine *Engine) inputAttachments(record domain.Agent, ids []string) ([]domain.Attachment, error) {
-	if len(ids) > 10 {
-		return nil, errors.New("at most 10 attachments per message")
+	if len(ids) > maxAttachmentsPerMessage {
+		return nil, errTooManyAttachments
 	}
+
 	attachments := make([]domain.Attachment, 0, len(ids))
 	seen := map[string]bool{}
 	for _, id := range ids {
@@ -392,9 +398,10 @@ func (engine *Engine) inputAttachments(record domain.Agent, ids []string) ([]dom
 }
 
 func validateAttachmentSizes(attachments []domain.Attachment) error {
-	if len(attachments) > 10 {
-		return errors.New("at most 10 attachments per message")
+	if len(attachments) > maxAttachmentsPerMessage {
+		return errTooManyAttachments
 	}
+
 	var total int64
 	for _, attachment := range attachments {
 		if attachment.Size < 0 || attachment.Size > MaxAttachmentBytes {

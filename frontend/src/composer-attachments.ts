@@ -17,6 +17,8 @@ import {
 import { useAPI } from "./api";
 import { newResourceId } from "./resource-id";
 
+const attachmentCountError = `Höchstens ${MAX_ATTACHMENTS} Anhänge pro Nachricht.`;
+
 type DraftAttachment = {
   id: string;
   file: File;
@@ -51,7 +53,7 @@ export function useComposerAttachments(agentId: string) {
   const add = (files: File[]) => {
     if (controller.current || !files.length) return;
     if (itemsRef.current.length + files.length > MAX_ATTACHMENTS) {
-      setError("Höchstens 10 Anhänge pro Nachricht.");
+      setError(attachmentCountError);
       return;
     }
     if (files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
@@ -96,7 +98,7 @@ export function useComposerAttachments(agentId: string) {
     if (controller.current) return null;
     if (!itemsRef.current.length) return [];
     if (itemsRef.current.length > MAX_ATTACHMENTS) {
-      setError("Höchstens 10 Anhänge pro Nachricht.");
+      setError(attachmentCountError);
       return null;
     }
     if (
@@ -183,8 +185,9 @@ export function useComposerAttachments(agentId: string) {
     // merged draft rather than silently dropping files from the canceled input.
     itemsRef.current = [...itemsRef.current, ...restored];
     setItems(itemsRef.current);
-    if (itemsRef.current.length > MAX_ATTACHMENTS)
-      setError("Höchstens 10 Anhänge pro Nachricht.");
+    if (itemsRef.current.length > MAX_ATTACHMENTS) {
+      setError(attachmentCountError);
+    }
   };
   const drop = (event: DragEvent<HTMLFormElement>) => {
     if (!event.dataTransfer.types.includes("Files")) return;

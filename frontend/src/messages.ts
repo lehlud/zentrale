@@ -181,7 +181,7 @@ export const english: Record<string, string> = {
   "Bild öffnen: {name}": "Open image: {name}",
   "Anhänge werden hochgeladen …": "Uploading attachments …",
   "Upload abbrechen": "Cancel upload",
-  "Höchstens 10 Anhänge pro Nachricht.": "At most 10 attachments per message.",
+  "Höchstens 30 Anhänge pro Nachricht.": "At most 30 attachments per message.",
   "Eine Datei darf höchstens 25 MiB groß sein.":
     "A file must not exceed 25 MiB.",
   "Anhänge dürfen zusammen höchstens 100 MiB groß sein.":
