@@ -47,8 +47,6 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 	queries["goalHistory"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.Goal]())),
 		Args: graphql.FieldConfigArgument{"agentId": {Type: graphql.NewNonNull(graphql.String)}},
-		// Like goal/messages, access is restricted to the authenticated owner
-		// of this single-user installation by the shared authorization wrapper.
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
 			agentID := params.Args["agentId"].(string)
 			var agent domain.Agent

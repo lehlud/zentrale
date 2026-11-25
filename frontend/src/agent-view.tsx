@@ -7,7 +7,7 @@ import { AgentQuestion } from "./agent-question";
 import { ModelResponse } from "./model-response";
 import { ActivityOutput } from "./activity-details";
 import {
-  transcriptQuery,
+  shortChatTranscriptQuery,
   transcriptDetailsQuery,
   type Transcript,
 } from "./agent-transcript";
@@ -70,7 +70,7 @@ export function AgentView({
     error,
     loading,
   } = useQuery<Transcript>(
-    transcriptQuery,
+    shortChatTranscriptQuery,
     {
       id: agentId,
     },

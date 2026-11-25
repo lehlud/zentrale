@@ -24,8 +24,7 @@ export const olderMessagesQuery = `query($id:String!, $beforeId:String!) {
   messages: recentMessages(agentId:$id, beforeId:$beforeId) { ${messageFields} }
 }`;
 
-export const transcriptQuery = `query($id:String!) {
-  goal(agentId:$id) { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
+export const shortChatTranscriptQuery = `query($id:String!) {
   agentInputs(agentId:$id) { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
   agentRunState(agentId:$id) { agentId phase error repositoryStep repositoryPercent repositoryDetail hostKey { host fingerprint publicKey repositorySourceId previousFingerprint } }
   agent(id:$id) { ${agentFields} }

@@ -21,7 +21,7 @@ Administrators manage accounts, project creation permission, provider/model avai
 
 ## Short chats
 
-Short chats are private to their owner, without a Git project, VS Code, or a terminal. Attachment uploads are accepted on Zentrale itself (up to 30 files per message, 25 MiB each and 100 MiB total). Web lookup and reading text from attachments or shares do not boot a VM. The optional Humanizer uses the global setting.
+Short chats are private to their owner, without a Git project, VS Code, or a terminal. Persistent goals and subagent delegation are available only in projects. Attachment uploads are accepted on Zentrale itself (up to 30 files per message, 25 MiB each and 100 MiB total). Web lookup and reading text from attachments or shares do not boot a VM. The optional Humanizer uses the global setting.
 
 An administrator can enable code execution by selecting one managed MicroVM machine or pool under Short-chat settings. A user is pinned to one pool member on first use. Approved code starts that user's VM on demand, with a separate working directory for each chat and no network inside the command sandbox. Only attachments explicitly selected for the command are staged in its temporary attachment directory. The guest stops after inactivity and keeps its disk for reuse. Changing the target does not move a user's existing workspace automatically.
 

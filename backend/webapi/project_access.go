@@ -60,9 +60,19 @@ func (server *Server) protectProjectFields(queries, mutations graphql.Fields) {
 	server.agentResourceField(queries["job"], "job", false)
 	server.agentResourceField(mutations["stopJob"], "job", true)
 	server.agentResourceField(mutations["answerQuestion"], "question", true)
+
+	for _, name := range []string{"goal", "goalHistory", "goalReviews", "teamwork"} {
+		guardField(queries[name], "agentId", func(user domain.User, id string) error {
+			return server.projectAgentAccess(user, id, false)
+		})
+	}
+	guardField(mutations["cancelGoal"], "agentId", func(user domain.User, id string) error {
+		return server.projectAgentAccess(user, id, true)
+	})
+
 	for _, name := range []string{
-		"teamwork", "goalHistory", "goal", "agentInputs", "agentRunState", "agentRemovalBusy", "messages", "notes", "questions",
-		"approvals", "usage", "jobs", "goalReviews", "inferenceTraces", "usageSummary", "recentMessages", "conversationModels",
+		"agentInputs", "agentRunState", "agentRemovalBusy", "messages", "notes", "questions",
+		"approvals", "usage", "jobs", "inferenceTraces", "usageSummary", "recentMessages", "conversationModels",
 	} {
 		server.projectField(queries[name], "agentId", true, false, false)
 	}
@@ -73,7 +83,7 @@ func (server *Server) protectProjectFields(queries, mutations graphql.Fields) {
 		server.projectField(mutations[name], "projectId", false, true, true)
 	}
 	for _, name := range []string{
-		"prompt", "submitInput", "cancelInput", "resumeInputs", "cancelGoal", "stopAgent", "renameAgent", "prepareAgent", "setConversationModel",
+		"prompt", "submitInput", "cancelInput", "resumeInputs", "stopAgent", "renameAgent", "prepareAgent", "setConversationModel",
 	} {
 		server.projectField(mutations[name], "agentId", true, true, false)
 	}
@@ -171,19 +181,23 @@ func (server *Server) projectURL(parameter string, agentID, write bool) echo.Mid
 }
 
 func (server *Server) projectField(field *graphql.Field, argument string, agentID, write, ownerOnly bool) {
+	guardField(field, argument, func(user domain.User, id string) error {
+		if agentID {
+			return server.agentAccess(user, id, write)
+		}
+		return server.projectAccess(user, id, write, ownerOnly)
+	})
+}
+
+func guardField(field *graphql.Field, argument string, access func(domain.User, string) error) {
 	resolve := field.Resolve
 	field.Resolve = authenticated(func(params graphql.ResolveParams) (any, error) {
 		user := state(params.Context).user
 		id, _ := params.Args[argument].(string)
-		var err error
-		if agentID {
-			err = server.agentAccess(user, id, write)
-		} else {
-			err = server.projectAccess(user, id, write, ownerOnly)
-		}
-		if err != nil {
+		if err := access(user, id); err != nil {
 			return nil, err
 		}
+
 		return resolve(params)
 	})
 }

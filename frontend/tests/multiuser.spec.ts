@@ -57,6 +57,9 @@ test("a member can create a private short chat, not a project", async ({
     await page.getByRole("link", { name: "Kurzchats", exact: true }).click();
     await page.getByRole("button", { name: "Neuer Chat", exact: true }).click();
     await expect(page).toHaveURL(/#\/chats\/[a-zA-Z0-9_-]+/);
+    await expect(
+      page.getByPlaceholder("Schreib eine Nachricht …"),
+    ).toBeVisible();
 
     const { shortChats } = await graphql<{ shortChats: { id: string }[] }>(
       page.request,

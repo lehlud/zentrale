@@ -75,6 +75,10 @@ func TestShortChatVMLazyAndOwnerScoped(t *testing.T) {
 	if record := waitForAgent(t, engine, first.ID); record.Status == "error" || plainTurns.Load() == 0 {
 		t.Fatalf("plain chat did not reach inference: status=%q turns=%d", record.Status, plainTurns.Load())
 	}
+	if goal, err := engine.CurrentGoal(first.ID); err != nil || goal != nil || plainTurns.Load() != 1 {
+		t.Fatalf("plain chat must finish after one inference and without a goal: goal=%+v turns=%d error=%v", goal, plainTurns.Load(), err)
+	}
+
 	checkShortChatShareWithoutVM(t, engine, first)
 	forged := first
 	forged.ChatOwnerID = bob

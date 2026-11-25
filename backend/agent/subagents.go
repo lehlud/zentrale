@@ -13,6 +13,10 @@ import (
 // running workers wake between tool batches and inactive/error workers resume.
 // The caller must still obtain independent approval of the exact instruction.
 func (engine *Engine) steerChildAgent(parent domain.Agent, arguments map[string]any) (any, error) {
+	if parent.ProjectID == "" || parent.ChatOwnerID != "" {
+		return nil, errors.New("subagents are only available in projects")
+	}
+
 	if parent.Role != "main" || parent.ParentID != "" {
 		return nil, errors.New("only main agents may steer their own subagents")
 	}
@@ -39,6 +43,10 @@ func (engine *Engine) steerChildAgent(parent domain.Agent, arguments map[string]
 }
 
 func (engine *Engine) spawn(parent domain.Agent, arguments map[string]any) (any, error) {
+	if parent.ProjectID == "" || parent.ChatOwnerID != "" {
+		return nil, errors.New("subagents are only available in projects")
+	}
+
 	if parent.Role != "main" || parent.ParentID != "" {
 		return nil, errors.New("subagents cannot create subagents")
 	}

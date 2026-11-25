@@ -44,6 +44,14 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	reject(&bob, `query($id:String!){agent(id:$id){id}}`, map[string]any{"id": chat["approverId"]})
 	reject(admin, chatQuery, map[string]any{"id": "private-agent"})
 
+	for _, field := range []string{"goal", "goalHistory", "goalReviews", "teamwork"} {
+		query := `query($id:String!){` + field + `(agentId:$id){__typename}}`
+		requireData(t, admin.query(t, query, map[string]any{"id": "private-agent"}))
+		reject(&bob, query, variables)
+	}
+	reject(&bob, `mutation($id:String!){cancelGoal(agentId:$id,goalId:"goal")}`, variables)
+	reject(&bob, `mutation($id:String!){createAgent(projectId:$id,name:"Child"){id}}`, variables)
+
 	const attachment = "private note without a VM"
 	path := admin.server.URL + "/attachments/" + chat["id"].(string) + "/chat-file?name=note.txt"
 	for _, upload := range []struct {

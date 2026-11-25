@@ -57,6 +57,10 @@ func (engine *Engine) createGoalLocked(agentID, objective, origin string) (*doma
 		return nil, err
 	}
 
+	if record.ProjectID == "" || record.ChatOwnerID != "" {
+		return nil, errors.New("work goals are only available in projects")
+	}
+
 	if record.Role == "approver" {
 		return nil, errors.New("approvers cannot create work goals")
 	}
