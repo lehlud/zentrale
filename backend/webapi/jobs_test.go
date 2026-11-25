@@ -20,12 +20,13 @@ func TestJobDetailsQueryAuthenticatesAndLoadsByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	seedAccessibleProject(t, store, "project", "agent", "other-agent")
 	schema, err := (&Server{Store: store}).Schema()
 	if err != nil {
 		t.Fatal(err)
 	}
 	query := func(id string, authenticated bool) *graphql.Result {
-		ctx := context.WithValue(context.Background(), requestKey{}, &requestState{authenticated: authenticated})
+		ctx := context.WithValue(context.Background(), requestKey{}, &requestState{authenticated: authenticated, user: domain.User{ID: domain.InitialUserID}})
 		return graphql.Do(graphql.Params{
 			Schema: schema, RequestString: jobDetailsQuery, Context: ctx,
 			VariableValues: map[string]any{"id": id},

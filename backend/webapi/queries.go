@@ -139,7 +139,7 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 
 	queries["sandboxStatuses"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[domain.SandboxStatus]())),
-		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
 			statuses, err := server.Engine.SandboxStatuses()
 			rows := make([]map[string]any, 0, len(statuses))
 
@@ -157,6 +157,8 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 			"needsSetup":      &graphql.Field{Type: graphql.NewNonNull(graphql.Boolean)},
 			"authenticated":   &graphql.Field{Type: graphql.NewNonNull(graphql.Boolean)},
 			"githubConnected": &graphql.Field{Type: graphql.NewNonNull(graphql.Boolean)},
+			"oidc":            {Type: graphql.NewNonNull(graphql.Boolean)},
+			"user":            {Type: builder.output(reflect.TypeFor[domain.User]())},
 		},
 	})
 
@@ -165,8 +167,13 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 		Resolve: func(params graphql.ResolveParams) (any, error) {
 			need, err := server.Auth.NeedsSetup()
 			connected := false
+			session := state(params.Context)
+			var user any
+			if session.authenticated {
+				user = mapOf(session.user)
+			}
 
-			if state(params.Context).authenticated {
+			if session.user.ID == domain.InitialUserID {
 				token, _ := server.Store.Setting("github_token")
 				connected = token != ""
 				connections, _ := server.Engine.GitForge.Connections()
@@ -180,8 +187,10 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 
 			return map[string]any{
 				"needsSetup":      need,
-				"authenticated":   state(params.Context).authenticated,
+				"authenticated":   session.authenticated,
 				"githubConnected": connected,
+				"oidc":            server.Auth.OIDCIssuer != "",
+				"user":            user,
 			}, err
 		},
 	}
@@ -237,6 +246,9 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 					return server.Store.RecentInferenceTraces(*parent, params.Args["limit"].(int), params.Args["offset"].(int))
 				}
 				fields := requestedResourceFields(params.Info, kind == "provider")
+				if kind == "project" {
+					return server.Store.UserProjects(state(params.Context).user.ID, params.Args["limit"].(int), params.Args["offset"].(int), fields)
+				}
 				if kind == "agent" && slices.Contains(fields, "status") && !slices.Contains(fields, "id") {
 					fields = append(fields, "id")
 				}

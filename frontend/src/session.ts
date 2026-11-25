@@ -1,12 +1,22 @@
 import type { Status } from "./generated";
 
 export const SESSION_QUERY =
-  "query{status{needsSetup authenticated githubConnected}}";
+  "query{status{needsSetup authenticated githubConnected oidc user{id username name role canCreateProjects}}}";
 
 // Application-specific WebSocket close code; HTTP handshakes still return 401.
 export const SESSION_EXPIRED = 4401;
 
-export type SessionData = { status: Status };
+export type SessionData = {
+  status: Pick<
+    Status,
+    "needsSetup" | "authenticated" | "githubConnected" | "oidc"
+  > & {
+    user?: Pick<
+      NonNullable<Status["user"]>,
+      "id" | "username" | "name" | "role" | "canCreateProjects"
+    > | null;
+  };
+};
 
 export class AuthenticationError extends Error {
   constructor() {

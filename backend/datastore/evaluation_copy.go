@@ -23,6 +23,7 @@ func (i *Instance) PrepareEvaluationCopy() error {
 			`DELETE FROM credential_records WHERE name='installation/daemon-token' OR name LIKE 'job-runtime/%' OR name LIKE 'job-input/%' OR name LIKE 'editor-runtime/%' OR name LIKE 'terminal-runtime/%'`,
 			`DELETE FROM resources WHERE kind IN ('agent','agent_input','job','job_output','job_completion','microvm','vm_cleanup','editor_attachment','terminal_attachment','agent_run','goal','question','mcp_server','tool_activity','message','agent_stop','job_stop','provider_login','git_login','huggingface_login')`,
 			`DELETE FROM sessions`,
+			`DELETE FROM user_sessions`,
 		} {
 			if _, err := tx.Exec(query); err != nil {
 				i.identityError = err

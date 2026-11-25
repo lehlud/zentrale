@@ -30,7 +30,7 @@ func (service *Service) RefreshRepositoryAuthorization(ctx context.Context, bind
 	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
 		return err
 	}
-	if binding.SSHURL != sshURL {
+	if binding.OwnerID != service.owner || binding.SSHURL != sshURL {
 		return errors.New("repository binding does not match its SSH source")
 	}
 	if binding.ConnectionID != "github" ||

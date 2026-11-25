@@ -24,7 +24,8 @@ func (engine *Engine) approvalInstructions(record domain.Agent) (approvalInstruc
 		return scope, err
 	}
 	scope.RootAgentID = root.ID
-	rows, err := engine.listAll("instruction", &record.ProjectID)
+	scopeID := instructionScopeID(root)
+	rows, err := engine.listAll("instruction", &scopeID)
 	if err != nil {
 		return scope, err
 	}
@@ -68,7 +69,7 @@ func (engine *Engine) approvalRoot(record domain.Agent) (domain.Agent, error) {
 		if err := engine.Store.Load("agent", root.ParentID, &parent); err != nil {
 			return domain.Agent{}, err
 		}
-		if parent.ProjectID != record.ProjectID {
+		if parent.ProjectID != record.ProjectID || parent.ChatOwnerID != record.ChatOwnerID {
 			return domain.Agent{}, errors.New("instruction lineage crosses project scope")
 		}
 		root = parent
@@ -77,6 +78,13 @@ func (engine *Engine) approvalRoot(record domain.Agent) (domain.Agent, error) {
 		return domain.Agent{}, errors.New("instruction lineage has no main agent")
 	}
 	return root, nil
+}
+
+func instructionScopeID(record domain.Agent) string {
+	if record.ChatOwnerID != "" {
+		return record.ID
+	}
+	return record.ProjectID
 }
 
 // Current public mutations accept human prompts only for root main agents;

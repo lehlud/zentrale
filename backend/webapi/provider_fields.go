@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/graphql-go/graphql"
+	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providerlogin"
 )
@@ -13,6 +14,33 @@ import (
 func (builder *schemaBuilder) providerQueries() graphql.Fields {
 	server := builder.server
 	queries := graphql.Fields{}
+	queries["modelPolicy"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[agent.ModelPolicy]()),
+		Args: gitStringArgs("providerId"),
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
+			policy, err := server.Engine.ModelPolicy(params.Args["providerId"].(string))
+			return mapOf(policy), err
+		}),
+	}
+	queries["modelProviders"] = &graphql.Field{
+		Type: graphql.NewList(builder.output(reflect.TypeFor[ModelProvider]())),
+		Resolve: authenticated(func(_ graphql.ResolveParams) (any, error) {
+			providers, err := server.Store.ListFields("provider", nil, 500, 0, []string{"id", "name", "connected", "modelCount"})
+			if err != nil {
+				return nil, err
+			}
+			result := make([]ModelProvider, 0, len(providers))
+			for _, provider := range providers {
+				id, _ := provider["id"].(string)
+				name, _ := provider["name"].(string)
+				count, _ := provider["modelCount"].(float64)
+				if provider["connected"] == true && count > 0 {
+					result = append(result, ModelProvider{ID: id, Name: name})
+				}
+			}
+			return mapList(result), nil
+		}),
+	}
 	queries["providerLogin"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ProviderLogin]()),
 		Args: gitStringArgs("id"),
@@ -182,9 +210,29 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 	return queries
 }
 
+type ModelProvider struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func (builder *schemaBuilder) providerMutations() graphql.Fields {
 	server := builder.server
 	mutations := graphql.Fields{}
+	mutations["saveModelPolicy"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[agent.ModelPolicy]()),
+		Args: graphql.FieldConfigArgument{
+			"providerId": {Type: graphql.NewNonNull(graphql.String)},
+			"input":      {Type: graphql.NewNonNull(builder.input(reflect.TypeFor[agent.ModelPolicy]()))},
+		},
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
+			policy, err := convert[agent.ModelPolicy](params.Args["input"])
+			if err != nil {
+				return nil, err
+			}
+			policy, err = server.Engine.SaveModelPolicy(params.Args["providerId"].(string), policy)
+			return mapOf(policy), err
+		}),
+	}
 	mutations["saveModelMetadata"] = &graphql.Field{
 		Type: graphql.Boolean,
 		Args: graphql.FieldConfigArgument{

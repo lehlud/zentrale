@@ -2,7 +2,7 @@ import { Button, Drawer, Dropdown, Label } from "@heroui/react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { useAPI } from "./api";
+import { useAPI, useQuery } from "./api";
 import { useRoute } from "./navigation";
 import {
   LogDiagnosticsControl,
@@ -14,6 +14,7 @@ import { useMediaQuery } from "./media";
 import { NewConversation } from "./new-conversation";
 import { SidebarProjects } from "./sidebar-projects";
 import { Inspect } from "./ui";
+import { SESSION_QUERY, type SessionData } from "./session";
 
 type SidebarState = {
   compact: boolean;
@@ -66,6 +67,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { page, projectId } = useRoute();
   const api = useAPI();
   const sidebar = useSidebar()!;
+  const { data } = useQuery<SessionData>(SESSION_QUERY);
+  const admin = data?.status.user?.role === "admin";
 
   return (
     <nav
@@ -86,6 +89,15 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </Button>
         </div>
       )}
+      <a
+        href="#/chats"
+        onClick={onNavigate}
+        aria-current={page === "chats" ? "page" : undefined}
+        className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm hover:bg-surface-secondary"
+      >
+        <Icon name="compose" className="size-5" />
+        {t("Kurzchats")}
+      </a>
       <Button
         variant="ghost"
         className="min-h-11 w-full justify-start gap-3 px-3"
@@ -97,7 +109,20 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         <Icon name="compose" className="size-5" />
         {t("Neue Unterhaltung")}
       </Button>
-      <SidebarProjects onNavigate={onNavigate} />
+      <SidebarProjects
+        key={data?.status.user?.id}
+        userId={data?.status.user?.id ?? ""}
+        canCreate={admin || Boolean(data?.status.user?.canCreateProjects)}
+        onNavigate={onNavigate}
+      />
+      <a
+        href="#/usage"
+        onClick={onNavigate}
+        aria-current={page === "usage" ? "page" : undefined}
+        className="flex min-h-11 w-full items-center rounded-lg px-3 text-sm hover:bg-surface-secondary"
+      >
+        {t("Verbrauch")}
+      </a>
       <div className="mt-auto pt-3">
         <Dropdown>
           <Button
@@ -111,17 +136,19 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </Button>
           <Dropdown.Popover placement="top start">
             <Dropdown.Menu aria-label={t("Verwaltung")}>
-              {administration.map((item) => (
-                <Dropdown.Item
-                  id={item.id}
-                  key={item.id}
-                  href={`#/${item.id}`}
-                  onAction={onNavigate}
-                  className="min-h-11"
-                >
-                  <Label>{t(item.label)}</Label>
-                </Dropdown.Item>
-              ))}
+              {administration
+                .filter((item) => item.id === "settings" || admin)
+                .map((item) => (
+                  <Dropdown.Item
+                    id={item.id}
+                    key={item.id}
+                    href={`#/${item.id}`}
+                    onAction={onNavigate}
+                    className="min-h-11"
+                  >
+                    <Label>{t(item.label)}</Label>
+                  </Dropdown.Item>
+                ))}
               <Dropdown.Item
                 id="appearance"
                 onAction={() => {
@@ -164,7 +191,8 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
   const [creatingIn, setCreatingIn] = useState<string>();
   const [appearance, setAppearance] = useState(false);
   const { page, projectId, params } = useRoute();
-  const isConversation = page === "projects" && Boolean(projectId);
+  const isConversation =
+    (page === "projects" || page === "chats") && Boolean(projectId);
 
   useEffect(
     () => setMenuOpen(false),

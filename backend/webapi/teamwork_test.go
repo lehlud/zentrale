@@ -8,6 +8,7 @@ import (
 
 func TestTeamworkQueryAuthenticationAndPublicThreadScope(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project")
 	query := `query($agentId:String!){teamwork(agentId:$agentId){id agentId status revision tasks{id title kind acceptance dependsOn writePaths ownerId status result evidence}}}`
 	variables := map[string]any{"agentId": "main"}
 	if fixture.query(t, query, variables)["errors"] == nil {

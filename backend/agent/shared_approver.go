@@ -21,7 +21,7 @@ func (engine *Engine) familyApprover(record domain.Agent) (domain.Agent, error) 
 	if err := engine.Store.Load("agent", root.ApproverID, &approver); err != nil {
 		return domain.Agent{}, err
 	}
-	if approver.Role != "approver" || approver.ParentID != root.ID || approver.ProjectID != root.ProjectID {
+	if approver.Role != "approver" || approver.ParentID != root.ID || approver.ProjectID != root.ProjectID || approver.ChatOwnerID != root.ChatOwnerID {
 		return domain.Agent{}, errors.New("invalid shared family approver")
 	}
 	return approver, nil

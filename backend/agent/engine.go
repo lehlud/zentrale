@@ -86,6 +86,8 @@ type Engine struct {
 	AccountLogin      *providerlogin.Client
 	GitForge          *gitforge.Service
 	HuggingFace       *huggingface.Service
+	personalGit       sync.Map // user ID → *gitforge.Service
+	personalHub       sync.Map // user ID → *huggingface.Service
 	hosted            hostedInference
 	deployModal       func(context.Context, string, string, string) (string, error)
 	modalDeployments  map[string]*modalDeployment
@@ -126,6 +128,7 @@ type Engine struct {
 	reviewGates       sync.Map   // Shared approver ID -> cancellable review semaphore.
 	inferenceMu       sync.Mutex
 	inferencePrefixes map[string]inferencePrefix
+	usageReservations usageReservations
 	clarificationMu   sync.Mutex
 	sandboxMu         sync.Mutex
 
@@ -256,6 +259,10 @@ func (engine *Engine) Close() {
 	engine.cancel()
 	engine.configMu.Unlock()
 	engine.HuggingFace.Close()
+	engine.personalHub.Range(func(_, service any) bool {
+		service.(*huggingface.Service).Close()
+		return true
+	})
 	engine.hosted.Close()
 
 	engine.mu.Lock()

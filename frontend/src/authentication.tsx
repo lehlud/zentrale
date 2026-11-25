@@ -18,6 +18,7 @@ export function Authentication({ setup }: { setup: boolean }) {
   const { t } = useI18n();
 
   const api = useAPI();
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [mismatch, setMismatch] = useState(false);
@@ -38,9 +39,9 @@ export function Authentication({ setup }: { setup: boolean }) {
     try {
       await api.mutate(
         setup
-          ? "mutation($password:String!,$identity:CommitIdentityInput!){setup(password:$password,commitIdentity:$identity)}"
-          : "mutation($password:String!){login(password:$password)}",
-        setup ? { password, identity } : { password },
+          ? "mutation($username:String!,$password:String!,$identity:CommitIdentityInput!){setup(username:$username,password:$password,commitIdentity:$identity)}"
+          : "mutation($username:String!,$password:String!){login(username:$username,password:$password)}",
+        setup ? { username, password, identity } : { username, password },
       );
     } catch (failure) {
       if (setup && /password/i.test((failure as Error).message)) setStep(0);
@@ -104,6 +105,20 @@ export function Authentication({ setup }: { setup: boolean }) {
                       : action.error
                   }
                 />
+                {(!setup || step === 0) && (
+                  <TextField
+                    className="min-w-0 gap-2"
+                    autoComplete="username"
+                    isRequired
+                    maxLength={64}
+                    value={username}
+                    onChange={setUsername}
+                    isDisabled={action.busy}
+                  >
+                    <Label>{t("Benutzername")}</Label>
+                    <Input className="min-h-11" spellCheck={false} />
+                  </TextField>
+                )}
                 {(!setup || step === 0) && (
                   <TextField
                     className="min-w-0 gap-2"

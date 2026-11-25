@@ -355,16 +355,23 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 	case "webfetch":
 		return engine.research(ctx, agentRecord, stringArg(arguments, "url"), boolArg(arguments, "raw"))
 	case "github":
-		return engine.github(ctx, arguments)
-	case "huggingface_status":
-		return engine.HuggingFace.Status()
-	case "huggingface_files":
+		return engine.github(ctx, agentRecord, arguments)
+	case "huggingface_status", "huggingface_files":
+		owner, err := engine.conversationOwner(agentRecord)
+		if err != nil {
+			return nil, err
+		}
+		hub := engine.HubFor(owner)
+		if request.Action == "huggingface_status" {
+			return hub.Status()
+		}
+
 		var input huggingface.DatasetFilesRequest
 		if err := decodeDatasetArguments(arguments, &input); err != nil {
 			return nil, err
 		}
 
-		return engine.HuggingFace.Files(ctx, input)
+		return hub.Files(ctx, input)
 	case "huggingface_download":
 		return engine.downloadDataset(ctx, agentRecord, arguments)
 	case "clone_source":

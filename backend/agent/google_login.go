@@ -99,7 +99,7 @@ func (engine *Engine) completeGoogleLogin(ctx context.Context, loginID, stateVal
 }
 
 func (engine *Engine) googleLoginSessionValid(owner string) error {
-	valid, err := engine.Store.SessionValid(owner)
+	valid, err := engine.Store.UserSessionValid(owner)
 	if err != nil || !valid {
 		return errors.New("initiating application session expired; start the provider login again")
 	}

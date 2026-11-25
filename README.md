@@ -40,6 +40,8 @@ for remote prerequisites and server configuration.
 
 ## Make it yours
 
+Running Zentrale for more than one person? See [accounts, short chats, and project archives](docs/multiuser.md).
+
 [Machines & pools](docs/machines.md) ·
 [Sandboxes, GPUs & editor](docs/sandbox-and-editor.md) ·
 [Agents & tools](docs/agents.md) ·

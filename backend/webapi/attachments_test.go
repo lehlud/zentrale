@@ -55,8 +55,11 @@ func TestAttachmentAPIAuthOriginScopeBinaryRetryAndRasterPreview(t *testing.T) {
 		}
 	}
 	request("POST", "/attachments/main/id?name=file", "https://evil.invalid", nil, 403)
-	for _, target := range []string{"child", "approver", "orphan", "missing"} {
+	for _, target := range []string{"child", "approver"} {
 		request("POST", "/attachments/"+target+"/id?name=file", "", nil, 403)
+	}
+	for _, target := range []string{"orphan", "missing"} {
+		request("POST", "/attachments/"+target+"/id?name=file", "", nil, 404)
 	}
 	request("POST", "/attachments/main/id?name=..%2Fescape", "", nil, 400)
 	request("POST", "/attachments/main/id?name=file", "", bytes.Repeat([]byte{'x'}, agent.MaxAttachmentBytes+1), 413)
@@ -89,8 +92,7 @@ func TestAttachmentAPIAuthOriginScopeBinaryRetryAndRasterPreview(t *testing.T) {
 	if err := fixture.engine.Store.RemoveProject("project"); err != nil {
 		t.Fatal(err)
 	}
-	request("GET", "/attachments/main/image", "", nil, 403)
-	if strings.Contains(string(request("GET", "/attachments/main/image", "", nil, 403)), "base64") {
+	if strings.Contains(string(request("GET", "/attachments/main/image", "", nil, 404)), "base64") {
 		t.Fatal("blob leaked into error")
 	}
 }

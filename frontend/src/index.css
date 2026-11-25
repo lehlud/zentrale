@@ -1,5 +1,10 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "@fontsource/noto-emoji";
+
+.font-emoji {
+  font-family: "Noto Emoji", "Noto Color Emoji", sans-serif;
+}
 
 .vm-terminal-dialog {
   height: var(--visual-viewport-height, 100dvh);

@@ -7,7 +7,7 @@ export function RenameConversation({
   agent,
   onClose,
 }: {
-  agent: Agent;
+  agent: Pick<Agent, "id" | "name">;
   onClose: () => void;
 }) {
   const { t } = useI18n();

@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/auth"
+	"github.com/lehlud/zentrale/auth/oidc"
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/vscode"
@@ -28,6 +29,7 @@ import (
 type Server struct {
 	Store  *datastore.Instance
 	Auth   *auth.Service
+	OIDC   *oidc.Client
 	Engine *agent.Engine
 
 	Frontend     string
@@ -85,6 +87,10 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
+	if server.OIDC != nil {
+		server.registerOIDC(e)
+	}
+
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(requestContext echo.Context) error {
 			requestContext.Response().Header().Set("X-Content-Type-Options", "nosniff")
@@ -126,7 +132,8 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			return echo.NewHTTPError(400, "invalid GraphQL request")
 		}
 
-		valid := server.Auth.Valid(server.token(requestContext.Request()))
+		requestToken := server.token(requestContext.Request())
+		user, valid := server.Auth.User(requestToken)
 		if err := ValidateQuery(request.Query, request.OperationName, valid); err != nil {
 			status := http.StatusBadRequest
 			if errors.Is(err, errAuthenticationRequired) {
@@ -136,17 +143,6 @@ func (server *Server) Handler() (*echo.Echo, error) {
 		}
 
 		secure := server.SecureCookie || requestContext.Request().TLS != nil
-		setCookie := func(value string, maxAge int) {
-			http.SetCookie(requestContext.Response(), &http.Cookie{
-				Name:     "zentrale_session",
-				Value:    value,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   secure,
-				SameSite: http.SameSiteStrictMode,
-				MaxAge:   maxAge,
-			})
-		}
 
 		origin := server.Origin
 		if origin == "" {
@@ -160,27 +156,29 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		session := &requestState{
 			authenticated: valid,
-			sessionHash:   auth.TokenHash(server.token(requestContext.Request())),
+			user:          user,
+			sessionHash:   auth.TokenHash(requestToken),
 			origin:        origin,
 			client:        clientAddress(requestContext.Request()),
 		}
-		session.login = func(password string) (bool, error) {
-			token, err := server.Auth.Login(password, clientAddress(requestContext.Request()))
+		session.login = func(username, password string) (bool, error) {
+			token, err := server.Auth.LoginAccount(username, password, session.client)
 			if err != nil {
 				return false, err
 			}
 
-			setCookie(token, 86400)
-			session.authenticated = true
+			server.setSessionCookie(requestContext, token, 86400)
+			session.user, session.authenticated = server.Auth.User(token)
 			session.sessionHash = auth.TokenHash(token)
 
-			return true, nil
+			return session.authenticated, nil
 		}
 
 		session.logout = func() error {
-			err := server.Auth.Logout(server.token(requestContext.Request()))
-			setCookie("", -1)
+			err := server.Store.DeleteUserSession(session.sessionHash)
+			server.setSessionCookie(requestContext, "", -1)
 			session.authenticated = false
+			session.user = domain.User{}
 			session.sessionHash = ""
 
 			return err
@@ -205,17 +203,17 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	})
 
 	e.GET("/events", func(requestContext echo.Context) error { return server.events(requestContext, schema) })
-	e.POST("/attachments/:agent/:id", server.attachment)
-	e.GET("/attachments/:agent/:id", server.attachment)
-	e.GET("/workspace-file/:project", server.workspaceFile)
+	e.POST("/attachments/:agent/:id", server.attachment, server.projectURL("agent", true, true))
+	e.GET("/attachments/:agent/:id", server.attachment, server.projectURL("agent", true, false))
+	e.GET("/workspace-file/:project", server.workspaceFile, server.projectURL("project", false, true))
 	e.GET("/terminal/:project", server.terminal)
 	e.GET("/side/:agent", server.side)
 	e.HEAD("/side/:agent", server.sideStatus)
 	e.POST("/terminal/:project", server.terminal)
 	e.POST("/mcp", server.mcp)
-	e.Any("/ide/:project/:session/*", server.ide)
-	e.Any("/preview/:project/:session/:port/*", server.preview)
-	e.Any("/preview/:project/:session/:port", server.preview)
+	e.Any("/ide/:project/:session/*", server.ide, server.projectURL("project", false, true))
+	e.Any("/preview/:project/:session/:port/*", server.preview, server.projectURL("project", false, true))
+	e.Any("/preview/:project/:session/:port", server.preview, server.projectURL("project", false, true))
 
 	e.GET("/*", func(requestContext echo.Context) error {
 		requestPath := requestContext.Request().URL.Path
@@ -252,6 +250,10 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		if viewer || pwaEntry || strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/icons/") {
 			return echo.ErrNotFound
+		}
+
+		if server.OIDC != nil && !server.Auth.Valid(server.token(requestContext.Request())) {
+			return server.startOIDC(requestContext)
 		}
 
 		requestContext.Response().Header().Set(
@@ -354,21 +356,35 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 		}
 	}
 	send := func(event domain.Event) error {
-		if ctx.Err() != nil || !server.Auth.Valid(token) {
+		user, authenticated := server.Auth.User(token)
+		if ctx.Err() != nil || !authenticated {
 			return errors.New("event session expired")
 		}
 		if event.ID != 0 && event.ID <= after {
 			return nil
+		}
+		if event.ID != 0 {
+			after = event.ID
+		}
+		if event.AgentID != "" && server.agentAccess(user, event.AgentID, false) != nil {
+			return nil
+		}
+		if event.AgentID == "" {
+			switch event.Type {
+			case "resource_changed", "resources", "editor", "environment_reset":
+				// These are invalidations, not authorization to read a resource.
+				event.Data = ""
+			default:
+				if !user.IsAdmin() {
+					return nil
+				}
+			}
 		}
 
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 
 		if err := conn.WriteJSON(event); err != nil {
 			return err
-		}
-
-		if event.ID != 0 {
-			after = event.ID
 		}
 
 		return nil
@@ -531,7 +547,8 @@ func (server *Server) events(requestContext echo.Context, schema graphql.Schema)
 }
 
 func (server *Server) mcp(requestContext echo.Context) error {
-	if !server.Auth.Valid(server.token(requestContext.Request())) {
+	user, ok := server.Auth.User(server.token(requestContext.Request()))
+	if !ok {
 		return echo.ErrUnauthorized
 	}
 
@@ -591,6 +608,9 @@ func (server *Server) mcp(requestContext echo.Context) error {
 		id, _ := args["agentId"].(string)
 		action, _ := args["action"].(string)
 		input, _ := args["arguments"].(map[string]any)
+		if rpcErr = server.agentAccess(user, id, true); rpcErr != nil {
+			break
+		}
 		var a domain.Agent
 		if rpcErr = server.Store.Load("agent", id, &a); rpcErr == nil {
 			var value any

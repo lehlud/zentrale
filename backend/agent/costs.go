@@ -64,6 +64,24 @@ func (engine *Engine) recordInferenceUsage(
 	updateContext bool,
 	promptTokens ...int,
 ) error {
+	// Traced inference is settled before its reservation is released. The
+	// active conversation caller still updates the context estimate here.
+	if result.TraceID != "" && !updateContext {
+		return nil
+	}
+	usage := inferenceUsage(agentRecord, configuration, result, messages, promptTokens...)
+	if result.TraceID == "" {
+		if err := engine.persistInferenceUsage(agentRecord, usage); err != nil {
+			return err
+		}
+	}
+	if updateContext && agentRecord.ID != "" {
+		return engine.Store.Patch("agent", agentRecord.ID, map[string]any{"contextTokens": usage.InputTokens + usage.OutputTokens})
+	}
+	return nil
+}
+
+func inferenceUsage(agentRecord domain.Agent, configuration inferenceConfig, result providers.Result, messages []domain.Message, promptTokens ...int) domain.Usage {
 	inputTokens, outputTokens := result.InputTokens, result.OutputTokens
 
 	if !result.UsageKnown {
@@ -119,7 +137,7 @@ func (engine *Engine) recordInferenceUsage(
 	outputCost := float64(outputTokens) * configuration.Model.OutputPrice
 	equivalentCost := (inputCost + cacheCost + outputCost) / tokensPerMillion
 
-	if configuration.Provider.AuthMode == "device" || configuration.Provider.BillingMode == "fixed" {
+	if !usesRealInferenceCost(configuration.Provider) {
 		usage.FictionalCost = equivalentCost
 	} else {
 		usage.RealCost = equivalentCost
@@ -131,18 +149,13 @@ func (engine *Engine) recordInferenceUsage(
 		}
 	}
 
-	if err := engine.Store.Save("usage", usage.ID, agentRecord.ID, usage); err != nil {
+	return usage
+}
+
+func (engine *Engine) persistInferenceUsage(agentRecord domain.Agent, usage domain.Usage) error {
+	if err := engine.Store.SaveUsage(usage, agentRecord); err != nil {
 		return err
 	}
-
-	// Provider-reported token counts improve the next 85% threshold check. A byte
-	// estimate remains available for providers that do not report usage.
-	if updateContext && agentRecord.ID != "" {
-		if err := engine.Store.Patch("agent", agentRecord.ID, map[string]any{"contextTokens": inputTokens + outputTokens}); err != nil {
-			return err
-		}
-	}
-
 	engine.Emit("usage", agentRecord.ID, usage)
 
 	return nil

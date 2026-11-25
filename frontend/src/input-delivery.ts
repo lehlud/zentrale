@@ -27,6 +27,8 @@ export class InputDelivery {
   private listeners = new Set<() => void>();
 
   private active = new Set<string>();
+  private account = "";
+  private generation = 0;
   private version = 0;
 
   constructor(
@@ -35,9 +37,22 @@ export class InputDelivery {
       variables: Record<string, unknown>,
     ) => Promise<{ submitInput: AgentInput }>,
     private refresh: () => void,
-  ) {
+  ) {}
+
+  setAccount(account: string) {
+    if (this.account === account) return;
+
+    this.account = account;
+    this.generation++;
+    this.inputs = [];
+    this.active.clear();
+
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+      const saved = JSON.parse(
+        account
+          ? (localStorage.getItem(`${storageKey}:${account}`) ?? "[]")
+          : "[]",
+      );
       if (Array.isArray(saved))
         this.inputs = saved
           .filter(
@@ -52,6 +67,8 @@ export class InputDelivery {
     } catch {
       /* Storage may be unavailable. */
     }
+
+    this.notify();
   }
 
   subscribe = (listener: () => void) => {
@@ -108,6 +125,7 @@ export class InputDelivery {
     }
 
     this.active.add(id);
+    const generation = this.generation;
     this.update(id, { status: "sending", error: "" });
 
     try {
@@ -120,6 +138,8 @@ export class InputDelivery {
           ? input.attachments.map((attachment) => attachment.id)
           : [],
       });
+      if (generation !== this.generation) return;
+
       if (result.submitInput?.id !== input.id) {
         throw new Error("Server did not confirm the message receipt");
       }
@@ -127,12 +147,14 @@ export class InputDelivery {
       this.update(id, { status: "accepted", error: "" });
       this.refresh();
     } catch (error) {
+      if (generation !== this.generation) return;
+
       this.update(id, {
         status: error instanceof ConnectionError ? "unconfirmed" : "failed",
         error: (error as Error).message,
       });
     } finally {
-      this.active.delete(id);
+      if (generation === this.generation) this.active.delete(id);
     }
   }
 
@@ -145,16 +167,21 @@ export class InputDelivery {
 
   private changed() {
     try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(
-          this.inputs.filter((input) => input.status !== "accepted"),
-        ),
-      );
+      if (this.account)
+        localStorage.setItem(
+          `${storageKey}:${this.account}`,
+          JSON.stringify(
+            this.inputs.filter((input) => input.status !== "accepted"),
+          ),
+        );
     } catch {
       /* The live request still runs if storage is unavailable. */
     }
 
+    this.notify();
+  }
+
+  private notify() {
     this.version++;
     this.listeners.forEach((listener) => listener());
   }

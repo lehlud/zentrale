@@ -55,18 +55,22 @@ func (builder *schemaBuilder) completeBrowserLogin() *graphql.Field {
 			}
 
 			parts := strings.Split(stateValue, ":")
+			owner := state(params.Context).user
 			if len(parts) == 3 && parts[0] == "huggingface" {
-				connection, err := builder.server.Engine.HuggingFace.CompleteOAuth(
+				connection, err := builder.server.Engine.HubFor(owner.ID).CompleteOAuth(
 					params.Context, parts[1], stateValue, params.Args["code"].(string), state(params.Context).sessionHash,
 				)
 				if err == nil {
-					builder.server.Engine.Emit("huggingface", "", connection)
+					builder.server.Engine.Emit("resources", "", nil)
 				}
 
 				return err == nil && connection.Connected && connection.AuthMode == "oauth", err
 			}
 
 			if len(parts) == 3 && parts[0] == "provider" {
+				if !owner.IsAdmin() {
+					return false, errAdministratorRequired
+				}
 				login, err := builder.server.Engine.CompleteGoogleLogin(
 					params.Context, parts[1], stateValue, params.Args["code"].(string), state(params.Context).sessionHash,
 				)
@@ -78,7 +82,7 @@ func (builder *schemaBuilder) completeBrowserLogin() *graphql.Field {
 				return false, errors.New("unknown browser login; start again")
 			}
 
-			login, err := builder.server.Engine.GitForge.CompleteBrowser(
+			login, err := builder.server.Engine.GitFor(owner.ID).CompleteBrowser(
 				params.Context,
 				parts[1],
 				parts[2],
@@ -87,9 +91,7 @@ func (builder *schemaBuilder) completeBrowserLogin() *graphql.Field {
 				state(params.Context).sessionHash,
 			)
 			if login.ID != "" {
-				builder.server.Engine.Emit("git_login", "", map[string]string{
-					"id": login.ID, "connectionId": login.ConnectionID,
-				})
+				builder.server.Engine.Emit("resources", "", nil)
 			}
 
 			return err == nil && (login.Status == "connected" || login.Status == "pending"), err

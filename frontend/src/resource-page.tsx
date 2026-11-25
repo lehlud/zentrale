@@ -6,9 +6,12 @@ import type { Config } from "./config";
 import { Empty, Loading, useAction } from "./ui";
 
 /** Deduplicate actions on the same resource; unrelated rows remain usable. */
-export function useResourcePage<T = Config>(query = CONFIG) {
+export function useResourcePage<T = Config>(
+  query = CONFIG,
+  variables?: Record<string, unknown>,
+) {
   const api = useAPI();
-  const result = useQuery<T>(query);
+  const result = useQuery<T>(query, variables);
   const action = useAction();
   const mutate = (query: string, variables: Record<string, unknown> = {}) =>
     action.run(

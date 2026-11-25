@@ -8,6 +8,7 @@ import (
 
 func TestUserCannotPromptSubagentsOrAnswerTheirQuestions(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project", "main")
 	requireData(t, fixture.query(t, `mutation{setup(password:"correct test password",commitIdentity:{name:"Test",email:"test@example.org"})}`, nil))
 	child := domain.Agent{ID: "child", Role: "subagent", ParentID: "main", ProjectID: "project"}
 	if err := fixture.engine.Store.Save("agent", child.ID, child.ProjectID, child); err != nil {

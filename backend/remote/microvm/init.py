@@ -220,6 +220,7 @@ STANDARD_PACKAGES = {
     "direnv": ("direnv",),
     "just": ("just",),
     "podman": ("podman",),
+    "bubblewrap": ("bwrap",),
     "crun": ("crun",),
     "passt": ("pasta",),
     "python3": ("python3",),

@@ -19,6 +19,10 @@ type runtimeContext struct {
 }
 
 func (engine *Engine) captureRuntimeContext(agent domain.Agent, history []domain.Message) ([]runtimeContext, error) {
+	if agent.ChatOwnerID != "" {
+		return nil, nil
+	}
+
 	notes, err := engine.listAll("note", &agent.ID)
 	if err != nil {
 		return nil, err

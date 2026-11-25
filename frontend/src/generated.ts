@@ -1,6 +1,7 @@
 // Generated from the Go GraphQL schema. Run make generate.
 export type Agent = {
   approverId: string;
+  chatOwnerId: string;
   contextStart: number;
   contextTokens: number;
   error: string;
@@ -110,6 +111,24 @@ export type FileChange = {
   path: string;
   removed: number;
   truncated: boolean;
+};
+export type FileShareConfig = {
+  endpoint: string;
+  hostKeySha256: string;
+  id: string;
+  name: string;
+  protocol: string;
+  root: string;
+  username: string;
+};
+export type FileShareConfigInput = {
+  endpoint?: string | null;
+  hostKeySha256?: string | null;
+  id?: string | null;
+  name?: string | null;
+  protocol?: string | null;
+  root?: string | null;
+  username?: string | null;
 };
 export type GitConnection = {
   baseUrl: string;
@@ -391,8 +410,21 @@ export type ModelMetadataInput = {
   outputPrice?: number | null;
   pricesKnown?: boolean | null;
 };
+export type ModelPolicy = {
+  models: Array<string>;
+  restricted: boolean;
+};
+export type ModelPolicyInput = {
+  models?: Array<string> | null;
+  restricted?: boolean | null;
+};
+export type ModelProvider = {
+  id: string;
+  name: string;
+};
 export type Mutation = {
   answerQuestion: boolean | null;
+  archiveProject: boolean | null;
   beginGitLogin: GitLogin | null;
   beginHuggingFaceLogin: HuggingFaceLogin | null;
   beginProviderLogin: ProviderLogin | null;
@@ -407,6 +439,8 @@ export type Mutation = {
   connectRepository: Source | null;
   createAgent: Agent | null;
   createGitRepository: GitRepository | null;
+  createShortChat: Agent | null;
+  deleteFileShare: boolean | null;
   deleteResource: boolean | null;
   deleteSSHKey: boolean | null;
   disconnectGitConnection: boolean | null;
@@ -428,17 +462,22 @@ export type Mutation = {
   resetProjectVM: boolean | null;
   resumeInputs: boolean | null;
   revokeRepositoryKey: boolean | null;
+  saveFileShare: FileShareConfig | null;
   saveMachine: Machine | null;
   saveModelMetadata: boolean | null;
+  saveModelPolicy: ModelPolicy | null;
   savePool: Pool | null;
   saveProject: Project | null;
   saveProvider: Provider | null;
+  saveShortChatSettings: ShortChatSettings | null;
   saveSource: Source | null;
+  saveUser: User | null;
   setCommitIdentity: boolean | null;
   setConversationModel: boolean | null;
   setGitHubToken: boolean | null;
   setHumanizer: boolean | null;
   setModelDefaults: boolean | null;
+  setProjectMember: boolean | null;
   setup: boolean | null;
   setupModalHumanizer: Provider | null;
   startEditor: EditorStartResult | null;
@@ -488,14 +527,19 @@ export type PoolMachineConnectionCheck = {
   sandbox: SandboxStatus;
 };
 export type Project = {
+  archived: boolean;
+  archivePending: boolean;
   commitEmail: string;
   commitName: string;
   directory: string;
+  emoji: string;
   gitConnectionId: string;
   id: string;
   machineIds: Array<string>;
   managedWorkspace: boolean;
+  memberIds: Array<string>;
   name: string;
+  ownerId: string;
   poolIds: Array<string>;
   repositoryCheckoutPaths: Array<string>;
   repositoryId: string;
@@ -504,9 +548,11 @@ export type Project = {
   repositorySshUrl: string;
 };
 export type ProjectInput = {
+  archivePending?: boolean | null;
   commitEmail?: string | null;
   commitName?: string | null;
   directory?: string | null;
+  emoji?: string | null;
   gitConnectionId?: string | null;
   id?: string | null;
   machineIds?: Array<string> | null;
@@ -519,6 +565,10 @@ export type ProjectInput = {
   repositorySshKeyId?: number | null;
   repositorySshUrl?: string | null;
 };
+export type ProjectMember = {
+  name: string;
+  username: string;
+};
 export type ProjectMove = {
   error: string;
   id: string;
@@ -526,6 +576,11 @@ export type ProjectMove = {
   phase: string;
   poolId: string;
   projectId: string;
+};
+export type ProjectTarget = {
+  id: string;
+  kind: string;
+  name: string;
 };
 export type Provider = {
   accountLabel: string;
@@ -586,6 +641,7 @@ export type Query = {
   conversationBootstrap: ConversationBootstrap | null;
   conversationModels: ModelDefaults | null;
   editorSession: EditorSession | null;
+  fileShares: Array<FileShareConfig | null> | null;
   gitConnections: Array<GitConnection | null> | null;
   gitLogin: GitLogin | null;
   gitNamespaces: Array<GitNamespace | null> | null;
@@ -602,26 +658,35 @@ export type Query = {
   messages: Array<Message | null> | null;
   model: LanguageModel | null;
   modelDefaults: ModelDefaults | null;
+  modelPolicy: ModelPolicy | null;
+  modelProviders: Array<ModelProvider | null> | null;
   models: Array<LanguageModel> | null;
   notes: Array<Note | null> | null;
   poolConfiguration: string;
   pools: Array<Pool | null> | null;
   project: Project | null;
+  projectMembers: Array<ProjectMember | null> | null;
   projectMove: ProjectMove | null;
   projects: Array<Project | null> | null;
+  projectTargets: Array<ProjectTarget | null> | null;
   providerKinds: Array<ProviderKind | null> | null;
   providerLogin: ProviderLogin | null;
   providers: Array<Provider | null> | null;
   questions: Array<Question | null> | null;
   recentMessages: Array<Message | null> | null;
   sandboxStatuses: Array<SandboxStatus | null> | null;
+  shortChat: Agent | null;
+  shortChats: Array<Agent | null> | null;
+  shortChatSettings: ShortChatSettings | null;
   sources: Array<Source | null> | null;
   sshKeys: Array<SSHKey | null> | null;
   status: Status | null;
   teamwork: Teamwork | null;
   trustedKeys: Array<SSHKey | null> | null;
   usage: Array<Usage | null> | null;
+  usageReport: Array<UsageReportRow>;
   usageSummary: UsageSummary | null;
+  users: Array<User | null> | null;
 };
 export type Question = {
   agentId: string;
@@ -638,6 +703,14 @@ export type SandboxStatus = {
   level: string;
   machineId: string;
   mode: string;
+};
+export type ShortChatSettings = {
+  machineId: string;
+  poolId: string;
+};
+export type ShortChatSettingsInput = {
+  machineId?: string | null;
+  poolId?: string | null;
 };
 export type Source = {
   bindingId: string;
@@ -689,6 +762,8 @@ export type Status = {
   authenticated: boolean;
   githubConnected: boolean;
   needsSetup: boolean;
+  oidc: boolean;
+  user: User | null;
 };
 export type StorageVolume = {
   description: string;
@@ -755,6 +830,28 @@ export type Usage = {
   tokensKnown: boolean;
   traceId: string;
 };
+export type UsageReportRow = {
+  cachedTokens: number;
+  cacheWriteLongTokens: number;
+  cacheWriteTokens: number;
+  day: string;
+  estimatedCosts: number;
+  fictionalCost: number;
+  inputTokens: number;
+  modelId: string;
+  outputTokens: number;
+  projectId: string;
+  providerId: string;
+  purpose: string;
+  realCost: number;
+  requestCount: number;
+  uncachedTokens: number;
+  unknownCacheReads: number;
+  unknownCacheWrites: number;
+  unknownPrices: number;
+  unknownTokenCounts: number;
+  userId: string;
+};
 export type UsageSummary = {
   cachedTokens: number;
   cacheInputTokens: number;
@@ -769,4 +866,24 @@ export type UsageSummary = {
   unknownCacheWrites: number;
   unknownPrices: number;
   unknownTokenCounts: number;
+};
+export type User = {
+  canCreateProjects: boolean;
+  disabled: boolean;
+  id: string;
+  monthlyCostLimit: number;
+  monthlyTokenLimit: number;
+  name: string;
+  role: string;
+  username: string;
+};
+export type UserInput = {
+  canCreateProjects?: boolean | null;
+  disabled?: boolean | null;
+  id?: string | null;
+  monthlyCostLimit?: number | null;
+  monthlyTokenLimit?: number | null;
+  name?: string | null;
+  role?: string | null;
+  username?: string | null;
 };

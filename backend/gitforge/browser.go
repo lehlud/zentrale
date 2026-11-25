@@ -117,7 +117,7 @@ func (service *Service) CompleteBrowser(ctx context.Context, connectionID, login
 }
 
 func (service *Service) browserSessionValid(owner string) error {
-	valid, err := service.Store.SessionValid(owner)
+	valid, err := service.Store.UserSessionValid(owner)
 	if err != nil || !valid {
 		return errors.New("initiating application session expired; start the Git login again")
 	}

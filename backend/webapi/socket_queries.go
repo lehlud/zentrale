@@ -292,10 +292,11 @@ func (pool *socketQueryPool) submit(task socketQueryTask) bool {
 }
 
 func (server *Server) executeSocketQuery(ctx context.Context, schema graphql.Schema, token, client string, request socketQueryRequest) any {
-	if !server.Auth.Valid(token) {
+	user, ok := server.Auth.User(token)
+	if !ok {
 		return graphQLErrorResult(errAuthenticationRequired)
 	}
-	ctx = context.WithValue(ctx, requestKey{}, &requestState{authenticated: true, client: client})
+	ctx = context.WithValue(ctx, requestKey{}, &requestState{authenticated: true, user: user, client: client})
 	return graphql.Do(graphql.Params{Schema: schema, RequestString: request.Query,
 		VariableValues: request.Variables, OperationName: request.OperationName, Context: ctx})
 }

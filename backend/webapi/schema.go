@@ -5,9 +5,11 @@ package webapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 
 	"github.com/graphql-go/graphql"
+	"github.com/lehlud/zentrale/domain"
 )
 
 type requestKey struct{}
@@ -15,9 +17,10 @@ type resolverContextKey struct{}
 
 type requestState struct {
 	authenticated bool
+	user          domain.User
 	sessionHash   string
 	origin        string
-	login         func(string) (bool, error)
+	login         func(string, string) (bool, error)
 	logout        func() error
 	client        string
 }
@@ -47,6 +50,17 @@ func authenticated(fn graphql.FieldResolveFn) graphql.FieldResolveFn {
 
 		return fn(params)
 	}
+}
+
+var errAdministratorRequired = errors.New("administrator required")
+
+func adminOnly(resolve graphql.FieldResolveFn) graphql.FieldResolveFn {
+	return authenticated(func(params graphql.ResolveParams) (any, error) {
+		if !state(params.Context).user.IsAdmin() {
+			return nil, errAdministratorRequired
+		}
+		return resolve(params)
+	})
 }
 
 func mapOf(value any) map[string]any {
@@ -92,8 +106,31 @@ func resourceMutation[T any](builder *schemaBuilder, save func(context.Context, 
 
 func (server *Server) Schema() (graphql.Schema, error) {
 	builder := newSchemaBuilder(server)
+	queries, mutations := builder.queries(), builder.mutations()
+	queries["usageReport"] = builder.usageReportField()
+	builder.shortChatFields(queries, mutations)
+	builder.accountFields(queries, mutations)
+	builder.projectMemberFields(queries, mutations)
+	server.protectProjectFields(queries, mutations)
+	restrictAdminFields(queries, mutations)
 	return graphql.NewSchema(graphql.SchemaConfig{
-		Query:    graphql.NewObject(graphql.ObjectConfig{Name: "Query", Fields: builder.queries()}),
-		Mutation: graphql.NewObject(graphql.ObjectConfig{Name: "Mutation", Fields: builder.mutations()}),
+		Query:    graphql.NewObject(graphql.ObjectConfig{Name: "Query", Fields: queries}),
+		Mutation: graphql.NewObject(graphql.ObjectConfig{Name: "Mutation", Fields: mutations}),
 	})
+}
+
+func restrictAdminFields(queries, mutations graphql.Fields) {
+	for _, name := range []string{
+		"machines", "pools", "poolConfiguration", "sshKeys", "trustedKeys", "providerLogin", "providers", "providerKinds", "humanizerSettings",
+	} {
+		queries[name].Resolve = adminOnly(queries[name].Resolve)
+	}
+	for _, name := range []string{
+		"saveMachine", "savePool", "trustHostKey", "generateSSHKey", "renameSSHKey", "deleteSSHKey", "testMachine", "testPool",
+		"saveProvider", "testProvider", "saveModelMetadata", "setModelDefaults", "setHumanizer", "setupModalHumanizer",
+		"refreshModels", "beginProviderLogin", "pollProviderLogin", "cancelProviderLogin", "disconnectProvider",
+		"setGitHubToken", "setCommitIdentity",
+	} {
+		mutations[name].Resolve = adminOnly(mutations[name].Resolve)
+	}
 }

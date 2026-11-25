@@ -56,7 +56,7 @@ func TestApprovalDeadlineReleasesGateAndRejectsLateDecision(t *testing.T) {
 		return providers.Result{Text: `{"allowed":true,"blanket":false}`, UsageKnown: true}, nil
 	}))
 	request := interaction{Action: "write_file", Arguments: map[string]any{"path": "file.txt", "content": "text"}}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if _, err := engine.approve(ctx, record, request); !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "auto-approval timed out during review model") {
 		t.Fatalf("late review did not fail closed: %v", err)

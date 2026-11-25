@@ -11,7 +11,7 @@ const query = `query($agentId:String!) {
     main { providerId modelId reasoningLevel }
     approver { providerId modelId reasoningLevel }
   }
-  providers(limit:500) { id name connected modelCount }
+  modelProviders { id name }
 }`;
 
 export function ConversationModelDialog({
@@ -25,13 +25,10 @@ export function ConversationModelDialog({
   const api = useAPI();
   const { data, error, loading } = useQuery<{
     conversationModels: ModelDefaults;
-    providers: Pick<Provider, "id" | "name" | "connected" | "modelCount">[];
+    modelProviders: Pick<Provider, "id" | "name">[];
   }>(query, { agentId });
   const roles = ["main", "approver"] as const;
-  const providers =
-    data?.providers.filter(
-      (provider) => provider.connected && provider.modelCount > 0,
-    ) ?? [];
+  const providers = data?.modelProviders ?? [];
   return (
     <Inspect
       title={t("Modelle der Unterhaltung")}

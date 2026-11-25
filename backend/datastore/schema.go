@@ -19,6 +19,22 @@ CREATE TABLE IF NOT EXISTS known_ssh_keys (x509_data BLOB PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS settings (name VARCHAR PRIMARY KEY, value VARCHAR NOT NULL);
 CREATE TABLE IF NOT EXISTS credential_records (name VARCHAR PRIMARY KEY, ciphertext BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (token_hash VARCHAR PRIMARY KEY, expires_at TIMESTAMP NOT NULL);
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','user')),
+    disabled BOOLEAN NOT NULL DEFAULT 0, can_create_projects BOOLEAN NOT NULL DEFAULT 0,
+    monthly_token_limit INTEGER NOT NULL DEFAULT 0 CHECK(monthly_token_limit >= 0),
+    monthly_cost_limit REAL NOT NULL DEFAULT 0 CHECK(monthly_cost_limit >= 0),
+    password_hash TEXT NOT NULL DEFAULT '', oidc_issuer TEXT NOT NULL DEFAULT '', oidc_subject TEXT NOT NULL DEFAULT '',
+    CHECK((password_hash <> '' AND oidc_issuer = '' AND oidc_subject = '') OR
+          (password_hash = '' AND oidc_issuer <> '' AND oidc_subject <> ''))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_oidc_identity ON users(oidc_issuer,oidc_subject) WHERE oidc_issuer <> '';
+CREATE TABLE IF NOT EXISTS user_sessions (
+    token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS user_sessions_account ON user_sessions(user_id);
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     agent_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, id VARCHAR NOT NULL,
     metadata TEXT NOT NULL CHECK(json_valid(metadata)), bytes BLOB NOT NULL,
@@ -65,6 +81,8 @@ func initializeSchema(db *sql.DB) error {
 		"SELECT name,value FROM settings LIMIT 0",
 		"SELECT name,ciphertext FROM credential_records LIMIT 0",
 		"SELECT token_hash,expires_at FROM sessions LIMIT 0",
+		"SELECT " + accountColumns + " FROM users LIMIT 0",
+		"SELECT token_hash,user_id,expires_at FROM user_sessions LIMIT 0",
 		"SELECT kind,id,parent_id,data,created_at FROM resources LIMIT 0",
 		"SELECT id,type,agent_id,data,created_at FROM events LIMIT 0",
 		"SELECT agent_id,project_id,id,metadata,bytes FROM attachment_blobs LIMIT 0",

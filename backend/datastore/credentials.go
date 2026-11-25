@@ -96,6 +96,25 @@ func (i *Instance) Credential(name string) ([]byte, error) {
 	return plaintext, nil
 }
 
+func (i *Instance) DeleteCredentialResource(name, kind, id string) error {
+	if i == nil || i.Closed() {
+		return errClosed
+	}
+
+	tx, err := i.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM resources WHERE kind=? AND id=?`, kind, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM credential_records WHERE name=?`, name); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (i *Instance) DeleteCredential(name string) error {
 	if i == nil || i.Closed() {
 		return errClosed

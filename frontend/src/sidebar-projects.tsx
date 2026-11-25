@@ -12,14 +12,26 @@ import { useI18n } from "./preferences";
 import { RenameConversation } from "./rename-conversation";
 import { Failure, useAction } from "./ui";
 
-type SidebarProject = Pick<Project, "id" | "name">;
+type SidebarProject = Pick<Project, "id" | "name" | "archived" | "emoji">;
+
+function ProjectIcon({ emoji }: { emoji?: string | null }) {
+  return emoji ? (
+    <span aria-hidden="true" className="font-emoji w-4 shrink-0 text-center">
+      {emoji}
+    </span>
+  ) : (
+    <Icon name="projects" className="size-4 shrink-0 text-muted" />
+  );
+}
 
 const projectOrderKey = "zentrale-sidebar-project-order";
 
-function savedProjectOrder(): string[] {
+function savedProjectOrder(orderKey: string, initialAdmin: boolean): string[] {
   try {
     const stored: unknown = JSON.parse(
-      localStorage.getItem(projectOrderKey) ?? "null",
+      localStorage.getItem(orderKey) ??
+        (initialAdmin ? localStorage.getItem(projectOrderKey) : null) ??
+        "null",
     );
     return Array.isArray(stored)
       ? stored.filter((id): id is string => typeof id === "string")
@@ -45,20 +57,38 @@ function orderProjects(projects: SidebarProject[], order: string[]) {
   return [...sorted, ...remaining.values()];
 }
 
-export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarProjects({
+  onNavigate,
+  canCreate,
+  userId,
+}: {
+  onNavigate?: () => void;
+  canCreate: boolean;
+  userId: string;
+}) {
   const { t } = useI18n();
   const { projectId, page } = useRoute();
   const api = useAPI();
   // Sidebar navigation needs no machine/provider/SSH configuration. Keep this
   // parallel read small; conversation rendering never waits for its response.
   const { data, error, loading } = useQuery<{ projects: SidebarProject[] }>(
-    `query { projects(limit:500) { id name } }`,
+    `query { projects(limit:500) { id name emoji archived } }`,
   );
   const [search, setSearch] = useState("");
-  const [order, setOrder] = useState(savedProjectOrder);
+  const orderKey = `${projectOrderKey}:${userId}`;
+  const [order, setOrder] = useState(() =>
+    savedProjectOrder(orderKey, userId === "initial-admin"),
+  );
   const [drag, setDrag] = useState<{ id: string; target?: string }>();
-  const sorted = orderProjects(data?.projects ?? [], order);
+  const sorted = orderProjects(
+    (data?.projects ?? []).filter((project) => !project.archived),
+    order,
+  );
   const filter = search.toLocaleLowerCase();
+  const archived = (data?.projects ?? []).filter(
+    (project) =>
+      project.archived && project.name.toLocaleLowerCase().includes(filter),
+  );
   const projects = useBatch(
     sorted.filter((project) =>
       project.name.toLocaleLowerCase().includes(filter),
@@ -81,7 +111,7 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
     setOrder(next);
 
     try {
-      localStorage.setItem(projectOrderKey, JSON.stringify(next));
+      localStorage.setItem(orderKey, JSON.stringify(next));
     } catch {
       // The current sidebar remains sortable if storage is unavailable.
     }
@@ -106,20 +136,22 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
       </Link>
       <div className="flex items-center justify-between px-3 pt-6 pb-2 text-xs text-muted">
         <span>{t("Projekte")}</span>
-        <Link
-          href="#/projects?new=1"
-          aria-label={t("Projekt anlegen")}
-          onPress={onNavigate}
-          className={buttonVariants({
-            variant: "ghost",
-            isIconOnly: true,
-            className: "min-h-11 min-w-11",
-          })}
-        >
-          <Icon name="plus" />
-        </Link>
+        {canCreate && (
+          <Link
+            href="#/projects?new=1"
+            aria-label={t("Projekt anlegen")}
+            onPress={onNavigate}
+            className={buttonVariants({
+              variant: "ghost",
+              isIconOnly: true,
+              className: "min-h-11 min-w-11",
+            })}
+          >
+            <Icon name="plus" />
+          </Link>
+        )}
       </div>
-      {sorted.length > 8 && (
+      {(data?.projects.length ?? 0) > 8 && (
         <TextField
           aria-label={t("Projekte filtern")}
           value={search}
@@ -140,7 +172,7 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
           <div className="h-3 w-1/2 rounded bg-default" />
         </div>
       )}
-      {!loading && !error && !projects.items.length && (
+      {!loading && !error && !projects.items.length && !archived.length && (
         <p className="px-3 py-3 text-xs leading-5 text-muted">
           {t(filter ? "Keine passenden Projekte" : "Noch keine Projekte")}
         </p>
@@ -194,7 +226,7 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
                       "min-h-11 min-w-0 flex-1 justify-start gap-3 px-3",
                   })}
                 >
-                  <Icon name="projects" className="size-4 text-muted" />
+                  <ProjectIcon emoji={project.emoji} />
                   <span className="min-w-0 truncate" title={project.name}>
                     {project.name}
                   </span>
@@ -236,6 +268,34 @@ export function SidebarProjects({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </ul>
       <MoreButton batch={projects} />
+      {archived.length > 0 && (
+        <div className="mt-3 border-t border-separator pt-3">
+          <p className="px-3 pb-2 text-xs text-muted">{t("Archiviert")}</p>
+          <ul aria-label={t("Archivierte Projekte")} className="space-y-1">
+            {archived.map((project) => (
+              <li key={project.id}>
+                <Link
+                  href={`#/projects/${encodeURIComponent(project.id)}`}
+                  onPress={onNavigate}
+                  className={buttonVariants({
+                    variant:
+                      page === "projects" && projectId === project.id
+                        ? "secondary"
+                        : "ghost",
+                    className:
+                      "min-h-11 w-full min-w-0 justify-start gap-3 px-3",
+                  })}
+                >
+                  <ProjectIcon emoji={project.emoji} />
+                  <span className="min-w-0 truncate" title={project.name}>
+                    {project.name}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </nav>
   );
 }

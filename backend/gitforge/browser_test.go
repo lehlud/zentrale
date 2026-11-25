@@ -56,7 +56,12 @@ func newBrowserForgeFixture(t *testing.T, kind string) *browserForgeFixture {
 		t.Fatal(err)
 	}
 
-	if err := store.CreateSession("owner-session", fixture.now.Add(time.Hour)); err != nil {
+	if _, err := store.BootstrapAccount(datastore.Account{
+		User: domain.User{ID: domain.InitialUserID, Username: "admin", Role: domain.RoleAdmin}, PasswordHash: "test-only",
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateUserSession("owner-session", domain.InitialUserID, fixture.now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 

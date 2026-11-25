@@ -67,6 +67,7 @@ export class API {
   confirm:
     ((message: string, actionLabel?: string) => Promise<boolean>) | undefined;
   authenticationRequired = false;
+  private oidc = false;
   private pendingMutations = new Map<string, Promise<unknown>>();
   private connectionGeneration = 0;
   private sessionGeneration = 0;
@@ -205,8 +206,17 @@ export class API {
     this.publishSession(session);
   }
 
+  setSessionIdentity(userId: string, oidc: boolean) {
+    this.oidc = oidc;
+    this.inputs.setAccount(userId);
+  }
+
   private publishSession(session: SessionData) {
     this.sessionGeneration++;
+    this.setSessionIdentity(
+      session.status.user?.id ?? "",
+      Boolean(session.status.oidc),
+    );
     this.authenticationRequired = !session.status.authenticated;
     if (this.authenticationRequired) {
       this.disconnect();
@@ -228,6 +238,7 @@ export class API {
         needsSetup: false,
         authenticated: false,
         githubConnected: false,
+        oidc: this.oidc,
       },
     });
   }

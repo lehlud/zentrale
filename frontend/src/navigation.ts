@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 
 const pages = new Set([
   "projects",
+  "chats",
+  "usage",
   "machines",
   "keys",
   "providers",

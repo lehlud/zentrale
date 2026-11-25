@@ -80,6 +80,9 @@ func (engine *Engine) validateModelChoice(choice domain.ModelChoice) (domain.Lan
 	if choice.ProviderID == "" || choice.ModelID == "" {
 		return domain.LanguageModel{}, errors.New("select a provider and one of its discovered models")
 	}
+	if err := engine.requireApprovedModel(choice.ProviderID, choice.ModelID); err != nil {
+		return domain.LanguageModel{}, err
+	}
 
 	var provider domain.Provider
 	if err := engine.Store.Load("provider", choice.ProviderID, &provider); err != nil {

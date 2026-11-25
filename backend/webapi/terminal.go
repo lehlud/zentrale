@@ -100,6 +100,10 @@ func (server *Server) terminal(requestContext echo.Context) error {
 	if err != nil || cursor < 0 || (attachmentID != "" && !remote.ValidID(attachmentID)) {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid terminal attachment")
 	}
+	if err := server.projectURLAccess(requestContext, "project", false, true); err != nil {
+		return err
+	}
+
 	var explicitlyClosed atomic.Bool
 	// Browsers hide the HTTP status of rejected WebSocket handshakes. This
 	// authenticated, same-origin probe uses the very same guards and route,

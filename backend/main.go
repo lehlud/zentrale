@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/auth"
+	"github.com/lehlud/zentrale/auth/oidc"
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/providers"
 	"github.com/lehlud/zentrale/webapi"
@@ -44,11 +46,37 @@ func run() error {
 	defer store.Close()
 	dbReady := time.Now()
 
-	authentication, err := auth.New(store, os.Getenv("LOGIN_ARGON2ID"))
+	config, oidcEnabled, err := oidc.ConfigFromEnv()
 	if err != nil {
 		return err
 	}
 	authReady := time.Now()
+
+	authentication, err := auth.NewWithIssuer(store, os.Getenv("LOGIN_ARGON2ID"), config.Issuer)
+	if err != nil {
+		return err
+	}
+
+	var oidcClient *oidc.Client
+	if oidcEnabled {
+		redirect, err := url.Parse(config.RedirectURL)
+		if err != nil || redirect.EscapedPath() != webapi.OIDCCallbackPath {
+			return fmt.Errorf("ZENTRALE_OIDC_REDIRECT_URL must end with %s", webapi.OIDCCallbackPath)
+		}
+		origin := redirect.Scheme + "://" + redirect.Host
+		if public.Origin != "" && public.Origin != origin {
+			return errors.New("ZENTRALE_OIDC_REDIRECT_URL must match the configured public origin")
+		}
+		public.Origin = origin
+		public.SecureCookie = redirect.Scheme == "https"
+
+		discovery, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		oidcClient, err = oidc.New(discovery, config)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
 
 	engine, err := agent.New(store, providers.New())
 	if err != nil {
@@ -61,6 +89,7 @@ func run() error {
 	api := &webapi.Server{
 		Store:        store,
 		Auth:         authentication,
+		OIDC:         oidcClient,
 		Engine:       engine,
 		Frontend:     *frontend,
 		Origin:       public.Origin,

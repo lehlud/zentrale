@@ -15,6 +15,7 @@
     "test:ui": "playwright test tests/visual-audit.spec.ts && node scripts/ui-gallery.mjs"
   },
   "dependencies": {
+    "@fontsource/noto-emoji": "^5.3.2",
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.0.0",
     "@wterm/dom": "0.5.10",

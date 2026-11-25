@@ -47,9 +47,14 @@ func (engine *Engine) research(
 	)
 }
 
-func (engine *Engine) github(ctx context.Context, args map[string]any) (any, error) {
-	token, err := engine.GitForge.Token(ctx, "github")
+func (engine *Engine) github(ctx context.Context, agentRecord domain.Agent, args map[string]any) (any, error) {
+	owner, err := engine.conversationOwner(agentRecord)
 	if err != nil {
+		return nil, err
+	}
+
+	token, err := engine.GitFor(owner).Token(ctx, "github")
+	if err != nil && owner == domain.InitialUserID {
 		token, err = engine.Store.Setting("github_token")
 	}
 

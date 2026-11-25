@@ -38,6 +38,7 @@ type Service struct {
 	Store       *datastore.Instance
 	Client      *http.Client
 	spaceClient *http.Client
+	owner       string
 
 	mu          sync.Mutex
 	refreshMu   sync.Mutex
@@ -63,8 +64,23 @@ func New(store *datastore.Instance) *Service {
 	}
 }
 
+func (service *Service) ForUser(userID string) *Service {
+	if userID == "" || userID == domain.InitialUserID {
+		return service
+	}
+	return &Service{Store: service.Store, Client: service.Client, spaceClient: service.spaceClient,
+		owner: userID, active: make(map[uint64]context.CancelFunc)}
+}
+
+func (service *Service) credentialKey() string {
+	if service.owner == "" {
+		return credentialName
+	}
+	return credentialName + "/" + service.owner
+}
+
 func (service *Service) account() (account, error) {
-	encoded, err := service.Store.Credential(credentialName)
+	encoded, err := service.Store.Credential(service.credentialKey())
 	if errors.Is(err, sql.ErrNoRows) {
 		return account{}, nil
 	}

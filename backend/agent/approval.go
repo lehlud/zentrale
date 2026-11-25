@@ -87,7 +87,8 @@ func (engine *Engine) approve(
 	phaseContext = ctx
 	defer cancel()
 	phase = "review preparation"
-	revision := engine.instructionRevision(agentRecord.ProjectID)
+	scope := instructionScopeID(agentRecord)
+	revision := engine.instructionRevision(scope)
 
 	// A queued review may outlive a change to the conversation's reviewer.
 	if err := engine.Store.Load("agent", approver.ID, &approver); err != nil {
@@ -168,7 +169,7 @@ func (engine *Engine) approve(
 			if err := ctx.Err(); err != nil {
 				return false, err
 			}
-			if engine.instructionRevision(agentRecord.ProjectID) != revision {
+			if engine.instructionRevision(scope) != revision {
 				return false, errors.New("user instructions changed during review; request approval again")
 			}
 
@@ -188,6 +189,14 @@ func (engine *Engine) approvalContext(agentRecord domain.Agent, request interact
 	instructionScope, err := engine.approvalInstructions(agentRecord)
 	if err != nil {
 		return nil, err
+	}
+	if agentRecord.ChatOwnerID != "" {
+		return map[string]any{
+			"action": request.Action, "arguments": request.Arguments,
+			"justification": request.Justification, "network": request.Network,
+			"userInstructions": instructionScope.UserInstructions,
+			"instructionScope": map[string]string{"rootAgentId": agentRecord.ID, "kind": "short chat"},
+		}, nil
 	}
 
 	sources, err := engine.listAll("source", &agentRecord.ProjectID)
@@ -293,6 +302,9 @@ func (engine *Engine) executeInspection(
 	}
 
 	action := stringArg(call.Arguments, "action")
+	if mainAgent.ChatOwnerID != "" && action != "tool_output" {
+		return nil, errors.New("no project environment inspection in short chats")
+	}
 	if action == "batch" {
 		return engine.inspectBatch(ctx, mainAgent, arguments)
 	}

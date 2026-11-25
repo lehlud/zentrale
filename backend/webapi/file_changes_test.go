@@ -9,6 +9,7 @@ import (
 
 func TestMessageChangesAreNullableProjectedAndLoadedForFragments(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project", "agent")
 
 	for _, id := range []string{"old", "edited"} {
 		message := domain.Message{
@@ -81,6 +82,7 @@ func TestMessageChangesAreNullableProjectedAndLoadedForFragments(t *testing.T) {
 
 func TestOnePatchMessageReturnsEveryFileChangeInOneBatch(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project", "agent")
 	changes := []domain.FileChange{
 		{
 			Path:  "one.py",
@@ -151,6 +153,7 @@ func TestOnePatchMessageReturnsEveryFileChangeInOneBatch(t *testing.T) {
 
 func TestCodeModeActivitiesRemainSeparateProjectedAndAuthenticated(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project", "agent")
 	message := domain.Message{
 		ID:      "combined",
 		AgentID: "agent",

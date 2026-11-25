@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/oauthflow"
 )
@@ -22,7 +23,12 @@ const oauthOwner = "test-session-owner"
 
 func beginTestOAuth(t *testing.T, service *Service, confidential bool) domain.HuggingFaceLogin {
 	t.Helper()
-	if err := service.Store.CreateSession(oauthOwner, time.Now().Add(time.Hour)); err != nil {
+	if _, err := service.Store.BootstrapAccount(datastore.Account{
+		User: domain.User{ID: domain.InitialUserID, Username: "admin", Role: domain.RoleAdmin}, PasswordHash: "test-only",
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.CreateUserSession(oauthOwner, domain.InitialUserID, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +188,7 @@ func TestOAuthInFlightCancellationCannotRestoreAccount(t *testing.T) {
 			var err error
 			switch action {
 			case "logout":
-				err = service.Store.DeleteSession(oauthOwner)
+				err = service.Store.DeleteUserSession(oauthOwner)
 			case "cancel":
 				err = service.EndOAuth(login.ID, oauthOwner)
 			case "disconnect":

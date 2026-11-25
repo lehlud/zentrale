@@ -12,6 +12,8 @@ import { Projects, ProjectView } from "./projects";
 import { ApplicationShell } from "./shell";
 import { Failure, Loading } from "./ui";
 import { EditorLauncher } from "./editor-launcher";
+import { ShortChats } from "./short-chats";
+import { UsageDashboard } from "./usage-dashboard";
 
 export default function App() {
   const { t } = useI18n();
@@ -20,13 +22,21 @@ export default function App() {
   const { data, error, loading } = useQuery<SessionData>(SESSION_QUERY);
   const { page, projectId } = useRoute();
   const authenticated = Boolean(data?.status.authenticated);
+  const oidc = Boolean(data?.status.oidc);
+  const userId = data?.status.user?.id ?? "";
+  const redirectToOIDC = !authenticated && oidc;
 
   useEffect(() => {
+    api.setSessionIdentity(userId, oidc);
     if (authenticated) api.connect();
     return () => api.disconnect();
-  }, [api, authenticated]);
+  }, [api, authenticated, oidc, userId]);
 
-  if (loading) {
+  useEffect(() => {
+    if (redirectToOIDC) location.replace("/auth/oidc/start");
+  }, [redirectToOIDC]);
+
+  if (loading || redirectToOIDC) {
     return <Loading />;
   }
 
@@ -45,6 +55,8 @@ export default function App() {
     return <Authentication setup={Boolean(data?.status.needsSetup)} />;
   }
 
+  const admin = data?.status.user?.role === "admin";
+
   if (page === "editor") {
     return <EditorLauncher projectId={projectId} />;
   }
@@ -54,14 +66,18 @@ export default function App() {
   }
 
   return (
-    <ApplicationShell>
+    <ApplicationShell key={userId}>
       <Failure message={error} onRetry={() => api.refresh()} />
       {page === "projects" &&
         (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
-      {page === "machines" && <Machines />}
-      {page === "keys" && <Keys />}
-      {page === "providers" && <Providers />}
-      {page === "settings" && <Settings />}
+      {page === "chats" && <ShortChats chatId={projectId} />}
+      {page === "usage" && <UsageDashboard admin={admin} />}
+      {admin && page === "machines" && <Machines />}
+      {admin && page === "keys" && <Keys />}
+      {admin && page === "providers" && <Providers />}
+      {page === "settings" && (
+        <Settings admin={admin} oidc={Boolean(data?.status.oidc)} />
+      )}
     </ApplicationShell>
   );
 }

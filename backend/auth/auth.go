@@ -1,15 +1,17 @@
-// Package auth implements password-only authentication and revocable sessions.
+// Package auth implements local or OIDC authentication and revocable sessions.
 package auth
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,26 +24,68 @@ import (
 )
 
 type Service struct {
-	Store *datastore.Instance
+	Store      *datastore.Instance
+	OIDCIssuer string
 
 	mu       sync.Mutex
 	attempts map[string][]time.Time
 }
 
 func New(store *datastore.Instance, envHash string) (*Service, error) {
-	s := &Service{Store: store, attempts: make(map[string][]time.Time)}
+	return NewWithIssuer(store, envHash, "")
+}
+
+const DefaultUsername = "admin"
+
+func NewWithIssuer(store *datastore.Instance, envHash, issuer string) (*Service, error) {
+	s := &Service{Store: store, OIDCIssuer: issuer, attempts: make(map[string][]time.Time)}
+	initial, err := store.UserAccount(domain.InitialUserID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil && initial.OIDCIssuer != issuer {
+		return nil, errors.New("the configured authentication mode or OpenID Connect issuer does not match the initial administrator")
+	}
+
+	legacy, err := store.Setting("login_argon2id")
+	if err != nil {
+		return nil, err
+	}
+
+	if issuer != "" {
+		if envHash != "" {
+			return nil, errors.New("LOGIN_ARGON2ID cannot be used with OIDC")
+		}
+		if legacy != "" {
+			return nil, errors.New("a legacy password installation cannot be claimed through OIDC")
+		}
+		return s, nil
+	}
 
 	if envHash != "" {
 		if _, _, _, _, _, err := parse(envHash); err != nil {
 			return nil, fmt.Errorf("LOGIN_ARGON2ID: %w", err)
 		}
+	}
 
-		if _, err := store.InitializePassword(envHash); err != nil {
+	// Existing single-user installations keep the same password. Previously
+	// issued anonymous session tokens are deliberately not carried forward.
+	if legacy != "" {
+		envHash = legacy
+	}
+	if envHash != "" {
+		if _, err := store.BootstrapAccount(initialAccount(DefaultUsername, envHash), ""); err != nil {
 			return nil, err
 		}
 	}
 
 	return s, nil
+}
+
+func initialAccount(username, passwordHash string) datastore.Account {
+	return datastore.Account{User: domain.User{
+		ID: domain.InitialUserID, Username: username, Name: username, Role: domain.RoleAdmin,
+	}, PasswordHash: passwordHash}
 }
 
 func Hash(password string) (string, error) {
@@ -123,16 +167,22 @@ func Verify(hash, password string) bool {
 }
 
 func (s *Service) NeedsSetup() (bool, error) {
-	v, err := s.Store.Setting("login_argon2id")
-
-	return v == "", err
+	if s.OIDCIssuer != "" {
+		return false, nil
+	}
+	exists, err := s.Store.HasUsers()
+	return !exists, err
 }
 
 func (s *Service) Setup(password string) error {
-	return s.setup(password, "")
+	return s.setup(DefaultUsername, password, "")
 }
 
 func (s *Service) SetupWithIdentity(password string, identity domain.CommitIdentity) error {
+	return s.SetupAccount(DefaultUsername, password, identity)
+}
+
+func (s *Service) SetupAccount(username, password string, identity domain.CommitIdentity) error {
 	identity, err := domain.NormalizeCommitIdentity(identity)
 	if err != nil {
 		return err
@@ -143,10 +193,29 @@ func (s *Service) SetupWithIdentity(password string, identity domain.CommitIdent
 		return err
 	}
 
-	return s.setup(password, string(encoded))
+	return s.setup(username, password, string(encoded))
 }
 
-func (s *Service) setup(password, identity string) error {
+var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+func NormalizeUsername(username string) (string, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if !usernamePattern.MatchString(username) {
+		return "", errors.New("username must contain 1–64 letters, numbers, dots, dashes or underscores, starting with a letter or number")
+	}
+	return username, nil
+}
+
+func (s *Service) setup(username, password, identity string) error {
+	if s.OIDCIssuer != "" {
+		return errors.New("password setup is disabled")
+	}
+
+	username, err := NormalizeUsername(username)
+	if err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,7 +233,7 @@ func (s *Service) setup(password, identity string) error {
 		return err
 	}
 
-	ok, err := s.Store.InitializeSetup(hash, identity)
+	ok, err := s.Store.BootstrapAccount(initialAccount(username, hash), identity)
 	if err != nil {
 		return err
 	}
@@ -183,6 +252,14 @@ func TokenHash(token string) string {
 }
 
 func (s *Service) Login(password, client string) (string, error) {
+	return s.LoginAccount(DefaultUsername, password, client)
+}
+
+func (s *Service) LoginAccount(username, password, client string) (string, error) {
+	if s.OIDCIssuer != "" {
+		return "", errors.New("password login is disabled")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -205,40 +282,82 @@ func (s *Service) Login(password, client string) (string, error) {
 	}
 
 	s.attempts[client] = append(recent, now)
-	hash, err := s.Store.Setting("login_argon2id")
-	if err != nil {
+	account, err := s.Store.PasswordAccount(strings.TrimSpace(username))
+	if err != nil || account.Disabled || !Verify(account.PasswordHash, password) {
+		return "", errors.New("invalid username or password")
+	}
+
+	delete(s.attempts, client)
+	return s.createSession(account.ID)
+}
+
+func (s *Service) LoginOIDC(issuer, subject, username, name string) (string, error) {
+	if issuer == "" || issuer != s.OIDCIssuer || subject == "" {
+		return "", errors.New("invalid OpenID Connect identity")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	account, err := s.Store.OIDCAccount(issuer, subject)
+	if errors.Is(err, sql.ErrNoRows) {
+		username, err = NormalizeUsername(username)
+		if err != nil {
+			username = DefaultUsername
+		}
+
+		account = initialAccount(username, "")
+		if strings.TrimSpace(name) != "" {
+			account.Name = strings.TrimSpace(name)
+		}
+		account.OIDCIssuer, account.OIDCSubject = issuer, subject
+		created, err := s.Store.BootstrapAccount(account, "")
+		if err != nil {
+			return "", err
+		}
+		if !created {
+			account, err = s.Store.OIDCAccount(issuer, subject)
+			if err != nil {
+				return "", errors.New("this OpenID Connect identity has no account")
+			}
+		}
+	} else if err != nil {
 		return "", err
 	}
-
-	if hash == "" || !Verify(hash, password) {
-		return "", errors.New("invalid password")
+	if account.Disabled {
+		return "", errors.New("this account is disabled")
 	}
+	return s.createSession(account.ID)
+}
 
+func (s *Service) createSession(userID string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 
 	token := base64.RawURLEncoding.EncodeToString(b)
-	if err := s.Store.CreateSession(TokenHash(token), now.Add(24*time.Hour)); err != nil {
+	if err := s.Store.CreateUserSession(TokenHash(token), userID, time.Now().Add(24*time.Hour)); err != nil {
 		return "", err
 	}
-
-	delete(s.attempts, client)
 
 	return token, nil
 }
 
 func (s *Service) Valid(token string) bool {
+	_, valid := s.User(token)
+	return valid
+}
+
+func (s *Service) User(token string) (domain.User, bool) {
 	if len(token) != 43 {
-		return false
+		return domain.User{}, false
 	}
 
-	ok, err := s.Store.SessionValid(TokenHash(token))
-
-	return err == nil && ok
+	user, err := s.Store.SessionUser(TokenHash(token), s.OIDCIssuer)
+	return user, err == nil
 }
 
 func (s *Service) Logout(token string) error {
-	return s.Store.DeleteSession(TokenHash(token))
+	return s.Store.DeleteUserSession(TokenHash(token))
 }

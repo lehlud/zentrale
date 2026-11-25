@@ -21,6 +21,7 @@ func (engine *Engine) superviseVMs() {
 	for {
 		_ = engine.Store.PruneTerminalAttachments()
 		engine.reconcileVMs(engine.ctx)
+		engine.reconcileShortChatVMs(engine.ctx)
 		select {
 		case <-engine.ctx.Done():
 			return

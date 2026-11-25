@@ -90,7 +90,10 @@ func humanizerConfigured(settings domain.HumanizerSettings) bool {
 }
 
 func (engine *Engine) agentToolsForModel(model domain.LanguageModel) []providers.Tool {
-	tools := toolsForModel(model)
+	return engine.withHumanizerTool(toolsForModel(model))
+}
+
+func (engine *Engine) withHumanizerTool(tools []providers.Tool) []providers.Tool {
 	if engine.humanizerEnabled() {
 		tools = append(tools, providers.Tool{
 			Name: humanizerAction,

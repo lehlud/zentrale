@@ -167,8 +167,8 @@ func TestConversationQueriesDoNotGrowSQLCountWithHistory(t *testing.T) {
 			requireData(t, f.query(t, query, nil))
 			count := f.engine.Store.ReadQueryCount() - before
 			t.Logf("agents=%d query=%d read statements=%d", size, n, count)
-			if n < 2 && count != 2 {
-				t.Fatalf("simple collection must use authentication + one batch query, got %d", count)
+			if (n == 0 && count != 2) || (n == 1 && count != 3) {
+				t.Fatalf("collection must use one batch query plus authentication and project ACL, got %d", count)
 			}
 			if phase == 0 {
 				counts[n] = count

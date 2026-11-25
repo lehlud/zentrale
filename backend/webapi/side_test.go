@@ -86,9 +86,14 @@ func TestSideSocketAnswersWithoutStartingMainWork(t *testing.T) {
 		t.Fatal("side polluted main history", rows, err)
 	}
 
-	response, err := fixture.client.Head(fixture.server.URL + "/side/nonexistent")
+	response, err := fixture.client.Head(fixture.server.URL + "/side/side-main")
 	if err != nil || response.StatusCode != http.StatusNoContent {
 		t.Fatal("status probe performed agent work", response, err)
+	}
+	response.Body.Close()
+	response, err = fixture.client.Head(fixture.server.URL + "/side/nonexistent")
+	if err != nil || response.StatusCode != http.StatusNotFound {
+		t.Fatal("status probe exposed an unavailable conversation", response, err)
 	}
 	response.Body.Close()
 }

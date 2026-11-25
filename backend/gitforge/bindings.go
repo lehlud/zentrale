@@ -17,6 +17,7 @@ import (
 
 type repositoryBinding struct {
 	ID           string   `json:"id"`
+	OwnerID      string   `json:"ownerId,omitempty"`
 	ConnectionID string   `json:"connectionId"`
 	BaseURL      string   `json:"baseUrl"`
 	RepositoryID string   `json:"repositoryId"`
@@ -49,14 +50,18 @@ func (service *Service) RepositoryCheckoutURLs(bindingID, sshURL string) (httpUR
 	if err := service.Store.Load("repository_binding", bindingID, &binding); err != nil {
 		return nil, nil, err
 	}
-	if binding.SSHURL != sshURL {
+	if binding.OwnerID != service.owner || binding.SSHURL != sshURL {
 		return nil, nil, errors.New("repository binding does not match its SSH source")
 	}
 	return []string{strings.TrimRight(binding.BaseURL, "/") + "/" + binding.FullName}, binding.MovedFrom, nil
 }
 
-func bindingID(account account, repository domain.GitRepository) string {
-	digest := sha256.Sum256([]byte(account.Public.Kind + "\n" + account.Public.BaseURL + "\n" + repository.Identity))
+func (service *Service) bindingID(account account, repository domain.GitRepository) string {
+	identity := account.Public.Kind + "\n" + account.Public.BaseURL + "\n" + repository.Identity
+	if service.owner != "" {
+		identity = service.owner + "\n" + identity
+	}
+	digest := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(digest[:])
 }
 
@@ -115,7 +120,8 @@ func (service *Service) ensureBinding(
 	}
 
 	binding := repositoryBinding{
-		ID:           bindingID(account, repository),
+		ID:           service.bindingID(account, repository),
+		OwnerID:      service.owner,
 		ConnectionID: account.Public.ID,
 		BaseURL:      account.Public.BaseURL,
 		RepositoryID: repository.ID,
@@ -391,6 +397,9 @@ func (service *Service) RevokeKey(ctx context.Context, keyID int) error {
 	var binding repositoryBinding
 	if err := service.Store.Load("repository_binding", id, &binding); err != nil {
 		return err
+	}
+	if binding.OwnerID != service.owner {
+		return errors.New("repository key is not available to this account")
 	}
 
 	unlock, err := service.gates.LockContext(ctx, binding.ConnectionID)

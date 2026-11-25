@@ -145,35 +145,38 @@ func (engine *Engine) startLoginPolling(key, id string, expires time.Time, inter
 	return nil
 }
 
-func (engine *Engine) BeginGitLogin(ctx context.Context, connectionID string) (domain.GitLogin, error) {
-	engine.stopLoginPolling("git:"+connectionID, "")
-	login, err := engine.GitForge.Begin(ctx, connectionID)
+func gitPollKey(owner, connection string) string { return "git:" + owner + ":" + connection }
+
+func (engine *Engine) BeginGitLogin(ctx context.Context, owner, connectionID string) (domain.GitLogin, error) {
+	engine.StopGitLogin(owner, connectionID)
+	service := engine.GitFor(owner)
+	login, err := service.Begin(ctx, connectionID)
 	if err != nil {
 		return login, err
 	}
-	err = engine.startGitLogin(login)
+	err = engine.startGitLogin(owner, login)
 	if err != nil {
-		_ = engine.GitForge.EndLogin(connectionID, login.ID, "cancelled")
+		_ = service.EndLogin(connectionID, login.ID, "cancelled")
 		return login, err
 	}
-	engine.Emit("git_login", "", map[string]string{"id": login.ID, "connectionId": connectionID})
+	engine.Emit("resources", "", nil)
 	return login, nil
 }
 
-func (engine *Engine) startGitLogin(login domain.GitLogin) error {
+func (engine *Engine) startGitLogin(owner string, login domain.GitLogin) error {
 	connectionID := login.ConnectionID
 	// Browser flows only inspect session/expiry while awaiting consent. Once the
 	// code has been exchanged, the same worker can retry a transient profile read
 	// without ever replaying that code or starting a device authorization request.
 	poll := func(ctx context.Context) (loginPollState, error) {
-		value, err := engine.PollGitLogin(ctx, connectionID, login.ID)
+		value, err := engine.PollGitLogin(ctx, owner, connectionID, login.ID)
 		return loginPollState{status: value.Status, interval: value.Interval}, err
 	}
 
-	return engine.startLoginPolling("git:"+connectionID, login.ID, login.ExpiresAt, login.Interval,
+	return engine.startLoginPolling(gitPollKey(owner, connectionID), login.ID, login.ExpiresAt, login.Interval,
 		poll, func(reason string) {
-			if engine.GitForge.EndLogin(connectionID, login.ID, reason) == nil {
-				engine.Emit("git_login", "", map[string]string{"id": login.ID, "connectionId": connectionID})
+			if engine.GitFor(owner).EndLogin(connectionID, login.ID, reason) == nil {
+				engine.Emit("resources", "", nil)
 			}
 		})
 }
@@ -182,30 +185,23 @@ func (engine *Engine) startGitLogin(login domain.GitLogin) error {
 // Persisted protocol state is resumed, not a new authorization grant. Capacity
 // errors finalize selected sessions explicitly rather than silently dropping.
 func (engine *Engine) recoverLoginProtocols() error {
-	connections, err := engine.GitForge.Connections()
+	users, err := engine.Store.Users()
 	if err != nil {
 		return err
 	}
-
-	for _, connection := range connections {
-		connectionID := connection.ID
-		login, err := engine.GitForge.PendingLogin(connectionID)
-		if err != nil {
-			return err
-		}
-		if login == nil {
-			continue
-		}
-		if !time.Now().Before(login.ExpiresAt) {
-			if err := engine.GitForge.EndLogin(connectionID, login.ID, "expired"); err != nil {
+	for _, user := range users {
+		if !user.Disabled {
+			if err := engine.recoverGitLogins(user.ID); err != nil {
 				return err
 			}
-			continue
 		}
-		if err := engine.startGitLogin(*login); err != nil {
+	}
+	if len(users) == 0 {
+		if err := engine.recoverGitLogins(domain.InitialUserID); err != nil {
 			return err
 		}
 	}
+
 	ids, err := engine.Store.ListPendingProviderLogins(32)
 	if err != nil {
 		return err
@@ -230,17 +226,45 @@ func (engine *Engine) recoverLoginProtocols() error {
 	return nil
 }
 
-func (engine *Engine) PollGitLogin(ctx context.Context, connectionID, loginID string) (domain.GitLogin, error) {
-	before, err := engine.GitForge.Login(connectionID, loginID)
+func (engine *Engine) recoverGitLogins(owner string) error {
+	service := engine.GitFor(owner)
+	connections, err := service.Connections()
+	if err != nil {
+		return err
+	}
+
+	for _, connection := range connections {
+		login, err := service.PendingLogin(connection.ID)
+		if err != nil {
+			return err
+		}
+		if login == nil {
+			continue
+		}
+		if !time.Now().Before(login.ExpiresAt) {
+			err = service.EndLogin(connection.ID, login.ID, "expired")
+		} else {
+			err = engine.startGitLogin(owner, *login)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (engine *Engine) PollGitLogin(ctx context.Context, owner, connectionID, loginID string) (domain.GitLogin, error) {
+	service := engine.GitFor(owner)
+	before, err := service.Login(connectionID, loginID)
 	if err != nil {
 		return domain.GitLogin{}, err
 	}
 	if before == nil {
 		return domain.GitLogin{Status: "cancelled"}, nil
 	}
-	value, err := engine.GitForge.Poll(ctx, connectionID, loginID)
+	value, err := service.Poll(ctx, connectionID, loginID)
 	if *before != value {
-		engine.Emit("git_login", "", map[string]string{"id": loginID, "connectionId": connectionID})
+		engine.Emit("resources", "", nil)
 	}
 	if err != nil && ctx.Err() == nil {
 		err = errors.New("Git login temporarily unavailable; server will retry until expiry")
@@ -248,15 +272,15 @@ func (engine *Engine) PollGitLogin(ctx context.Context, connectionID, loginID st
 	return value, err
 }
 
-func (engine *Engine) CancelGitLogin(connectionID, loginID string) error {
-	engine.stopLoginPolling("git:"+connectionID, loginID)
-	if err := engine.GitForge.EndLogin(connectionID, loginID, "cancelled"); err != nil {
+func (engine *Engine) CancelGitLogin(owner, connectionID, loginID string) error {
+	engine.stopLoginPolling(gitPollKey(owner, connectionID), loginID)
+	if err := engine.GitFor(owner).EndLogin(connectionID, loginID, "cancelled"); err != nil {
 		return err
 	}
-	engine.Emit("git_login", "", map[string]string{"id": loginID, "connectionId": connectionID})
+	engine.Emit("resources", "", nil)
 	return nil
 }
 
-func (engine *Engine) StopGitLogin(connectionID string) {
-	engine.stopLoginPolling("git:"+connectionID, "")
+func (engine *Engine) StopGitLogin(owner, connectionID string) {
+	engine.stopLoginPolling(gitPollKey(owner, connectionID), "")
 }

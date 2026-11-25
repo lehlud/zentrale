@@ -12,6 +12,7 @@ import type { Agent, Project } from "./generated";
 import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { Empty, useAction } from "./ui";
+import { conversationHref } from "./navigation";
 import { useSidebar } from "./shell";
 
 export function Workspace({
@@ -48,6 +49,39 @@ export function Workspace({
     bootstrap.modelDefaults?.main.modelId &&
     bootstrap.modelDefaults?.approver.modelId,
   );
+
+  if (project.archived) {
+    return (
+      <>
+        <nav
+          className="flex flex-wrap gap-2 pb-4"
+          aria-label={t("Unterhaltungen")}
+        >
+          {agents
+            .filter((agent) => agent.role !== "approver")
+            .map((agent) => (
+              <Link
+                key={agent.id}
+                href={conversationHref(project.id, agent.id)}
+                aria-current={agent.id === activeId ? "page" : undefined}
+              >
+                {agent.name}
+              </Link>
+            ))}
+        </nav>
+        {activeId && (
+          <AgentView
+            key={activeId}
+            agentId={activeId}
+            project={project}
+            initialTranscript={bootstrapTranscript(bootstrap)}
+            managedTranscript
+            readOnly
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="min-w-0">

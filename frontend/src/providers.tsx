@@ -14,6 +14,7 @@ import { MoreButton, useBatch } from "./batches";
 import { ResourceContent, useResourcePage } from "./resource-page";
 import type { Provider } from "./generated";
 import { ProviderModels } from "./models";
+import { ModelPolicyDialog } from "./model-policy";
 import { setRouteParameter, useRoute } from "./navigation";
 import {
   ProviderEditor,
@@ -35,6 +36,7 @@ export function Providers() {
   const { params } = useRoute();
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [signingIn, setSigningIn] = useState<Provider | null>(null);
+  const [modelPolicyId, setModelPolicyId] = useState("");
   const [catalogRequest, setCatalogRequest] = useState<string>();
   const catalogHeading = useRef<HTMLHeadingElement>(null);
   const selected =
@@ -94,6 +96,13 @@ export function Providers() {
           ),
       },
     ];
+    if (!isHostedProvider(provider.kind))
+      actions.push({
+        id: "model-policy",
+        label: t("Modellfreigabe"),
+        onAction: () => setModelPolicyId(provider.id),
+      });
+
     if (provider.authMode !== "api" && provider.connected)
       actions.push({
         id: "sign-in",
@@ -308,6 +317,12 @@ export function Providers() {
         <ProviderSignIn
           provider={signingIn}
           onClose={() => setSigningIn(null)}
+        />
+      )}
+      {modelPolicyId && (
+        <ModelPolicyDialog
+          providerId={modelPolicyId}
+          onClose={() => setModelPolicyId("")}
         />
       )}
     </>

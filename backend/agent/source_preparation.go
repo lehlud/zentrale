@@ -166,7 +166,7 @@ func (engine *Engine) prepareProjectSourcesForConnection(
 			return err
 		}
 
-		httpURLs, movedFrom, err := engine.GitForge.RepositoryCheckoutURLs(source.BindingID, source.URL)
+		httpURLs, movedFrom, err := engine.GitFor(project.Owner()).RepositoryCheckoutURLs(source.BindingID, source.URL)
 		if err != nil {
 			return err
 		}

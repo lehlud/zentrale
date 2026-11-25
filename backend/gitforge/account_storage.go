@@ -29,8 +29,16 @@ func (service *Service) loadAccount(id string, value *account) error {
 	return service.loadAccountMode(id, value, false)
 }
 
+func (service *Service) accountKey(id string) string {
+	if service.owner == "" {
+		return id
+	}
+	return service.owner + "/" + id
+}
+
 func (service *Service) loadAccountMode(id string, value *account, readOnly bool) error {
-	data, err := service.Store.Credential("git_account/" + id)
+	key := service.accountKey(id)
+	data, err := service.Store.Credential("git_account/" + key)
 	if err == nil {
 		return json.Unmarshal(data, value)
 	}
@@ -40,7 +48,7 @@ func (service *Service) loadAccountMode(id string, value *account, readOnly bool
 	}
 
 	var snapshot accountSnapshot
-	if err := service.Store.Load("git_account", id, &snapshot); err != nil {
+	if err := service.Store.Load("git_account", key, &snapshot); err != nil {
 		return err
 	}
 
@@ -48,7 +56,7 @@ func (service *Service) loadAccountMode(id string, value *account, readOnly bool
 		return errors.New("Git account credential is missing; restore the matching credential backup")
 	}
 
-	if err := service.Store.Load("git_account", id, value); err != nil {
+	if err := service.Store.Load("git_account", key, value); err != nil {
 		return err
 	}
 
@@ -69,14 +77,15 @@ func (service *Service) save(value account) error {
 		snapshot.Login = &loginTransaction{Public: value.Login.Public}
 	}
 
+	key := service.accountKey(value.Public.ID)
 	return service.Store.SaveCredentialResource(
-		"git_account/"+value.Public.ID, data,
-		"git_account", value.Public.ID, "", snapshot,
+		"git_account/"+key, data,
+		"git_account", key, service.owner, snapshot,
 	)
 }
 
 func (service *Service) connectionIDs() ([]string, error) {
-	rows, err := service.Store.List("git_account", nil, maxGitConnections+1, 0)
+	rows, err := service.Store.List("git_account", &service.owner, maxGitConnections+1, 0)
 	if err != nil {
 		return nil, err
 	}

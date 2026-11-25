@@ -428,6 +428,12 @@ func (i *Instance) SearchModels(providerID, search string, limit, offset int) ([
 	return i.queryResources(`SELECT data FROM resources
   WHERE kind='model' AND parent_id=?
   AND (lower(json_extract(data,'$.name')) LIKE ? OR lower(json_extract(data,'$.id')) LIKE ?)
+  AND NOT EXISTS (
+    SELECT 1 FROM resources AS policy
+    WHERE policy.kind='model_policy' AND policy.id=resources.parent_id
+      AND json_extract(policy.data,'$.restricted')=1
+      AND json_extract(resources.data,'$.id') NOT IN (SELECT value FROM json_each(policy.data,'$.models'))
+  )
   ORDER BY json_extract(data,'$.name'),id LIMIT ? OFFSET ?`, providerID, pattern, pattern, limit, offset)
 }
 

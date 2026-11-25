@@ -220,6 +220,41 @@ func DiscardLegacyMoveSnapshots(ctx context.Context, connection *Connection, pro
 	return err
 }
 
+// ArchiveDirectories uses actual initialization receipts, including hosts no
+// longer in the project's current machine selection.
+func (manager *Manager) ArchiveDirectories(projectID string) ([]MoveDirectory, error) {
+	var directories []MoveDirectory
+	for _, kind := range []string{"project_workspace", "project_storage"} {
+		rows, err := manager.Connector.Store.ListFields(kind, &projectID, 1001, 0, []string{"id"})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 1000 {
+			return nil, fmt.Errorf("too many project workspace receipts")
+		}
+
+		for _, row := range rows {
+			id, _ := row["id"].(string)
+			var binding workspaceBinding
+			if err := manager.Connector.Store.Load(kind, id, &binding); err != nil {
+				return nil, err
+			}
+			if len(binding.Directories) == 0 {
+				return nil, fmt.Errorf("finish preparing the project workspace before archiving")
+			}
+			directories = append(directories, MoveDirectory{Kind: kind, BindingID: id, Paths: binding.Directories})
+		}
+	}
+	return directories, nil
+}
+
+//go:embed scripts/workspace_archive.py
+var workspaceArchiveScript string
+
+func ArchiveGitCommand() string {
+	return "python3 -I -c " + Quote(workspaceArchiveScript)
+}
+
 func RemoveProjectMoveScratch(ctx context.Context, connection *Connection, projectID string) error {
 	if !ValidID(projectID) {
 		return fmt.Errorf("invalid project identity for scratch cleanup")

@@ -31,7 +31,7 @@ type oauthLogin struct {
 // metadata is derived on read; no private flow or token reaches the snapshot.
 func (service *Service) saveAccount(value account) error {
 	if value.Token == "" && value.App.ClientID == "" && value.Login == nil {
-		return service.Store.DeleteCredential(credentialName)
+		return service.Store.DeleteCredential(service.credentialKey())
 	}
 
 	encoded, err := json.Marshal(value)
@@ -39,7 +39,7 @@ func (service *Service) saveAccount(value account) error {
 		return errors.New("could not encode Hugging Face credentials")
 	}
 
-	return service.Store.SetCredential(credentialName, encoded)
+	return service.Store.SetCredential(service.credentialKey(), encoded)
 }
 
 func connectionMetadata(value account) domain.HuggingFaceConnection {
@@ -60,7 +60,7 @@ func connectionMetadata(value account) domain.HuggingFaceConnection {
 }
 
 func (service *Service) sessionValid(owner string) bool {
-	valid, err := service.Store.SessionValid(owner)
+	valid, err := service.Store.UserSessionValid(owner)
 	return owner != "" && err == nil && valid
 }
 

@@ -218,7 +218,7 @@ func (engine *Engine) deliverInputs(agentID string, allowQueued bool) (bool, err
 			datastore.ResourceWrite{
 				Kind:   "instruction",
 				ID:     input.ID,
-				Parent: input.ProjectID,
+				Parent: instructionScopeID(record),
 				Value:  instructionRecord(record, message),
 			},
 		)
@@ -240,7 +240,7 @@ func (engine *Engine) deliverInputs(agentID string, allowQueued bool) (bool, err
 		return false, err
 	}
 
-	engine.invalidateProjectGrants(record.ProjectID)
+	engine.invalidateProjectGrants(instructionScopeID(record))
 	engine.Emit("agent", agentID, record)
 
 	for _, message := range messages {

@@ -12,7 +12,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
-import { CONFIG, useAPI, useQuery } from "./api";
+import { useAPI, useQuery } from "./api";
 import { ResourceList, useResourcePage } from "./resource-page";
 import { newResourceId } from "./resource-id";
 import { useBatch } from "./batches";
@@ -38,11 +38,50 @@ import {
 import { SidebarToggle } from "./shell";
 import { RemoteEditor } from "./remote-editor";
 import { Icon } from "./icons";
+import { SESSION_QUERY, type SessionData } from "./session";
+import { ProjectAccess, ProjectArchive } from "./project-sharing";
+
+type ProjectConfig = Pick<Config, "projects" | "commitIdentity"> & {
+  machines: Pick<Config["machines"][number], "id" | "name" | "jumpHostOnly">[];
+  pools: Pick<Config["pools"][number], "id" | "name">[];
+  sshKeys?: Config["sshKeys"];
+};
+
+const PROJECT_CONFIG = `query($keys:Boolean!){
+  projects(limit:500){id name ownerId emoji archived archivePending directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName repositorySshUrl repositorySshKeyId repositoryCheckoutPaths}
+  projectTargets{id name kind}
+  sshKeys @include(if:$keys){id name fingerprint publicKey purpose purposeId canDelete canRevoke}
+  commitIdentity{name email}
+}`;
+
+type ProjectConfigData = Omit<ProjectConfig, "machines" | "pools"> & {
+  projectTargets: { id: string; name: string; kind: string }[];
+};
+
+function projectConfig(
+  data: ProjectConfigData | undefined,
+): ProjectConfig | undefined {
+  if (!data) return undefined;
+
+  return {
+    ...data,
+    machines: data.projectTargets
+      .filter((target) => target.kind === "machine")
+      .map((target) => ({ ...target, jumpHostOnly: false })),
+    pools: data.projectTargets.filter((target) => target.kind === "pool"),
+  };
+}
+
+function useProjectUser() {
+  const { data } = useQuery<SessionData>(SESSION_QUERY);
+  return data?.status.user;
+}
 
 function newProject() {
   return {
     id: newResourceId(),
     name: "",
+    managedWorkspace: true,
     machineIds: [],
     poolIds: [],
     executionTarget: "",
@@ -67,7 +106,14 @@ function projectEditorValue(value: Record<string, unknown>) {
 }
 
 function projectInput(value: Record<string, unknown>) {
-  const { executionTarget, checkoutPathsText, ...input } = value;
+  const {
+    executionTarget,
+    checkoutPathsText,
+    ownerId: _owner,
+    archived: _archived,
+    archivePending: _pending,
+    ...input
+  } = value;
   const selected = String(executionTarget ?? "");
   return {
     ...input,
@@ -90,7 +136,7 @@ function ProjectRepository({
 }: {
   value: Record<string, unknown>;
   patch: (changes: Record<string, unknown>) => void;
-  keys: Config["sshKeys"];
+  keys?: Config["sshKeys"];
 }) {
   const { t } = useI18n();
   return (
@@ -98,16 +144,18 @@ function ProjectRepository({
       <RepositoryPicker
         value={value as Partial<RepositoryChoice>}
         onChange={(choice) => patch(choice)}
-        ssh={{
-          keys,
-          onChange: (changes) =>
-            patch({
-              gitConnectionId: "",
-              repositoryId: "",
-              repositoryName: "",
-              ...changes,
-            }),
-        }}
+        ssh={
+          keys && {
+            keys,
+            onChange: (changes) =>
+              patch({
+                gitConnectionId: "",
+                repositoryId: "",
+                repositoryName: "",
+                ...changes,
+              }),
+          }
+        }
       />
       {!!(value.repositoryId || value.repositorySshUrl) && (
         <TextField
@@ -137,16 +185,22 @@ function ProjectRepository({
 
 export function Projects() {
   const { t } = useI18n();
-
-  const resource = useResourcePage();
-  const { api, data } = resource;
+  const user = useProjectUser();
+  const canCreate = Boolean(user?.role === "admin" || user?.canCreateProjects);
+  const resource = useResourcePage<ProjectConfigData>(PROJECT_CONFIG, {
+    keys: user?.id === "initial-admin",
+  });
+  const { api } = resource;
+  const data = projectConfig(resource.data);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [moving, setMoving] = useState<Project | null>(null);
+  const [sharing, setSharing] = useState<Project | null>(null);
+  const [archiving, setArchiving] = useState<Project | null>(null);
   const { params } = useRoute();
 
   useEffect(() => {
-    setEditing(params.get("new") === "1" ? newProject() : null);
-  }, [params.get("new")]);
+    setEditing(canCreate && params.get("new") === "1" ? newProject() : null);
+  }, [params.get("new"), canCreate]);
 
   const [search, setSearch] = useState("");
   const needle = search.trim().toLocaleLowerCase();
@@ -171,10 +225,12 @@ export function Projects() {
       <Title
         description={t("Wähle ein Projekt und setze eine Unterhaltung fort.")}
         action={
-          <Button className="min-h-11" onPress={create}>
-            <Icon name="plus" />
-            {t("Projekt anlegen")}
-          </Button>
+          canCreate && (
+            <Button className="min-h-11" onPress={create}>
+              <Icon name="plus" />
+              {t("Projekt anlegen")}
+            </Button>
+          )
         }
       >
         {t("Projekte")}
@@ -213,11 +269,22 @@ export function Projects() {
               className="group min-h-20 min-w-0 flex-1 gap-3 rounded-xl px-3 py-4 text-foreground no-underline hover:bg-surface-secondary sm:gap-4"
             >
               <span className="hidden size-10 shrink-0 items-center justify-center text-muted sm:flex">
-                <Icon name="projects" className="size-5" />
+                {project.emoji ? (
+                  <span className="font-emoji text-xl" aria-hidden="true">
+                    {project.emoji}
+                  </span>
+                ) : (
+                  <Icon name="projects" className="size-5" />
+                )}
               </span>
               <div className="min-w-0 flex-1 space-y-1.5">
                 <h2 className="break-words font-medium group-hover:underline">
                   {project.name}
+                  {project.archived && (
+                    <span className="ml-2 text-xs text-muted">
+                      {t("Archiviert")}
+                    </span>
+                  )}
                 </h2>
                 <p className="text-xs font-mono text-muted break-all leading-5">
                   {project.directory ||
@@ -238,33 +305,60 @@ export function Projects() {
                 </div>
               </div>
             </Link>
-            <div className="flex shrink-0 items-center gap-1">
-              <ActionsMenu
-                label={t("Aktionen für {name}", { name: project.name })}
-                isDisabled={resource.isBusy("project", project.id)}
-                actions={[
-                  {
-                    id: "edit",
-                    label: t("Bearbeiten"),
-                    onAction: () => setEditing({ ...project }),
-                  },
-                  {
-                    id: "move",
-                    label: t("Projekt umziehen"),
-                    onAction: () => setMoving(project),
-                  },
-                  {
-                    id: "remove",
-                    label: t("Entfernen"),
-                    destructive: true,
-                    onAction: () => resource.remove("project", project.id),
-                  },
-                ]}
-              />
-            </div>
+            {user?.id === (project.ownerId || "initial-admin") &&
+              (!project.archived || project.archivePending) && (
+                <div className="flex shrink-0 items-center gap-1">
+                  <ActionsMenu
+                    label={t("Aktionen für {name}", { name: project.name })}
+                    isDisabled={resource.isBusy("project", project.id)}
+                    actions={
+                      project.archivePending
+                        ? [
+                            {
+                              id: "archive",
+                              label: t("Aufräumen wiederholen"),
+                              onAction: () => setArchiving(project),
+                            },
+                          ]
+                        : [
+                            {
+                              id: "edit",
+                              label: t("Bearbeiten"),
+                              onAction: () => setEditing({ ...project }),
+                            },
+                            {
+                              id: "move",
+                              label: t("Projekt umziehen"),
+                              onAction: () => setMoving(project),
+                            },
+                            {
+                              id: "share",
+                              label: t("Mitglieder"),
+                              onAction: () => setSharing(project),
+                            },
+                            {
+                              id: "archive",
+                              label: t("Archivieren"),
+                              destructive: true,
+                              onAction: () => setArchiving(project),
+                            },
+                          ]
+                    }
+                  />
+                </div>
+              )}
           </section>
         )}
       </ResourceList>
+      {sharing && (
+        <ProjectAccess project={sharing} onClose={() => setSharing(null)} />
+      )}
+      {archiving && (
+        <ProjectArchive
+          project={archiving}
+          onClose={() => setArchiving(null)}
+        />
+      )}
       {moving && (
         <MoveProject
           project={
@@ -297,7 +391,7 @@ export function Projects() {
             <ProjectRepository
               value={value}
               patch={patch}
-              keys={data?.sshKeys ?? []}
+              keys={data?.sshKeys}
             />
           )}
           onClose={() => {
@@ -319,6 +413,7 @@ export function Projects() {
 export function ProjectView({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const api = useAPI();
+  const user = useProjectUser();
   const { params } = useRoute();
   // This survives Workspace's temporary unmount while the next bootstrap loads.
   const [focusAgentId, setFocusAgentId] = useState("");
@@ -362,6 +457,42 @@ export function ProjectView({ projectId }: { projectId: string }) {
       ? selectedAgent.parentId
       : selectedAgent?.id;
 
+  const owner = user?.id === (data.project.ownerId || "initial-admin");
+
+  if (data.project.archived) {
+    return (
+      <div className="min-w-0">
+        <SidebarToggle />
+        <Title
+          description={t("Archiviertes Projekt · Verlauf schreibgeschützt")}
+        >
+          {data.project.name}
+        </Title>
+        {owner && data.project.archivePending && (
+          <Button onPress={() => setProjectDialog("archive")}>
+            {t("Aufräumen wiederholen")}
+          </Button>
+        )}
+        {owner &&
+          data.project.archivePending &&
+          projectDialog === "archive" && (
+            <ProjectArchive
+              project={data.project}
+              onClose={() => setProjectDialog("")}
+            />
+          )}
+        <Workspace
+          project={data.project}
+          agents={data.agents}
+          bootstrap={data}
+          onProjectDialog={setProjectDialog}
+          focusAgentId={focusAgentId}
+          onFocusAgent={setFocusAgentId}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0">
       <Failure message={error} onRetry={() => api.refresh()} />
@@ -373,13 +504,13 @@ export function ProjectView({ projectId }: { projectId: string }) {
         focusAgentId={focusAgentId}
         onFocusAgent={setFocusAgentId}
       />
-      {projectDialog === "move" && (
+      {projectDialog === "move" && owner && (
         <MoveProject
           project={data.project}
           onClose={() => setProjectDialog("")}
         />
       )}
-      {projectDialog === "settings" && (
+      {projectDialog === "settings" && owner && (
         <ProjectSettings
           project={data.project}
           onClose={() => setProjectDialog("")}
@@ -591,11 +722,12 @@ function Sources({ projectId }: { projectId: string }) {
 }
 
 function projectFields(
-  data: Config | undefined,
+  data: ProjectConfig | undefined,
   t: ReturnType<typeof useI18n>["t"],
 ): Field[] {
   return [
     { key: "name", label: "Name", required: true },
+    { key: "emoji", label: t("Projekt-Emoji (optional)"), placeholder: "🪴" },
     {
       key: "executionTarget",
       label: t("Fernmaschine oder Pool"),
@@ -633,7 +765,7 @@ function projectFields(
 
 function projectCreationSteps(
   t: ReturnType<typeof useI18n>["t"],
-  data: Config | undefined,
+  data: ProjectConfig | undefined,
 ): EditorStep[] {
   return [
     {
@@ -642,7 +774,7 @@ function projectCreationSteps(
       description: t(
         "Der Arbeitsbereich wird automatisch auf der gewählten Maschine oder im Pool angelegt.",
       ),
-      fields: ["name"],
+      fields: ["name", "emoji"],
     },
     {
       id: "machines",
@@ -690,7 +822,11 @@ function ProjectSettings({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const { data } = useQuery<Config>(CONFIG);
+  const user = useProjectUser();
+  const { data: config } = useQuery<ProjectConfigData>(PROJECT_CONFIG, {
+    keys: user?.id === "initial-admin",
+  });
+  const data = projectConfig(config);
 
   return (
     <Editor
@@ -703,11 +839,7 @@ function ProjectSettings({
       )}
       initial={projectEditorValue({ ...project })}
       renderExtra={(value, patch) => (
-        <ProjectRepository
-          value={value}
-          patch={patch}
-          keys={data?.sshKeys ?? []}
-        />
+        <ProjectRepository value={value} patch={patch} keys={data?.sshKeys} />
       )}
       onClose={onClose}
       onSave={(input) =>
@@ -730,7 +862,10 @@ function MoveProject({
   const { t } = useI18n();
   const api = useAPI();
   const action = useAction();
-  const { data: config } = useQuery<Config>(CONFIG);
+  const { data: targets } = useQuery<ProjectConfigData>(PROJECT_CONFIG, {
+    keys: false,
+  });
+  const config = projectConfig(targets);
   const { data, error, loading } = useQuery<{
     projectMove: {
       id: string;

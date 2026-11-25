@@ -189,6 +189,14 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 
 	var previous domain.Project
 	if err := engine.Store.Load("project", project.ID, &previous); err == nil {
+		if project.OwnerID != "" && previous.Owner() != project.OwnerID {
+			return project, errors.New("project owner required")
+		}
+		project.OwnerID, project.MemberIDs, project.Archived = previous.Owner(), previous.MemberIDs, previous.Archived
+		if project.Archived {
+			return project, errors.New("project is archived")
+		}
+
 		if err := engine.projectAvailable(project.ID); err != nil {
 			return project, err
 		}
@@ -266,7 +274,7 @@ func (engine *Engine) SaveProjectContext(ctx context.Context, project domain.Pro
 	defer cancel()
 	stop := context.AfterFunc(engine.ctx, cancel)
 	defer stop()
-	project, err = engine.GitForge.SaveProject(ctx, project)
+	project, err = engine.GitFor(project.Owner()).SaveProject(ctx, project)
 	if err == nil {
 		engine.Emit("resources", "", nil)
 	}

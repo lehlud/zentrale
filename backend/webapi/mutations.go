@@ -7,6 +7,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 
+	"github.com/lehlud/zentrale/auth"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/remote"
 )
@@ -31,9 +32,10 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		Type: graphql.Boolean,
 		Args: graphql.FieldConfigArgument{
 			"password": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			"username": {Type: graphql.String, DefaultValue: auth.DefaultUsername},
 		},
 		Resolve: func(params graphql.ResolveParams) (any, error) {
-			return state(params.Context).login(params.Args["password"].(string))
+			return state(params.Context).login(params.Args["username"].(string), params.Args["password"].(string))
 		},
 	}
 
@@ -41,6 +43,7 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		Type: graphql.Boolean,
 		Args: graphql.FieldConfigArgument{
 			"password": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			"username": {Type: graphql.String, DefaultValue: auth.DefaultUsername},
 			"commitIdentity": &graphql.ArgumentConfig{
 				Type: graphql.NewNonNull(builder.input(resourceTypes["commitIdentity"])),
 			},
@@ -52,11 +55,12 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 			}
 
 			password := params.Args["password"].(string)
-			if err := server.Auth.SetupWithIdentity(password, identity); err != nil {
+			username := params.Args["username"].(string)
+			if err := server.Auth.SetupAccount(username, password, identity); err != nil {
 				return false, err
 			}
 
-			return state(params.Context).login(password)
+			return state(params.Context).login(username, password)
 		},
 	}
 
@@ -76,8 +80,22 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	mutations["saveMachine"] = resourceMutation(builder, func(_ context.Context, value domain.Machine) (domain.Machine, error) {
 		return server.Engine.SaveMachine(value)
 	})
-	mutations["saveProject"] = resourceMutation(builder, server.Engine.SaveProjectContext)
-	mutations["saveSource"] = resourceMutation(builder, func(_ context.Context, value domain.Source) (domain.Source, error) {
+	mutations["saveProject"] = resourceMutation(builder, server.saveOwnedProject)
+	mutations["saveSource"] = resourceMutation(builder, func(ctx context.Context, value domain.Source) (domain.Source, error) {
+		user := state(ctx).user
+		if user.ID != domain.InitialUserID {
+			return value, errors.New("manually managed repository keys belong to the initial account")
+		}
+		if err := server.projectAccess(user, value.ProjectID, true, true); err != nil {
+			return value, err
+		}
+		if value.ID != "" {
+			var existing domain.Source
+			if err := server.Store.Load("source", value.ID, &existing); err != nil || existing.ProjectID != value.ProjectID {
+				return value, errProjectUnavailable
+			}
+		}
+
 		return server.Engine.SaveSource(value)
 	})
 	mutations["saveProvider"] = resourceMutation(builder, func(_ context.Context, value domain.Provider) (domain.Provider, error) {
@@ -116,6 +134,9 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	deleteArgs["stopRunning"] = &graphql.ArgumentConfig{Type: graphql.Boolean}
 	simple("deleteResource", deleteArgs, func(params graphql.ResolveParams) (any, error) {
 		kind, id := params.Args["kind"].(string), params.Args["id"].(string)
+		if err := server.deleteAccess(state(params.Context).user, kind, id); err != nil {
+			return false, err
+		}
 		if kind == "agent" && params.Args["stopRunning"] == true {
 			err := server.Engine.StopAndDeleteAgent(params.Context, id)
 			return err == nil, err
@@ -230,6 +251,14 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 		return true, server.Store.DistrustSSHKey(raw)
 	})
 	simple("trustRepositoryHostKey", strArg("sourceId", "host", "publicKey", "previousFingerprint"), func(params graphql.ResolveParams) (any, error) {
+		var source domain.Source
+		if err := server.Store.Load("source", params.Args["sourceId"].(string), &source); err != nil {
+			return nil, errProjectUnavailable
+		}
+		if err := server.projectAccess(state(params.Context).user, source.ProjectID, true, true); err != nil {
+			return nil, err
+		}
+
 		err := server.Engine.ConfirmRepositoryHostKey(
 			params.Args["sourceId"].(string), params.Args["host"].(string),
 			params.Args["publicKey"].(string), params.Args["previousFingerprint"].(string),
@@ -273,6 +302,10 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	})
 
 	simple("setGitHubToken", strArg("token"), func(params graphql.ResolveParams) (any, error) {
+		if state(params.Context).user.ID != domain.InitialUserID {
+			return false, errors.New("the legacy GitHub token belongs to the initial account")
+		}
+
 		return true, server.Store.SetSetting("github_token", params.Args["token"].(string))
 	})
 
@@ -308,7 +341,11 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	mutations["prepareAgent"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.MachineConnectionCheck]()), Args: strArg("agentId"),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			return mapOf(server.Engine.CheckAgentConnection(params.Context, params.Args["agentId"].(string))), nil
+			id := params.Args["agentId"].(string)
+			if err := server.projectAgentAccess(state(params.Context).user, id, true); err != nil {
+				return nil, err
+			}
+			return mapOf(server.Engine.CheckAgentConnection(params.Context, id)), nil
 		}),
 	}
 

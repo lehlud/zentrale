@@ -176,6 +176,9 @@ func (builder *schemaBuilder) input(goType reflect.Type) graphql.Input {
 	for index := 0; index < goType.NumField(); index++ {
 		field := goType.Field(index)
 		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if goType == resourceTypes["project"] && (name == "ownerId" || name == "memberIds" || name == "archived") {
+			continue
+		}
 		if name != "" &&
 			name != "-" &&
 			name != "oauth" &&

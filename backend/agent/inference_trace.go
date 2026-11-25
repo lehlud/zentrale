@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -19,10 +21,35 @@ type inferencePrefix struct {
 }
 
 func (engine *Engine) completeModel(ctx context.Context, agentID, purpose string, request providers.Request) (providers.Result, error) {
-	return engine.traceInference(ctx, agentID, purpose, request, engine.Provider.Complete)
+	return engine.meteredInference(ctx, agentID, purpose, request, true, engine.Provider.Complete)
 }
 
 func (engine *Engine) traceInference(ctx context.Context, agentID, purpose string, request providers.Request, invoke func(context.Context, providers.Request) (providers.Result, error)) (providers.Result, error) {
+	return engine.meteredInference(ctx, agentID, purpose, request, false, invoke)
+}
+
+func (engine *Engine) meteredInference(ctx context.Context, agentID, purpose string, request providers.Request, boundsOutput bool, invoke func(context.Context, providers.Request) (providers.Result, error)) (providers.Result, error) {
+	if err := engine.requireApprovedModel(request.Config.ID, request.Model.ID); err != nil {
+		return providers.Result{}, err
+	}
+
+	var record domain.Agent
+	if agentID != "" {
+		if err := engine.Store.Load("agent", agentID, &record); err != nil {
+			return providers.Result{}, fmt.Errorf("load inference agent: %w", err)
+		}
+		record.ID = agentID
+	}
+
+	settle, err := engine.reserveInferenceUsage(ctx, record, purpose, &request, boundsOutput)
+	if err != nil {
+		return providers.Result{}, err
+	}
+	settled := false
+	if settle != nil {
+		defer func() { settle(settled) }()
+	}
+
 	started := time.Now()
 	trace := domain.InferenceTrace{ID: NewID(), AgentID: agentID, ProviderID: request.Config.ID, ModelID: request.Model.ID,
 		Purpose: purpose, ReasoningLevel: request.ReasoningLevel, CreatedAt: started.UTC(), MessageCount: len(request.Messages), Attempts: []domain.InferenceAttempt{},
@@ -99,5 +126,14 @@ func (engine *Engine) traceInference(ctx context.Context, agentID, purpose strin
 		slog.Warn("save inference trace", "error", saveError)
 	}
 	result.TraceID, result.Purpose = trace.ID, purpose
+	if err == nil || result.UsageKnown || result.Cost != nil || result.Text != "" || result.Wire != "" {
+		configuration := inferenceConfig{Provider: request.Config, Model: request.Model}
+		usage := inferenceUsage(record, configuration, result, request.Messages, inferencePromptEstimate(request))
+		if saveError := engine.persistInferenceUsage(record, usage); saveError != nil {
+			return result, errors.Join(err, fmt.Errorf("record inference usage: %w", saveError))
+		}
+	}
+	settled = true
+
 	return result, err
 }

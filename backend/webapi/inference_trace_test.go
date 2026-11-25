@@ -7,6 +7,7 @@ import (
 
 func TestInferenceTraceQueryIsBoundedRecentAndAgentScoped(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project", "own", "other")
 	if fixture.query(t, `query{inferenceTraces(agentId:"own"){id}}`, nil)["errors"] == nil {
 		t.Fatal("diagnostics bypass authentication")
 	}

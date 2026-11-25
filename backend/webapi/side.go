@@ -26,12 +26,16 @@ type sideAnswer struct {
 // Browsers hide failed WebSocket handshake status codes. This session-only
 // probe shares authentication without creating a session or retrying a question.
 func (server *Server) sideStatus(request echo.Context) error {
-	if !server.Auth.Valid(server.token(request.Request())) {
+	user, ok := server.Auth.User(server.token(request.Request()))
+	if !ok {
 		return echo.ErrUnauthorized
 	}
 
 	if !server.sameOrigin(request.Request()) {
 		return echo.ErrForbidden
+	}
+	if err := server.projectAgentAccess(user, request.Param("agent"), true); err != nil {
+		return echo.ErrNotFound
 	}
 
 	return request.NoContent(http.StatusNoContent)
@@ -42,12 +46,16 @@ func (server *Server) sideStatus(request echo.Context) error {
 // the model's answer. No unload request or persisted cleanup ticket is required.
 func (server *Server) side(request echo.Context) error {
 	token := server.token(request.Request())
-	if !server.Auth.Valid(token) {
+	user, ok := server.Auth.User(token)
+	if !ok {
 		return echo.ErrUnauthorized
 	}
 
 	if !server.sameOrigin(request.Request()) {
 		return echo.ErrForbidden
+	}
+	if err := server.projectAgentAccess(user, request.Param("agent"), true); err != nil {
+		return echo.ErrNotFound
 	}
 
 	ctx, cancel := context.WithTimeout(request.Request().Context(), 30*time.Minute)

@@ -21,10 +21,28 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/lehlud/zentrale/auth"
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/internal/testssh"
 	"github.com/lehlud/zentrale/remote"
 )
+
+func newTerminalSession(t *testing.T, store *datastore.Instance) string {
+	t.Helper()
+	service, err := auth.New(store, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const password = "terminal test password"
+	if err := service.Setup(password); err != nil {
+		t.Fatal(err)
+	}
+	token, err := service.Login(password, "terminal test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
 
 func TestTerminalDisconnectDiagnosticsUseFixedCategories(t *testing.T) {
 	for _, test := range []struct {
@@ -124,10 +142,7 @@ func testTerminalWebSocketRealPTYSession(t *testing.T, proxied bool) {
 	if err := fixture.engine.Store.Save("project", project.ID, "", project); err != nil {
 		t.Fatal(err)
 	}
-	token := strings.Repeat("b", 43)
-	if err := fixture.engine.Store.CreateSession(auth.TokenHash(token), time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	token := newTerminalSession(t, fixture.engine.Store)
 	endpoint := fixture.server.URL
 	dialer := *websocket.DefaultDialer
 	if proxied {
@@ -270,10 +285,7 @@ func TestTerminalGeometryBounds(t *testing.T) {
 
 func TestTerminalProbeGuardsWithoutProvisioning(t *testing.T) {
 	fixture := newAPIFixture(t)
-	token := strings.Repeat("c", 43)
-	if err := fixture.engine.Store.CreateSession(auth.TokenHash(token), time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	token := newTerminalSession(t, fixture.engine.Store)
 	for _, test := range []struct {
 		name, origin, query string
 		authenticated       bool
@@ -283,7 +295,7 @@ func TestTerminalProbeGuardsWithoutProvisioning(t *testing.T) {
 		{"no origin", "", "", true, 403},
 		{"foreign origin", "https://evil.test", "", true, 403},
 		{"invalid geometry", fixture.server.URL, "?cols=0", true, 400},
-		{"valid probe for nonexistent project", fixture.server.URL, "", true, 200},
+		{"valid probe for nonexistent project", fixture.server.URL, "", true, 404},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request, err := http.NewRequest("POST", fixture.server.URL+"/terminal/missing-project"+test.query, nil)
@@ -325,10 +337,8 @@ func TestTerminalRejectsUnauthenticatedBeforeEngine(t *testing.T) {
 
 func TestTerminalAuthenticationOriginAndGeometryBeforeProvisioning(t *testing.T) {
 	fixture := newAPIFixture(t)
-	token := strings.Repeat("a", 43)
-	if err := fixture.engine.Store.CreateSession(auth.TokenHash(token), time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	seedAccessibleProject(t, fixture.engine.Store, "unconfigured-project")
+	token := newTerminalSession(t, fixture.engine.Store)
 	for _, test := range []struct {
 		origin, query string
 		status        int
@@ -348,24 +358,27 @@ func TestTerminalAuthenticationOriginAndGeometryBeforeProvisioning(t *testing.T)
 		}
 	}
 	header := http.Header{"Origin": {fixture.server.URL}, "Cookie": {"zentrale_session=" + token}}
-	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(fixture.server.URL, "http")+"/terminal/missing-project", header)
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(fixture.server.URL, "http")+"/terminal/unconfigured-project", header)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer connection.Close()
 	connection.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var starting, selecting, failure map[string]any
+	var starting, selecting, connecting, failure map[string]any
 	if err := connection.ReadJSON(&starting); err != nil {
 		t.Fatal(err)
 	}
 	if err := connection.ReadJSON(&selecting); err != nil {
 		t.Fatal(err)
 	}
+	if err := connection.ReadJSON(&connecting); err != nil {
+		t.Fatal(err)
+	}
 	if err := connection.ReadJSON(&failure); err != nil {
 		t.Fatal(err)
 	}
-	if starting["status"] != "starting" || selecting["status"] != "selecting_environment" || failure["type"] != "error" || failure["message"] == "" {
-		t.Fatal(starting, selecting, failure)
+	if starting["status"] != "starting" || selecting["status"] != "selecting_environment" || connecting["status"] != "connecting" || failure["type"] != "error" || failure["message"] == "" {
+		t.Fatal(starting, selecting, connecting, failure)
 	}
 }
 

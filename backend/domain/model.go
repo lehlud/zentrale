@@ -91,6 +91,12 @@ type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 
+	OwnerID        string   `json:"ownerId,omitempty"`
+	MemberIDs      []string `json:"memberIds,omitempty"`
+	Emoji          string   `json:"emoji,omitempty"`
+	Archived       bool     `json:"archived,omitempty"`
+	ArchivePending bool     `json:"archivePending,omitempty"`
+
 	Directory  string   `json:"directory"`
 	MachineIDs []string `json:"machineIds"`
 	PoolIDs    []string `json:"poolIds"`
@@ -104,6 +110,13 @@ type Project struct {
 	RepositorySSHURL        string   `json:"repositorySshUrl"`
 	RepositorySSHKeyID      int      `json:"repositorySshKeyId"`
 	RepositoryCheckoutPaths []string `json:"repositoryCheckoutPaths"`
+}
+
+func (project Project) Owner() string {
+	if project.OwnerID == "" {
+		return InitialUserID
+	}
+	return project.OwnerID
 }
 
 // Provider stores a connection/account. Model selection belongs to ModelChoice.
@@ -233,6 +246,7 @@ type Agent struct {
 	ParentID       string `json:"parentId"`
 	ApproverID     string `json:"approverId"`
 	Name           string `json:"name"`
+	ChatOwnerID    string `json:"chatOwnerId,omitempty"` // Set only for a standalone short chat.
 
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`

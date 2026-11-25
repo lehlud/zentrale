@@ -67,7 +67,7 @@ func TestGoogleGraphQLCallbackPersistsNoSecretsAndRejectsReplayOrLogout(t *testi
 				}
 
 				if revokeSession {
-					if err := fixture.engine.Store.DeleteSession(owner); err != nil {
+					if err := fixture.engine.Store.DeleteUserSession(owner); err != nil {
 						t.Error(err)
 					}
 				}

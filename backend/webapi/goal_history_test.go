@@ -8,6 +8,7 @@ import (
 
 func TestGoalHistoryRequiresAuthenticationAndKeepsOldGoals(t *testing.T) {
 	fixture := newAPIFixture(t)
+	seedAccessibleProject(t, fixture.engine.Store, "project")
 	query := `query{goalHistory(agentId:"history-agent"){id status objective}}`
 	if fixture.query(t, query, nil)["errors"] == nil {
 		t.Fatal("goal history was accessible without authentication")

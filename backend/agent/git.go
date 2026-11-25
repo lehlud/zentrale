@@ -89,8 +89,21 @@ func (engine *Engine) sourceGitConfiguration(
 	source domain.Source,
 	directory string,
 ) (map[string]any, error) {
-	if err := engine.GitForge.RefreshRepositoryAuthorization(ctx, source.BindingID, source.URL); err != nil {
-		return nil, err
+	var httpURLs []string
+	if source.BindingID != "" {
+		var project domain.Project
+		if err := engine.Store.Load("project", source.ProjectID, &project); err != nil {
+			return nil, err
+		}
+		service := engine.GitFor(project.Owner())
+		if err := service.RefreshRepositoryAuthorization(ctx, source.BindingID, source.URL); err != nil {
+			return nil, err
+		}
+		var err error
+		httpURLs, err = service.RepositoryHTTPURLs(source.BindingID, source.URL)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	privateKey, err := engine.Store.PrivateKey(source.KeyID)
@@ -102,11 +115,6 @@ func (engine *Engine) sourceGitConfiguration(
 	if err != nil {
 		return nil, err
 	}
-	httpURLs, err := engine.GitForge.RepositoryHTTPURLs(source.BindingID, source.URL)
-	if err != nil {
-		return nil, err
-	}
-
 	return map[string]any{
 		"key": string(pem.EncodeToMemory(&pem.Block{
 			Type:  "EC PRIVATE KEY",

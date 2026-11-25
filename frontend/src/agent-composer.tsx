@@ -27,6 +27,7 @@ export const AgentComposer = memo(function AgentComposer({
   onDetails,
   sandboxStatus,
   sandboxMode,
+  shortChat = false,
 }: {
   agentId: string;
   current?: Agent;
@@ -38,6 +39,7 @@ export const AgentComposer = memo(function AgentComposer({
   onDetails: () => void;
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
+  shortChat?: boolean;
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -66,7 +68,7 @@ export const AgentComposer = memo(function AgentComposer({
 
     sending.current = true;
     try {
-      const parsed = composerCommand(text);
+      const parsed = shortChat ? null : composerCommand(text);
       if (parsed) {
         let handled = true;
         await action.run(async () => {
@@ -238,56 +240,78 @@ export const AgentComposer = memo(function AgentComposer({
             >
               <Icon name="attachment" />
             </Button>
-            <ComposerCommandMenu
-              value={prompt}
-              onChange={setPrompt}
-              onCommand={(name) => void send("steer", `/${name}`)}
-            >
-              {(commandsOpen) => (
-                <ChatInput
-                  value={prompt}
-                  onChange={setPrompt}
-                  autoFocus={autoFocus}
-                  isDisabled={attachments.uploading}
-                  label={t("Aufgabe oder neue Instruktion")}
-                  placeholder={t("Was soll der Agent erledigen?")}
-                  onPaste={attachments.paste}
-                  onKeyDown={(event) => {
-                    if (
-                      commandsOpen &&
-                      [
-                        "ArrowDown",
-                        "ArrowUp",
-                        "Enter",
-                        "Tab",
-                        "Escape",
-                      ].includes(event.key)
-                    )
-                      return;
+            {shortChat ? (
+              <ChatInput
+                value={prompt}
+                onChange={setPrompt}
+                autoFocus={autoFocus}
+                isDisabled={attachments.uploading}
+                label={t("Nachricht")}
+                placeholder={t("Schreib eine Nachricht …")}
+                onPaste={attachments.paste}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    if (hasMessage) void send();
+                  }
+                }}
+              />
+            ) : (
+              <ComposerCommandMenu
+                value={prompt}
+                onChange={setPrompt}
+                onCommand={(name) => void send("steer", `/${name}`)}
+              >
+                {(commandsOpen) => (
+                  <ChatInput
+                    value={prompt}
+                    onChange={setPrompt}
+                    autoFocus={autoFocus}
+                    isDisabled={attachments.uploading}
+                    label={t("Aufgabe oder neue Instruktion")}
+                    placeholder={t("Was soll der Agent erledigen?")}
+                    onPaste={attachments.paste}
+                    onKeyDown={(event) => {
+                      if (
+                        commandsOpen &&
+                        [
+                          "ArrowDown",
+                          "ArrowUp",
+                          "Enter",
+                          "Tab",
+                          "Escape",
+                        ].includes(event.key)
+                      )
+                        return;
 
-                    if (
-                      event.key === "Tab" &&
-                      !event.shiftKey &&
-                      !event.ctrlKey &&
-                      !event.metaKey &&
-                      !event.altKey &&
-                      !event.nativeEvent.isComposing &&
-                      hasMessage
-                    ) {
-                      event.preventDefault();
-                      send("queue");
-                    } else if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      if (hasMessage) void send();
-                    }
-                  }}
-                />
-              )}
-            </ComposerCommandMenu>
+                      if (
+                        event.key === "Tab" &&
+                        !event.shiftKey &&
+                        !event.ctrlKey &&
+                        !event.metaKey &&
+                        !event.altKey &&
+                        !event.nativeEvent.isComposing &&
+                        hasMessage
+                      ) {
+                        event.preventDefault();
+                        send("queue");
+                      } else if (
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        if (hasMessage) void send();
+                      }
+                    }}
+                  />
+                )}
+              </ComposerCommandMenu>
+            )}
           </div>
           <div className="mt-2 flex min-h-7 min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-2 text-[11px] text-muted">
             <Button
@@ -307,7 +331,7 @@ export const AgentComposer = memo(function AgentComposer({
                 {current?.modelId || t("Agentendetails")}
               </span>
             </Button>
-            {current?.machineId && (
+            {!shortChat && current?.machineId && (
               <SandboxBadge
                 compact
                 mode={sandboxMode ?? sandboxStatus?.mode ?? "unknown"}

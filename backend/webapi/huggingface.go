@@ -12,7 +12,7 @@ func (builder *schemaBuilder) huggingFaceQueries() graphql.Fields {
 		"huggingFaceConnection": &graphql.Field{
 			Type: builder.output(reflect.TypeFor[domain.HuggingFaceConnection]()),
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				value, err := builder.server.Engine.HuggingFace.Status()
+				value, err := builder.server.Engine.HubFor(state(params.Context).user.ID).Status()
 				return mapOf(value), err
 			}),
 		},
@@ -33,12 +33,12 @@ func (builder *schemaBuilder) huggingFaceMutations() graphql.Fields {
 					return nil, err
 				}
 
-				value, err := engine.HuggingFace.ConfigureOAuth(config)
+				value, err := engine.HubFor(state(params.Context).user.ID).ConfigureOAuth(config)
 				if err != nil {
 					return nil, err
 				}
 
-				engine.Emit("huggingface", "", value)
+				engine.Emit("resources", "", nil)
 				return mapOf(value), nil
 			}),
 		},
@@ -51,12 +51,12 @@ func (builder *schemaBuilder) huggingFaceMutations() graphql.Fields {
 					return nil, err
 				}
 
-				login, err := engine.HuggingFace.BeginOAuth(ctx)
+				login, err := engine.HubFor(state(ctx).user.ID).BeginOAuth(ctx)
 				if err != nil {
 					return nil, err
 				}
 
-				engine.Emit("huggingface", "", map[string]string{"loginId": login.ID})
+				engine.Emit("resources", "", nil)
 				return mapOf(login), nil
 			}),
 		},
@@ -64,11 +64,12 @@ func (builder *schemaBuilder) huggingFaceMutations() graphql.Fields {
 			Type: graphql.Boolean,
 			Args: gitStringArgs("id"),
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				if err := engine.HuggingFace.EndOAuth(params.Args["id"].(string), state(params.Context).sessionHash); err != nil {
+				current := state(params.Context)
+				if err := engine.HubFor(current.user.ID).EndOAuth(params.Args["id"].(string), current.sessionHash); err != nil {
 					return false, err
 				}
 
-				engine.Emit("huggingface", "", nil)
+				engine.Emit("resources", "", nil)
 				return true, nil
 			}),
 		},
@@ -76,23 +77,23 @@ func (builder *schemaBuilder) huggingFaceMutations() graphql.Fields {
 			Type: builder.output(reflect.TypeFor[domain.HuggingFaceConnection]()),
 			Args: graphql.FieldConfigArgument{"token": {Type: graphql.NewNonNull(graphql.String)}},
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				value, err := engine.HuggingFace.Connect(params.Context, params.Args["token"].(string))
+				value, err := engine.HubFor(state(params.Context).user.ID).Connect(params.Context, params.Args["token"].(string))
 				if err != nil {
 					return nil, err
 				}
 
-				engine.Emit("huggingface", "", value)
+				engine.Emit("resources", "", nil)
 				return mapOf(value), nil
 			}),
 		},
 		"disconnectHuggingFace": &graphql.Field{
 			Type: graphql.Boolean,
 			Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-				if err := engine.HuggingFace.Disconnect(); err != nil {
+				if err := engine.HubFor(state(params.Context).user.ID).Disconnect(); err != nil {
 					return false, err
 				}
 
-				engine.Emit("huggingface", "", domain.HuggingFaceConnection{})
+				engine.Emit("resources", "", nil)
 				return true, nil
 			}),
 		},

@@ -100,8 +100,12 @@ func removeAgents(transaction *sql.Tx, ids []string) error {
 		if _, err := transaction.Exec("DELETE FROM attachment_blobs WHERE agent_id IN "+in, args...); err != nil {
 			return err
 		}
+		if err := detachAgentUsage(transaction, in, args); err != nil {
+			return err
+		}
+
 		all := append(append(append([]any{}, args...), args...), args...)
-		if _, err := transaction.Exec("DELETE FROM resources WHERE (kind='agent' AND id IN "+in+") OR parent_id IN "+in+" OR json_extract(data,'$.agentId') IN "+in, all...); err != nil {
+		if _, err := transaction.Exec("DELETE FROM resources WHERE kind<>'usage' AND ((kind='agent' AND id IN "+in+") OR parent_id IN "+in+" OR json_extract(data,'$.agentId') IN "+in+")", all...); err != nil {
 			return err
 		}
 		if _, err := transaction.Exec("DELETE FROM events WHERE agent_id IN "+in, args...); err != nil {

@@ -75,7 +75,13 @@ func (engine *Engine) runHostedModel(ctx context.Context, record domain.Agent, r
 		"providerId": provider.ID, "provider": provider.Name, "platform": provider.Kind,
 		"destination": provider.BaseURL, "target": target, "input": input, "timeoutSeconds": seconds,
 	}
+	if err := engine.guardOpaqueUsage(record, provider); err != nil {
+		return nil, err
+	}
 	if _, err := engine.approve(ctx, record, request); err != nil {
+		return nil, err
+	}
+	if err := engine.guardOpaqueUsage(record, provider); err != nil {
 		return nil, err
 	}
 	output, err := engine.callHostedModel(ctx, provider, target, input, time.Duration(seconds)*time.Second)
@@ -90,7 +96,8 @@ func (engine *Engine) callHostedModel(ctx context.Context, reviewed domain.Provi
 	if err != nil {
 		return nil, err
 	}
-	if current.Kind != reviewed.Kind || current.BaseURL != reviewed.BaseURL || current.Credential != reviewed.Credential {
+	if current.Kind != reviewed.Kind || current.BaseURL != reviewed.BaseURL || current.Credential != reviewed.Credential ||
+		current.BillingMode != reviewed.BillingMode || current.AuthMode != reviewed.AuthMode {
 		return nil, errors.New("inference provider changed during review; request approval again")
 	}
 	return engine.hosted.Run(ctx, current, target, input, timeout)

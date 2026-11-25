@@ -86,17 +86,18 @@ def main():
         raise ValueError("Unsafe managed workspace directory")
     if any(p.is_symlink() for p in (metadata, marker, alias, receipt, stage, trash, ready, lock)):
         raise ValueError("Unsafe workspace move metadata")
-    if operation == "remove" and not directory.exists() and not marker.exists() and not trash.exists():
-        if alias.exists() and json.loads(alias.read_text()) == token:
+    removing = operation in ("remove", "archive-remove")
+    if removing and not directory.exists() and not marker.exists() and not trash.exists():
+        if operation == "remove" and alias.exists() and json.loads(alias.read_text()) == token:
             alias.unlink()
         return
     if json.loads(marker.read_text()).get("token") != token:
         raise ValueError("Workspace ownership has changed")
-    if operation == "remove":
+    if removing:
         reject_mounts()
         if any(metadata.glob(name + "-move-destination-" + move.rsplit("-", 1)[0] + "-*")):
             raise ValueError("The old workspace is also a destination for this move")
-        if json.loads(alias.read_text()) != token:
+        if operation == "remove" and json.loads(alias.read_text()) != token:
             raise ValueError("Missing source receipt for workspace cleanup")
         if directory.exists():
             if not directory.is_dir() or trash.exists():
@@ -105,7 +106,8 @@ def main():
         if trash.exists():
             shutil.rmtree(trash)
         marker.unlink()
-        alias.unlink(missing_ok=True)
+        if operation == "remove":
+            alias.unlink(missing_ok=True)
         return
     if operation == "finish":
         if not directory.is_dir():
@@ -120,7 +122,9 @@ def main():
         return
     if not directory.is_dir():
         raise ValueError("Managed workspace is missing")
-    if operation == "mark":
+    if operation == "check-owned":
+        reject_mounts()
+    elif operation == "mark":
         save(alias, token)
     elif operation == "check":
         if alias.exists() and json.loads(alias.read_text()) == token:

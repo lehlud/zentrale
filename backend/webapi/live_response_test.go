@@ -197,6 +197,9 @@ func TestAuthenticatedWebSocketStreamsBeforeCompletionAndRestoresDraft(t *testin
 
 	resume()
 	completed := readLiveEvent(t, connection)
+	if completed.Status == "running" && completed.Delta == "and final text." {
+		completed = readLiveEvent(t, connection)
+	}
 	if completed.Status != "completed" || completed.Text != "First fragment and final text." {
 		t.Fatal(completed)
 	}

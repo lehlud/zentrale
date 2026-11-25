@@ -58,6 +58,10 @@ func (engine *Engine) UserAttachmentTarget(agentID string) (domain.Agent, error)
 	if record.Role != "main" || record.ParentID != "" {
 		return record, errors.New("send attachments to the main agent")
 	}
+	if record.ChatOwnerID != "" {
+		return record, engine.activeChatOwner(record)
+	}
+
 	var project domain.Project
 	if err := engine.Store.Load("project", record.ProjectID, &project); err != nil {
 		return record, err
@@ -365,6 +369,13 @@ func (engine *Engine) restoreMessageAttachment(ctx context.Context, current doma
 	if attachment != metadata {
 		return metadata, nil, errors.New("attachment metadata mismatch")
 	}
+	if current.ChatOwnerID != "" {
+		if current.ID != owner.ID {
+			return metadata, nil, errors.New("attachment belongs to another chat")
+		}
+		return attachment, data, nil
+	}
+
 	filename, err := attachmentFilename(metadata.Name)
 	if err != nil {
 		return metadata, nil, err

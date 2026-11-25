@@ -9,23 +9,33 @@ import { GlobalModelDefaults } from "./model-defaults";
 import { HumanizerSettings } from "./humanizer-settings";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Title, useAction } from "./ui";
+import { AccountSettings } from "./account-settings";
+import { FileShareSettings } from "./file-share-settings";
+import { ShortChatSettings } from "./short-chat-settings";
 
-export function Settings() {
+export function Settings({ admin, oidc }: { admin: boolean; oidc: boolean }) {
   const { t } = useI18n();
   return (
     <>
       <Title
-        description={t("Modelle und verbundene Dienste für deine Projekte.")}
+        description={t("Persönliche Verbindungen und globale Einstellungen.")}
       >
         {t("Einstellungen")}
       </Title>
       <div className="max-w-4xl space-y-8">
-        <GlobalModelDefaults />
-        <HumanizerSettings />
-        <CommitIdentitySettings />
         <GitConnections />
         <HuggingFaceSettings />
-        <GitHubAPIAccess />
+        {admin && (
+          <>
+            <AccountSettings oidc={oidc} />
+            <ShortChatSettings />
+            <FileShareSettings />
+            <GlobalModelDefaults />
+            <HumanizerSettings />
+            <CommitIdentitySettings />
+            <GitHubAPIAccess />
+          </>
+        )}
       </div>
     </>
   );

@@ -69,6 +69,11 @@ func (engine *Engine) downloadDataset(ctx context.Context, record domain.Agent, 
 	})
 	command := "python3 -c " + remote.Quote(huggingFaceWriter) + " " + remote.Quote(options)
 	display := fmt.Sprintf("Hugging Face dataset %s@%s: %s -> %s", input.Dataset, input.Revision, input.File, input.Destination)
+	owner, err := engine.conversationOwner(record)
+	if err != nil {
+		return nil, err
+	}
+	hub := engine.HubFor(owner)
 
 	return engine.executeRemote(ctx, record, executionRequest{
 		MachineID:      stringArg(arguments, "machineId"),
@@ -80,7 +85,7 @@ func (engine *Engine) downloadDataset(ctx context.Context, record domain.Agent, 
 		OutputBytes:    4096,
 		// HTTPS runs in the application; the writer needs no guest internet.
 		OpenInput: func(jobContext context.Context) (io.ReadCloser, error) {
-			return engine.HuggingFace.OpenDownload(jobContext, input.DownloadRequest)
+			return hub.OpenDownload(jobContext, input.DownloadRequest)
 		},
 	})
 }

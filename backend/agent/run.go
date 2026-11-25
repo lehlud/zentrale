@@ -111,14 +111,19 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 			return processedRevision, err
 		}
 
-		// No model request or context compaction is allowed before the SSH
-		// workspace connection has been established and checked for this turn.
-		if err := engine.requireConnection(ctx, agentID); err != nil {
-			return processedRevision, err
-		}
-
-		if err := engine.Store.Load("agent", agentID, &agentRecord); err != nil {
-			return processedRevision, err
+		shortChat := agentRecord.ChatOwnerID != ""
+		if shortChat {
+			if err := engine.activeChatOwner(agentRecord); err != nil {
+				return processedRevision, err
+			}
+		} else {
+			// Project inference sees the prepared workspace and current VM state.
+			if err := engine.requireConnection(ctx, agentID); err != nil {
+				return processedRevision, err
+			}
+			if err := engine.Store.Load("agent", agentID, &agentRecord); err != nil {
+				return processedRevision, err
+			}
 		}
 
 		configuration, err := engine.inferenceConfiguration(ctx, agentRecord)
@@ -135,7 +140,13 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		}
 
 		engine.setRunState(agentID, "model", nil)
-		system, tools := engine.buildSystemPrompt(agentRecord), engine.agentToolsForModel(configuration.Model)
+		var system string
+		var tools []providers.Tool
+		if shortChat {
+			system, tools = shortChatPrompt, engine.shortChatTools()
+		} else {
+			system, tools = engine.buildSystemPrompt(agentRecord), engine.agentToolsForModel(configuration.Model)
+		}
 		agentRecord, messages, err := engine.prepareContext(turnContext, agentRecord, configuration, false, estimatedPromptTokens(system, tools))
 		if err != nil {
 			return processedRevision, err
@@ -213,6 +224,10 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 				continue
 			}
 
+			if shortChat {
+				return processedRevision, nil
+			}
+
 			completed, err := engine.checkGoalCompletion(ctx, agentRecord, processedRevision, assistant)
 			if err != nil {
 				return processedRevision, err
@@ -247,7 +262,13 @@ func (engine *Engine) executeCalls(
 
 		messageID := NewID()
 		callContext := context.WithValue(ctx, toolMessageIDKey{}, messageID)
-		result, toolError := engine.dispatch(callContext, agentRecord, call)
+		var result any
+		var toolError error
+		if agentRecord.ChatOwnerID != "" {
+			result, toolError = engine.shortChatTool(callContext, agentRecord, call)
+		} else {
+			result, toolError = engine.dispatch(callContext, agentRecord, call)
+		}
 		changes, err := extractFileChanges(result)
 		if err != nil {
 			return err

@@ -18,6 +18,7 @@ import (
 	"github.com/lehlud/zentrale/internal/keylock"
 	"github.com/lehlud/zentrale/netguard"
 	"github.com/lehlud/zentrale/oauthflow"
+	"github.com/lehlud/zentrale/remote"
 )
 
 type account struct {
@@ -48,6 +49,7 @@ type Service struct {
 	Store  *datastore.Instance
 	Client *Client
 	Now    func() time.Time
+	owner  string
 
 	configureMu sync.Mutex
 	gates       keylock.Group
@@ -58,9 +60,22 @@ func New(store *datastore.Instance) *Service {
 	return &Service{Store: store, Client: NewClient(), Now: time.Now}
 }
 
+// ForUser keeps each user's gates, repository cache and credentials separate.
+// The initial account deliberately retains the single-user storage namespace.
+func (service *Service) ForUser(userID string) *Service {
+	if userID == "" || userID == domain.InitialUserID {
+		return service
+	}
+	return &Service{Store: service.Store, Client: service.Client, Now: service.Now, owner: userID}
+}
+
 func (service *Service) account(id string) (account, error) { return service.accountMode(id, false) }
 
 func (service *Service) accountMode(id string, readOnly bool) (account, error) {
+	if !remote.ValidID(id) {
+		return account{}, errors.New("invalid Git connection ID")
+	}
+
 	value := account{Public: domain.GitConnection{ID: id, Kind: id, BaseURL: "https://" + id + ".com"}}
 	err := service.loadAccountMode(id, &value, readOnly)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -456,8 +471,11 @@ func (service *Service) finishLogin(ctx context.Context, value *account) (domain
 
 // Read only persisted public state, without waiting behind remote OAuth I/O.
 func (service *Service) PendingLogin(id string) (*domain.GitLogin, error) {
+	if !remote.ValidID(id) {
+		return nil, errors.New("invalid Git connection ID")
+	}
 	var value account
-	if err := service.Store.Load("git_account", id, &value); err != nil {
+	if err := service.Store.Load("git_account", service.accountKey(id), &value); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -470,8 +488,11 @@ func (service *Service) PendingLogin(id string) (*domain.GitLogin, error) {
 }
 
 func (service *Service) Login(id, loginID string) (*domain.GitLogin, error) {
+	if !remote.ValidID(id) {
+		return nil, errors.New("invalid Git connection ID")
+	}
 	var value account
-	if err := service.Store.Load("git_account", id, &value); err != nil {
+	if err := service.Store.Load("git_account", service.accountKey(id), &value); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

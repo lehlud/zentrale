@@ -20,6 +20,12 @@ func (engine *Engine) projectEnvironmentAvailable(projectID string) error {
 	if resetting {
 		return errors.New("the user is resetting this project's VMs; wait until the reset finishes")
 	}
+	if projectID != "" {
+		var project domain.Project
+		if err := engine.Store.Load("project", projectID, &project); err == nil && project.Archived {
+			return errors.New("project is archived")
+		}
+	}
 	return nil
 }
 
