@@ -57,9 +57,31 @@ test("a member can create a private short chat, not a project", async ({
     await page.getByRole("link", { name: "Kurzchats", exact: true }).click();
     await page.getByRole("button", { name: "Neuer Chat", exact: true }).click();
     await expect(page).toHaveURL(/#\/chats\/[a-zA-Z0-9_-]+/);
-    await expect(
-      page.getByPlaceholder("Schreib eine Nachricht …"),
-    ).toBeVisible();
+    const composer = page.getByPlaceholder("Schreib eine Nachricht …");
+    await expect(composer).toBeVisible();
+    await composer.fill("/");
+    await expect(page.getByRole("listbox", { name: "Befehle" })).toHaveCount(0);
+
+    for (const text of [
+      "/side Eine Nebenfrage",
+      "/teamwork",
+      "/continue",
+      "/stop",
+    ]) {
+      await composer.fill(text);
+      const submitted = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/graphql") &&
+          response.request().postDataJSON()?.query?.includes("submitInput("),
+      );
+      await composer.press("Enter");
+
+      const response = await submitted;
+      expect(response.request().postDataJSON().variables.text).toBe(text);
+      expect((await response.json()).errors).toBeUndefined();
+      await expect(composer).toHaveValue("");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    }
 
     const { shortChats } = await graphql<{ shortChats: { id: string }[] }>(
       page.request,

@@ -51,6 +51,9 @@ func (engine *Engine) OpenSide(ctx context.Context, agentID string) (*SideSessio
 	if err := engine.Store.Load("agent", agentID, &record); err != nil {
 		return nil, err
 	}
+	if record.ProjectID == "" || record.ChatOwnerID != "" {
+		return nil, errors.New("side conversations are only available in projects")
+	}
 
 	root, err := engine.publicThreadRoot(record)
 	if err != nil {

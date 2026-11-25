@@ -345,14 +345,14 @@ export const AgentComposer = memo(function AgentComposer({
           </div>
         </div>
       </form>
-      {sideQuestion !== null && (
+      {!shortChat && sideQuestion !== null && (
         <SideConversation
           agentId={agentId}
           initialQuestion={sideQuestion}
           onClose={() => setSideQuestion(null)}
         />
       )}
-      {teamworkOpen && (
+      {!shortChat && teamworkOpen && (
         <TeamworkBoard
           agentId={agentId}
           onClose={() => setTeamworkOpen(false)}

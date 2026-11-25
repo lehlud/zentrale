@@ -35,3 +35,17 @@ func TestShortChatRejectsGoalsAndSubagents(t *testing.T) {
 		t.Fatalf("subagent creation did not reject a short chat: %v", err)
 	}
 }
+
+func TestShortChatRejectsSideConversation(t *testing.T) {
+	store, err := datastore.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	engine := &Engine{Store: store}
+	chat := createTestShortChat(t, engine, addTestChatUser(t, engine, "short-chat-owner"))
+
+	if session, err := engine.OpenSide(t.Context(), chat.ID); session != nil || err == nil || !strings.Contains(err.Error(), "only available in projects") {
+		t.Fatalf("side conversation did not reject a short chat: %v", err)
+	}
+}

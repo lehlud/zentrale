@@ -52,6 +52,22 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	reject(&bob, `mutation($id:String!){cancelGoal(agentId:$id,goalId:"goal")}`, variables)
 	reject(&bob, `mutation($id:String!){createAgent(projectId:$id,name:"Child"){id}}`, variables)
 
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		request, err := http.NewRequest(method, admin.server.URL+"/side/"+chat["id"].(string), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		response, err := bob.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("%s short-chat side endpoint returned %d, want 404", method, response.StatusCode)
+		}
+	}
+
 	const attachment = "private note without a VM"
 	path := admin.server.URL + "/attachments/" + chat["id"].(string) + "/chat-file?name=note.txt"
 	for _, upload := range []struct {
