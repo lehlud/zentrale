@@ -1,45 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <defs>
-    <clipPath id="tile">
-      <rect id="tile-shape" width="256" height="256" rx="57" />
-    </clipPath>
-    <linearGradient id="midnight" x1="0" y1="1" x2="1" y2="0">
-      <stop stop-color="#0b142a" />
-      <stop offset="1" stop-color="#201537" />
+    <linearGradient id="bubble" x2="1" y2="1">
+      <stop stop-color="#f3ecff" />
+      <stop offset="1" stop-color="#c0a9ff" />
     </linearGradient>
-    <radialGradient id="halo" cx=".66" cy=".36" r=".66">
-      <stop stop-color="#3c3373" />
-      <stop offset="1" stop-color="#3c3373" stop-opacity="0" />
-    </radialGradient>
-    <linearGradient id="orbit" x1="27" y1="160" x2="241" y2="104" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#43efca" />
-      <stop offset=".5" stop-color="#5b8cff" />
-      <stop offset=".83" stop-color="#ad75ff" />
-      <stop offset="1" stop-color="#ffae80" />
-    </linearGradient>
-    <linearGradient id="letter" x1="92" y1="50" x2="164" y2="206" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f5fff9" />
-      <stop offset=".5" stop-color="#dcedff" />
-      <stop offset="1" stop-color="#bdbbff" />
-    </linearGradient>
-    <path
-      id="monogram"
-      d="M61 50h134a12 12 0 0 1 12 12v14q0 9-8 15l-98 76h94a12 12 0 0 1 12 12v15a12 12 0 0 1-12 12H61a12 12 0 0 1-12-12v-15q0-9 8-15l98-76H61a12 12 0 0 1-12-12V62a12 12 0 0 1 12-12Z"
-    />
   </defs>
-
-  <g clip-path="url(#tile)">
-    <rect width="256" height="256" fill="url(#midnight)" />
-    <rect width="256" height="256" fill="url(#halo)" />
-  </g>
+  <rect id="tile-shape" width="256" height="256" rx="57" fill="#341e59" />
 
   <g id="mark">
-    <use href="#monogram" fill="#0e142e" opacity=".55" transform="translate(0 4)" />
-    <use href="#monogram" fill="url(#letter)" />
-
     <path
-      d="M27 145c13 18 42 27 78 24 43-3 90-21 114-44 15-14 19-29 8-40 17 8 22 24 13 40-19 32-76 62-133 67-37 3-70-11-80-47Z"
-      fill="url(#orbit)"
+      d="M97 64h80q43 0 43 43v37q0 37-37 37h-9l-30 22q-5 4-5-3v-19H97q-43 0-43-43v-31q0-43 43-43Z"
+      fill="#885cf0"
+    />
+    <path
+      d="M78 43h86q38 0 38 38v46q0 38-38 38h-53l-40 32q-6 4-6-3v-29q-26-9-26-38V81q0-38 39-38Z"
+      fill="url(#bubble)"
+    />
+    <path
+      d="M87 77h69l-70 56h70"
+      fill="none"
+      stroke="#442969"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     />
   </g>
 </svg>

@@ -8,19 +8,19 @@ test("Zentrale meets the browser install criteria and has working icons", async 
 
   await expect(
     page.locator('link[rel="icon"][type="image/svg+xml"]'),
-  ).toHaveAttribute("href", "/icons/zentrale.svg?v=3");
+  ).toHaveAttribute("href", "/icons/zentrale.svg?v=4");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
     "href",
-    "/icons/apple-touch-icon.png?v=3",
+    "/icons/apple-touch-icon.png?v=4",
   );
 
   const sizes = await page.evaluate(async () => {
     const paths = [
-      "/icons/favicon-32.png?v=3",
-      "/icons/apple-touch-icon.png?v=3",
-      "/icons/pwa-192.png?v=3",
-      "/icons/pwa-512.png?v=3",
-      "/icons/pwa-maskable-512.png?v=3",
+      "/icons/favicon-32.png?v=4",
+      "/icons/apple-touch-icon.png?v=4",
+      "/icons/pwa-192.png?v=4",
+      "/icons/pwa-512.png?v=4",
+      "/icons/pwa-maskable-512.png?v=4",
     ];
 
     return Promise.all(
