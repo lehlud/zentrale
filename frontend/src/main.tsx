@@ -27,6 +27,21 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>,
 );
 
+// The main app uses hash routes. A forwarded preview has its own scoped worker
+// and must not register a root worker on the shared HTTPS origin.
+const appEntry =
+  location.pathname === "/" || location.pathname === "/index.html";
+if (
+  appEntry &&
+  window.top === window &&
+  window.isSecureContext &&
+  "serviceWorker" in navigator
+) {
+  void navigator.serviceWorker.register("/pwa-sw.js").catch((error) => {
+    console.warn("Zentrale could not register its service worker", error);
+  });
+}
+
 function ApplicationProviders({ children }: { children: React.ReactNode }) {
   const { locale } = useI18n();
 

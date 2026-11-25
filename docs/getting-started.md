@@ -71,6 +71,14 @@ in SQLite (`zentrale.sqlite`). Files and commands live on your SSH machines. The
 needs to stay available for agents to keep working; your browser can disconnect
 after a task has been accepted.
 
+## Install Zentrale as an app
+
+Open Zentrale over HTTPS (or on `localhost`) and use your browser's **Install**
+option. In Safari on iPhone or iPad, choose **Share → Add to Home Screen**.
+The installed app runs in its own window and still needs a connection to your
+Zentrale server. It shows a connection notice when offline; the service worker
+does not cache chats, attachments, workspace files or other private data.
+
 ## Your first task
 
 1. **Connect a provider** in Settings and choose defaults for the main agent and

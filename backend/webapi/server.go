@@ -218,7 +218,8 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.Any("/preview/:project/:session/:port", server.preview)
 
 	e.GET("/*", func(requestContext echo.Context) error {
-		viewer := strings.HasPrefix(requestContext.Request().URL.Path, "/pdfjs/")
+		requestPath := requestContext.Request().URL.Path
+		viewer := strings.HasPrefix(requestPath, "/pdfjs/")
 		if viewer {
 			requestContext.Response().Header().Set("Content-Security-Policy", "connect-src 'self' blob: data:; frame-ancestors 'self'")
 		}
@@ -227,16 +228,29 @@ func (server *Server) Handler() (*echo.Echo, error) {
 			return err
 		}
 
-		params := filepath.Join(root, filepath.Clean("/"+requestContext.Request().URL.Path))
+		params := filepath.Join(root, filepath.Clean("/"+requestPath))
 		if params != root && !strings.HasPrefix(params, root+string(filepath.Separator)) {
 			return echo.ErrNotFound
 		}
 
+		pwaEntry := requestPath == "/manifest.webmanifest" || requestPath == "/pwa-sw.js"
 		if stat, err := os.Stat(params); err == nil && !stat.IsDir() {
+			headers := requestContext.Response().Header()
+			if pwaEntry {
+				headers.Set("Cache-Control", "no-cache")
+			}
+
+			switch requestPath {
+			case "/manifest.webmanifest":
+				headers.Set("Content-Type", "application/manifest+json")
+			case "/pwa-sw.js":
+				headers.Set("Content-Type", "text/javascript; charset=utf-8")
+			}
+
 			return requestContext.File(params)
 		}
 
-		if viewer || strings.HasPrefix(requestContext.Request().URL.Path, "/assets/") {
+		if viewer || pwaEntry || strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/icons/") {
 			return echo.ErrNotFound
 		}
 
