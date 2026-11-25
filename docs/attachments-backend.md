@@ -9,7 +9,10 @@
 * `id` is a client-generated UUID or another receipt-safe identifier matching
   `[A-Za-z0-9_-]{1,128}`. It is scoped to the agent and its current project.
 * Successful uploads return HTTP 200 and JSON
-  `{id,agentId,projectId,name,mimeType,size,path,machineId}`. Repeating identical
+  `{id,agentId,projectId,name,mimeType,size,path,machineId}` once the bytes are
+  committed to Zentrale's database. Uploads do not connect to or start a VM.
+  New uploads have empty `path` and `machineId` strings; these are resolved for
+  the outgoing model request, not by the upload endpoint. Repeating identical
   bytes and the original name returns the same metadata; changed retries fail.
 * `GET /attachments/:agent/:id` serves only stored, sniffed PNG/JPEG/WebP/GIF
   bytes, with their sniffed MIME type, `X-Content-Type-Options: nosniff`, and
@@ -23,9 +26,8 @@
   eviction of uploaded files. Agent/project deletion performs scope cleanup.
 * Oversized bodies return 413, authentication errors 401, target/origin errors
   403, unavailable raster previews 404, other upload validation/conflict errors
-  400. Bodies are bounded before remote execution; uploads are serialized through
-  a cancellation-aware engine gate to bound in-flight buffer memory. HTTP read
-  and engine staging deadlines are ten minutes and cancellation closes reads/SSH.
+  400. Uploads are serialized through a cancellation-aware engine gate to bound
+  in-flight buffer memory. The HTTP body read has a ten-minute deadline.
 
 ## GraphQL and durable messages
 
@@ -55,14 +57,22 @@ message and instruction records, preserving the metadata across queue/restart.
 
 ## Storage, sandbox and cleanup
 
-Each file is staged at the fixed
+Zentrale retains the binary bytes and metadata in `attachment_blobs`, outside
+generic resources, events and snapshots. A stopped or unreachable VM does not
+prevent upload, raster previews or normal queue submission. Unreferenced uploads
+remain on Zentrale and do not wake an environment.
+
+When the agent processes a message, it materializes the referenced files before
+sending the model request. The background agent waits and retries on transient
+connection or VM failures, independently of the HTTP request. Files are staged at
+the fixed
 `agentTemporaryDirectory(agentID)/attachments/<id>/<sanitized-name>` location.
 There is no caller-selected destination. Unsafe path separators/traversal names
 are rejected; display names are preserved in metadata, while actual basenames
-are bounded and sanitized. Staging uses `connectForJob`,
-`prepareRemoteWorkspace` and the engine sandbox. Disabled isolation is rejected.
-The upload-specific sandbox path explicitly disables automatic VM recovery:
-uploads may prepare/start a guest, but never reset it or widen host access.
+are bounded and sanitized. Staging uses the agent's current environment and the
+engine sandbox, with a ten-minute deadline per staging attempt. The staging
+operation itself cannot reset a guest or widen host access; disabled isolation
+is rejected.
 
 The fixed Python helper streams binary stdin through a bounded temporary file,
 checks exact size and SHA-256, fsyncs and commits with atomic no-replace links.
@@ -74,13 +84,12 @@ staging files; uncatchable process/host death can leave hidden `.upload-*` stagi
 files, never a partially committed visible attachment. Scratch-root preparation
 itself no longer chmods through a symlink.
 
-The separate `attachment_blobs` table retains raw binary bytes and metadata,
-outside generic resources/events/snapshots. Original images and other files can
-therefore survive backend restart and missing guest `/tmp` files. Before outgoing
-main-agent requests, referenced files are checked/restaged idempotently on their
-recorded assigned machine, without replacing changed files. Existing-file
-conflicts or an unavailable original machine are explicit errors, not permission
-to overwrite, move data to an unrelated machine, or reset a VM.
+Original images and other files survive backend restart and missing guest `/tmp`
+files. Before outgoing main-agent requests, referenced files are checked and
+restaged idempotently in that agent's environment without replacing changed
+files. Existing-file conflicts are explicit errors. VM paths and machine IDs
+for that environment are set on the outgoing request copy; stored upload,
+receipt and message metadata remain unchanged (including for older uploads).
 
 Agent/project deletion removes corresponding BLOB rows in the same transaction
 as the existing resource cleanup. Existing agent-family VM removal handles the
@@ -120,9 +129,8 @@ text. No sensitive blob bytes enter UI history, runtime snapshots or outboxes.
 * Provider HTTP tests cover the native image request blocks for all four existing
   protocols, non-image references and JSON blob exclusion.
 * Backend tests additionally cover authenticated API/origin/project/kind bounds,
-  MIME-spoofed raster previews, binary retries, message size/count limits, queue
-  delivery/idempotence, original-instruction metadata, persisted BLOB restart and
-  transactional deletion, and the no-automatic-VM-reset sandbox boundary.
-* Local evidence and environment limits are reported to Main separately. Known
-  Go linker `mapping output file failed` / DuckDB execution constraints are not
-  bypassed; full datastore/agent/webapi execution must be verified in normal CI.
+  uploads and raster previews without a configured machine, binary retries,
+  queue delivery/idempotence, and staging the original bytes before model access
+  once a busy VM becomes available. They also cover message size/count limits,
+  original-instruction metadata, persisted BLOB restart, transactional deletion
+  and the no-automatic-VM-reset staging boundary.

@@ -45,7 +45,7 @@ func (server *Server) attachment(requestContext echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	// Deadlines interrupt a stalled raw body read, not merely the SSH phase.
+	// Interrupt a stalled raw body read even if the client stops sending data.
 	controller := http.NewResponseController(requestContext.Response().Writer)
 	_ = controller.SetReadDeadline(time.Now().Add(10 * time.Minute))
 	defer controller.SetReadDeadline(time.Time{})

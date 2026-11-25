@@ -69,20 +69,24 @@ func rasterMIME(data []byte) string {
 	return ""
 }
 
-// UploadAttachment consumes a bounded stream, never a caller-chosen path.
+// UploadAttachment persists a bounded stream on Zentrale without contacting the
+// VM. The agent stages referenced uploads when preparing a model request.
 func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _ string, source io.Reader) (domain.Attachment, error) {
 	var result domain.Attachment
+
 	if !inputIDPattern.MatchString(id) {
 		return result, errors.New("invalid attachment ID")
 	}
-	filename, err := attachmentFilename(name)
-	if err != nil {
+
+	if _, err := attachmentFilename(name); err != nil {
 		return result, err
 	}
+
 	record, err := engine.UserAttachmentTarget(agentID)
 	if err != nil {
 		return result, err
 	}
+
 	select {
 	case engine.attachmentGate <- struct{}{}:
 		defer func() { <-engine.attachmentGate }()
@@ -91,16 +95,41 @@ func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _
 	case <-engine.ctx.Done():
 		return result, engine.ctx.Err()
 	}
+
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+
 	data, err := io.ReadAll(io.LimitReader(source, MaxAttachmentBytes+1))
 	if err != nil {
 		return result, err
 	}
+
 	if len(data) > MaxAttachmentBytes {
 		return result, errors.New("attachment exceeds 25 MiB")
 	}
+
+	// Revalidate while serializing with agent/project deletion. Neither the
+	// body read nor any VM work belongs under this lock.
+	engine.configMu.Lock()
+	defer engine.configMu.Unlock()
+
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+
+	if err := engine.ctx.Err(); err != nil {
+		return result, err
+	}
+
+	if engine.agentRemoving(agentID) {
+		return result, errAgentRemoving
+	}
+
+	if current, err := engine.UserAttachmentTarget(agentID); err != nil || current.ProjectID != record.ProjectID {
+		return result, errors.New("attachment scope no longer exists")
+	}
+
 	previous, old, err := engine.Store.Attachment(agentID, id)
 	if err == nil {
 		if previous.ProjectID != record.ProjectID || previous.Name != name || !bytes.Equal(old, data) {
@@ -108,22 +137,23 @@ func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _
 		}
 		return previous, nil
 	}
+
 	if !errors.Is(err, sql.ErrNoRows) {
 		return result, err
 	}
-	result = domain.Attachment{ID: id, AgentID: agentID, ProjectID: record.ProjectID, Name: name, MimeType: http.DetectContentType(data), Size: int64(len(data))}
+
+	result = domain.Attachment{
+		ID:        id,
+		AgentID:   agentID,
+		ProjectID: record.ProjectID,
+		Name:      name,
+		MimeType:  http.DetectContentType(data),
+		Size:      int64(len(data)),
+	}
 	if len(data) == 0 {
 		result.MimeType = "application/octet-stream"
 	}
-	result, err = engine.stageAttachment(ctx, record, result, filename, data)
-	if err != nil {
-		return result, err
-	}
-	engine.configMu.Lock()
-	defer engine.configMu.Unlock()
-	if current, err := engine.UserAttachmentTarget(agentID); err != nil || current.ProjectID != record.ProjectID {
-		return result, errors.New("attachment scope no longer exists")
-	}
+
 	return result, engine.Store.SaveAttachment(result, data)
 }
 
@@ -263,8 +293,8 @@ func (engine *Engine) prepareTurnAttachments(ctx context.Context, agentID string
 	return prepared, err
 }
 
-// Restore attachments in the current environment and update only the outgoing
-// request. Stored message and receipt metadata keep their original placement.
+// Materialize attachments in the current environment and populate VM locations
+// only in the outgoing request. Stored upload metadata remains immutable.
 func (engine *Engine) prepareAttachmentRequestMessages(ctx context.Context, agentID string, messages []domain.Message) ([]domain.Message, error) {
 	if !slices.ContainsFunc(messages, func(message domain.Message) bool {
 		return message.Role == "user" && len(message.Attachments) > 0

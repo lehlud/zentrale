@@ -2,6 +2,7 @@ package domain
 
 // Attachment is immutable, scope-bound metadata. File bytes never belong in
 // messages, events, receipts, GraphQL or runtime snapshots.
+// New uploads have no VM placement until the agent stages its request copy.
 type Attachment struct {
 	ID        string `json:"id"`
 	AgentID   string `json:"agentId"`

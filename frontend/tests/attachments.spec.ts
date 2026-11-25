@@ -105,8 +105,8 @@ for (const mobile of [false, true]) {
           name,
           mimeType: request.headers()["content-type"],
           size: request.postDataBuffer()?.length ?? 0,
-          path: `/tmp/zentrale/attachments/${id}/${name}`,
-          machineId: "vm",
+          path: "",
+          machineId: "",
         },
       });
     });

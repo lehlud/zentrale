@@ -29,8 +29,8 @@ func TestAttachmentQueueReceiptsAndHistoryMetadata(t *testing.T) {
 	engine.mu.Unlock()
 	defer func() { engine.mu.Lock(); delete(engine.running, record.ID); engine.mu.Unlock() }()
 	data := []byte("\x89PNG\r\n\x1a\nimage")
-	a := domain.Attachment{ID: "picture", AgentID: record.ID, ProjectID: record.ProjectID, Name: "picture.png", MimeType: "image/png", Size: int64(len(data)), Path: agentTemporaryDirectory(record.ID) + "/attachments/picture/picture.png", MachineID: "test-worker"}
-	if err := engine.Store.SaveAttachment(a, data); err != nil {
+	a, err := engine.UploadAttachment(context.Background(), record.ID, "picture", "picture.png", "image/png", bytes.NewReader(data))
+	if err != nil {
 		t.Fatal(err)
 	}
 	input, err := engine.SubmitInputWithAttachments(record.ID, "receipt", "", "queue", []string{a.ID})
@@ -224,14 +224,19 @@ func TestAttachmentRestoresOnCurrentMachineAfterProjectMove(t *testing.T) {
 	}
 }
 
-func TestModelTurnWaitsForBusyAttachmentVM(t *testing.T) {
-	var stages, prepares, checks, stops, modelCalls atomic.Int32
+func TestModelTurnStagesAttachmentAfterBusyVMBecomesReady(t *testing.T) {
+	data := []byte("document\x00\xff")
+	var stages, prepares, checks, uploads, stops, modelCalls atomic.Int32
 	shell := shellPeerHandler("/bin/sh", os.Environ())
 	provider := providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
 		modelCalls.Add(1)
-		if checks.Load() != 1 || len(request.Messages[0].Attachments) != 1 {
-			t.Error("model received a request before the attachment was ready")
+		attachments := request.Messages[0].Attachments
+		if checks.Load() != 1 || uploads.Load() != 1 || len(attachments) != 1 {
+			t.Error("model received a request before the attachment was staged")
+		} else if attachments[0].Path != "/tmp/zentrale/attachments/document/document.txt" || attachments[0].MachineID == "" {
+			t.Errorf("model received an attachment without the correct VM placement: %+v", attachments[0])
 		}
+
 		return providers.Result{Text: "ready"}, nil
 	})
 	engine, record, _ := vmExecutionTestEngine(t, provider, func(command string, input io.Reader, stdout, stderr io.Writer) int {
@@ -254,16 +259,20 @@ func TestModelTurnWaitsForBusyAttachmentVM(t *testing.T) {
 			}
 			fmt.Fprintf(stdout, "/tmp/test-vm/session/requests/%032x\n", stage)
 		case strings.Contains(command, " 'run'"):
-			data, err := io.ReadAll(input)
+			payload, err := io.ReadAll(input)
 			if err != nil {
 				t.Error(err)
 				return 1
 			}
-			if len(data) == 0 {
+
+			switch {
+			case len(payload) == 0:
 				checks.Add(1)
-				fmt.Fprintln(stdout, "present")
-			} else if !bytes.Contains(data, []byte("clear-project-git")) {
-				t.Error("unexpected guest invocation")
+				fmt.Fprintln(stdout, "missing")
+			case bytes.Equal(payload, data):
+				uploads.Add(1)
+			case !bytes.Contains(payload, []byte("clear-project-git")):
+				t.Error("unexpected guest invocation or changed upload bytes")
 				return 1
 			}
 		case strings.Contains(command, " 'stop'"), strings.Contains(command, " 'reset'"):
@@ -271,12 +280,15 @@ func TestModelTurnWaitsForBusyAttachmentVM(t *testing.T) {
 		}
 		return 0
 	})
-	data := []byte("document")
-	attachment := domain.Attachment{ID: "document", AgentID: record.ID, ProjectID: record.ProjectID,
-		Name: "document.txt", MimeType: "text/plain; charset=utf-8", Size: int64(len(data))}
-	if err := engine.Store.SaveAttachment(attachment, data); err != nil {
+
+	attachment, err := engine.UploadAttachment(context.Background(), record.ID, "document", "document.txt", "application/octet-stream", bytes.NewReader(data))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if stages.Load() != 0 || prepares.Load() != 0 || attachment.Path != "" || attachment.MachineID != "" {
+		t.Fatalf("upload should not touch the VM: stages=%d prepares=%d receipt=%+v", stages.Load(), prepares.Load(), attachment)
+	}
+
 	release := engine.useEnvironment(record.ID)
 	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -286,9 +298,9 @@ func TestModelTurnWaitsForBusyAttachmentVM(t *testing.T) {
 	}}}
 	_, reply, err := engine.completeVisible(ctx, record.ID, request)
 	if err != nil || reply.Content != "ready" || modelCalls.Load() != 1 || prepares.Load() != 1 ||
-		checks.Load() != 1 || stops.Load() != 0 {
-		t.Fatalf("attachment wait: error=%v reply=%q stages=%d checks=%d prepares=%d modelCalls=%d stops=%d",
-			err, reply.Content, stages.Load(), checks.Load(), prepares.Load(), modelCalls.Load(), stops.Load())
+		checks.Load() != 1 || uploads.Load() != 1 || stops.Load() != 0 {
+		t.Fatalf("attachment wait: error=%v reply=%q stages=%d checks=%d uploads=%d prepares=%d modelCalls=%d stops=%d",
+			err, reply.Content, stages.Load(), checks.Load(), uploads.Load(), prepares.Load(), modelCalls.Load(), stops.Load())
 	}
 }
 

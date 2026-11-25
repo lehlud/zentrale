@@ -17,7 +17,7 @@ export function AttachmentList({
         <li
           key={attachment.id}
           className="flex min-w-0 max-w-64 items-center gap-2 rounded-lg border border-border p-2"
-          title={attachment.path}
+          title={attachment.path || undefined}
         >
           {isPreviewImage(attachment.mimeType) ? (
             <a
@@ -42,9 +42,11 @@ export function AttachmentList({
             <span className="block text-xs text-muted">
               {Math.ceil(attachment.size / 1024)} KiB
             </span>
-            <code className="block truncate text-[10px] text-muted">
-              {attachment.path}
-            </code>
+            {attachment.path && (
+              <code className="block truncate text-[10px] text-muted">
+                {attachment.path}
+              </code>
+            )}
           </span>
         </li>
       ))}

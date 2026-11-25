@@ -60,24 +60,27 @@ func TestAttachmentAPIAuthOriginScopeBinaryRetryAndRasterPreview(t *testing.T) {
 	}
 	request("POST", "/attachments/main/id?name=..%2Fescape", "", nil, 400)
 	request("POST", "/attachments/main/id?name=file", "", bytes.Repeat([]byte{'x'}, agent.MaxAttachmentBytes+1), 413)
+
+	// This project has no machine. Uploads and previews must still work.
 	data := []byte("\x89PNG\r\n\x1a\n\x00\xffbinary")
-	a := domain.Attachment{ID: "image", AgentID: "main", ProjectID: "project", Name: "picture.png", MimeType: "image/png", Size: int64(len(data)), Path: "/tmp/zentrale-main/attachments/image/picture.png", MachineID: "machine"}
-	if err := fixture.engine.Store.SaveAttachment(a, data); err != nil {
-		t.Fatal(err)
+	endpoint := "/attachments/main/image?name=picture.png"
+	want := domain.Attachment{ID: "image", AgentID: "main", ProjectID: "project", Name: "picture.png", MimeType: "image/png", Size: int64(len(data))}
+	var uploaded domain.Attachment
+	if err := json.Unmarshal(request("POST", endpoint, "", data, 200), &uploaded); err != nil || uploaded != want {
+		t.Fatalf("unexpected upload receipt: %+v (%v)", uploaded, err)
 	}
 	var retry domain.Attachment
-	if err := json.Unmarshal(request("POST", "/attachments/main/image?name=picture.png", "", data, 200), &retry); err != nil || retry != a {
+	if err := json.Unmarshal(request("POST", endpoint, "", data, 200), &retry); err != nil || retry != uploaded {
 		t.Fatal(retry, err)
 	}
-	request("POST", "/attachments/main/image?name=picture.png", "", []byte("changed"), 400)
+	request("POST", endpoint, "", []byte("changed"), 400)
 	request("POST", "/attachments/main/image?name=other.png", "", data, 400)
 	if got := request("GET", "/attachments/main/image", "", nil, 200); !bytes.Equal(got, data) {
 		t.Fatal("binary preview corrupted", got)
 	}
-	a.ID, a.MimeType, a.Name = "svg", "image/svg+xml", "evil.svg"
-	if err := fixture.engine.Store.SaveAttachment(a, []byte(`<svg onload="alert(1)"/>`)); err != nil {
-		t.Fatal(err)
-	}
+
+	request("POST", "/attachments/main/empty?name=empty.txt", "", nil, 200)
+	request("POST", "/attachments/main/svg?name=not-an-image.svg", "", []byte(`<svg/>`), 200)
 	request("GET", "/attachments/main/svg", "", nil, 404)
 	request("GET", "/attachments/child/image", "", nil, 403)
 	if response := fixture.query(t, `mutation{submitInput(agentId:"main",id:"foreign",text:"",mode:"queue",attachmentIds:["not-uploaded"]){id}}`, nil); response["errors"] == nil {
