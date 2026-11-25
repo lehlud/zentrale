@@ -894,7 +894,14 @@ def dispatch_jobs(requests, workers):
             worker.start()
 
 
+def report_startup_phase(phase):
+    temporary = Path(CONTROL, "startup-phase.new")
+    temporary.write_text(phase, encoding="ascii")
+    os.replace(temporary, Path(CONTROL, "startup-phase"))
+
+
 def serve_jobs(request):
+    report_startup_phase("vm_preparing_guest")
     free_page_reporting = enable_free_page_reporting()
     prepare_fedora(request)
     if request.get("provision"):
@@ -905,7 +912,9 @@ def serve_jobs(request):
         nvidia["initialize_guest"](Path(FEDORA), request, load_module, mount, BIND)
     socket.sethostname("zentrale-microvm")
     configure_network(True)
+    report_startup_phase("vm_installing_packages")
     prepare_standard_packages(Path(FEDORA))
+    report_startup_phase("vm_preparing_tools")
     prepare_user_shell(Path(FEDORA))
     prepare_standard_binaries(Path(FEDORA), request.get("standardTools", {}))
     prepare_csvkit(Path(FEDORA), request.get("csvkitRequirements", []))
@@ -915,6 +924,7 @@ def serve_jobs(request):
         "os": "fedora",
         "version": "45",
         "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+        "vcpus": os.cpu_count(),
         "workspaceHealth": True,
         "terminalStream": True,
         "freePageReporting": free_page_reporting,

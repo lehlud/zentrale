@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -254,10 +255,13 @@ func microVMAction(
 	if startupProgress(ctx) == nil {
 		output, err = RunPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)))
 	} else {
-		var boot sync.Once
+		var reported [len(managedVMStartupPhases)]sync.Once
 		output, err = RunStreamingPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)), func(snapshot string) {
-			if strings.HasPrefix(snapshot, startupBootMarker+"\n") || strings.Contains(snapshot, "\n"+startupBootMarker+"\n") {
-				boot.Do(func() { ReportStartupPhase(ctx, "vm_starting") })
+			for index, phase := range managedVMStartupPhases {
+				marker := startupPhasePrefix + phase + "\n"
+				if strings.HasPrefix(snapshot, marker) || strings.Contains(snapshot, "\n"+marker) {
+					reported[index].Do(func() { ReportStartupPhase(ctx, phase) })
+				}
 			}
 		})
 		// This marker belongs only to the trusted stage/prepare protocol. Keep
@@ -289,15 +293,26 @@ func microVMAction(
 	return output, err
 }
 
-const startupBootMarker = "ZENTRALE_STARTUP_PHASE vm_starting"
+const startupPhasePrefix = "ZENTRALE_STARTUP_PHASE "
+const startupBootMarker = startupPhasePrefix + "vm_starting"
+
+var managedVMStartupPhases = [...]string{
+	"vm_starting",
+	"vm_retrying_boot",
+	"vm_preparing_guest",
+	"vm_installing_packages",
+	"vm_preparing_tools",
+}
 
 func stripStartupBootMarker(output string) string {
 	lines := strings.Split(output, "\n")
 	kept := lines[:0]
 	for _, line := range lines {
-		if line != startupBootMarker {
-			kept = append(kept, line)
+		phase, ok := strings.CutPrefix(line, startupPhasePrefix)
+		if ok && slices.Contains(managedVMStartupPhases[:], phase) {
+			continue
 		}
+		kept = append(kept, line)
 	}
 	return strings.Join(kept, "\n")
 }
@@ -317,7 +332,7 @@ func parseVMStartupFailure(output string, err error) *VMStartupFailure {
 			continue
 		}
 		switch failure.Reason {
-		case "package_install_timeout", "package_install_failed", "startup_timeout":
+		case "kernel_boot_timeout", "package_install_timeout", "package_install_failed", "startup_timeout":
 			failure.Diagnostic = output
 			if len(failure.Diagnostic) > 12000 {
 				failure.Diagnostic = failure.Diagnostic[len(failure.Diagnostic)-12000:]

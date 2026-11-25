@@ -9,6 +9,7 @@ import { useAPI } from "./api";
 import type { Message } from "./generated";
 import { MessageMarkdown } from "./message-markdown";
 import { useI18n } from "./preferences";
+import { terminalStartupLabels } from "./terminal-startup";
 import { WorkingIndicator } from "./working-indicator";
 
 const phaseLabels: Record<string, string> = {
@@ -23,6 +24,11 @@ const phaseLabels: Record<string, string> = {
   recovering_sandbox: "Umgebung wird wiederhergestellt …",
   workspace: "Projektverzeichnis wird vorbereitet …",
   sandbox: "Sandbox wird vorbereitet …",
+  vm_starting: terminalStartupLabels.vm_starting,
+  vm_retrying_boot: terminalStartupLabels.vm_retrying_boot,
+  vm_preparing_guest: terminalStartupLabels.vm_preparing_guest,
+  vm_installing_packages: terminalStartupLabels.vm_installing_packages,
+  vm_preparing_tools: terminalStartupLabels.vm_preparing_tools,
   repository: "Repository wird vorbereitet …",
   retrying_model: "Modellverbindung unterbrochen, neuer Versuch …",
   waiting_question: "Eine notwendige Antwort steht noch aus …",

@@ -49,15 +49,16 @@ func TestNativeTerminalStageSkipsDuplicateEnsureAndStreamsActualBoot(t *testing.
 		// open: the observer must fire before the terminal command is returned.
 		fmt.Fprint(channel.Stderr(), "ZENTRALE_STARTUP_PHASE vm_")
 		fmt.Fprintln(channel.Stderr(), "starting")
+		fmt.Fprintln(channel.Stderr(), "ZENTRALE_STARTUP_PHASE vm_installing_packages")
 		<-release
 		fmt.Fprintln(channel, "/tmp/vm/session/requests/0123456789abcdef0123456789abcdef")
 		fixtureCommandExit(channel, 0)
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	phases := make(chan string, 1)
+	phases := make(chan string, 2)
 	ctx = WithStartupProgress(ctx, func(phase string) {
-		if phase == "vm_starting" {
+		if phase == "vm_starting" || phase == "vm_installing_packages" {
 			phases <- phase
 		}
 	})
@@ -71,13 +72,15 @@ func TestNativeTerminalStageSkipsDuplicateEnsureAndStreamsActualBoot(t *testing.
 		}
 		completed <- err
 	}()
-	select {
-	case phase := <-phases:
-		if phase != "vm_starting" {
-			t.Fatal(phase)
+	for _, want := range []string{"vm_starting", "vm_installing_packages"} {
+		select {
+		case phase := <-phases:
+			if phase != want {
+				t.Fatalf("got startup phase %q, want %q", phase, want)
+			}
+		case <-ctx.Done():
+			t.Fatalf("startup phase %q was not streamed during staging", want)
 		}
-	case <-ctx.Done():
-		t.Fatal("actual boot phase was not streamed during staging")
 	}
 	select {
 	case err := <-completed:
@@ -116,7 +119,7 @@ func TestNativeStageFailureDoesNotFallbackOrSkipValidation(t *testing.T) {
 }
 
 func TestStartupProtocolOnlyStripsItsExactTrustedMarker(t *testing.T) {
-	input := startupBootMarker + "\n/path\nunknown diagnostic\nZENTRALE_STARTUP_PHASE unknown\n"
+	input := startupBootMarker + "\n/path\nZENTRALE_STARTUP_PHASE vm_installing_packages\nunknown diagnostic\nZENTRALE_STARTUP_PHASE unknown\n"
 	if got := stripStartupBootMarker(input); got != "/path\nunknown diagnostic\nZENTRALE_STARTUP_PHASE unknown\n" {
 		t.Fatal(got)
 	}

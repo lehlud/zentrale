@@ -44,9 +44,17 @@ Runtime directories include the resolved artifact identity, so running VMs
 keep their own runtime files through an update.
 
 Guests use the logical CPUs available to the runner, up to QEMU's `microvm`
-limit, with 4 GiB of addressable RAM and a sparse disk capped at 8 GiB. With QEMU
+limit. If Linux fails to reach guest initialization in 75 seconds, the runner
+retries the same disk with up to two vCPUs. A successful smaller boot is reused
+for cold starts with that configuration on the same host for one hour.
+The terminal and conversation distinguish kernel boot, Fedora package
+installation and tool setup.
+
+Guests have 4 GiB of addressable RAM and a sparse disk capped at 8 GiB. With QEMU
 and Linux support, VirtIO free-page reporting returns free guest pages to the
-host. QEMU allocates backing again as the guest touches those pages. The guest
+host. On x86 the runner requests reporting in blocks as small as 16 KiB so
+free pages can be returned even when larger contiguous blocks are scarce.
+QEMU allocates backing again as the guest touches those pages. The guest
 can use its full RAM capacity throughout, including for its Linux page cache.
 This also works with NVIDIA forwarding. VFIO passthrough pins guest RAM for
 device access and prevents this form of reclaim. `microvm_info` reports whether

@@ -92,10 +92,14 @@ func retryablePreparationFailure(err error) bool {
 		return false
 	}
 	var startup *remote.VMStartupFailure
+	if errors.As(err, &startup) {
+		// The remote runner has already tried its compatible CPU configuration.
+		return startup.Reason != "kernel_boot_timeout"
+	}
 	var interrupted *remote.VMInvocationInterrupted
 	var pending *remote.VMHealthPending
 	var recovery *remote.VMRecoveryRequired
-	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &startup) || errors.As(err, &interrupted) || errors.As(err, &pending) ||
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &interrupted) || errors.As(err, &pending) ||
 		(errors.As(err, &recovery) && recovery.Reason == "unresponsive") {
 		return true
 	}

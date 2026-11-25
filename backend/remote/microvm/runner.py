@@ -41,6 +41,10 @@ RECOVERY_REQUIRED = 75
 STARTUP_FAILED = 76
 INVOCATION_INTERRUPTED = 77
 STARTUP_TIMEOUT = 1080
+KERNEL_BOOT_TIMEOUT = 75
+RETRY_BOOT_CPUS = 2
+BOOT_CPU_HINT_TTL = 3600
+GUEST_STARTUP_PHASES = ("vm_preparing_guest", "vm_installing_packages", "vm_preparing_tools")
 CONTROL_PROTOCOL = 1
 MAX_MICROVM_CPUS = 288  # QEMU's microvm machine limit.
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -716,6 +720,8 @@ def virtme_arguments(runtime, kernel, invocation, request):
         "--force-initramfs",
         "--no-virtme-ng-init",
         "--show-boot-console",
+        "--kopt",
+        "loglevel=4",
         "--busybox",
         str(runtime / "busybox"),
         "--memory",
@@ -754,6 +760,13 @@ def virtme_arguments(runtime, kernel, invocation, request):
         )
     if not request.get("provision") and not request.get("editorPort"):
         arguments.extend(["--net", "user"])
+    # Order 2 covers 16 KiB blocks, including fragmented free memory that
+    # Linux's default 2 MiB reporting granularity can leave resident in QEMU.
+    free_page_reporting = (
+        not request.get("provision") and not addresses and supports_free_page_reporting(qemu)
+    )
+    if free_page_reporting:
+        arguments.extend(["--kopt", "page_reporting.page_reporting_order=2"])
     arguments.extend(
         [
             "--qemu-opts",
@@ -815,11 +828,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         arguments.extend(["-device", option])
     # Demand allocation with free-page reporting leaves the full memory limit
     # available to the guest. VFIO passthrough pins the guest's system RAM.
-    if (
-        not request.get("provision")
-        and not addresses
-        and supports_free_page_reporting(qemu)
-    ):
+    if free_page_reporting:
         arguments.extend(["-device", BALLOON_DEVICE + ",free-page-reporting=on"])
     return arguments
 
@@ -958,6 +967,22 @@ def launch_vm(runtime, kernel, control):
     return child
 
 
+def reap_vm_group(group):
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            pid, _ = os.waitpid(-group, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if not pid:
+            time.sleep(0.05)
+    raise RuntimeError("MicroVM processes did not exit; its disk was retained")
+
+
 def terminate_vm(child, control):
     (control / "stop").touch()
     deadline = time.monotonic() + 8
@@ -965,17 +990,10 @@ def terminate_vm(child, control):
         if os.waitpid(child, os.WNOHANG)[0]:
             # virtme may exit before QEMU or its GPU helpers. They belong to
             # this private session's process group and must not outlive it.
-            try:
-                os.killpg(child, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            reap_vm_group(child)
             return
         time.sleep(0.05)
-    try:
-        os.killpg(child, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    os.waitpid(child, 0)
+    reap_vm_group(child)
 
 
 def provision_base(cache, configuration, runtime, kernel):
@@ -1246,20 +1264,23 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 os.close(descriptor)
             except OSError:
                 pass
+    # When virtme exits, adopt its QEMU child so a retry waits for QEMU itself
+    # to release the disk lock before reusing the image.
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "cannot supervise MicroVM descendants")
     (control / "supervisor.pid").write_text(json.dumps(process_reference()))
     child = launch_vm(runtime, kernel, control)
-    boot_deadline = time.monotonic() + STARTUP_TIMEOUT
+    started = time.monotonic()
     lease = os.environ.get("ZENTRALE_DAEMON_LEASE")
     daemon_lease = DaemonLease(lease) if lease else None
     try:
         while True:
             finished, status = os.waitpid(child, os.WNOHANG)
             if finished:
-                try:
-                    os.killpg(child, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                group = child
                 child = None
+                reap_vm_group(group)
                 if not (control / "stop").exists():
                     record_session_failure(control, {
                         "error": "MicroVM stopped unexpectedly",
@@ -1271,17 +1292,9 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 return
             if daemon_lease is not None and not daemon_lease.active():
                 return  # Stop this VM, preserving its persistent disk.
-            if (
-                not (control / "ready.json").exists()
-                and time.monotonic() > boot_deadline
-            ):
-                atomic_json(
-                    control / "failure.json",
-                    {
-                        "error": "Fedora guest startup timed out",
-                        "reason": "startup_timeout",
-                    },
-                )
+            failure = boot_timeout(control, time.monotonic() - started)
+            if failure is not None:
+                atomic_json(control / "failure.json", failure)
                 return
             time.sleep(0.1)
     except Exception as error:
@@ -1293,6 +1306,19 @@ def supervise(runtime, kernel, control, gpu_leases=()):
         for descriptor in gpu_leases:
             os.close(descriptor)
         (control / "stopped").touch()
+
+
+def boot_timeout(control, elapsed):
+    if (control / "ready.json").exists():
+        return None
+    if elapsed > STARTUP_TIMEOUT:
+        return {"error": "Fedora guest startup timed out", "reason": "startup_timeout"}
+    if elapsed > KERNEL_BOOT_TIMEOUT and not (control / "startup-phase").exists():
+        return {
+            "error": f"Guest kernel did not reach initialization within {KERNEL_BOOT_TIMEOUT} seconds",
+            "reason": "kernel_boot_timeout",
+        }
+    return None
 
 
 def session_identity(configuration, execution, vcpus):
@@ -1510,6 +1536,37 @@ def ensure_session(scope, configuration, kernel, execution):
     offload_project_scratch(Path(execution["temporaryDirectory"]))
     runtime, base, kernel = ensure_ready(scope.parent.parent, configuration, kernel)
     disk = prepare_scope_disk(scope, base)
+    boot_profile = hashlib.sha256(
+        json.dumps([configuration["runnerHash"], str(kernel), vcpus]).encode()
+    ).hexdigest()
+    cpu_hint = scope.parent.parent / ("boot-cpus-" + boot_profile)
+    try:
+        prefer_fewer_cpus = 0 <= time.time() - cpu_hint.stat().st_mtime < BOOT_CPU_HINT_TTL
+    except OSError:
+        prefer_fewer_cpus = False
+    boot_cpus = min(vcpus, RETRY_BOOT_CPUS) if prefer_fewer_cpus else vcpus
+    try:
+        return boot_session(scope, configuration, runtime, kernel, disk, execution, identity, boot_cpus)
+    except StartupFailure as error:
+        if error.reason != "kernel_boot_timeout" or boot_cpus <= RETRY_BOOT_CPUS:
+            raise
+
+    # The failed guest never reached PID 1 and has no jobs to replay.
+    if execution.get("startupProgress"):
+        print("ZENTRALE_STARTUP_PHASE vm_retrying_boot", file=sys.stderr, flush=True)
+    control = boot_session(
+        scope, configuration, runtime, kernel, disk, execution, identity, RETRY_BOOT_CPUS,
+    )
+    try:
+        cpu_hint.touch()
+    except OSError:
+        pass  # A hint write must not turn a ready boot into a failure.
+    return control
+
+
+def boot_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus):
+    control = scope / "session"
+    addresses = gpu_devices(configuration)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         editor_port = reservation.getsockname()[1]
@@ -1578,7 +1635,16 @@ def ensure_session(scope, configuration, kernel, execution):
 
     # Accept the new session only after the guest returns its boot proof.
     deadline = time.monotonic() + STARTUP_TIMEOUT + 15
+    last_phase = None
     while time.monotonic() < deadline:
+        if execution.get("startupProgress"):
+            try:
+                phase = (control / "startup-phase").read_text(encoding="ascii")
+            except FileNotFoundError:
+                phase = None
+            if phase in GUEST_STARTUP_PHASES and phase != last_phase:
+                print("ZENTRALE_STARTUP_PHASE " + phase, file=sys.stderr, flush=True)
+                last_phase = phase
         if (control / "ready.json").exists():
             proof = json.loads((control / "ready.json").read_text())
             host_boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
@@ -1606,13 +1672,17 @@ def startup_failure(scope, control):
     reason = "startup_failed"
     for name in ("failure.json", "startup-failure.json"):
         try:
-            reported = json.loads((control / name).read_text()).get("reason")
+            diagnostic = json.loads((control / name).read_text())
+            reported = diagnostic.get("reason")
             if reported in (
+                "kernel_boot_timeout",
                 "package_install_timeout",
                 "package_install_failed",
                 "startup_timeout",
             ):
                 reason = reported
+                if reason == "kernel_boot_timeout":
+                    logs = diagnostic.get("error", "Guest kernel initialization timed out") + "\n" + logs
         except (OSError, ValueError, AttributeError):
             pass
     # Session control is disposable; keep the last bounded diagnostic on its

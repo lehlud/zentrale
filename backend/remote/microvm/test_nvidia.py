@@ -243,11 +243,14 @@ class NVIDIAIntegrationTests(unittest.TestCase):
 
     def test_gpu_helpers_are_reaped_when_virtme_exits_first(self):
         with (
-            patch.object(runner.os, "waitpid", return_value=(1234, 0)),
+            patch.object(
+                runner.os, "waitpid", side_effect=[(1234, 0), (1235, 0), ChildProcessError]
+            ) as wait,
             patch.object(runner.os, "killpg") as terminate,
         ):
             runner.terminate_vm(1234, self.root)
         terminate.assert_called_once_with(1234, signal.SIGKILL)
+        self.assertEqual([entry.args[0] for entry in wait.call_args_list], [1234, -1234, -1234])
 
 
 if __name__ == "__main__":

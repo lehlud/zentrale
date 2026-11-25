@@ -114,7 +114,61 @@ class MicroVMRunnerTests(unittest.TestCase):
                     self.cache, Path("/boot/kernel"), self.root, request
                 )
                 self.assertEqual(balloon in arguments, enabled)
+                self.assertEqual("page_reporting.page_reporting_order=2" in arguments, enabled)
                 self.assertEqual(arguments[arguments.index("--memory") + 1], "4096M")
+
+    def test_early_boot_budget_only_applies_before_guest_init(self):
+        control = self.cache
+        self.assertIsNone(runner.boot_timeout(control, runner.KERNEL_BOOT_TIMEOUT))
+        elapsed = runner.KERNEL_BOOT_TIMEOUT + 1
+        self.assertEqual(runner.boot_timeout(control, elapsed)["reason"], "kernel_boot_timeout")
+        (control / "startup-phase").write_text("vm_installing_packages")
+        self.assertIsNone(runner.boot_timeout(control, elapsed))
+        self.assertEqual(
+            runner.boot_timeout(control, runner.STARTUP_TIMEOUT + 1)["reason"],
+            "startup_timeout",
+        )
+        (control / "ready.json").touch()
+        self.assertIsNone(runner.boot_timeout(control, runner.STARTUP_TIMEOUT + 1))
+
+    def test_early_kernel_timeout_retries_once_and_reuses_successful_cpu_budget(self):
+        scope = self.cache / "projects" / "first"
+        other = self.cache / "projects" / "second"
+        scope.mkdir(parents=True)
+        other.mkdir()
+        execution = {"temporaryDirectory": str(self.root / "scratch")}
+        configuration = {"runnerHash": "fixture"}
+        failure = runner.StartupFailure("kernel_boot_timeout", "kernel stalled")
+        with (
+            patch.object(runner, "available_vcpus", return_value=16),
+            patch.object(runner, "ensure_ready", return_value=(None, None, Path("/boot/guest"))),
+            patch.object(runner, "prepare_scope_disk", return_value=self.cache / "disk"),
+            patch.object(
+                runner, "boot_session", side_effect=[failure, scope / "session", other / "session"]
+            ) as boot,
+        ):
+            self.assertEqual(runner.ensure_session(scope, configuration, None, execution), scope / "session")
+            self.assertEqual(runner.ensure_session(other, configuration, None, execution), other / "session")
+        self.assertEqual([call.args[-1] for call in boot.call_args_list], [16, 2, 2])
+
+    def test_late_package_failure_does_not_trigger_cpu_retry(self):
+        scope = self.cache / "projects" / "project"
+        scope.mkdir(parents=True)
+        with (
+            patch.object(runner, "available_vcpus", return_value=16),
+            patch.object(runner, "ensure_ready", return_value=(None, None, Path("/boot/guest"))),
+            patch.object(runner, "prepare_scope_disk", return_value=self.cache / "disk"),
+            patch.object(
+                runner, "boot_session",
+                side_effect=runner.StartupFailure("package_install_failed", "repository unavailable"),
+            ) as boot,
+        ):
+            with self.assertRaises(runner.StartupFailure):
+                runner.ensure_session(
+                    scope, {"runnerHash": "fixture"}, None,
+                    {"temporaryDirectory": str(self.root / "scratch")},
+                )
+        boot.assert_called_once()
 
     def test_bootstrap_failure_retains_a_bounded_diagnostic_after_cleanup(self):
         control = self.root / "bootstrap"
