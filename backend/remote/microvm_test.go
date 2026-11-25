@@ -159,6 +159,7 @@ func TestMicroVMRunnerHashPreservesConcatenation(t *testing.T) {
 	}
 
 	originalInput := managedMicroVMRunner +
+		projectScratchScript +
 		managedMicroVMGuest +
 		managedMicroVMInit +
 		managedMicroVMStreams +

@@ -367,7 +367,7 @@ class MicroVMRunnerTests(unittest.TestCase):
         runner.prepare_control(control, configuration, runtime, request)
         with patch.object(runner, "ensure_session", return_value=control):
             invocation = runner.stage(
-                self.cache, request, configuration, runtime, None, None
+                self.cache, request, configuration, None
             )
         self.assertEqual((invocation / "command.sh").read_text(), command)
         self.assertEqual((control / "workspace").resolve(), workspace)
@@ -435,7 +435,7 @@ class MicroVMRunnerTests(unittest.TestCase):
             patch.object(runner, "guest_responding", return_value=False),
         ):
             with self.assertRaises(runner.RecoveryRequired) as failure:
-                runner.ensure_session(scope, configuration, None, None, None, {})
+                runner.ensure_session(scope, configuration, None, {})
             self.assertEqual(failure.exception.reason, "unresponsive")
             stop.assert_not_called()
         (control / "heartbeat").touch()
@@ -444,7 +444,7 @@ class MicroVMRunnerTests(unittest.TestCase):
             patch.object(runner, "guest_responding", return_value=True),
         ):
             self.assertEqual(
-                runner.ensure_session(scope, configuration, None, None, None, {}),
+                runner.ensure_session(scope, configuration, None, {}),
                 control,
             )
             stop.assert_not_called()
@@ -462,7 +462,7 @@ class MicroVMRunnerTests(unittest.TestCase):
                 patch.object(runner, "guest_responding", return_value=True),
             ):
                 self.assertEqual(
-                    runner.ensure_session(scope, updated, None, None, None, {}), control
+                    runner.ensure_session(scope, updated, None, {}), control
                 )
                 stop.assert_not_called()
         for responsive, changed, reason in [
@@ -475,7 +475,7 @@ class MicroVMRunnerTests(unittest.TestCase):
                 patch.object(runner, "stop_session") as stop,
             ):
                 with self.assertRaises(runner.RecoveryRequired) as failure:
-                    runner.ensure_session(scope, changed, None, None, None, {})
+                    runner.ensure_session(scope, changed, None, {})
                 self.assertEqual(failure.exception.reason, reason)
                 stop.assert_not_called()
         (job / "cancel").touch()
@@ -494,7 +494,7 @@ class MicroVMRunnerTests(unittest.TestCase):
             patch.object(runner, "guest_responding", side_effect=[False, True]) as probe,
             patch.object(runner, "stop_session") as stop,
         ):
-            self.assertEqual(runner.ensure_session(scope, updated, None, None, None, {}), control)
+            self.assertEqual(runner.ensure_session(scope, updated, None, {}), control)
             self.assertEqual(probe.call_count, 2)
             stop.assert_not_called()
         os.utime(job, (1, 1))
@@ -514,12 +514,12 @@ class MicroVMRunnerTests(unittest.TestCase):
             patch.object(runner, "stop_session", side_effect=RestartRequested) as stop,
         ):
             self.assertEqual(
-                runner.ensure_session(scope, configuration, None, None, None, {}), control
+                runner.ensure_session(scope, configuration, None, {}), control
             )
             stop.assert_not_called()
             active.return_value = False
             with self.assertRaises(RestartRequested):
-                runner.ensure_session(scope, configuration, None, None, None, {})
+                runner.ensure_session(scope, configuration, None, {})
             stop.assert_called_once_with(scope)
 
     def test_warm_session_never_claims_a_vm_boot(self):
@@ -531,7 +531,7 @@ class MicroVMRunnerTests(unittest.TestCase):
             redirect_stderr(output),
         ):
             self.assertEqual(runner.ensure_session(
-                scope, configuration, None, None, None, {"startupProgress": True}), control)
+                scope, configuration, None, {"startupProgress": True}), control)
         fork.assert_not_called()
         self.assertEqual(output.getvalue(), "")
         self.assertEqual(runner.session_identity(configuration, {}, 2),
@@ -544,7 +544,8 @@ class MicroVMRunnerTests(unittest.TestCase):
                 scope.mkdir()
                 (scope / "root.qcow2").write_bytes(b"existing test disk")
                 output = io.StringIO()
-                execution = {"agentId": "agent", "projectId": "project", "startupProgress": observe}
+                execution = {"agentId": "agent", "projectId": "project", "startupProgress": observe,
+                             "temporaryDirectory": str(self.root / "scratch")}
 
                 def prepare(control, configuration, runtime, request):
                     self.assertNotIn("startupProgress", request)
@@ -554,10 +555,11 @@ class MicroVMRunnerTests(unittest.TestCase):
 
                 with (
                     patch.object(runner, "prepare_control", side_effect=prepare),
+                    patch.object(runner, "ensure_ready", return_value=(None, None, None)),
                     patch.object(runner.os, "fork", return_value=1234) as fork,
                     redirect_stderr(output),
                 ):
-                    runner.ensure_session(scope, {"runnerHash": "test"}, None, None, None, execution)
+                    runner.ensure_session(scope, {"runnerHash": "test"}, None, execution)
                 fork.assert_called_once()
                 self.assertEqual(output.getvalue(),
                                  "ZENTRALE_STARTUP_PHASE vm_starting\n" if observe else "")
@@ -655,7 +657,7 @@ class MicroVMRunnerTests(unittest.TestCase):
                 scope = runner.scope_directory(self.cache, execution)
                 self.assertEqual(scope.parent, self.cache / namespace)
                 with patch.object(runner, "ensure_session", return_value=scope / "session"):
-                    invocation = runner.stage(self.cache, execution, {}, None, None, None)
+                    invocation = runner.stage(self.cache, execution, {}, None)
                 self.assertEqual((invocation / "command.sh").read_text(), execution["command"])
                 with (
                     patch.object(runner.sys, "argv", ["runner", "run", "{}", str(invocation)]),

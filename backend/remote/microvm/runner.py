@@ -33,6 +33,8 @@ import zlib
 import threading
 import traceback
 
+from project_scratch import offload_project_scratch, resolve_project_scratch, scratch_backing
+
 
 UNAVAILABLE = 78
 RECOVERY_REQUIRED = 75
@@ -1468,7 +1470,7 @@ def prepare_scope_disk(scope, base):
     return external
 
 
-def ensure_session(scope, configuration, runtime, base, kernel, execution):
+def ensure_session(scope, configuration, kernel, execution):
     control = scope / "session"
     addresses = gpu_devices(configuration)
     vcpus = available_vcpus()
@@ -1503,6 +1505,10 @@ def ensure_session(scope, configuration, runtime, base, kernel, execution):
         stop_session(scope)
 
     # Keep disk preparation and device reservations ahead of the detached owner.
+    # An old VM may still hold the original scratch export open. Relocate only
+    # after that session has stopped, and before setup writes to the same tmpfs.
+    offload_project_scratch(Path(execution["temporaryDirectory"]))
+    runtime, base, kernel = ensure_ready(scope.parent.parent, configuration, kernel)
     disk = prepare_scope_disk(scope, base)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
@@ -1617,11 +1623,11 @@ def startup_failure(scope, control):
     return RuntimeError("Fedora MicroVM startup failed\n" + logs)
 
 
-def stage(cache, execution, configuration, runtime, base, kernel):
+def stage(cache, execution, configuration, kernel):
     scope = scope_directory(cache, execution)
     with (scope / "lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        control = ensure_session(scope, configuration, runtime, base, kernel, execution)
+        control = ensure_session(scope, configuration, kernel, execution)
         invocation = private_directory(control / "requests" / secrets.token_hex(16))
         request = dict(execution)
         command = request.pop("command")
@@ -1808,12 +1814,17 @@ def validate_execution(execution):
         for key in ("workspace", "temporaryDirectory")
     ):
         raise RuntimeError("MicroVM workspace paths must be absolute")
-    roots = [
-        Path(execution[key]).resolve() for key in ("workspace", "temporaryDirectory")
-    ]
+    temporary = Path(execution["temporaryDirectory"])
+    roots = [Path(execution["workspace"]).resolve()]
     roots.extend(
         Path(entry["hostPath"]).resolve() for entry in storage_mounts(execution)
     )
+    scratch_root = scratch_backing(temporary).parent.resolve()
+    if any(within(root, scratch_root) or within(scratch_root, root) for root in roots):
+        raise RuntimeError("MicroVM workspaces cannot expose protected project scratch storage")
+    # Only the scratch directory validated for this invocation can refer to
+    # the offloaded storage. Keep the logical path in the scope identity.
+    roots.append(resolve_project_scratch(temporary).resolve())
     for root in roots:
         if str(root) == "/" or any(
             within(Path(directory), root)
@@ -1840,7 +1851,8 @@ def main():
     )
 
     if action in ("select", "ensure"):
-        ensure_ready(cache_directory(), configuration, kernel)
+        # Machine selection has no project context. Build the runtime only
+        # when a cold project VM can first move its scratch off a full tmpfs.
         print("microvm", flush=True)
         return 0
 
@@ -1849,18 +1861,12 @@ def main():
         if action in ("stage", "prepare"):
             storage_mounts(execution, configuration.get("storage") or [])
         cache = validate_execution(execution)
-        runtime, base, kernel = (
-            ensure_ready(cache, configuration, kernel)
-            if action in ("stage", "prepare")
-            else (None, None, None)
-        )
-
         if action == "prepare":
             scope = scope_directory(cache, execution)
             with (scope / "lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 control = ensure_session(
-                    scope, configuration, runtime, base, kernel, execution
+                    scope, configuration, kernel, execution
                 )
                 proof = json.loads((control / "ready.json").read_text())
                 proof["editorPort"] = json.loads(
@@ -1871,7 +1877,7 @@ def main():
 
         if action == "stage":
             print(
-                stage(cache, execution, configuration, runtime, base, kernel),
+                stage(cache, execution, configuration, kernel),
                 flush=True,
             )
             return 0

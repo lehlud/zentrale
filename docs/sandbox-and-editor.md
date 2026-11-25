@@ -57,8 +57,11 @@ Git uses one checkout worker per guest vCPU within the guest process limit.
 Disks, VM artifacts and per-project scratch normally live in private directories
 under `/tmp` on the remote machine. When `/tmp` is quota-limited tmpfs and
 `/var/tmp` is a separate filesystem, the runner keeps guest disks under
-`/var/tmp/zentrale-microvm-disks-<uid>`.
-It moves an existing disk when the guest next starts. Reboots and temporary-file
+`/var/tmp/zentrale-microvm-disks-<uid>` and project scratch under
+`/var/tmp/zentrale-project-scratch-<uid>`. Existing scratch is copied before
+the runner switches its backing directory at the next cold VM start. Jobs keep
+using `/tmp/zentrale` in the guest. The runner also moves an existing disk at
+cold start. Reboots and temporary-file
 cleanup may remove temporary data. Zentrale creates a new guest when needed.
 Project files and configured storage are mounted separately
 and retained. Pool failover does not move a guest disk to another host.

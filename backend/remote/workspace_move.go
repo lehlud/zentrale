@@ -29,7 +29,7 @@ type MoveDirectory struct {
 }
 
 func workspaceMoveCommand(operation, projectID, path, token, id string) string {
-	return "python3 -I -c " + Quote(workspaceMoveScript) + " " + Quote(operation) + " " + Quote("project-"+projectID) + " " + Quote(path) + " " + Quote(token) + " " + Quote(id)
+	return "python3 -I -c " + Quote(projectScratchScript+"\n"+workspaceMoveScript) + " " + Quote(operation) + " " + Quote("project-"+projectID) + " " + Quote(path) + " " + Quote(token) + " " + Quote(id)
 }
 
 func MoveDirectoryState(ctx context.Context, conn *Connection, operation, projectID, path, token, id string) (string, error) {

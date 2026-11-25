@@ -76,15 +76,11 @@ def discard_legacy_snapshots():
 
 def main():
     if operation == "remove-scratch":
-        if directory.parent != Path("/tmp") or directory.resolve() != directory or not re.fullmatch(
-            r"zentrale-[a-f0-9]{32}-" + name, directory.name
+        if not re.fullmatch(
+            r"zentrale-[a-f0-9]{32}-" + re.escape(name), directory.name
         ):
             raise ValueError("Unsafe project scratch path")
-        if directory.exists():
-            if directory.stat().st_uid != os.getuid():
-                raise ValueError("Project scratch directory is owned by another user")
-            reject_mounts()
-            shutil.rmtree(directory)
+        remove_project_scratch(directory)
         return
     if directory.name != name or not directory.is_absolute() or directory.resolve() != directory:
         raise ValueError("Unsafe managed workspace directory")

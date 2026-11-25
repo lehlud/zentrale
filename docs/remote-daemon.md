@@ -57,7 +57,8 @@ Exactly one machine or one pool is assigned to a project. VM identity combines
 the Zentrale installation, project and physical host. Conversations on the same
 project and host share one guest; a pool may hold guests on several hosts.
 VM disks, downloaded runtime artifacts and scratch normally use private `/tmp`
-storage. On hosts with quota-limited tmpfs, guest disks can use `/var/tmp`.
+storage. On hosts with quota-limited tmpfs and a separate `/var/tmp` filesystem,
+guest disks and project scratch use private backing directories on `/var/tmp`.
 Ordinary idle shutdown preserves the disk. Remote reboot or `/tmp` cleanup may
 discard it, and the next use builds a fresh guest. Project files and explicitly
 configured storage are separate mounts.

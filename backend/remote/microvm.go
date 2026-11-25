@@ -23,6 +23,9 @@ import (
 //go:embed microvm/runner.py
 var managedMicroVMRunner string
 
+//go:embed microvm/project_scratch.py
+var projectScratchScript string
+
 //go:embed microvm/guest.py
 var managedMicroVMGuest string
 
@@ -96,6 +99,7 @@ func microVMConfiguration(machines ...domain.Machine) string {
 
 	hashInput := strings.Join([]string{
 		managedMicroVMRunner,
+		projectScratchScript,
 		managedMicroVMGuest,
 		managedMicroVMInit,
 		managedMicroVMStreams,
@@ -133,8 +137,9 @@ func microVMCommand(action string, machines ...domain.Machine) string {
 	// trusted program and configuration below Linux's per-argument size limit,
 	// including when another sandbox-selection shell quotes this command again.
 	bundle, err := json.Marshal(map[string]any{
-		"runner":        managedMicroVMRunner,
-		"configuration": json.RawMessage(microVMConfiguration(machines...)),
+		"runner":         managedMicroVMRunner,
+		"projectScratch": projectScratchScript,
+		"configuration":  json.RawMessage(microVMConfiguration(machines...)),
 	})
 	if err != nil {
 		panic(err)
@@ -147,11 +152,18 @@ func microVMCommand(action string, machines ...domain.Machine) string {
 	_, _ = writer.Write(bundle)
 	_ = writer.Close()
 	encoded := pythonBase85(compressed.Bytes())
-	bootstrap := "import base64,json,sys,zlib; " +
+	bootstrap := "import base64,json,sys,types,zlib; " +
 		"bundle=json.loads(zlib.decompress(base64.b85decode('" + encoded + "'))); " +
+		"scratch=types.ModuleType('project_scratch'); sys.modules[scratch.__name__]=scratch; " +
+		"exec(compile(bundle['projectScratch'],'<zentrale-project-scratch>','exec'),scratch.__dict__); " +
 		"sys.argv.insert(2,json.dumps(bundle['configuration'])); " +
 		"exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))"
 	return "python3 -I -c " + Quote(bootstrap) + " " + Quote(action)
+}
+
+func PrepareProjectScratchCommand(directory string) string {
+	script := projectScratchScript + "\nimport sys\nprepare_project_scratch(Path(sys.argv[1]))"
+	return "python3 -I -c " + Quote(script) + " " + Quote(directory)
 }
 
 // RFC 1924's alphabet carries more bytes per SSH shell argument than Base64,

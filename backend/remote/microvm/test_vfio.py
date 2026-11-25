@@ -397,9 +397,6 @@ class GPUDiscoveryTests(unittest.TestCase):
                     patch.object(
                         runner, "prerequisites", return_value=None
                     ) as preflight,
-                    patch.object(
-                        runner, "cache_directory", return_value=Path("/cache")
-                    ),
                     patch.object(runner, "ensure_ready") as ready,
                     patch("builtins.print"),
                 ):
@@ -407,7 +404,7 @@ class GPUDiscoveryTests(unittest.TestCase):
                 discover.assert_called_once_with()
                 configuration = preflight.call_args.args[0]
                 self.assertEqual(configuration["gpuDevices"], addresses)
-                ready.assert_called_once_with(Path("/cache"), configuration, None)
+                ready.assert_not_called()
 
     def test_detection_failure_never_reaches_cpu_start(self):
         with (
