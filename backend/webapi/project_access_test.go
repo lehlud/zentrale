@@ -3,6 +3,7 @@ package webapi
 import (
 	"net/http"
 	"net/http/cookiejar"
+	"strings"
 	"testing"
 
 	"github.com/lehlud/zentrale/datastore"
@@ -42,6 +43,30 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	reject(admin, `query($id:String!){agent(id:$id){id}}`, variables)
 	reject(&bob, `query($id:String!){agent(id:$id){id}}`, map[string]any{"id": chat["approverId"]})
 	reject(admin, chatQuery, map[string]any{"id": "private-agent"})
+
+	const attachment = "private note without a VM"
+	path := admin.server.URL + "/attachments/" + chat["id"].(string) + "/chat-file?name=note.txt"
+	for _, upload := range []struct {
+		client *http.Client
+		status int
+	}{
+		{admin.client, http.StatusNotFound},
+		{bob.client, http.StatusOK},
+	} {
+		response, err := upload.client.Post(path, "text/plain", strings.NewReader(attachment))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != upload.status {
+			t.Fatalf("upload got HTTP %d; want %d", response.StatusCode, upload.status)
+		}
+	}
+
+	_, blob, err := admin.engine.Store.Attachment(chat["id"].(string), "chat-file")
+	if err != nil || string(blob) != attachment {
+		t.Fatalf("attachment was not buffered on the server: %q, %v", blob, err)
+	}
 
 	const membership = `mutation($member:Boolean!){setProjectMember(projectId:"private-project",username:"bob",add:$member)}`
 	requireData(t, admin.query(t, membership, map[string]any{"member": true}))

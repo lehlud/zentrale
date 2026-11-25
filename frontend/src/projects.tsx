@@ -38,7 +38,7 @@ import {
 import { SidebarToggle } from "./shell";
 import { RemoteEditor } from "./remote-editor";
 import { Icon } from "./icons";
-import { SESSION_QUERY, type SessionData } from "./session";
+import { useSessionUser } from "./session";
 import { ProjectAccess, ProjectArchive } from "./project-sharing";
 
 type ProjectConfig = Pick<Config, "projects" | "commitIdentity"> & {
@@ -70,11 +70,6 @@ function projectConfig(
       .map((target) => ({ ...target, jumpHostOnly: false })),
     pools: data.projectTargets.filter((target) => target.kind === "pool"),
   };
-}
-
-function useProjectUser() {
-  const { data } = useQuery<SessionData>(SESSION_QUERY);
-  return data?.status.user;
 }
 
 function newProject() {
@@ -185,7 +180,7 @@ function ProjectRepository({
 
 export function Projects() {
   const { t } = useI18n();
-  const user = useProjectUser();
+  const user = useSessionUser();
   const canCreate = Boolean(user?.role === "admin" || user?.canCreateProjects);
   const resource = useResourcePage<ProjectConfigData>(PROJECT_CONFIG, {
     keys: user?.id === "initial-admin",
@@ -342,6 +337,13 @@ export function Projects() {
                               destructive: true,
                               onAction: () => setArchiving(project),
                             },
+                            {
+                              id: "remove",
+                              label: t("Entfernen"),
+                              destructive: true,
+                              onAction: () =>
+                                void resource.remove("project", project.id),
+                            },
                           ]
                     }
                   />
@@ -413,7 +415,7 @@ export function Projects() {
 export function ProjectView({ projectId }: { projectId: string }) {
   const { t } = useI18n();
   const api = useAPI();
-  const user = useProjectUser();
+  const user = useSessionUser();
   const { params } = useRoute();
   // This survives Workspace's temporary unmount while the next bootstrap loads.
   const [focusAgentId, setFocusAgentId] = useState("");
@@ -822,7 +824,7 @@ function ProjectSettings({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const user = useProjectUser();
+  const user = useSessionUser();
   const { data: config } = useQuery<ProjectConfigData>(PROJECT_CONFIG, {
     keys: user?.id === "initial-admin",
   });

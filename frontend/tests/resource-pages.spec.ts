@@ -1,7 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, gitConnections, project } from "./fixtures/visual-data";
+import {
+  adminStatus,
+  config,
+  gitConnections,
+  project,
+} from "./fixtures/visual-data";
 
 for (const collection of [
   {
@@ -35,10 +40,12 @@ for (const collection of [
     const state = structuredClone(config);
     let failing = true;
     const read = (query: string) => {
-      if (query.includes("status{"))
-        return { status: { needsSetup: false, authenticated: true } };
+      if (query.includes("status{")) return { status: adminStatus };
       if (query.includes("models(")) return { models: [] };
-      if (query.includes("trustedKeys") && failing)
+      if (
+        (query.includes("trustedKeys") || query.includes("projectTargets")) &&
+        failing
+      )
         throw new Error("Collection fixture unavailable");
       return state;
     };
@@ -110,9 +117,7 @@ test("project collection batches reset with the search and distinguish no matche
     })),
   };
   const read = (query: string) =>
-    query.includes("status{")
-      ? { status: { needsSetup: false, authenticated: true } }
-      : state;
+    query.includes("status{") ? { status: adminStatus } : state;
   const push = await installPushFixture(page, read);
   await page.route("**/graphql", (route) =>
     route.fulfill({
@@ -168,8 +173,7 @@ for (const kind of ["keys", "providers"] as const) {
       })),
     };
     const read = (query: string) => {
-      if (query.includes("status{"))
-        return { status: { needsSetup: false, authenticated: true } };
+      if (query.includes("status{")) return { status: adminStatus };
       if (query.includes("models(")) return { models: [] };
       return state;
     };
@@ -214,8 +218,7 @@ test("Git connections retain their unpaginated grid", async ({ page }) => {
     id: `github-${index}`,
   }));
   const read = (query: string) => {
-    if (query.includes("status{"))
-      return { status: { needsSetup: false, authenticated: true } };
+    if (query.includes("status{")) return { status: adminStatus };
     if (query.includes("gitConnections"))
       return { gitConnections: connections };
     if (query.includes("models(")) return { models: [] };

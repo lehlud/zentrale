@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { HumanizerSettingsInput } from "../src/generated";
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, models } from "./fixtures/visual-data";
+import { adminStatus, config, models } from "./fixtures/visual-data";
 
 test("switches between catalog, hosted GPU, and ZeroGPU Humanizers", async ({
   page,
@@ -54,11 +54,7 @@ test("switches between catalog, hosted GPU, and ZeroGPU Humanizers", async ({
     }
     return {
       ...config,
-      status: {
-        needsSetup: false,
-        authenticated: true,
-        githubConnected: false,
-      },
+      status: adminStatus,
     };
   };
   const push = await installPushFixture(page, resolve);

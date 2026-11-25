@@ -265,7 +265,37 @@ func (manager *Manager) projectCandidates(project domain.Project) ([]machineCand
 		}
 	}
 
+	if project.RequiresTenantIsolation() {
+		return manager.isolatedProjectCandidates(project, candidates)
+	}
+
 	return candidates, nil
+}
+
+func (manager *Manager) isolatedProjectCandidates(project domain.Project, candidates []machineCandidate) ([]machineCandidate, error) {
+	if !project.ManagedWorkspace {
+		return nil, errors.New("remote execution for a shared or personal project needs a managed workspace")
+	}
+
+	eligible := candidates[:0]
+	for _, candidate := range candidates {
+		machine, err := manager.Connector.Machine(candidate.id)
+		if err != nil {
+			return nil, err
+		}
+
+		// The legacy bubblewrap mode can read the host filesystem.
+		if machine.MicroVMCommand == "" &&
+			(machine.Sandbox == SandboxAutomatic || machine.Sandbox == SandboxMicroVM) {
+			eligible = append(eligible, candidate)
+		}
+	}
+
+	if len(eligible) == 0 {
+		return nil, errors.New("no managed MicroVM target is configured for this project")
+	}
+
+	return eligible, nil
 }
 
 func validateStableWorkspace(project domain.Project, pool domain.Pool) error {

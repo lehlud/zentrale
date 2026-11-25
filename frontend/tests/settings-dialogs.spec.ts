@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, gitConnections } from "./fixtures/visual-data";
+import { adminStatus, config, gitConnections } from "./fixtures/visual-data";
 
 for (const width of [1440, 390]) {
   test(`settings show summaries and keep credential drafts inside dialogs: ${width}`, async ({
@@ -13,8 +13,7 @@ for (const width of [1440, 390]) {
     );
     const writes: string[] = [];
     const resolve = (query: string) => {
-      if (query.includes("status{"))
-        return { status: { authenticated: true, needsSetup: false } };
+      if (query.includes("status{")) return { status: adminStatus };
       if (query.includes("gitConnections")) return { gitConnections };
       if (query.includes("huggingFaceConnection"))
         return {

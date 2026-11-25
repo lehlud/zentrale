@@ -5,7 +5,7 @@ import { useAPI, useQuery } from "./api";
 import { Authentication } from "./authentication";
 import { BrowserLoginCallback, isBrowserLoginCallback } from "./browser-login";
 import { Keys, Machines, Providers, Settings } from "./config";
-import { SESSION_QUERY, type SessionData } from "./session";
+import { SESSION_QUERY, SessionUserContext, type SessionData } from "./session";
 import { useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { Projects, ProjectView } from "./projects";
@@ -66,18 +66,20 @@ export default function App() {
   }
 
   return (
-    <ApplicationShell key={userId}>
-      <Failure message={error} onRetry={() => api.refresh()} />
-      {page === "projects" &&
-        (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
-      {page === "chats" && <ShortChats chatId={projectId} />}
-      {page === "usage" && <UsageDashboard admin={admin} />}
-      {admin && page === "machines" && <Machines />}
-      {admin && page === "keys" && <Keys />}
-      {admin && page === "providers" && <Providers />}
-      {page === "settings" && (
-        <Settings admin={admin} oidc={Boolean(data?.status.oidc)} />
-      )}
-    </ApplicationShell>
+    <SessionUserContext.Provider value={data?.status.user}>
+      <ApplicationShell key={userId}>
+        <Failure message={error} onRetry={() => api.refresh()} />
+        {page === "projects" &&
+          (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
+        {page === "chats" && <ShortChats chatId={projectId} />}
+        {page === "usage" && <UsageDashboard admin={admin} />}
+        {admin && page === "machines" && <Machines />}
+        {admin && page === "keys" && <Keys />}
+        {admin && page === "providers" && <Providers />}
+        {page === "settings" && (
+          <Settings admin={admin} oidc={Boolean(data?.status.oidc)} />
+        )}
+      </ApplicationShell>
+    </SessionUserContext.Provider>
   );
 }

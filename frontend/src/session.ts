@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import type { Status } from "./generated";
 
 export const SESSION_QUERY =
@@ -17,6 +18,13 @@ export type SessionData = {
     > | null;
   };
 };
+
+export const SessionUserContext =
+  createContext<SessionData["status"]["user"]>(null);
+
+export function useSessionUser() {
+  return useContext(SessionUserContext);
+}
 
 export class AuthenticationError extends Error {
   constructor() {

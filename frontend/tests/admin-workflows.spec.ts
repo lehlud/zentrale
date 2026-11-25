@@ -9,6 +9,7 @@ import {
   openProviderModels,
 } from "./fixtures/context-actions";
 import {
+  adminStatus,
   agents,
   config,
   models,
@@ -91,11 +92,7 @@ for (const variant of [
       const send = (data: unknown) => bootstrapData(query, data);
       if (/\bstatus\s*\{/.test(query)) {
         return send({
-          status: {
-            needsSetup: false,
-            authenticated: true,
-            githubConnected: false,
-          },
+          status: adminStatus,
         });
       }
 

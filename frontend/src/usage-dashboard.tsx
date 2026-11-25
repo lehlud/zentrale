@@ -21,9 +21,12 @@ type Usage = Pick<
   | "cacheWriteTokens"
   | "cacheWriteLongTokens"
   | "realCost"
+  | "fictionalCost"
   | "unknownPrices"
   | "estimatedCosts"
   | "unknownTokenCounts"
+  | "unknownCacheReads"
+  | "unknownCacheWrites"
   | "requestCount"
 >;
 
@@ -34,7 +37,8 @@ type Report = {
 };
 
 const fields = `day providerId modelId userId projectId purpose uncachedTokens cachedTokens outputTokens
-  cacheWriteTokens cacheWriteLongTokens realCost unknownPrices estimatedCosts unknownTokenCounts requestCount`;
+  cacheWriteTokens cacheWriteLongTokens realCost fictionalCost unknownPrices estimatedCosts unknownTokenCounts
+  unknownCacheReads unknownCacheWrites requestCount`;
 
 function utcDay(offset: number) {
   const date = new Date();
@@ -44,6 +48,12 @@ function utcDay(offset: number) {
 
 function sum(rows: Usage[], field: keyof Usage) {
   return rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
+}
+
+function groupRow(groups: Map<string, Usage[]>, key: string, row: Usage) {
+  const entries = groups.get(key);
+  if (entries) entries.push(row);
+  else groups.set(key, [row]);
 }
 
 export function UsageDashboard({ admin }: { admin: boolean }) {
@@ -79,8 +89,8 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
       row.modelId,
       row.purpose,
     ]);
-    days.set(day, [...(days.get(day) ?? []), row]);
-    groups.set(key, [...(groups.get(key) ?? []), row]);
+    groupRow(days, day, row);
+    groupRow(groups, key, row);
   }
 
   const chart = [...days].sort(([a], [b]) => a.localeCompare(b));
@@ -102,6 +112,9 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
     maximumFractionDigits: 6,
   });
   const unknownCosts = sum(rows, "unknownPrices");
+  const fictionalCost = sum(rows, "fictionalCost");
+  const unknownCache =
+    sum(rows, "unknownCacheReads") + sum(rows, "unknownCacheWrites");
 
   return (
     <div className="space-y-5">
@@ -178,6 +191,21 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
               value={usd.format(sum(rows, "realCost"))}
             />
           </div>
+          {fictionalCost > 0 && (
+            <p className="text-sm text-muted">
+              {t(
+                "Vergleichswert für Flatrate-Modelle (nicht berechnet): {cost}",
+                { cost: usd.format(fictionalCost) },
+              )}
+            </p>
+          )}
+          {unknownCache > 0 && (
+            <p className="text-sm text-muted">
+              {t("Nicht gemeldete Cache-Zähler: {count}", {
+                count: number.format(unknownCache),
+              })}
+            </p>
+          )}
           {(unknownCosts > 0 ||
             sum(rows, "unknownTokenCounts") > 0 ||
             sum(rows, "estimatedCosts") > 0) && (

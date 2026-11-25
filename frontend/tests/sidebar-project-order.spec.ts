@@ -21,7 +21,14 @@ test("drag projects directly in the sidebar and keep their order after reload", 
     let data: unknown = { ...config, projects: listed };
 
     if (query.includes("status{")) {
-      data = { status: { needsSetup: false, authenticated: true } };
+      data = {
+        status: {
+          needsSetup: false,
+          authenticated: true,
+          oidc: false,
+          user: { id: "initial-admin", username: "admin", role: "admin" },
+        },
+      };
     } else if (isTranscriptQuery(query)) {
       data = transcript;
     } else if (query.includes("agents(projectId:")) {
@@ -43,7 +50,7 @@ test("drag projects directly in the sidebar and keep their order after reload", 
   const names = rows.locator(":scope > div > a");
   const drag = (from: string, to: string) =>
     row(from)
-      .getByTitle("Projekt zum Umsortieren ziehen")
+      .locator("[draggable=true]")
       .dragTo(row(to).getByRole("link", { name: to, exact: true }));
 
   await expect(names).toHaveText(["Alpha", "Beta", "Gamma"]);

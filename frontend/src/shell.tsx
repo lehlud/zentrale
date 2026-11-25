@@ -2,7 +2,7 @@ import { Button, Drawer, Dropdown, Label } from "@heroui/react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { useAPI, useQuery } from "./api";
+import { useAPI } from "./api";
 import { useRoute } from "./navigation";
 import {
   LogDiagnosticsControl,
@@ -14,7 +14,7 @@ import { useMediaQuery } from "./media";
 import { NewConversation } from "./new-conversation";
 import { SidebarProjects } from "./sidebar-projects";
 import { Inspect } from "./ui";
-import { SESSION_QUERY, type SessionData } from "./session";
+import { useSessionUser } from "./session";
 
 type SidebarState = {
   compact: boolean;
@@ -67,8 +67,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { page, projectId } = useRoute();
   const api = useAPI();
   const sidebar = useSidebar()!;
-  const { data } = useQuery<SessionData>(SESSION_QUERY);
-  const admin = data?.status.user?.role === "admin";
+  const user = useSessionUser();
+  const admin = user?.role === "admin";
 
   return (
     <nav
@@ -110,9 +110,9 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         {t("Neue Unterhaltung")}
       </Button>
       <SidebarProjects
-        key={data?.status.user?.id}
-        userId={data?.status.user?.id ?? ""}
-        canCreate={admin || Boolean(data?.status.user?.canCreateProjects)}
+        key={user?.id}
+        userId={user?.id ?? ""}
+        canCreate={admin || Boolean(user?.canCreateProjects)}
         onNavigate={onNavigate}
       />
       <a

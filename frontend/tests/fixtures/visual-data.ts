@@ -1,3 +1,11 @@
+export const adminStatus = {
+  authenticated: true,
+  needsSetup: false,
+  githubConnected: false,
+  oidc: false,
+  user: { id: "initial-admin", username: "admin", role: "admin" },
+};
+
 export const gitConnections = ["github", "gitlab"].map((kind) => ({
   id: kind,
   kind,
@@ -72,6 +80,9 @@ export const models = [
 
 export const config = {
   gitConnections,
+  users: [],
+  fileShares: [],
+  shortChatSettings: { machineId: "", poolId: "" },
   commitIdentity: { name: "Entwicklungsteam", email: "dev@example.org" },
   sandboxStatuses: [
     {
@@ -84,6 +95,10 @@ export const config = {
   ],
   machines: [machine],
   projects: [project],
+  projectTargets: [
+    { id: machine.id, name: machine.name, kind: "machine" },
+    { id: "pool", name: "Forschungspool", kind: "pool" },
+  ],
   pools: [
     {
       id: "pool",

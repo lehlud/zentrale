@@ -9,13 +9,19 @@ for (const locale of ["de", "en"]) {
     const english = locale === "en";
     const label = (de: string, en: string) => (english ? en : de);
     let removed = 0;
+    const status = {
+      needsSetup: false,
+      authenticated: true,
+      oidc: false,
+      user: { id: "initial-admin", username: "admin", role: "admin" },
+    };
     await page.addInitScript(
       (language) => localStorage.setItem("zentrale-locale", language),
       locale,
     );
     const push = await installPushFixture(page, (query) =>
       query.includes("status{")
-        ? { status: { needsSetup: false, authenticated: true } }
+        ? { status }
         : { ...config, projects: removed ? [] : [project] },
     );
     await page.route("**/graphql", async (route) => {
@@ -29,7 +35,7 @@ for (const locale of ["de", "en"]) {
       if (query.includes("status{"))
         return route.fulfill({
           json: {
-            data: { status: { needsSetup: false, authenticated: true } },
+            data: { status },
           },
         });
       return route.fulfill({

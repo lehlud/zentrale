@@ -119,6 +119,10 @@ func (project Project) Owner() string {
 	return project.OwnerID
 }
 
+func (project Project) RequiresTenantIsolation() bool {
+	return project.Owner() != InitialUserID || len(project.MemberIDs) > 0
+}
+
 // Provider stores a connection/account. Model selection belongs to ModelChoice.
 type Provider struct {
 	Connected    bool   `json:"connected"`

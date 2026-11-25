@@ -56,6 +56,7 @@ for (const failure of [
           authenticated: false,
           needsSetup: false,
           githubConnected: false,
+          oidc: false,
         },
       },
     ]);
@@ -192,7 +193,7 @@ test("authentication errors in pushed snapshots show login", async ({
   page,
 }) => {
   const fixture = await sessionFixture(page);
-  await page.goto("/");
+  await page.goto("/#/projects");
   await expect(
     page.getByRole("heading", { name: "Projekte", exact: true }),
   ).toBeVisible();
@@ -235,7 +236,7 @@ test("a rejected WebSocket handshake rechecks credentials instead of reconnectin
       : config;
     await route.fulfill({ json: { data } });
   });
-  await page.goto("/");
+  await page.goto("/#/projects");
   await expect(
     page.getByRole("button", { name: "Anmelden", exact: true }),
   ).toBeVisible();

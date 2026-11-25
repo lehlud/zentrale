@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { config, gitConnections } from "./fixtures/visual-data";
+import { adminStatus, config, gitConnections } from "./fixtures/visual-data";
 import { installPushFixture } from "./fixtures/push-fixture";
 
 test("GitHub workflow reauthorization is visible and clears after consent", async ({
@@ -143,11 +143,7 @@ for (const english of [false, true]) {
     const push = await installPushFixture(page, (query, variables) => {
       if (/\bstatus\s*\{/.test(query))
         return {
-          status: {
-            needsSetup: false,
-            authenticated: true,
-            githubConnected: true,
-          },
+          status: { ...adminStatus, githubConnected: true },
         };
       if (query.includes("gitLogin("))
         return {
@@ -264,15 +260,14 @@ for (const english of [false, true]) {
         return send({ cancelGitLogin: true });
       if (/\bstatus\s*\{/.test(query)) {
         return send({
-          status: {
-            needsSetup: false,
-            authenticated: true,
-            githubConnected: true,
-          },
+          status: { ...adminStatus, githubConnected: true },
         });
       }
 
-      if (query.includes("machines(limit:500)")) {
+      if (
+        query.includes("machines(limit:500)") ||
+        query.includes("projectTargets")
+      ) {
         return send(data);
       }
 

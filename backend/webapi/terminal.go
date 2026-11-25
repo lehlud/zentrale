@@ -180,6 +180,13 @@ func (server *Server) terminal(requestContext echo.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if err := server.projectURLAccess(requestContext, "project", false, true); err != nil {
+					markEnd("project_access_revoked")
+					cancel()
+					connection.Close()
+					return
+				}
+
 				if err := connection.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
 					markEnd("websocket_ping_failed")
 					cancel()
@@ -202,6 +209,11 @@ func (server *Server) terminal(requestContext echo.Context) error {
 				markEnd(terminalWebSocketReadReason(err))
 				return
 			}
+			if err := server.projectURLAccess(requestContext, "project", false, true); err != nil {
+				markEnd("project_access_revoked")
+				return
+			}
+
 			var frame terminalFrame
 			if kind == websocket.BinaryMessage {
 				frame = terminalFrame{Type: "input", Data: string(data)}
