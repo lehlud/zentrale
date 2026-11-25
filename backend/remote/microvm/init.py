@@ -901,8 +901,20 @@ def report_startup_phase(phase):
 
 
 def serve_jobs(request):
-    report_startup_phase("vm_preparing_guest")
+    report_startup_phase("vm_allocating_memory" if request.get("memorySocket") else "vm_preparing_guest")
     free_page_reporting = enable_free_page_reporting()
+    if request.get("memorySocket"):
+        control = Path(CONTROL)
+        if not free_page_reporting:
+            (control / "balloon-unavailable").touch()
+            raise RuntimeError("guest kernel did not negotiate VirtIO memory reporting")
+        # Keep guest work behind the host's first memory allocation.
+        deadline = time.monotonic() + 60
+        while not (control / "memory-ready").exists():
+            if (control / "stop").exists() or time.monotonic() >= deadline:
+                raise RuntimeError("host did not grant the initial MicroVM memory budget")
+            time.sleep(0.1)
+        report_startup_phase("vm_preparing_guest")
     prepare_fedora(request)
     if request.get("provision"):
         return
@@ -928,6 +940,8 @@ def serve_jobs(request):
         "workspaceHealth": True,
         "terminalStream": True,
         "freePageReporting": free_page_reporting,
+        "memoryMaxMiB": request.get("memoryMiB", 4096),
+        "managedMemory": bool(request.get("memorySocket")),
         "gpuDevices": request.get("gpuDevices", []),
         "storage": [
             {"id": entry["id"], "path": entry["guestPath"]}

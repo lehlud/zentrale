@@ -1474,6 +1474,7 @@ Object.assign(english, {
   "Arbeitsumgebung wird vorbereitet …": "Preparing workspace environment …",
   "VM wird gestartet …": "Starting VM …",
   "VM startet erneut mit weniger CPUs …": "Retrying VM boot with fewer CPUs …",
+  "RAM wird zugeteilt …": "Allocating RAM …",
   "Fedora wird eingebunden …": "Mounting Fedora …",
   "Fedora-Pakete werden installiert …": "Installing Fedora packages …",
   "VM-Werkzeuge werden eingerichtet …": "Setting up VM tools …",

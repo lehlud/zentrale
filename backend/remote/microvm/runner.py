@@ -34,6 +34,7 @@ import threading
 import traceback
 
 from project_scratch import offload_project_scratch, resolve_project_scratch, scratch_backing
+from memory import DEFAULT_RAM, MIB, MemoryController, memory_budget
 
 
 UNAVAILABLE = 78
@@ -44,7 +45,9 @@ STARTUP_TIMEOUT = 1080
 KERNEL_BOOT_TIMEOUT = 75
 RETRY_BOOT_CPUS = 2
 BOOT_CPU_HINT_TTL = 3600
-GUEST_STARTUP_PHASES = ("vm_preparing_guest", "vm_installing_packages", "vm_preparing_tools")
+GUEST_STARTUP_PHASES = (
+    "vm_allocating_memory", "vm_preparing_guest", "vm_installing_packages", "vm_preparing_tools",
+)
 CONTROL_PROTOCOL = 1
 MAX_MICROVM_CPUS = 288  # QEMU's microvm machine limit.
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -682,6 +685,12 @@ def supports_free_page_reporting(qemu):
     return features.returncode == 0 and "free-page-reporting=" in features.stdout
 
 
+def qemu_binary(request):
+    if request.get("gpuBackend") == "nvidia" and not request.get("provision"):
+        return str(Path(request["gpuRuntime"]) / "qemu/bin/qemu-system-x86_64")
+    return shutil.which("qemu-system-x86_64", path=SYSTEM_PATH)
+
+
 def virtme_arguments(runtime, kernel, invocation, request):
     addresses = gpu_devices(request)
     if request.get("provision"):
@@ -701,11 +710,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         ):
             raise RuntimeError("invalid GPU PCI addresses")
     nvidia = request.get("gpuBackend") == "nvidia" and not request.get("provision")
-    qemu = (
-        str(Path(request["gpuRuntime"]) / "qemu/bin/qemu-system-x86_64")
-        if nvidia
-        else shutil.which("qemu-system-x86_64", path=SYSTEM_PATH)
-    )
+    qemu = qemu_binary(request)
     arguments = [
         "virtme-run",
         "--arch",
@@ -725,7 +730,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         "--busybox",
         str(runtime / "busybox"),
         "--memory",
-        "4096M",
+        str(request.get("memoryMiB", DEFAULT_RAM // MIB)) + "M",
         "--cpus",
         str(request.get("vcpus", 2)),
         "--rwdir",
@@ -830,6 +835,11 @@ def virtme_arguments(runtime, kernel, invocation, request):
     # available to the guest. VFIO passthrough pins the guest's system RAM.
     if free_page_reporting:
         arguments.extend(["-device", BALLOON_DEVICE + ",free-page-reporting=on"])
+    if request.get("memorySocket"):
+        arguments.extend([
+            "-qmp", "unix:" + request["memorySocket"] + ",server=on,wait=off",
+            "-pidfile", str(invocation / "qemu.pid"),
+        ])
     return arguments
 
 
@@ -1270,7 +1280,14 @@ def supervise(runtime, kernel, control, gpu_leases=()):
     if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
         raise OSError(ctypes.get_errno(), "cannot supervise MicroVM descendants")
     (control / "supervisor.pid").write_text(json.dumps(process_reference()))
+    request = json.loads((control / "request.json").read_text())
     child = launch_vm(runtime, kernel, control)
+    memory = None
+    if request.get("memorySocket"):
+        monitor_socket = Path(request["memorySocket"])
+        memory = MemoryController(
+            control, monitor_socket.parent, monitor_socket.stem, request["memoryMiB"] * MIB, child
+        )
     started = time.monotonic()
     lease = os.environ.get("ZENTRALE_DAEMON_LEASE")
     daemon_lease = DaemonLease(lease) if lease else None
@@ -1296,6 +1313,13 @@ def supervise(runtime, kernel, control, gpu_leases=()):
             if failure is not None:
                 atomic_json(control / "failure.json", failure)
                 return
+            if memory is not None:
+                try:
+                    memory.sample()
+                except (OSError, ValueError, KeyError):
+                    # QEMU may still be booting or busy. Retry the short,
+                    # independent QMP connection on the next memory sample.
+                    pass
             time.sleep(0.1)
     except Exception as error:
         traceback.print_exc()
@@ -1303,6 +1327,8 @@ def supervise(runtime, kernel, control, gpu_leases=()):
     finally:
         if child is not None:
             terminate_vm(child, control)
+        if memory is not None:
+            memory.close()
         for descriptor in gpu_leases:
             os.close(descriptor)
         (control / "stopped").touch()
@@ -1565,6 +1591,15 @@ def ensure_session(scope, configuration, kernel, execution):
 
 
 def boot_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus):
+    try:
+        return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, True)
+    except StartupFailure as error:
+        if error.reason != "balloon_unavailable":
+            raise
+    return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, False)
+
+
+def launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, manage_ram):
     control = scope / "session"
     addresses = gpu_devices(configuration)
     with socket.socket() as reservation:
@@ -1587,6 +1622,8 @@ def boot_session(scope, configuration, runtime, kernel, disk, execution, identit
     # or of the readiness generation/configuration identity.
     request.pop("startupProgress", None)
     request.pop("checkWorkspace", None)
+    request.pop("memoryMiB", None)
+    request.pop("memorySocket", None)
     if configuration.get("gpuBackend") == "nvidia":
         request.update(
             {
@@ -1594,6 +1631,15 @@ def boot_session(scope, configuration, runtime, kernel, disk, execution, identit
                 for key in ("gpuBackend", "gpuRuntime", "gpuInventory")
             }
         )
+    if manage_ram and not addresses:
+        try:
+            capacity, _ = memory_budget()
+        except (OSError, ValueError, KeyError):
+            capacity = DEFAULT_RAM
+        if capacity > DEFAULT_RAM and supports_free_page_reporting(qemu_binary(request)):
+            directory = private_directory(scope.parent.parent / "ram")
+            request["memoryMiB"] = capacity // MIB
+            request["memorySocket"] = str(directory / (secrets.token_hex(12) + ".sock"))
     prepare_control(control, configuration, runtime, request)
     (control / "version").write_text(identity)
     (control / "root.qcow2").symlink_to(disk)
@@ -1670,6 +1716,8 @@ def boot_log_tail(control):
 def startup_failure(scope, control):
     logs = boot_log_tail(control)
     reason = "startup_failed"
+    if (control / "balloon-unavailable").exists():
+        reason = "balloon_unavailable"
     for name in ("failure.json", "startup-failure.json"):
         try:
             diagnostic = json.loads((control / name).read_text())

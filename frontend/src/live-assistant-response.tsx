@@ -26,6 +26,7 @@ const phaseLabels: Record<string, string> = {
   sandbox: "Sandbox wird vorbereitet …",
   vm_starting: terminalStartupLabels.vm_starting,
   vm_retrying_boot: terminalStartupLabels.vm_retrying_boot,
+  vm_allocating_memory: terminalStartupLabels.vm_allocating_memory,
   vm_preparing_guest: terminalStartupLabels.vm_preparing_guest,
   vm_installing_packages: terminalStartupLabels.vm_installing_packages,
   vm_preparing_tools: terminalStartupLabels.vm_preparing_tools,

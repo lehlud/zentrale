@@ -50,16 +50,25 @@ for cold starts with that configuration on the same host for one hour.
 The terminal and conversation distinguish kernel boot, Fedora package
 installation and tool setup.
 
-Guests have 4 GiB of addressable RAM and a sparse disk capped at 8 GiB. With QEMU
-and Linux support, VirtIO free-page reporting returns free guest pages to the
-host. On x86 the runner requests reporting in blocks as small as 16 KiB so
-free pages can be returned even when larger contiguous blocks are scarce.
-QEMU allocates backing again as the guest touches those pages. The guest
-can use its full RAM capacity throughout, including for its Linux page cache.
-This also works with NVIDIA forwarding. VFIO passthrough pins guest RAM for
-device access and prevents this form of reclaim. `microvm_info` reports whether
-the guest negotiated `freePageReporting`. The feature takes effect when a VM
-starts with the updated runner.
+Guests have a sparse disk capped at 8 GiB. When QEMU and Linux support VirtIO
+memory reporting, the runner sizes the guest's address space from the host's
+usable physical RAM and cgroup limits. It uses the balloon to adjust the RAM
+available to the running guest as host usage changes. It budgets from
+`MemAvailable`, which reflects memory already occupied by zram, and reserves
+one sixteenth of the physical capacity in that budget for the host and QEMU
+overhead, with a minimum reserve of 512 MiB and a maximum of 2 GiB.
+Managed guests sharing the same SSH account split spare capacity and keep a
+4 GiB baseline.
+
+VirtIO free-page reporting returns unused backing to the host. On x86 the
+runner requests reporting in blocks as small as 16 KiB so it can reclaim
+fragmented memory. NVIDIA forwarding can use this path. Direct VFIO
+passthrough pins guest RAM and keeps its fixed 4 GiB configuration. The
+bootstrap image and guests without balloon support also use 4 GiB.
+`microvm_info` reports `managedMemory`, `memoryMaxMiB`, and
+`freePageReporting`. The `total` column in the guest's `free -h` output
+follows the current allocation. The changes take effect when a VM starts
+with the updated runner.
 
 Git uses one checkout worker per guest vCPU within the guest process limit.
 Disks, VM artifacts and per-project scratch normally live in private directories

@@ -27,6 +27,9 @@ var managedMicroVMRunner string
 //go:embed microvm/project_scratch.py
 var projectScratchScript string
 
+//go:embed microvm/memory.py
+var managedMicroVMMemory string
+
 //go:embed microvm/guest.py
 var managedMicroVMGuest string
 
@@ -101,6 +104,7 @@ func microVMConfiguration(machines ...domain.Machine) string {
 	hashInput := strings.Join([]string{
 		managedMicroVMRunner,
 		projectScratchScript,
+		managedMicroVMMemory,
 		managedMicroVMGuest,
 		managedMicroVMInit,
 		managedMicroVMStreams,
@@ -140,6 +144,7 @@ func microVMCommand(action string, machines ...domain.Machine) string {
 	bundle, err := json.Marshal(map[string]any{
 		"runner":         managedMicroVMRunner,
 		"projectScratch": projectScratchScript,
+		"memory":         managedMicroVMMemory,
 		"configuration":  json.RawMessage(microVMConfiguration(machines...)),
 	})
 	if err != nil {
@@ -153,12 +158,14 @@ func microVMCommand(action string, machines ...domain.Machine) string {
 	_, _ = writer.Write(bundle)
 	_ = writer.Close()
 	encoded := pythonBase85(compressed.Bytes())
-	bootstrap := "import base64,json,sys,types,zlib; " +
-		"bundle=json.loads(zlib.decompress(base64.b85decode('" + encoded + "'))); " +
-		"scratch=types.ModuleType('project_scratch'); sys.modules[scratch.__name__]=scratch; " +
-		"exec(compile(bundle['projectScratch'],'<zentrale-project-scratch>','exec'),scratch.__dict__); " +
-		"sys.argv.insert(2,json.dumps(bundle['configuration'])); " +
-		"exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))"
+	bootstrap := "import base64,json,sys,types,zlib\n" +
+		"bundle=json.loads(zlib.decompress(base64.b85decode('" + encoded + "')))\n" +
+		`for name, key in [('project_scratch', 'projectScratch'), ('memory', 'memory')]:
+    module = types.ModuleType(name)
+    sys.modules[name] = module
+    exec(compile(bundle[key], '<zentrale-' + name + '>', 'exec'), module.__dict__)
+sys.argv.insert(2,json.dumps(bundle['configuration']))
+exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))`
 	return "python3 -I -c " + Quote(bootstrap) + " " + Quote(action)
 }
 
@@ -299,6 +306,7 @@ const startupBootMarker = startupPhasePrefix + "vm_starting"
 var managedVMStartupPhases = [...]string{
 	"vm_starting",
 	"vm_retrying_boot",
+	"vm_allocating_memory",
 	"vm_preparing_guest",
 	"vm_installing_packages",
 	"vm_preparing_tools",

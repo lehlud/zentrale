@@ -9,6 +9,7 @@ export const terminalStartupLabels = {
   preparing_environment: "Arbeitsumgebung wird vorbereitet …",
   vm_starting: "VM wird gestartet …",
   vm_retrying_boot: "VM startet erneut mit weniger CPUs …",
+  vm_allocating_memory: "RAM wird zugeteilt …",
   vm_preparing_guest: "Fedora wird eingebunden …",
   vm_installing_packages: "Fedora-Pakete werden installiert …",
   vm_preparing_tools: "VM-Werkzeuge werden eingerichtet …",

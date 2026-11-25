@@ -44,6 +44,7 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	}
 	var bundle struct {
 		Runner        string `json:"runner"`
+		Memory        string `json:"memory"`
 		Configuration struct {
 			NVIDIA string `json:"nvidia"`
 		} `json:"configuration"`
@@ -51,7 +52,7 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	if err := json.Unmarshal(payload, &bundle); err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Runner != managedMicroVMRunner || bundle.Configuration.NVIDIA != managedNVIDIA {
+	if bundle.Runner != managedMicroVMRunner || bundle.Memory != managedMicroVMMemory || bundle.Configuration.NVIDIA != managedNVIDIA {
 		t.Fatal("compression changed trusted runner or machine configuration")
 	}
 }
@@ -160,6 +161,7 @@ func TestMicroVMRunnerHashPreservesConcatenation(t *testing.T) {
 
 	originalInput := managedMicroVMRunner +
 		projectScratchScript +
+		managedMicroVMMemory +
 		managedMicroVMGuest +
 		managedMicroVMInit +
 		managedMicroVMStreams +
