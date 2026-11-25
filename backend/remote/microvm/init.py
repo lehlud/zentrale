@@ -908,11 +908,11 @@ def serve_jobs(request):
         if not free_page_reporting:
             (control / "balloon-unavailable").touch()
             raise RuntimeError("guest kernel did not negotiate VirtIO memory reporting")
-        # Keep guest work behind the host's first memory allocation.
-        deadline = time.monotonic() + 60
+        # The host enforces the startup and allocation timeouts. Large
+        # balloons on slow hosts can take longer while still making progress.
         while not (control / "memory-ready").exists():
-            if (control / "stop").exists() or time.monotonic() >= deadline:
-                raise RuntimeError("host did not grant the initial MicroVM memory budget")
+            if (control / "stop").exists():
+                return
             time.sleep(0.1)
         report_startup_phase("vm_preparing_guest")
     prepare_fedora(request)

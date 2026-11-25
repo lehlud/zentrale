@@ -12,6 +12,7 @@ import time
 MIB = 1024 * 1024
 DEFAULT_RAM = 4096 * MIB
 STEP = 256 * MIB
+ADMISSION_STALL_TIMEOUT = 60
 
 
 def memory_budget(proc=Path("/proc"), cgroups=Path("/sys/fs/cgroup")):
@@ -133,6 +134,10 @@ class MemoryController:
         self.target = None
         self.published = None
         self.next_sample = 0
+        self.lowest_actual = None
+        self.last_progress = None
+        self.available = None
+        self.sample_error = None
 
     def publish(self, pid, started, limit):
         record = {"pid": pid, "start": started, "limit": limit}
@@ -150,8 +155,13 @@ class MemoryController:
         self.next_sample = now + 2
         pid = int((self.control / "qemu.pid").read_text())
         started, resident, swapped = process_memory(pid, group=self.group)
+        ready = (self.control / "memory-ready").exists()
         with monitor(self.socket) as execute:
             actual = execute("query-balloon")["actual"]
+            if not ready and (self.lowest_actual is None or actual < self.lowest_actual):
+                self.lowest_actual = actual
+                if self.last_progress is not None:
+                    self.last_progress = now
             with (self.directory / "lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 others = []
@@ -165,13 +175,16 @@ class MemoryController:
                         record.unlink(missing_ok=True)
                         continue
                     others.append((previous["limit"], rss))
-                _, available = memory_budget()
-                ready = (self.control / "memory-ready").exists()
+                _, self.available = memory_budget()
                 target = allocation(
-                    self.capacity, available, resident, swapped, others, actual, ready
+                    self.capacity, self.available, resident, swapped, others, actual, ready
                 )
+                # If headroom fell during admission, a small reduction can
+                # still be needed before it is safe to let guest work start.
                 if target is not None and (
-                    self.target is None or abs(self.target - target) >= STEP
+                    self.target is None
+                    or abs(self.target - target) >= STEP
+                    or (not ready and actual <= self.target and target < self.target)
                 ):
                     # A timeout can happen after QEMU accepted the command.
                     # Reserve an increase before sending it; wait for an
@@ -188,8 +201,35 @@ class MemoryController:
                 else:
                     limit = max(actual, self.target) if ready else self.target
                 self.publish(pid, started, limit)
-                if not ready and self.target is not None and actual <= self.target:
+                if not ready and target is not None and actual <= min(target, self.target):
                     (self.control / "memory-ready").touch()
+                self.sample_error = None
+
+    def admission_failure(self):
+        if (self.control / "memory-ready").exists():
+            return None
+        now = time.monotonic()
+        if self.last_progress is None:
+            try:
+                phase = (self.control / "startup-phase").read_text(encoding="ascii")
+            except FileNotFoundError:
+                return None
+            if phase == "vm_allocating_memory":
+                self.last_progress = now
+            return None
+        if now - self.last_progress < ADMISSION_STALL_TIMEOUT:
+            return None
+        message = f"MicroVM RAM allocation made no progress for {ADMISSION_STALL_TIMEOUT} seconds"
+        if self.target is not None and self.lowest_actual is not None:
+            message += f" (balloon reached {self.lowest_actual / MIB:.1f} MiB, target {self.target / MIB:.1f} MiB)"
+        elif self.available is not None:
+            message += (
+                f" (requires {DEFAULT_RAM // MIB} MiB, host headroom before other VM reservations "
+                f"{self.available // MIB} MiB)"
+            )
+        if self.sample_error is not None:
+            message += ": " + self.sample_error
+        return {"reason": "memory_admission_timeout", "error": message}
 
     def close(self):
         self.record.unlink(missing_ok=True)

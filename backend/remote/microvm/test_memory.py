@@ -1,8 +1,11 @@
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
-from memory import DEFAULT_RAM, MIB, allocation, memory_budget
+import memory
+from memory import DEFAULT_RAM, MIB, MemoryController, allocation, memory_budget
 
 
 GIB = 1024 * MIB
@@ -42,3 +45,51 @@ class ManagedMemoryTests(unittest.TestCase):
 
     def test_host_pressure_preserves_the_guests_swapped_working_set(self):
         self.assertEqual(allocation(30 * GIB, GIB, 5 * GIB, 3 * GIB, [], 10 * GIB, True), 8 * GIB)
+
+    def test_slow_initial_balloon_is_admitted_after_sixty_seconds(self):
+        actual = 30 * GIB
+
+        @contextmanager
+        def monitor(_):
+            def execute(command, arguments=None):
+                if command == "query-balloon":
+                    return {"actual": actual}
+                self.assertEqual(command, "balloon")
+                self.assertEqual(arguments, {"value": 20 * GIB})
+            yield execute
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(memory, "monitor", monitor),
+            patch.object(memory, "process_memory", return_value=("1", 2 * GIB, 0)),
+            patch.object(memory, "memory_budget", return_value=(30 * GIB, 18 * GIB)),
+            patch.object(memory.time, "monotonic", return_value=0) as clock,
+        ):
+            control = Path(directory)
+            controller = MemoryController(control, control, "test", 30 * GIB, 1)
+            (control / "qemu.pid").write_text("42")
+            # Before the guest reaches allocation, the kernel boot has its own deadline.
+            self.assertIsNone(controller.admission_failure())
+            (control / "startup-phase").write_text("vm_allocating_memory")
+            controller.sample()
+            self.assertIsNone(controller.admission_failure())
+
+            clock.return_value = 45
+            actual = 26 * GIB
+            controller.sample()
+            clock.return_value = 75
+            self.assertIsNone(controller.admission_failure())
+            self.assertFalse((control / "memory-ready").exists())
+
+            # Repeated QMP replies with the same capacity are not progress.
+            clock.return_value = 105
+            controller.sample()
+            failure = controller.admission_failure()
+            self.assertEqual(failure["reason"], "memory_admission_timeout")
+            self.assertIn("balloon reached 26624.0 MiB, target 20480.0 MiB", failure["error"])
+
+            clock.return_value = 107
+            actual = 20 * GIB
+            controller.sample()
+            self.assertTrue((control / "memory-ready").exists())
+            self.assertIsNone(controller.admission_failure())

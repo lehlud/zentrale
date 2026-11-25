@@ -125,6 +125,37 @@ func TestStartupProtocolOnlyStripsItsExactTrustedMarker(t *testing.T) {
 	}
 }
 
+func TestStartupFailureKeepsDiagnosticWithoutProgressMarkers(t *testing.T) {
+	for _, exit := range []uint32{1, 76} {
+		t.Run(fmt.Sprint(exit), func(t *testing.T) {
+			const diagnostic = "MicroVM RAM allocation made no progress"
+			client, _ := commandLifecyclePeer(t, "", func(_ string, channel ssh.Channel, _ <-chan *ssh.Request) {
+				var request any
+				_ = json.NewDecoder(channel).Decode(&request)
+				fmt.Fprintln(channel.Stderr(), "ZENTRALE_STARTUP_PHASE vm_allocating_memory")
+				fmt.Fprintln(channel.Stderr(), diagnostic)
+				if exit == 76 {
+					fmt.Fprintln(channel.Stderr(), `ZENTRALE_VM_STARTUP_FAILED {"reason":"memory_admission_timeout"}`)
+				}
+				fixtureCommandExit(channel, exit)
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx = WithStartupProgress(ctx, func(string) {})
+			_, err := microVMAction(ctx, &Connection{Client: client}, domain.Machine{}, "prepare", Execution{})
+			if err == nil || !strings.Contains(err.Error(), diagnostic) || strings.Contains(err.Error(), "ZENTRALE_") {
+				t.Fatalf("unexpected startup error: %v", err)
+			}
+			if exit == 76 {
+				var failure *VMStartupFailure
+				if !errors.As(err, &failure) || failure.Reason != "memory_admission_timeout" {
+					t.Fatalf("missing typed startup error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestValidatedAutoTerminalAvoidsRepeatedSelectionButStillStages(t *testing.T) {
 	for _, prepared := range []string{"", SandboxMicroVM} {
 		t.Run("prepared="+prepared, func(t *testing.T) {

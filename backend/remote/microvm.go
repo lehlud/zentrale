@@ -274,6 +274,10 @@ func microVMAction(
 		// This marker belongs only to the trusted stage/prepare protocol. Keep
 		// arbitrary output and all error diagnostics; never globally filter logs.
 		output = stripStartupBootMarker(output)
+		var failure *CommandError
+		if errors.As(err, &failure) {
+			err = commandFailure(failure.Cause, output)
+		}
 	}
 	if failure := parseVMStartupFailure(output, err); failure != nil {
 		return "", failure
@@ -331,7 +335,8 @@ func parseVMStartupFailure(output string, err error) *VMStartupFailure {
 		return nil
 	}
 	const marker = "ZENTRALE_VM_STARTUP_FAILED "
-	for _, line := range strings.Split(output, "\n") {
+	lines := strings.Split(output, "\n")
+	for index, line := range lines {
 		if !strings.HasPrefix(line, marker) {
 			continue
 		}
@@ -340,8 +345,8 @@ func parseVMStartupFailure(output string, err error) *VMStartupFailure {
 			continue
 		}
 		switch failure.Reason {
-		case "kernel_boot_timeout", "package_install_timeout", "package_install_failed", "startup_timeout":
-			failure.Diagnostic = output
+		case "kernel_boot_timeout", "memory_admission_timeout", "package_install_timeout", "package_install_failed", "startup_timeout":
+			failure.Diagnostic = strings.TrimSpace(strings.Join(slices.Delete(lines, index, index+1), "\n"))
 			if len(failure.Diagnostic) > 12000 {
 				failure.Diagnostic = failure.Diagnostic[len(failure.Diagnostic)-12000:]
 			}

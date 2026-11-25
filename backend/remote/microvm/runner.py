@@ -1309,17 +1309,17 @@ def supervise(runtime, kernel, control, gpu_leases=()):
                 return
             if daemon_lease is not None and not daemon_lease.active():
                 return  # Stop this VM, preserving its persistent disk.
-            failure = boot_timeout(control, time.monotonic() - started)
-            if failure is not None:
-                atomic_json(control / "failure.json", failure)
-                return
             if memory is not None:
                 try:
                     memory.sample()
-                except (OSError, ValueError, KeyError):
+                except (OSError, ValueError, KeyError) as error:
                     # QEMU may still be booting or busy. Retry the short,
                     # independent QMP connection on the next memory sample.
-                    pass
+                    memory.sample_error = str(error)[:512]
+            failure = boot_timeout(control, time.monotonic() - started, memory)
+            if failure is not None:
+                atomic_json(control / "failure.json", failure)
+                return
             time.sleep(0.1)
     except Exception as error:
         traceback.print_exc()
@@ -1334,7 +1334,7 @@ def supervise(runtime, kernel, control, gpu_leases=()):
         (control / "stopped").touch()
 
 
-def boot_timeout(control, elapsed):
+def boot_timeout(control, elapsed, memory=None):
     if (control / "ready.json").exists():
         return None
     if elapsed > STARTUP_TIMEOUT:
@@ -1344,6 +1344,8 @@ def boot_timeout(control, elapsed):
             "error": f"Guest kernel did not reach initialization within {KERNEL_BOOT_TIMEOUT} seconds",
             "reason": "kernel_boot_timeout",
         }
+    if memory is not None:
+        return memory.admission_failure()
     return None
 
 
@@ -1724,13 +1726,14 @@ def startup_failure(scope, control):
             reported = diagnostic.get("reason")
             if reported in (
                 "kernel_boot_timeout",
+                "memory_admission_timeout",
                 "package_install_timeout",
                 "package_install_failed",
                 "startup_timeout",
             ):
                 reason = reported
-                if reason == "kernel_boot_timeout":
-                    logs = diagnostic.get("error", "Guest kernel initialization timed out") + "\n" + logs
+                if error := diagnostic.get("error"):
+                    logs = error + "\n" + logs
         except (OSError, ValueError, AttributeError):
             pass
     # Session control is disposable; keep the last bounded diagnostic on its
