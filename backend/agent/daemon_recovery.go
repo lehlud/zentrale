@@ -73,7 +73,7 @@ func (engine *Engine) daemonJobContext(ctx context.Context, running *runningJob)
 // Register every attachment before resuming agent turns or idle VM cleanup.
 // Reconciliation contacts the original host and never replays shell commands.
 func (engine *Engine) recoverDaemonJobs() error {
-	records, err := engine.listAll("job", nil)
+	records, err := engine.Store.UnfinishedWork("job")
 	if err != nil {
 		return err
 	}

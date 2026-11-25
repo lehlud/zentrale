@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
@@ -176,43 +178,33 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 		subscribers:          make(map[chan domain.Event]bool),
 		liveResponses:        make(map[string]domain.LiveResponse),
 	}
-	if err := engine.migrateSharedApprovers(); err != nil {
-		cancel()
-		return nil, err
-	}
-	if err := engine.recoverInterruptedWork(); err != nil {
-		cancel()
-		return nil, err
-	}
-
 	engine.Editors = remote.NewEditors(engine.Remote, func(session domain.EditorSession) {
 		engine.scheduleVMIdleCheck(remote.EditorScopeID(session.ProjectID, session.AgentID))
 	})
-	if err := engine.Editors.Restore(); err != nil {
-		engine.Close()
-		return nil, err
+	// Restore ownership of jobs and editors before agent turns can resume.
+	recovery := []struct {
+		name string
+		run  func() error
+	}{
+		{"shared_approvers", engine.migrateSharedApprovers},
+		{"interrupted_work", engine.recoverInterruptedWork},
+		{"editors", engine.Editors.Restore},
+		{"daemon_jobs", engine.recoverDaemonJobs},
+		{"logins", engine.recoverLoginProtocols},
+		{"project_moves", engine.recoverProjectMoves},
+		{"agent_inputs", engine.recoverInputs},
+		{"modal_deployments", engine.recoverModalDeployments},
 	}
-	if err := engine.recoverDaemonJobs(); err != nil {
-		engine.Close()
-		return nil, err
+	timings := make(map[string]int64, len(recovery))
+	for _, phase := range recovery {
+		started := time.Now()
+		if err := phase.run(); err != nil {
+			engine.Close()
+			return nil, fmt.Errorf("recover %s: %w", phase.name, err)
+		}
+		timings[phase.name] = time.Since(started).Milliseconds()
 	}
-
-	if err := engine.recoverLoginProtocols(); err != nil {
-		engine.Close()
-		return nil, err
-	}
-	if err := engine.recoverProjectMoves(); err != nil {
-		engine.Close()
-		return nil, err
-	}
-	if err := engine.recoverInputs(); err != nil {
-		engine.Close()
-		return nil, err
-	}
-	if err := engine.recoverModalDeployments(); err != nil {
-		engine.Close()
-		return nil, err
-	}
+	slog.Info("Zentrale recovery complete", "phases_ms", timings)
 	engine.workers.Go(engine.superviseVMs)
 	engine.workers.Go(engine.cleanupDeletedVMs)
 	engine.workers.Go(engine.superviseDaemonStops)
@@ -226,16 +218,13 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 // Jobs are never replayed: their external side effects may already have occurred.
 func (engine *Engine) recoverInterruptedWork() error {
 	for _, kind := range []string{"agent", "job"} {
-		resources, err := engine.listAll(kind, nil)
+		resources, err := engine.Store.UnfinishedWork(kind)
 		if err != nil {
 			return fmt.Errorf("recover %s resources: %w", kind, err)
 		}
 
 		for _, resource := range resources {
 			status := stringArg(resource, "status")
-			if status != "running" && status != "waiting" {
-				continue
-			}
 			id := stringArg(resource, "id")
 			if kind == "agent" {
 				state := domain.AgentRunState{AgentID: id, Phase: "interrupted"}
@@ -250,9 +239,7 @@ func (engine *Engine) recoverInterruptedWork() error {
 				}
 			}
 
-			resource["status"] = "interrupted"
-			resource["error"] = "service restarted"
-			if err := engine.Store.Save(kind, id, stringArg(resource, "agentId"), resource); err != nil {
+			if err := engine.Store.InterruptJob(id); err != nil {
 				return fmt.Errorf("recover %s state: %w", kind, err)
 			}
 		}

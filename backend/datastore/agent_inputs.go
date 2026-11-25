@@ -66,14 +66,21 @@ func (instance *Instance) ChangeResources(writes []ResourceWrite, removals []Res
 }
 
 func (instance *Instance) AgentInputs(agentID string) ([]domain.AgentInput, error) {
+	return instance.agentInputs(agentID, `SELECT data FROM resources WHERE kind='agent_input' AND parent_id=?
+	    AND json_extract(data,'$.status') NOT IN ('completed','cancelled') ORDER BY created_at,id`)
+}
+
+func (instance *Instance) RecoverableAgentInputs(agentID string) ([]domain.AgentInput, error) {
+	return instance.agentInputs(agentID, `SELECT data FROM resources INDEXED BY resource_recovery
+	    WHERE kind='agent_input' AND parent_id=? AND `+recoveryResources+` AND `+resumableInput+` ORDER BY created_at,id`)
+}
+
+func (instance *Instance) agentInputs(agentID, query string) ([]domain.AgentInput, error) {
 	if instance == nil || instance.Closed() {
 		return nil, errClosed
 	}
 
-	rows, err := instance.readDB().Query(
-		`SELECT data FROM resources WHERE kind='agent_input' AND parent_id=? AND json_extract(data,'$.status') NOT IN ('completed','cancelled') ORDER BY created_at,id`,
-		agentID,
-	)
+	rows, err := instance.readDB().Query(query, agentID)
 	if err != nil {
 		return nil, err
 	}

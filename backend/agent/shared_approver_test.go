@@ -118,6 +118,9 @@ func TestFamilySharesOneApproverAndArchivesLegacyHistory(t *testing.T) {
 	if err != nil || resolved.ID != main.ApproverID {
 		t.Fatalf("legacy routing: %+v %v", resolved, err)
 	}
+	if err := engine.Store.SetSetting(sharedApproverMigration, ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := engine.migrateSharedApprovers(); err != nil {
 		t.Fatal(err)
 	}

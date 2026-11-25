@@ -8,6 +8,8 @@ import (
 	"github.com/lehlud/zentrale/domain"
 )
 
+const sharedApproverMigration = "shared-approver-migration"
+
 // Always resolve from persisted family ownership, never a child-supplied
 // approver reference. This also fails closed for unmigrated/corrupt children.
 func (engine *Engine) familyApprover(record domain.Agent) (domain.Agent, error) {
@@ -49,15 +51,16 @@ func (engine *Engine) acquireReview(ctx context.Context, approverID string) (fun
 // Old private review histories remain intact and read-only for auditability;
 // they are archived, never replayed, merged into authority, or silently deleted.
 func (engine *Engine) migrateSharedApprovers() error {
-	rows, err := engine.listAll("agent", nil)
+	version, err := engine.Store.Setting(sharedApproverMigration)
+	if err != nil || version == "1" {
+		return err
+	}
+	rows, err := engine.Store.SubagentsForApproverMigration()
 	if err != nil {
 		return err
 	}
 	writes := []datastore.ResourceWrite{}
 	for _, row := range rows {
-		if stringArg(row, "role") != "subagent" {
-			continue
-		}
 		var child domain.Agent
 		if err := decode(JSON(row), &child); err != nil {
 			return err
@@ -77,8 +80,11 @@ func (engine *Engine) migrateSharedApprovers() error {
 		child.ApproverID = shared.ID
 		writes = append(writes, datastore.ResourceWrite{Kind: "agent", ID: child.ID, Parent: child.ProjectID, Value: child})
 	}
-	if len(writes) == 0 {
-		return nil
+	if len(writes) > 0 {
+		if err := engine.Store.SaveResources(writes); err != nil {
+			return err
+		}
 	}
-	return engine.Store.SaveResources(writes)
+	// A crash before this write simply repeats the idempotent migration.
+	return engine.Store.SetSetting(sharedApproverMigration, "1")
 }

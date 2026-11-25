@@ -495,13 +495,13 @@ func (engine *Engine) publishRunState(state domain.AgentRunState) {
 }
 
 func (engine *Engine) recoverInputs() error {
-	records, err := engine.listAll("agent", nil)
+	records, err := engine.Store.AgentsForRecovery()
 	if err != nil {
 		return err
 	}
 
 	for _, value := range records {
-		if stringArg(value, "role") == "approver" || engine.projectEnvironmentAvailable(stringArg(value, "projectId")) != nil {
+		if engine.projectEnvironmentAvailable(stringArg(value, "projectId")) != nil {
 			continue
 		}
 
@@ -541,7 +541,7 @@ func (engine *Engine) recoverInputs() error {
 			continue
 		}
 
-		inputs, err := engine.Store.AgentInputs(id)
+		inputs, err := engine.Store.RecoverableAgentInputs(id)
 		if err != nil {
 			return err
 		}

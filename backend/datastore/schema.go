@@ -36,6 +36,7 @@ CREATE INDEX IF NOT EXISTS resource_parent ON resources(kind,parent_id,created_a
 CREATE INDEX IF NOT EXISTS resource_owner ON resources(parent_id,kind);
 CREATE INDEX IF NOT EXISTS resource_agent ON resources(json_extract(data,'$.agentId'));
 CREATE INDEX IF NOT EXISTS resource_project ON resources(json_extract(data,'$.projectId'));
+CREATE INDEX IF NOT EXISTS resource_recovery ON resources(kind,parent_id,created_at,id) WHERE ` + recoveryResources + `;
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type VARCHAR NOT NULL,

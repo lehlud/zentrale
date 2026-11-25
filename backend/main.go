@@ -21,6 +21,7 @@ import (
 )
 
 func run() error {
+	started := time.Now()
 	// The database and its WAL contain account tokens and SSH private keys.
 	syscall.Umask(0077)
 
@@ -41,17 +42,20 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	dbReady := time.Now()
 
 	authentication, err := auth.New(store, os.Getenv("LOGIN_ARGON2ID"))
 	if err != nil {
 		return err
 	}
+	authReady := time.Now()
 
 	engine, err := agent.New(store, providers.New())
 	if err != nil {
 		return err
 	}
 	defer engine.Close()
+	engineReady := time.Now()
 	configureSyntheticSSHFixtures(engine)
 
 	api := &webapi.Server{
@@ -86,7 +90,13 @@ func run() error {
 	}
 	defer listener.Close()
 
-	slog.Info("Zentrale ready", "address", listener.Addr().String(), "pid", os.Getpid(), "database", *dbPath)
+	slog.Info("Zentrale ready", "address", listener.Addr().String(), "pid", os.Getpid(), "database", *dbPath,
+		"startup_ms", time.Since(started).Milliseconds(), "phases_ms", map[string]int64{
+			"database":       dbReady.Sub(started).Milliseconds(),
+			"authentication": authReady.Sub(dbReady).Milliseconds(),
+			"engine":         engineReady.Sub(authReady).Milliseconds(),
+			"http":           time.Since(engineReady).Milliseconds(),
+		})
 	go func() {
 		done <- server.Serve(listener)
 	}()
