@@ -17,6 +17,9 @@ export default defineConfig({
     baseURL: process.env.ZENTRALE_E2E_URL ?? "http://127.0.0.1:18080",
     headless: true,
     colorScheme: "dark",
+    // Keep page.route and request observers in control of mocked API calls.
+    // Tests that exercise a service worker opt in explicitly.
+    serviceWorkers: "block",
     launchOptions: {
       executablePath: process.env.CHROMIUM_PATH,
       args: ["--no-sandbox", "--disable-dev-shm-usage"],

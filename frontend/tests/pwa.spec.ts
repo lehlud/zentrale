@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+test.use({ serviceWorkers: "allow" });
+
 test("Zentrale meets the browser install criteria and has working icons", async ({
   page,
 }) => {
