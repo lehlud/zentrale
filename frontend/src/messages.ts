@@ -1342,6 +1342,7 @@ Object.assign(english, {
   "Alle Projekte": "All projects",
   "Projekte und Unterhaltungen": "Projects and conversations",
   "Projekte filtern": "Filter projects",
+  "Projekt zum Umsortieren ziehen": "Drag to reorder project",
   Verwaltung: "Administration",
   "Allgemeine Einstellungen": "General settings",
   "Provider und Modelle": "Providers and models",
