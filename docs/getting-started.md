@@ -4,6 +4,14 @@
 
 ## Docker
 
+Pushes to `deploy` publish `ghcr.io/lehlud/zentrale` with the `latest` tag and a
+tag containing the first 10 characters of the commit SHA. Pull `latest` for the
+current release, or replace it with the commit tag to pin a specific build:
+
+```sh
+docker pull ghcr.io/lehlud/zentrale:latest
+```
+
 Build and start from the repository root:
 
 ```sh
