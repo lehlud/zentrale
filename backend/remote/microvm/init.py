@@ -152,6 +152,18 @@ def discover_ports():
     return ports
 
 
+def enable_memory_hotplug(devices=Path("/sys/bus/virtio/devices")):
+    try:
+        load_module("virtio_mem")
+        return any(
+            (device / "device").read_text().strip() == "0x0018" and (device / "driver").is_symlink()
+            for device in devices.glob("virtio*")
+        )
+    except (OSError, RuntimeError) as error:
+        print("MicroVM memory hotplug unavailable: " + str(error), file=sys.stderr)
+        return False
+
+
 def configure_network(enabled):
     busybox = CONTROL + "/busybox"
     subprocess.run([busybox, "ip", "link", "set", "lo", "up"], check=True)
@@ -908,6 +920,9 @@ def serve_jobs(request):
         if not free_page_reporting:
             (control / "balloon-unavailable").touch()
             raise RuntimeError("guest kernel did not negotiate VirtIO memory reporting")
+        if request.get("memoryMode") == "hotplug" and not enable_memory_hotplug():
+            (control / "hotplug-unavailable").touch()
+            raise RuntimeError("guest kernel did not initialize VirtIO memory hotplug")
         # The host enforces the startup and allocation timeouts. Large
         # balloons on slow hosts can take longer while still making progress.
         while not (control / "memory-ready").exists():

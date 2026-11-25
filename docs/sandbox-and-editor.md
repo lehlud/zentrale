@@ -21,8 +21,9 @@ shell. Agents use rootless Podman, installing Docker in the guest only when
 Podman cannot satisfy a concrete requirement.
 
 The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm`,
-`qemu-img`, Python 3.10+, `mkfs.ext4`, `tar`, and `modprobe`. Preparing a fallback
-kernel's modules also needs `depmod`. Automatic selection fails if these
+`qemu-img`, Python 3.10+ with `lzma` or `/usr/bin/xz`, `mkfs.ext4`, `tar`, and
+`modprobe`. Preparing a fallback kernel's modules also needs `depmod`.
+Automatic selection fails if these
 requirements are unavailable. It never silently switches to Bubblewrap or host
 execution. Weaker levels remain explicit administrator choices.
 
@@ -44,16 +45,18 @@ Runtime directories include the resolved artifact identity, so running VMs
 keep their own runtime files through an update.
 
 Guests use the logical CPUs available to the runner, up to QEMU's `microvm`
-limit. If Linux fails to reach guest initialization in 75 seconds, the runner
-retries the same disk with up to two vCPUs. A successful smaller boot is reused
+limit. The VirtIO-Mem path uses two vCPUs on nested AMD KVM hosts to avoid the
+observed multi-CPU kernel stall. If Linux fails to reach guest initialization
+in 75 seconds, the runner retries the same disk with up to two vCPUs. A successful smaller boot is reused
 for cold starts with that configuration on the same host for one hour.
 The terminal and conversation distinguish kernel boot, Fedora package
 installation and tool setup.
 
-Guests have a sparse disk capped at 8 GiB. When QEMU and Linux support VirtIO
-memory reporting, the runner sizes the guest's address space from the host's
-usable physical RAM and cgroup limits. It uses the balloon to adjust the RAM
-available to the running guest as host usage changes. It budgets from
+Guests have a sparse disk capped at 8 GiB. On supported CPU-only hosts, the
+runner starts a Q35 guest with 4 GiB and adds or releases memory in 2 MiB blocks
+with VirtIO-Mem while the guest runs. Other managed guests adjust their RAM
+through the VirtIO balloon when supported. Both paths use physical RAM and
+cgroup limits as the ceiling. The runner budgets from
 `MemAvailable`, which reflects memory already occupied by zram, and reserves
 one sixteenth of the physical capacity in that budget for the host and QEMU
 overhead, with a minimum reserve of 512 MiB and a maximum of 2 GiB.

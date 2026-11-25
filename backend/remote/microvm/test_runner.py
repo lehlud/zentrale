@@ -117,6 +117,44 @@ class MicroVMRunnerTests(unittest.TestCase):
                 self.assertEqual("page_reporting.page_reporting_order=2" in arguments, enabled)
                 self.assertEqual(arguments[arguments.index("--memory") + 1], "4096M")
 
+    def test_hotplug_boots_with_base_ram_and_unplugged_capacity(self):
+        request = {
+            "memoryMode": "hotplug",
+            "memoryMiB": 16384,
+            "memorySocket": "/tmp/qmp.sock",
+            "editorPort": 12345,
+        }
+        with (
+            patch.object(runner, "qemu_binary", return_value="/usr/bin/qemu-system-x86_64"),
+            patch.object(runner, "supports_free_page_reporting", return_value=True),
+        ):
+            arguments = runner.virtme_arguments(self.cache, Path("/boot/kernel"), self.root, request)
+        self.assertEqual(arguments[arguments.index("--arch") + 1], "x86_64")
+        self.assertEqual(arguments[arguments.index("--memory") + 1], "4096M,slots=1,maxmem=16384")
+        self.assertIn("memory-backend-ram,id=zentrale-ram,size=12288M", arguments)
+        self.assertIn(
+            "virtio-mem-pci,id=zentrale-mem,memdev=zentrale-ram,block-size=2M,"
+            "dynamic-memslots=on,unplugged-inaccessible=on,requested-size=0",
+            arguments,
+        )
+        self.assertIn("memhp_default_state=online_movable", arguments)
+        self.assertIn("virtio-blk-pci,drive=fedora", arguments)
+        self.assertIn("virtio-net-pci,netdev=zentrale", arguments)
+
+    def test_nested_amd_starts_hotplug_with_compatible_cpu_count_and_can_fallback(self):
+        with (
+            patch.object(runner, "memory_budget", return_value=(16 * 1024 * runner.MIB, 0)),
+            patch.object(runner, "supports_free_page_reporting", return_value=True),
+            patch.object(runner, "supports_hotplug_memory", return_value=True),
+            patch.object(runner, "nested_amd_kvm", return_value=True),
+            patch.object(
+                runner, "launch_session",
+                side_effect=[runner.StartupFailure("hotplug_unavailable", "missing driver"), self.root],
+            ) as launch,
+        ):
+            self.assertEqual(runner.boot_session(None, {}, None, None, None, {}, "", 16), self.root)
+        self.assertEqual([call.args[7:9] for call in launch.call_args_list], [(2, "hotplug"), (16, "balloon")])
+
     def test_early_boot_budget_only_applies_before_guest_init(self):
         control = self.cache
         self.assertIsNone(runner.boot_timeout(control, runner.KERNEL_BOOT_TIMEOUT))

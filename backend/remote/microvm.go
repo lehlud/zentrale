@@ -2,7 +2,6 @@ package remote
 
 import (
 	"bytes"
-	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/ulikunitz/xz"
 )
 
 //go:embed microvm/runner.py
@@ -87,7 +87,7 @@ func SandboxImplementationID() string {
 	return hex.EncodeToString(digest[:])
 }
 
-func microVMConfiguration(machines ...domain.Machine) string {
+func microVMOptions(machines ...domain.Machine) map[string]any {
 	machine := domain.Machine{}
 
 	if len(machines) > 0 {
@@ -95,11 +95,12 @@ func microVMConfiguration(machines ...domain.Machine) string {
 	}
 
 	machine = WithMachineDefaults(machine)
-	options, _ := json.Marshal(map[string]any{
+	configuration := map[string]any{
 		"gpu":        GPUEnabled(machine),
 		"gpuDevices": machine.GPUDevices,
 		"storage":    machine.Storage,
-	})
+	}
+	options, _ := json.Marshal(configuration)
 
 	hashInput := strings.Join([]string{
 		managedMicroVMRunner,
@@ -116,50 +117,64 @@ func microVMConfiguration(machines ...domain.Machine) string {
 	}, "")
 
 	digest := sha256.Sum256([]byte(hashInput))
+	configuration["runnerHash"] = hex.EncodeToString(digest[:])
+	return configuration
+}
 
-	configuration, err := json.Marshal(map[string]any{
-		"release":    managedMicroVMRelease,
-		"guest":      managedMicroVMGuest,
-		"init":       managedMicroVMInit,
-		"streams":    managedMicroVMStreams,
-		"terminal":   terminalRelay,
-		"vfio":       managedVFIO,
-		"nvidia":     managedNVIDIA,
-		"gpu":        GPUEnabled(machine),
-		"gpuDevices": machine.GPUDevices,
-		"storage":    machine.Storage,
-		"runnerHash": hex.EncodeToString(digest[:]),
-	})
+func microVMConfiguration(machines ...domain.Machine) string {
+	configuration := microVMOptions(machines...)
+	configuration["release"] = managedMicroVMRelease
+	configuration["guest"] = managedMicroVMGuest
+	configuration["init"] = managedMicroVMInit
+	configuration["streams"] = managedMicroVMStreams
+	configuration["terminal"] = terminalRelay
+	configuration["vfio"] = managedVFIO
+	configuration["nvidia"] = managedNVIDIA
+	encoded, err := json.Marshal(configuration)
 	if err != nil {
 		panic(err) // Embedded release data is checked by the release tests.
 	}
 
-	return string(configuration)
+	return string(encoded)
 }
 
-func microVMCommand(action string, machines ...domain.Machine) string {
-	// SSH servers pass the entire command through one shell argument. Keep the
-	// trusted program and configuration below Linux's per-argument size limit,
-	// including when another sandbox-selection shell quotes this command again.
+// Compress the embedded program once. Per-machine options travel separately so
+// interactive commands do not repeat the compression or exceed the SSH limit.
+var compressedMicroVMBundle = sync.OnceValue(func() string {
 	bundle, err := json.Marshal(map[string]any{
 		"runner":         managedMicroVMRunner,
 		"projectScratch": projectScratchScript,
 		"memory":         managedMicroVMMemory,
-		"configuration":  json.RawMessage(microVMConfiguration(machines...)),
+		"configuration":  json.RawMessage(microVMConfiguration()),
 	})
 	if err != nil {
 		panic(err)
 	}
 	var compressed bytes.Buffer
-	writer, err := zlib.NewWriterLevel(&compressed, zlib.BestCompression)
+	writer, err := xz.WriterConfig{DictCap: 1 << 20}.NewWriter(&compressed)
 	if err != nil {
-		panic(err) // The fixed compression level is valid.
+		panic(err)
 	}
 	_, _ = writer.Write(bundle)
 	_ = writer.Close()
-	encoded := pythonBase85(compressed.Bytes())
-	bootstrap := "import base64,json,sys,types,zlib\n" +
-		"bundle=json.loads(zlib.decompress(base64.b85decode('" + encoded + "')))\n" +
+	return pythonBase85(compressed.Bytes())
+})
+
+func microVMCommand(action string, machines ...domain.Machine) string {
+	options, err := json.Marshal(microVMOptions(machines...))
+	if err != nil {
+		panic(err)
+	}
+	bootstrap := `import base64,json,sys,types
+try:
+    from lzma import decompress
+except ImportError:
+    import subprocess
+    def decompress(data):
+        return subprocess.check_output(['/usr/bin/xz','-dc'],input=data)
+` +
+		"bundle=json.loads(decompress(base64.b85decode('" + compressedMicroVMBundle() + "')))\n" +
+		"bundle['configuration'].update(json.loads(base64.b85decode('" + pythonBase85(options) + "')))\n" +
 		`for name, key in [('project_scratch', 'projectScratch'), ('memory', 'memory')]:
     module = types.ModuleType(name)
     sys.modules[name] = module

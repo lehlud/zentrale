@@ -2,7 +2,6 @@ package remote
 
 import (
 	"bytes"
-	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,15 +9,21 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/lehlud/zentrale/domain"
+	"github.com/ulikunitz/xz"
 )
 
 func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testing.T) {
-	command := microVMCommand("run", domain.Machine{})
+	machine := domain.Machine{
+		GPUDevices: []string{"0000:65:00.0"},
+		Storage:    []domain.StorageVolume{{ID: "quoted", Path: "/srv/project's files"}},
+	}
+	command := microVMCommand("run", machine)
 	// Measure the quoted SSH argument and leave half of Linux's 128 KiB
 	// limit available for machine configuration and the invocation path.
 	if size := len(shellCommand(command)); size >= 64*1024 {
@@ -33,11 +38,10 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := zlib.NewReader(bytes.NewReader(compressed))
+	reader, err := xz.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
 	payload, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +58,27 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	}
 	if bundle.Runner != managedMicroVMRunner || bundle.Memory != managedMicroVMMemory || bundle.Configuration.NVIDIA != managedNVIDIA {
 		t.Fatal("compression changed trusted runner or machine configuration")
+	}
+	// Run the actual bootstrap and inspect the runtime configuration before
+	// executing the runner. The per-machine options must survive shell quoting.
+	runner := Quote(`exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))`)
+	inspect := strings.Replace(command, runner[1:len(runner)-1], "print(sys.argv[2])", 1)
+	if inspect == command {
+		t.Fatal("runner bootstrap was not found")
+	}
+	sent, err := exec.Command("/bin/sh", "-c", shellCommand(inspect)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(sent, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(microVMConfiguration(machine)), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("runner bootstrap changed per-machine configuration")
 	}
 }
 

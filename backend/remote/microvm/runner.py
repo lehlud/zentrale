@@ -34,7 +34,7 @@ import threading
 import traceback
 
 from project_scratch import offload_project_scratch, resolve_project_scratch, scratch_backing
-from memory import DEFAULT_RAM, MIB, MemoryController, memory_budget
+from memory import DEFAULT_RAM, HOTPLUG_BLOCK, HOTPLUG_DEVICE, MIB, MemoryController, memory_budget
 
 
 UNAVAILABLE = 78
@@ -671,18 +671,40 @@ def guard_parent(expected_parent):
 
 
 def supports_free_page_reporting(qemu):
+    return qemu_device_properties(qemu, BALLOON_DEVICE, "free-page-reporting=")
+
+
+def qemu_device_properties(qemu, device, *properties):
     if qemu is None:
         return False
     try:
         features = subprocess.run(
-            [qemu, "-device", BALLOON_DEVICE + ",help"],
+            [qemu, "-device", device + ",help"],
             capture_output=True,
             text=True,
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return features.returncode == 0 and "free-page-reporting=" in features.stdout
+    return features.returncode == 0 and all(prop in features.stdout for prop in properties)
+
+
+def supports_hotplug_memory(qemu, kernel):
+    modules = kernel.parent.parent / "lib" / "modules"
+    drivers = ("kernel/drivers/virtio/virtio_mem.ko", "kernel/drivers/virtio/virtio_pci.ko")
+    try:
+        for release in modules.iterdir():
+            manifest = release / "modules.builtin"
+            builtins = manifest.read_text().splitlines() if manifest.is_file() else ()
+            if all(driver in builtins or any(release.glob(driver + "*")) for driver in drivers):
+                break
+        else:
+            return False
+    except OSError:
+        return False
+    return qemu_device_properties(
+        qemu, "virtio-mem-pci", "dynamic-memslots=", "unplugged-inaccessible="
+    )
 
 
 def qemu_binary(request):
@@ -711,10 +733,16 @@ def virtme_arguments(runtime, kernel, invocation, request):
             raise RuntimeError("invalid GPU PCI addresses")
     nvidia = request.get("gpuBackend") == "nvidia" and not request.get("provision")
     qemu = qemu_binary(request)
+    hotplug = request.get("memoryMode") == "hotplug"
+    transport = "pci" if hotplug else "device"
+    ram = str(request.get("memoryMiB", DEFAULT_RAM // MIB)) + "M"
+    if hotplug:
+        # Virtme appends M to the option when it is not a simple size.
+        ram = f"{DEFAULT_RAM // MIB}M,slots=1,maxmem={request['memoryMiB']}"
     arguments = [
         "virtme-run",
         "--arch",
-        "microvm",
+        "x86_64" if hotplug else "microvm",
         "--qemu-bin",
         qemu,
         "--kimg",
@@ -730,7 +758,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
         "--busybox",
         str(runtime / "busybox"),
         "--memory",
-        str(request.get("memoryMiB", DEFAULT_RAM // MIB)) + "M",
+        ram,
         "--cpus",
         str(request.get("vcpus", 2)),
         "--rwdir",
@@ -772,6 +800,8 @@ def virtme_arguments(runtime, kernel, invocation, request):
     )
     if free_page_reporting:
         arguments.extend(["--kopt", "page_reporting.page_reporting_order=2"])
+    if hotplug:
+        arguments.extend(["--kopt", "memhp_default_state=online_movable"])
     arguments.extend(
         [
             "--qemu-opts",
@@ -781,7 +811,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
             + ",if=none,id=fedora,format="
             + request.get("diskFormat", "qcow2"),
             "-device",
-            "virtio-blk-device,drive=fedora",
+            "virtio-blk-" + transport + ",drive=fedora",
         ]
     )
     if request.get("editorPort"):
@@ -794,10 +824,17 @@ def virtme_arguments(runtime, kernel, invocation, request):
                 + str(request["editorPort"])
                 + "-:9842",
                 "-device",
-                "virtio-net-device,netdev=zentrale",
+                "virtio-net-" + transport + ",netdev=zentrale",
             ]
         )
-    if addresses or nvidia:
+    if hotplug:
+        arguments.extend([
+            "-machine", "q35,accel=kvm", "-nodefaults", "-no-user-config",
+            "-object", f"memory-backend-ram,id=zentrale-ram,size={request['memoryMiB'] - DEFAULT_RAM // MIB}M",
+            "-device", f"virtio-mem-pci,id={HOTPLUG_DEVICE},memdev=zentrale-ram,"
+            f"block-size={HOTPLUG_BLOCK // MIB}M,dynamic-memslots=on,unplugged-inaccessible=on,requested-size=0",
+        ])
+    elif addresses or nvidia:
         arguments.extend(
             [
                 "-machine",
@@ -834,7 +871,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
     # Demand allocation with free-page reporting leaves the full memory limit
     # available to the guest. VFIO passthrough pins the guest's system RAM.
     if free_page_reporting:
-        arguments.extend(["-device", BALLOON_DEVICE + ",free-page-reporting=on"])
+        arguments.extend(["-device", "virtio-balloon-" + transport + ",free-page-reporting=on"])
     if request.get("memorySocket"):
         arguments.extend([
             "-qmp", "unix:" + request["memorySocket"] + ",server=on,wait=off",
@@ -1286,7 +1323,8 @@ def supervise(runtime, kernel, control, gpu_leases=()):
     if request.get("memorySocket"):
         monitor_socket = Path(request["memorySocket"])
         memory = MemoryController(
-            control, monitor_socket.parent, monitor_socket.stem, request["memoryMiB"] * MIB, child
+            control, monitor_socket.parent, monitor_socket.stem, request["memoryMiB"] * MIB, child,
+            hotplug=request.get("memoryMode") == "hotplug",
         )
     started = time.monotonic()
     lease = os.environ.get("ZENTRALE_DAEMON_LEASE")
@@ -1455,6 +1493,17 @@ def available_vcpus():
     return min(available, MAX_MICROVM_CPUS)
 
 
+def nested_amd_kvm(cpuinfo=Path("/proc/cpuinfo")):
+    try:
+        first_cpu = cpuinfo.read_text().split("\n\n", 1)[0]
+    except OSError:
+        return False
+    fields = dict(line.split(":", 1) for line in first_cpu.splitlines() if ":" in line)
+    fields = {name.strip(): value.strip() for name, value in fields.items()}
+    flags = fields.get("flags", "").split()
+    return fields.get("vendor_id") == "AuthenticAMD" and {"hypervisor", "svm"}.issubset(flags)
+
+
 def supervisor_running(control):
     try:
         return not (control / "stopped").exists() and alive(
@@ -1593,15 +1642,39 @@ def ensure_session(scope, configuration, kernel, execution):
 
 
 def boot_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus):
-    try:
-        return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, True)
-    except StartupFailure as error:
-        if error.reason != "balloon_unavailable":
-            raise
-    return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, False)
+    capacity = DEFAULT_RAM
+    mode = ""
+    if not gpu_devices(configuration):
+        try:
+            capacity, _ = memory_budget()
+        except (OSError, ValueError, KeyError):
+            pass
+        qemu = qemu_binary(configuration)
+        if capacity // MIB > DEFAULT_RAM // MIB and supports_free_page_reporting(qemu):
+            mode = "balloon"
+            if (configuration.get("gpuBackend") != "nvidia"
+                    and capacity >= DEFAULT_RAM + HOTPLUG_BLOCK
+                    and supports_hotplug_memory(qemu, kernel)):
+                mode = "hotplug"
+    while mode:
+        try:
+            cpus = vcpus
+            if mode == "hotplug" and vcpus > RETRY_BOOT_CPUS and nested_amd_kvm():
+                # Start directly with the compatible CPU count on nested AMD
+                # hosts, where the multi-CPU kernel can stall before PID 1.
+                cpus = RETRY_BOOT_CPUS
+            return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, cpus, mode, capacity)
+        except StartupFailure as error:
+            if error.reason == "hotplug_unavailable" and mode == "hotplug":
+                mode = "balloon"
+            elif error.reason == "balloon_unavailable":
+                break
+            else:
+                raise
+    return launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus)
 
 
-def launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, manage_ram):
+def launch_session(scope, configuration, runtime, kernel, disk, execution, identity, vcpus, mode="", capacity=DEFAULT_RAM):
     control = scope / "session"
     addresses = gpu_devices(configuration)
     with socket.socket() as reservation:
@@ -1626,6 +1699,7 @@ def launch_session(scope, configuration, runtime, kernel, disk, execution, ident
     request.pop("checkWorkspace", None)
     request.pop("memoryMiB", None)
     request.pop("memorySocket", None)
+    request.pop("memoryMode", None)
     if configuration.get("gpuBackend") == "nvidia":
         request.update(
             {
@@ -1633,15 +1707,13 @@ def launch_session(scope, configuration, runtime, kernel, disk, execution, ident
                 for key in ("gpuBackend", "gpuRuntime", "gpuInventory")
             }
         )
-    if manage_ram and not addresses:
-        try:
-            capacity, _ = memory_budget()
-        except (OSError, ValueError, KeyError):
-            capacity = DEFAULT_RAM
-        if capacity > DEFAULT_RAM and supports_free_page_reporting(qemu_binary(request)):
-            directory = private_directory(scope.parent.parent / "ram")
-            request["memoryMiB"] = capacity // MIB
-            request["memorySocket"] = str(directory / (secrets.token_hex(12) + ".sock"))
+    if mode:
+        directory = private_directory(scope.parent.parent / "ram")
+        if mode == "hotplug":
+            capacity = capacity // HOTPLUG_BLOCK * HOTPLUG_BLOCK
+        request["memoryMode"] = mode
+        request["memoryMiB"] = capacity // MIB
+        request["memorySocket"] = str(directory / (secrets.token_hex(12) + ".sock"))
     prepare_control(control, configuration, runtime, request)
     (control / "version").write_text(identity)
     (control / "root.qcow2").symlink_to(disk)
@@ -1720,6 +1792,8 @@ def startup_failure(scope, control):
     reason = "startup_failed"
     if (control / "balloon-unavailable").exists():
         reason = "balloon_unavailable"
+    if (control / "hotplug-unavailable").exists():
+        reason = "hotplug_unavailable"
     for name in ("failure.json", "startup-failure.json"):
         try:
             diagnostic = json.loads((control / name).read_text())

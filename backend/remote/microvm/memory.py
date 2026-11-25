@@ -1,4 +1,4 @@
-"""Share physical host RAM between managed guests using the VirtIO balloon."""
+"""Share physical host RAM between managed guests using VirtIO."""
 
 from contextlib import contextmanager
 import fcntl
@@ -13,6 +13,9 @@ MIB = 1024 * 1024
 DEFAULT_RAM = 4096 * MIB
 STEP = 256 * MIB
 ADMISSION_STALL_TIMEOUT = 60
+ADMISSION_BUDGET_STEP = 32 * MIB
+HOTPLUG_BLOCK = 2 * MIB
+HOTPLUG_DEVICE = "zentrale-mem"
 
 
 def memory_budget(proc=Path("/proc"), cgroups=Path("/sys/fs/cgroup")):
@@ -73,15 +76,14 @@ def process_memory(pid, start=None, group=None):
 
 
 def allocation(capacity, available, resident, swapped, others, current, ready):
-    """Return an allocation, or None while a new guest waits for a 4 GiB budget."""
+    """Return the balloon target and the guest's budget after peer reservations."""
     # Each guest gets its backed RAM plus an equal share of spare host RAM.
     # Count other guests' allowances until QEMU confirms they have been reduced.
     share = available // (len(others) + 1)
     unbacked = sum(max(0, limit - rss) for limit, rss in others)
     desired = (resident + share) // STEP * STEP
-    affordable = resident + max(0, available - unbacked)
-    if not ready and affordable < DEFAULT_RAM:
-        return None
+    budget = resident + available - unbacked
+    affordable = max(resident, budget)
     # Preserve backing that may currently be swapped out. Under contention,
     # shrink allowances without taking memory away from a live working set.
     floor = max(DEFAULT_RAM, min(current, resident + swapped))
@@ -90,7 +92,7 @@ def allocation(capacity, available, resident, swapped, others, current, ready):
     wanted = min(capacity, max(floor, desired))
     if wanted > current or not ready:
         wanted = min(wanted, max(current if ready else DEFAULT_RAM, affordable))
-    return wanted // MIB * MIB
+    return wanted // MIB * MIB, budget
 
 
 @contextmanager
@@ -124,19 +126,21 @@ def monitor(path):
 
 
 class MemoryController:
-    def __init__(self, control, directory, name, capacity, group):
+    def __init__(self, control, directory, name, capacity, group, hotplug=False):
         self.control = control
         self.directory = directory
         self.socket = directory / (name + ".sock")
         self.record = directory / (name + ".json")
         self.capacity = capacity
         self.group = group
-        self.target = None
+        self.hotplug = hotplug
+        self.target = DEFAULT_RAM if hotplug else None
         self.published = None
         self.next_sample = 0
         self.lowest_actual = None
         self.last_progress = None
-        self.available = None
+        self.affordable = None
+        self.budget_checkpoint = None
         self.sample_error = None
 
     def publish(self, pid, started, limit):
@@ -148,6 +152,22 @@ class MemoryController:
         os.replace(temporary, self.record)
         self.published = record
 
+    def current_capacity(self, execute):
+        if self.hotplug:
+            size = execute("query-memory-size-summary")
+            return size["base-memory"] + size.get("plugged-memory", 0)
+        return execute("query-balloon")["actual"]
+
+    def set_capacity(self, execute, target):
+        if self.hotplug:
+            execute("qom-set", {
+                "path": "/machine/peripheral/" + HOTPLUG_DEVICE,
+                "property": "requested-size",
+                "value": target - DEFAULT_RAM,
+            })
+        else:
+            execute("balloon", {"value": target})
+
     def sample(self):
         now = time.monotonic()
         if now < self.next_sample:
@@ -157,11 +177,7 @@ class MemoryController:
         started, resident, swapped = process_memory(pid, group=self.group)
         ready = (self.control / "memory-ready").exists()
         with monitor(self.socket) as execute:
-            actual = execute("query-balloon")["actual"]
-            if not ready and (self.lowest_actual is None or actual < self.lowest_actual):
-                self.lowest_actual = actual
-                if self.last_progress is not None:
-                    self.last_progress = now
+            actual = self.current_capacity(execute)
             with (self.directory / "lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 others = []
@@ -175,35 +191,61 @@ class MemoryController:
                         record.unlink(missing_ok=True)
                         continue
                     others.append((previous["limit"], rss))
-                _, self.available = memory_budget()
-                target = allocation(
-                    self.capacity, self.available, resident, swapped, others, actual, ready
+                _, available = memory_budget()
+                target, budget = allocation(
+                    self.capacity, available, resident, swapped, others, actual, ready
                 )
-                # If headroom fell during admission, a small reduction can
-                # still be needed before it is safe to let guest work start.
-                if target is not None and (
+                if self.hotplug:
+                    # The guest starts with 4 GiB already in its memory map.
+                    # Wait for that budget only; grow after making it usable.
+                    target = target // HOTPLUG_BLOCK * HOTPLUG_BLOCK if ready else DEFAULT_RAM
+                if not ready:
+                    # A waiting guest can inflate its balloon in parallel with
+                    # its peers. Its PID 1 cannot run workloads until admitted,
+                    # so only the RAM already backed on the host is in use.
+                    self.publish(pid, started, resident)
+                    self.affordable = max(resident, budget)
+                    self.observe_admission(actual, budget, now)
+                if (
                     self.target is None
                     or abs(self.target - target) >= STEP
                     or (not ready and actual <= self.target and target < self.target)
                 ):
-                    # A timeout can happen after QEMU accepted the command.
-                    # Reserve an increase before sending it; wait for an
-                    # acknowledged reduction before another guest uses it.
-                    observed = actual if ready else resident
-                    reserved = self.published["limit"] if self.published else 0
-                    self.publish(pid, started, max(observed, reserved, target))
-                    execute("balloon", {"value": target})
+                    if ready:
+                        # Reserve growth before sending it: QEMU can accept a
+                        # command even when its monitor connection times out.
+                        reserved = self.published["limit"] if self.published else 0
+                        self.publish(pid, started, max(actual, reserved, target))
+                    # An ambiguous reply must be retried before the old
+                    # reservation can be released.
+                    self.target = None
+                    self.set_capacity(execute, target)
                     self.target = target
-                if self.target is None:
-                    # Announce the incoming guest so live siblings share spare
-                    # capacity while it waits for its initial allocation.
-                    limit = resident
-                else:
-                    limit = max(actual, self.target) if ready else self.target
-                self.publish(pid, started, limit)
-                if not ready and target is not None and actual <= min(target, self.target):
+                if ready:
+                    self.publish(pid, started, max(actual, self.target))
+                elif self.target <= self.affordable and actual <= self.target:
+                    # Commit the RAM reservation under the same lock as the
+                    # budget check, before releasing the guest to do work.
+                    self.publish(pid, started, self.target)
                     (self.control / "memory-ready").touch()
                 self.sample_error = None
+
+    def observe_admission(self, actual, budget, now):
+        balloon_advanced = self.lowest_actual is None or actual < self.lowest_actual
+        if balloon_advanced:
+            self.lowest_actual = actual
+        # Keep a signed budget so peer progress is visible even before their
+        # outstanding reservations leave any RAM available for this guest.
+        if self.budget_checkpoint is None:
+            self.budget_checkpoint = budget
+        if balloon_advanced or budget >= self.budget_checkpoint + ADMISSION_BUDGET_STEP:
+            self.budget_checkpoint = budget
+            if self.last_progress is not None:
+                self.last_progress = now
+        elif budget <= self.budget_checkpoint - ADMISSION_BUDGET_STEP:
+            # Another guest may claim some RAM while we wait. Measure further
+            # releases against the new budget without crediting the decrease.
+            self.budget_checkpoint = budget
 
     def admission_failure(self):
         if (self.control / "memory-ready").exists():
@@ -221,11 +263,11 @@ class MemoryController:
             return None
         message = f"MicroVM RAM allocation made no progress for {ADMISSION_STALL_TIMEOUT} seconds"
         if self.target is not None and self.lowest_actual is not None:
-            message += f" (balloon reached {self.lowest_actual / MIB:.1f} MiB, target {self.target / MIB:.1f} MiB)"
-        elif self.available is not None:
+            message += f" (guest capacity {self.lowest_actual / MIB:.1f} MiB, target {self.target / MIB:.1f} MiB)"
+        if self.affordable is not None and self.affordable < DEFAULT_RAM:
             message += (
-                f" (requires {DEFAULT_RAM // MIB} MiB, host headroom before other VM reservations "
-                f"{self.available // MIB} MiB)"
+                f" (safe budget {self.affordable // MIB} MiB after other VM reservations,"
+                f" requires {DEFAULT_RAM // MIB} MiB)"
             )
         if self.sample_error is not None:
             message += ": " + self.sample_error
