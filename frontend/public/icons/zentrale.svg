@@ -34,11 +34,12 @@
   </g>
 
   <g id="mark">
+    <use href="#monogram" fill="#0e142e" opacity=".55" transform="translate(0 4)" />
+    <use href="#monogram" fill="url(#letter)" />
+
     <path
       d="M27 145c13 18 42 27 78 24 43-3 90-21 114-44 15-14 19-29 8-40 17 8 22 24 13 40-19 32-76 62-133 67-37 3-70-11-80-47Z"
       fill="url(#orbit)"
     />
-    <use href="#monogram" fill="#0e142e" opacity=".55" transform="translate(0 4)" />
-    <use href="#monogram" fill="url(#letter)" />
   </g>
 </svg>
