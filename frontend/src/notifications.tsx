@@ -101,11 +101,11 @@ export function Notifications() {
         <Toast
           toast={toast}
           variant={toast.content.variant}
-          className="grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+          className="pointer-events-none grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
         >
           <Toast.Indicator
             variant={toast.content.variant}
-            className="size-10 self-start p-0"
+            className="size-11 self-start p-0"
           />
           <Toast.Content className="self-start">
             <Toast.Title>{toast.content.title}</Toast.Title>
@@ -117,7 +117,7 @@ export function Notifications() {
             {toast.content.actionProps && (
               <Toast.ActionButton
                 {...toast.content.actionProps}
-                className="mt-2 min-h-11 self-start"
+                className="pointer-events-auto mt-2 min-h-11 self-start"
                 size="sm"
                 variant="secondary"
               />
@@ -125,7 +125,7 @@ export function Notifications() {
           </Toast.Content>
           <Toast.CloseButton
             aria-label={t("Benachrichtigung schließen")}
-            className="pointer-events-auto static col-start-3 row-start-1 size-10 self-start opacity-100"
+            className="pointer-events-auto static col-start-3 row-start-1 size-11 self-start opacity-100"
           />
         </Toast>
       )}
