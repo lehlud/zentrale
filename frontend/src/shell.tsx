@@ -67,6 +67,7 @@ export function SidebarToggle({ iconOnly = false }: { iconOnly?: boolean }) {
 
 const administration = [
   { id: "admin-settings", label: "Admin-Einstellungen" },
+  { id: "usage", label: "Verbrauch" },
   { id: "providers", label: "Provider und Modelle" },
   { id: "machines", label: "Maschinen" },
   { id: "keys", label: "Schlüssel" },
@@ -239,14 +240,6 @@ function NavigationMenus({
               className="min-h-11"
             >
               <Label>{t("Persönliche Einstellungen")}</Label>
-            </Dropdown.Item>
-            <Dropdown.Item
-              id="usage"
-              href="#/usage"
-              onAction={onNavigate}
-              className="min-h-11"
-            >
-              <Label>{t("Verbrauch")}</Label>
             </Dropdown.Item>
             <Dropdown.Item
               id="appearance"

@@ -128,6 +128,9 @@ for (const mobile of [false, true]) {
     await expect(
       page.getByRole("menuitem", { name: "Admin-Einstellungen" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: "Verbrauch", exact: true }),
+    ).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(projects).toHaveAttribute("aria-selected", "true");
 

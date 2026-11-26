@@ -73,7 +73,12 @@ export default function App() {
         {page === "projects" &&
           (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
         {page === "chats" && <ShortChats chatId={projectId} />}
-        {page === "usage" && <UsageDashboard admin={admin} />}
+        {page === "usage" &&
+          (admin ? (
+            <UsageDashboard />
+          ) : (
+            <Failure message={t("Nur für Administratoren verfügbar.")} />
+          ))}
         {admin && page === "machines" && <Machines />}
         {admin && page === "keys" && <Keys />}
         {admin && page === "providers" && <Providers />}

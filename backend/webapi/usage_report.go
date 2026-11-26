@@ -30,21 +30,12 @@ func (server *Server) resolveUsageReport(params graphql.ResolveParams) (any, err
 	if user.ID == "" || user.Disabled {
 		return nil, errAuthenticationRequired
 	}
+	if !user.IsAdmin() {
+		return nil, errAdministratorRequired
+	}
 
 	userID, _ := params.Args["userId"].(string)
 	projectID, _ := params.Args["projectId"].(string)
-	if !user.IsAdmin() {
-		if userID != "" && userID != user.ID {
-			return nil, errAdministratorRequired
-		}
-		if projectID != "" {
-			if err := server.projectAccess(user, projectID, false, false); err != nil {
-				return nil, err
-			}
-		}
-		userID = user.ID
-	}
-
 	fromDate, _ := params.Args["from"].(string)
 	toDate, _ := params.Args["to"].(string)
 	from, to, err := usageDateRange(time.Now(), fromDate, toDate)

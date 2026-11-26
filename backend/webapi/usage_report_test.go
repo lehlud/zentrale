@@ -57,10 +57,10 @@ func TestUsageReportViewerScope(t *testing.T) {
 	}{
 		{name: "anonymous", wantError: errAuthenticationRequired},
 		{name: "disabled", user: disabled, wantError: errAuthenticationRequired},
-		{name: "own usage", user: alice, wantModels: []string{"alice-chat"}},
+		{name: "regular account", user: alice, wantError: errAdministratorRequired},
 		{name: "other account", user: alice, argument: `(userId: "bob")`, wantError: errAdministratorRequired},
-		{name: "shared project still limited to own rows", user: alice, argument: `(projectId: "bob-project")`, wantModels: []string{}},
-		{name: "nonmember project", user: alice, argument: `(projectId: "bob-private")`, wantError: errProjectUnavailable},
+		{name: "shared project does not grant dashboard access", user: alice, argument: `(projectId: "bob-project")`, wantError: errAdministratorRequired},
+		{name: "nonmember project", user: alice, argument: `(projectId: "bob-private")`, wantError: errAdministratorRequired},
 		{name: "admin all usage", user: admin, wantModels: []string{"alice-chat", "bob-agent", "bob-chat"}},
 		{name: "admin billing metadata without membership", user: admin, argument: `(userId: "bob", projectId: "bob-project")`, wantModels: []string{"bob-agent"}},
 	}

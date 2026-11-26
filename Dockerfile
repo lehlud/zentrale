@@ -33,12 +33,16 @@ WORKDIR /app
 COPY deploy/humanizer/modal-requirements.txt /opt/zentrale-modal-requirements.txt
 RUN python3 -m venv /opt/zentrale-modal \
     && /opt/zentrale-modal/bin/pip install --no-cache-dir -r /opt/zentrale-modal-requirements.txt
+RUN python3 -m venv /opt/zentrale-search \
+    && /opt/zentrale-search/bin/pip install --no-cache-dir 'ddgs==9.16.1' 'primp==2.0.1' \
+    && /opt/zentrale-search/bin/python -I -c 'from ddgs import DDGS'
 COPY deploy/humanizer/modal_app.py deploy/humanizer/batch_runtime.py /opt/zentrale-modal-app/
 COPY --from=backend /out/zentrale /usr/local/bin/zentrale
 COPY --from=backend /out/import-duckdb /usr/local/bin/import-duckdb
 COPY --from=frontend /src/frontend/dist/ ./frontend/
 ENV ZENTRALE_VSCODE_CACHE=/data/cache/vscode
 ENV ZENTRALE_MODAL_PYTHON=/opt/zentrale-modal/bin/python ZENTRALE_MODAL_ASSETS=/opt/zentrale-modal-app
+ENV ZENTRALE_DDGS_PYTHON=/opt/zentrale-search/bin/python
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8080

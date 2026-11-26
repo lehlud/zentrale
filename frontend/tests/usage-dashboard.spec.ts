@@ -1,6 +1,45 @@
 import { expect, test } from "@playwright/test";
 import { adminStatus, config } from "./fixtures/visual-data";
 
+test("regular users cannot open the usage dashboard or find it in settings", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  await page.routeWebSocket("**/events?*", () => {});
+  let reportRequests = 0;
+  await page.route("**/graphql", (route) => {
+    const { query } = route.request().postDataJSON();
+    if (query.includes("usageReport(")) reportRequests++;
+    const data = query.includes("status{")
+      ? {
+          status: {
+            ...adminStatus,
+            user: { id: "member", username: "member", role: "user" },
+          },
+        }
+      : config;
+    return route.fulfill({ json: { data } });
+  });
+
+  await page.goto("/#/usage");
+  await expect(page.getByRole("alert")).toContainText(
+    "Nur für Administratoren verfügbar.",
+  );
+  await expect(
+    page.getByRole("region", { name: "Verbrauch pro Tag" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Admin", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Einstellungen öffnen" }).click();
+  const settings = page.getByRole("menu", { name: "Einstellungen" });
+  await expect(settings).toBeVisible();
+  await expect(
+    settings.getByRole("menuitem", { name: "Verbrauch" }),
+  ).toHaveCount(0);
+  expect(reportRequests).toBe(0);
+});
+
 test("usage chart includes empty UTC days and stacks both metrics by the selected dimension", async ({
   page,
 }, testInfo) => {
@@ -58,7 +97,7 @@ test("usage chart includes empty UTC days and stacks both metrics by the selecte
 
   await page.goto("/#/usage");
   const chart = page.getByRole("region", { name: "Verbrauch pro Tag" });
-  const bars = chart.getByRole("img");
+  const bars = chart.getByRole("group");
   await expect(bars).toHaveCount(30);
   await expect(bars.first()).toHaveAccessibleName("2024-02-05: 0");
   await expect(bars.last()).toHaveAccessibleName("2024-03-05: 0");
@@ -82,10 +121,24 @@ test("usage chart includes empty UTC days and stacks both metrics by the selecte
     );
   }
 
+  const alpha = activeDay.getByRole("button", { name: "Alpha: 15" });
+  const beta = activeDay.getByRole("button", { name: "Beta: 35" });
+  const tooltip = page.getByRole("tooltip");
+  await alpha.hover();
+  await expect(tooltip).toContainText("2024-02-29");
+  await expect(tooltip).toContainText("Alpha: 15");
+  await beta.hover();
+  await expect(tooltip).toContainText("Beta: 35");
+  await expect(tooltip).not.toContainText("50");
+
   await chart.getByRole("button", { name: "Kosten", exact: true }).click();
   await expect(activeDay).toHaveAccessibleName(
     /2024-02-29: 0,75.*Alpha: 0,25.*Beta: 0,50/,
   );
+  await activeDay.getByRole("button", { name: /Alpha: 0,25/ }).hover();
+  await expect(tooltip).toContainText(/Alpha: 0,25\s*\$/);
+  await chart.getByRole("button", { name: "Kosten", exact: true }).hover();
+  await expect(tooltip).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath("usage-stacked.png"),
     animations: "disabled",

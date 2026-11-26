@@ -1,5 +1,10 @@
 import { Button } from "@heroui/react";
 import { useState } from "react";
+import {
+  Button as SegmentButton,
+  Tooltip,
+  TooltipTrigger,
+} from "react-aria-components";
 
 import { useI18n } from "./preferences";
 
@@ -157,9 +162,9 @@ export function UsageChart({
               return (
                 <div
                   key={day}
-                  role="img"
+                  role="group"
                   aria-label={label}
-                  title={label}
+                  title={total === 0 ? label : undefined}
                   data-usage-day={day}
                   className="flex h-full min-w-0 flex-1 flex-col justify-end"
                 >
@@ -168,14 +173,15 @@ export function UsageChart({
                       className="flex flex-col-reverse overflow-hidden rounded-t-sm"
                       style={{ height: `${(100 * total) / highest}%` }}
                     >
-                      {entries.map(({ id, color, value }) => (
-                        <span
+                      {entries.map(({ id, label, color, value }) => (
+                        <UsageSegment
                           key={id}
-                          data-usage-segment={id}
-                          style={{
-                            height: `${(100 * value) / total}%`,
-                            backgroundColor: color,
-                          }}
+                          id={id}
+                          day={day}
+                          label={label}
+                          color={color}
+                          value={number.format(value)}
+                          height={`${(100 * value) / total}%`}
                         />
                       ))}
                     </div>
@@ -229,5 +235,45 @@ export function UsageChart({
         </ul>
       )}
     </section>
+  );
+}
+
+function UsageSegment({
+  id,
+  day,
+  label,
+  color,
+  value,
+  height,
+}: {
+  id: string;
+  day: string;
+  label: string;
+  color: string;
+  value: string;
+  height: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <TooltipTrigger isOpen={open} onOpenChange={setOpen} closeDelay={0}>
+      <SegmentButton
+        aria-label={`${label}: ${value}`}
+        data-usage-segment={id}
+        onHoverChange={setOpen}
+        className="w-full shrink-0 cursor-default outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground"
+        style={{ height, backgroundColor: color }}
+      />
+      <Tooltip
+        placement="top"
+        offset={6}
+        className="pointer-events-none z-50 max-w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-md"
+      >
+        <div className="text-xs text-muted">{day}</div>
+        <div className="break-words">
+          {label}: <strong className="tabular-nums">{value}</strong>
+        </div>
+      </Tooltip>
+    </TooltipTrigger>
   );
 }

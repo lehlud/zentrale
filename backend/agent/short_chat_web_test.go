@@ -27,6 +27,7 @@ func webFixture(request *http.Request, status int, contentType, body string) (*h
 
 func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
 	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host != "www.bing.com" || request.URL.Query().Get("q") != "Go docs & examples" || request.URL.Query().Get("format") != "rss" {
 			t.Fatalf("unexpected search request: %s", request.URL)
@@ -49,6 +50,7 @@ func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 
 func TestPublicWebSearchFallsBackAndReportsUnavailableProviders(t *testing.T) {
 	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
 	for _, status := range []int{http.StatusOK, http.StatusAccepted} {
 		client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
 			switch request.URL.Host {
@@ -74,6 +76,7 @@ func TestPublicWebSearchFallsBackAndReportsUnavailableProviders(t *testing.T) {
 
 func TestPublicWebSearchRejectsUnrelatedHitsEvenOnHTTP200(t *testing.T) {
 	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
 	for _, matching := range []bool{true, false} {
 		client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
 			switch request.URL.Host {
@@ -100,9 +103,39 @@ func TestPublicWebSearchRejectsUnrelatedHitsEvenOnHTTP200(t *testing.T) {
 			if result.Source != "DuckDuckGo" || len(result.Results) != 1 || result.Results[0].Title != "Conference speakers" {
 				t.Fatalf("expected matching fallback result, got %#v", result)
 			}
-		} else if len(result.Results) != 0 || !strings.Contains(result.Note, "No relevant results") {
+		} else if len(result.Results) != 0 || !strings.Contains(result.Note, "does not mean no public sources exist") || !strings.Contains(strings.Join(result.Unavailable, ";"), "DuckDuckGo: public web page returned HTTP 202") {
 			t.Fatalf("unrelated tracking hits must not be used as evidence: %#v", result)
 		}
+	}
+}
+
+func TestPublicWebSearchContinuesWithEncyclopediaAfterMissingWebHits(t *testing.T) {
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Host {
+		case "www.bing.com":
+			return webFixture(request, 200, "text/xml", `<rss><channel><item><title>Parcel tracking</title><link>https://example.com/</link></item></channel></rss>`)
+		case "html.duckduckgo.com":
+			return webFixture(request, http.StatusAccepted, "text/html", "No search results returned")
+		case "de.wikipedia.org":
+			if request.URL.Query().Get("q") != `"Mira Rosenfeld"` || request.URL.Path != "/w/rest.php/v1/search/page" {
+				t.Fatalf("unexpected encyclopedia request: %s", request.URL)
+			}
+			return webFixture(request, 200, "application/json", `{"pages":[{"key":"History_of_Optics","title":"Geschichte der Optik","excerpt":"<span class=\"searchmatch\">Mira</span> <span class=\"searchmatch\">Rosenfeld</span> erforschte die Brechung."}]}`)
+		default:
+			t.Fatalf("unexpected fallback: %s", request.URL.Host)
+			return nil, nil
+		}
+	})}
+
+	result, err := searchPublicWeb(t.Context(), client, `„Mira Rosenfeld“ wer ist Mira Rosenfeld`)
+	if err != nil || result.Source != "Wikipedia (de)" || len(result.Results) != 1 {
+		t.Fatalf("expected encyclopedia fallback, got %#v, %v", result, err)
+	}
+	item := result.Results[0]
+	if item.URL != "https://de.wikipedia.org/wiki/History_of_Optics" || item.Description != "Mira Rosenfeld erforschte die Brechung." {
+		t.Fatalf("unexpected source text: %#v", item)
 	}
 }
 
@@ -146,7 +179,8 @@ func TestPublicWebLiveSmoke(t *testing.T) {
 		t.Skip("set ZENTRALE_TEST_PUBLIC_WEB=1 for an opt-in public search and page read")
 	}
 	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
-	ctx, cancel := context.WithTimeout(t.Context(), 35*time.Second)
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 
 	result, err := searchPublicWeb(ctx, chatWebClient, "Go documentation site:go.dev")
@@ -162,8 +196,35 @@ func TestPublicWebLiveSmoke(t *testing.T) {
 		t.Fatalf("expected no exact hits: %#v, %v", result, err)
 	}
 
+	result, err = searchPublicWeb(ctx, chatWebClient, `"Franz Lehnert" wer ist Franz Lehnert`)
+	if err != nil || len(result.Results) == 0 {
+		t.Fatalf("no usable sources for the example historical name: %#v, %v", result, err)
+	}
+	t.Logf("historical-name search: %s, %d results", result.Source, len(result.Results))
+
 	page, readErr := fetchChatWeb(ctx, "https://go.dev/doc/")
 	if readErr != nil || !strings.Contains(page.(map[string]string)["text"], "Documentation") {
 		t.Fatalf("documentation page read failed: %v", readErr)
 	}
+}
+
+func TestPublicWebDDGSLiveSmoke(t *testing.T) {
+	query := os.Getenv("ZENTRALE_TEST_DDGS_QUERY")
+	expectedURL := os.Getenv("ZENTRALE_TEST_DDGS_URL")
+	if query == "" || expectedURL == "" || os.Getenv("ZENTRALE_DDGS_PYTHON") == "" {
+		t.Skip("set ZENTRALE_TEST_DDGS_QUERY, ZENTRALE_TEST_DDGS_URL, and ZENTRALE_DDGS_PYTHON to test a real DDGS result")
+	}
+
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+	result, err := searchPublicWeb(t.Context(), chatWebClient, query)
+	if err != nil || result.Source != "Yahoo (DDGS)" {
+		t.Fatalf("expected the configured DDGS source, got %s, %v", result.Source, err)
+	}
+
+	for _, item := range result.Results {
+		if item.URL == expectedURL {
+			return
+		}
+	}
+	t.Fatalf("DDGS did not return the expected URL %s among %d relevant results", expectedURL, len(result.Results))
 }

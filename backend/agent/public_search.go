@@ -24,9 +24,10 @@ type webSearchResult struct {
 }
 
 type webSearchResponse struct {
-	Source  string            `json:"source"`
-	Results []webSearchResult `json:"results"`
-	Note    string            `json:"note,omitempty"`
+	Source      string            `json:"source"`
+	Results     []webSearchResult `json:"results"`
+	Unavailable []string          `json:"unavailableSources,omitempty"`
+	Note        string            `json:"note,omitempty"`
 }
 
 type searchSource struct {
@@ -35,11 +36,18 @@ type searchSource struct {
 }
 
 func searchPublicWeb(ctx context.Context, client *http.Client, query string) (webSearchResponse, error) {
-	sources := []searchSource{{"Bing", searchRSS}, {"DuckDuckGo", searchDuckDuckGo}}
+	sources := []searchSource{
+		{"Bing", searchRSS},
+		{"DuckDuckGo", searchDuckDuckGo},
+		{"Wikipedia (de)", wikipediaSearch("de")},
+		{"Wikipedia (en)", wikipediaSearch("en")},
+	}
 	if key := strings.TrimSpace(os.Getenv("ZENTRALE_BRAVE_SEARCH_API_KEY")); key != "" {
 		sources = []searchSource{{"Brave", func(ctx context.Context, client *http.Client, terms string) ([]webSearchResult, error) {
 			return searchBrave(ctx, client, terms, key)
 		}}}
+	} else if python := strings.TrimSpace(os.Getenv("ZENTRALE_DDGS_PYTHON")); python != "" {
+		sources = append([]searchSource{{"Yahoo (DDGS)", ddgsSearch(python)}}, sources...)
 	}
 
 	return searchFromSources(ctx, client, query, sources)
@@ -78,9 +86,10 @@ func searchFromSources(ctx context.Context, client *http.Client, query string, s
 	}
 
 	return webSearchResponse{
-		Source:  strings.Join(checked, ", "),
-		Results: []webSearchResult{},
-		Note:    "No relevant results were returned. Try a shorter query or add distinguishing context. Do not infer an answer from this empty result.",
+		Source:      strings.Join(checked, ", "),
+		Results:     []webSearchResult{},
+		Unavailable: failures,
+		Note:        "The sources that responded did not return relevant results. This does not mean no public sources exist. Ask for context if needed; do not infer an answer from the empty result.",
 	}, nil
 }
 
@@ -90,9 +99,10 @@ func normalizedWords(text string) []string {
 	})
 }
 
+var searchQuoteReplacer = strings.NewReplacer("“", `"`, "”", `"`, "„", `"`, "«", `"`, "»", `"`)
+
 func searchMatcher(query string) func(webSearchResult) bool {
-	query = strings.NewReplacer("“", `"`, "”", `"`, "„", `"`, "«", `"`, "»", `"`).Replace(query)
-	parts := strings.Split(query, `"`)
+	parts := strings.Split(searchQuoteReplacer.Replace(query), `"`)
 	var phrases []string
 	terms := make(map[string]bool)
 	var site string
@@ -271,6 +281,62 @@ func htmlNodeText(node *html.Node) string {
 		}
 	}
 	return strings.Join(strings.Fields(text.String()), " ")
+}
+
+func wikipediaSearch(language string) func(context.Context, *http.Client, string) ([]webSearchResult, error) {
+	return func(ctx context.Context, client *http.Client, query string) ([]webSearchResult, error) {
+		// For an exact-name question, search the encyclopedia for the name,
+		// not the repeated chat wording. The original match rules still apply.
+		terms := searchQuoteReplacer.Replace(query)
+		if parts := strings.Split(terms, `"`); len(parts) == 3 && strings.TrimSpace(parts[1]) != "" {
+			terms = `"` + strings.TrimSpace(parts[1]) + `"`
+		}
+
+		origin := "https://" + language + ".wikipedia.org"
+		address := origin + "/w/rest.php/v1/search/page?limit=8&q=" + url.QueryEscape(terms)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+		if err != nil {
+			return nil, err
+		}
+		request.Header.Set("Accept", "application/json")
+		request.Header.Set("User-Agent", "Zentrale/1.0 (https://github.com/lehlud/zentrale)")
+		response, err := doPublicWeb(client, request)
+		if err != nil {
+			return nil, err
+		}
+		defer response.Body.Close()
+
+		var payload struct {
+			Pages []struct {
+				Key, Title, Excerpt string
+			} `json:"pages"`
+		}
+		if err := json.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&payload); err != nil || payload.Pages == nil {
+			return nil, errors.New("the encyclopedia did not return search results in its expected format")
+		}
+
+		results := make([]webSearchResult, 0, len(payload.Pages))
+		for _, page := range payload.Pages {
+			if page.Key == "" {
+				continue
+			}
+			results = append(results, webSearchResult{
+				Title:       page.Title,
+				URL:         origin + "/wiki/" + url.PathEscape(page.Key),
+				Description: wikipediaSnippet(page.Excerpt),
+			})
+		}
+		return results, nil
+	}
+}
+
+func wikipediaSnippet(excerpt string) string {
+	// Wikimedia highlights matched words with markup. Search/match plain text.
+	page, err := html.Parse(strings.NewReader(excerpt))
+	if err != nil {
+		return ""
+	}
+	return htmlNodeText(page)
 }
 
 func searchBrave(ctx context.Context, client *http.Client, query, key string) ([]webSearchResult, error) {

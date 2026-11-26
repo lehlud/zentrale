@@ -58,7 +58,7 @@ function groupRow(groups: Map<string, Usage[]>, key: string, row: Usage) {
   else groups.set(key, [row]);
 }
 
-export function UsageDashboard({ admin }: { admin: boolean }) {
+export function UsageDashboard() {
   const { t } = useI18n();
   const api = useAPI();
   const [from, setFrom] = useState(() => utcDay(-29));
@@ -70,13 +70,13 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
   const valid = days.length > 0;
 
   const { data, error, loading } = useQuery<Report>(
-    `query($from:String,$to:String,$userId:ID,$projectId:ID,$admin:Boolean!){
+    `query($from:String,$to:String,$userId:ID,$projectId:ID){
       usageReport(from:$from,to:$to,userId:$userId,projectId:$projectId){${fields}}
-      users @include(if:$admin){id name username}
+      users{id name username}
       projects(limit:500){id name}
       modelProviders{id name}
     }`,
-    { from, to, userId: userId || null, projectId: projectId || null, admin },
+    { from, to, userId: userId || null, projectId: projectId || null },
     { enabled: valid },
   );
 
@@ -144,23 +144,21 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
           <Label>{t("Bis (exklusiv)")}</Label>
           <Input type="date" />
         </TextField>
-        {admin && (
-          <label className="grid gap-1 text-sm">
-            {t("Benutzer")}
-            <select
-              className="min-h-10 rounded-lg border border-border bg-surface px-2"
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-            >
-              <option value="">{t("Alle")}</option>
-              {data?.users?.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name || user.username}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <label className="grid gap-1 text-sm">
+          {t("Benutzer")}
+          <select
+            className="min-h-10 rounded-lg border border-border bg-surface px-2"
+            value={userId}
+            onChange={(event) => setUserId(event.target.value)}
+          >
+            <option value="">{t("Alle")}</option>
+            {data?.users?.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name || user.username}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="grid gap-1 text-sm">
           {t("Projekt")}
           <select
@@ -236,7 +234,6 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
             metric={metric}
             onMetricChange={setMetric}
             groupLabel={(group, id) => {
-              if (group === "userId" && !admin) return t("Du");
               if (group === "projectId" && !id) return t("Ohne Projekt");
               return group === "modelId" ? id : names[group].get(id) || id;
             }}
@@ -282,9 +279,7 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
                         </div>
                       </td>
                       <td className="px-2 py-3">
-                        {user?.name ||
-                          user?.username ||
-                          (admin ? row.userId : t("Du"))}
+                        {user?.name || user?.username || row.userId}
                         <div className="text-xs text-muted">
                           {project?.name || row.projectId || t("Ohne Projekt")}
                         </div>
