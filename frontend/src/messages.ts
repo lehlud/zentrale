@@ -533,6 +533,7 @@ export const english: Record<string, string> = {
   Anmelden: "Sign in",
   Antworten: "Answer",
   Arbeitet: "Working",
+  Benutzername: "Username",
   "Auf einer zugewiesenen Maschine einen code-server-Port konfigurieren.":
     "Configure a code-server port on an assigned machine.",
   "Aufgabe oder neue Instruktion": "Task or new instruction",

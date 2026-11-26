@@ -42,11 +42,13 @@ ZENTRALE_OIDC_REDIRECT_URL=https://zentrale.example.org/auth/oidc/callback
 
 Sign in before opening the installation to other users: the first verified identity becomes the administrator. Signed-out users go directly to the identity provider. After bootstrap, an administrator adds other users with their OIDC subject (`sub`), not their email address. An initialized database cannot switch authentication mode or OIDC issuer without an explicit migration.
 
-Administrators manage accounts, project creation permission, provider/model availability, and monthly UTC token and USD budgets in Settings. A limit of zero means unlimited. Usage is recorded separately for input, cached input, cache writes, and output. The Usage page distinguishes known charges from estimates and missing pricing. Project activity counts toward the creator's budget, even when a member ran it. Budget enforcement uses reported or estimated model usage; it does not cap charges that happen outside Zentrale.
+Administrators manage accounts, project creation permission, provider/model availability, and monthly UTC token and USD budgets in **Admin settings**. A limit of zero means unlimited. Usage is recorded separately for uncached input, cached input, cache writes, and output. The Usage page distinguishes known charges from estimates and missing pricing. Project activity counts toward the creator's budget, even when a member ran it. Budget enforcement uses reported or estimated model usage; it does not cap charges that happen outside Zentrale.
 
 ## Short chats
 
 Short chats are private to their owner, without a Git project, VS Code, or a terminal. Persistent goals, subagent delegation, and slash commands such as `/side` are available only in projects. Attachment uploads are accepted on Zentrale itself (up to 30 files per message, 25 MiB each and 100 MiB total). Web lookup and reading text from attachments or shares do not boot a VM. The optional Humanizer uses the global setting.
+
+Open **Conversation** in the sidebar to start a chat. The first message supplies the title, and you can pin chats you want to keep at the top. Short chats use the same provider caching integration as projects, with a separate cache key for each conversation and a smaller system prompt. Cache hits still depend on the provider, the model, and how much context is reused.
 
 An administrator can enable code execution by selecting one managed MicroVM machine or pool under Short-chat settings. A user is pinned to one pool member on first use. Approved code starts that user's VM on demand, with a separate working directory for each chat and no network inside the command sandbox. Only attachments explicitly selected for the command are staged in its temporary attachment directory. The guest stops after inactivity and keeps its disk for reuse. Changing the target does not move a user's existing workspace automatically.
 

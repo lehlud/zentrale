@@ -16,6 +16,7 @@ import {
   setLogDiagnostics,
 } from "./fixtures/context-actions";
 import {
+  adminStatus,
   agent,
   agents,
   config,
@@ -117,9 +118,10 @@ for (const variant of variants) {
       if (query.includes("status{")) {
         return send({
           status: {
+            ...adminStatus,
             needsSetup: auth === "setup",
             authenticated: auth === "authenticated",
-            githubConnected: false,
+            user: auth === "authenticated" ? adminStatus.user : null,
           },
         });
       }
@@ -265,11 +267,15 @@ for (const variant of variants) {
         );
       }
 
-      if (query.includes("machines(limit:500)")) {
+      if (
+        query.includes("machines(limit:500)") ||
+        query.includes("projectTargets")
+      ) {
         const data = structuredClone(config);
         if (state === "empty") {
           data.machines = [];
           data.projects = [];
+          data.projectTargets = [];
           data.pools = [];
           data.providers = [];
           data.sshKeys = [];

@@ -89,9 +89,10 @@ for (const english of [false, true]) {
         return send({ saveMachine: { id: "new-worker" } });
       }
 
-      if (query.includes("setup(password:")) {
+      if (query.includes("setup(username:")) {
         setupAttempts++;
 
+        expect(variables.username).toBe("flow-admin");
         expect(variables.password).toBe("flow setup password");
 
         if (setupAttempts === 1) {
@@ -371,6 +372,9 @@ for (const english of [false, true]) {
 
     setup = true;
     await page.goto("/?flow-setup=1#/projects");
+    const username = page.getByLabel(label("Benutzername", "Username"), {
+      exact: true,
+    });
     const password = page.getByLabel(label("Passwort", "Password"), {
       exact: true,
     });
@@ -382,6 +386,7 @@ for (const english of [false, true]) {
       page
         .getByRole("button", { name: label("Weiter", "Continue"), exact: true })
         .click();
+    await username.fill("flow-admin");
     await password.fill("flow setup password");
     await confirmation.fill("different password");
     await continueSetup();
@@ -406,6 +411,7 @@ for (const english of [false, true]) {
       .getByRole("button", { name: label("Zurück", "Back"), exact: true })
       .click();
 
+    await expect(username).toHaveValue("flow-admin");
     await expect(password).toHaveValue("flow setup password");
     await expect(confirmation).toHaveValue("flow setup password");
 

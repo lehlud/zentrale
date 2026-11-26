@@ -4,6 +4,7 @@ import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
+  adminStatus,
   agent,
   agents,
   config,
@@ -65,7 +66,7 @@ for (const english of [false, true]) {
             agents: agents.map((item) => (item.id === agent.id ? run : item)),
           });
         if (query.includes("status{")) {
-          return send({ status: { authenticated: true, needsSetup: false } });
+          return send({ status: adminStatus });
         }
 
         if (query.includes("prepareAgent")) {
