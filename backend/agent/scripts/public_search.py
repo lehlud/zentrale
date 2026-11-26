@@ -4,6 +4,7 @@ import json
 import sys
 
 from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 
 query = sys.stdin.read(513).strip()
 if not query or len(query.encode("utf-8")) > 512:
@@ -11,7 +12,14 @@ if not query or len(query.encode("utf-8")) > 512:
 
 # Use only the selected search engine, rather than sending each query to the
 # entire set of engines available in DDGS's auto mode.
-entries = DDGS(timeout=7).text(query, region="de-de", backend="yahoo", max_results=8)
+try:
+    entries = DDGS(timeout=7).text(query, region="de-de", backend="yahoo", max_results=8)
+except DDGSException as failure:
+    # DDGS 9.16 reports an empty result as this exact base exception. Keep
+    # timeouts, rate limits and other provider failures as errors.
+    if type(failure) is not DDGSException or str(failure) != "No results found.":
+        raise
+    entries = []
 
 print(json.dumps([
     {

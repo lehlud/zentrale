@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -49,10 +50,11 @@ func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 }
 
 func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
-	const query = "Mira Rosenfeld"
+	const query = `site:example.org "Mira Rosenfeld"`
 	const matching = `<rss><channel><item><title>Mira Rosenfeld</title><link>https://example.org/mira</link></item></channel></rss>`
 	const irrelevant = `<rss><channel><item><title>Mira</title><link>https://example.org/names</link></item></channel></rss>`
-	const yahooHit = `[{"title":"Mira Rosenfeld","url":"https://example.org/speaker"}]`
+	const namesake = `<rss><channel><item><title>Mira Rosenfeld</title><link>https://other.example/mira</link></item></channel></rss>`
+	const yahooHit = `[{"title":"Mira Rosenfeld","url":"https://other.example/mira"},{"title":"Mira Rosenfeld","url":"https://example.org/speaker"}]`
 	const yahooMiss = `[{"title":"Parcel tracking","url":"https://example.org/tracking"}]`
 
 	for _, tc := range []struct {
@@ -63,7 +65,9 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 		{name: "Bing hit", bingBody: matching, yahoo: yahooHit, bingStatus: 200, wantSource: "Bing", wantURL: "https://example.org/mira"},
 		{name: "Bing failure", bingStatus: 503, yahoo: yahooHit, wantFallbackCalls: 1, wantUnavailable: true, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
 		{name: "Bing irrelevant", bingStatus: 200, bingBody: irrelevant, yahoo: yahooHit, wantFallbackCalls: 1, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
+		{name: "qualified name rejects a namesake outside the source", bingStatus: 200, bingBody: namesake, yahoo: yahooHit, wantFallbackCalls: 1, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
 		{name: "no relevant hits", bingStatus: 200, bingBody: irrelevant, yahoo: yahooMiss, wantFallbackCalls: 1, wantSource: "Bing, Yahoo (DDGS)"},
+		{name: "empty DDGS result is not an outage", bingStatus: 200, bingBody: irrelevant, yahoo: `[]`, wantFallbackCalls: 1, wantSource: "Bing, Yahoo (DDGS)"},
 		{name: "both unavailable", bingStatus: 503, wantFallbackCalls: 1, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,7 +75,7 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 			callsFile := filepath.Join(dir, "calls")
 			fixture := filepath.Join(dir, "python")
 			script := "#!/bin/sh\nprintf x >> " + strconv.Quote(callsFile) + "\n"
-			script += "IFS= read -r query || :\n[ \"$query\" = 'Mira Rosenfeld' ] || exit 2\n"
+			script += "IFS= read -r query || :\n[ \"$query\" = '" + query + "' ] || exit 2\n"
 			if tc.yahoo == "" {
 				script += "exit 1\n"
 			} else {
@@ -118,6 +122,54 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 				}
 			} else if len(result.Results) != 1 || result.Results[0].URL != tc.wantURL {
 				t.Fatalf("unexpected results: %+v", result.Results)
+			}
+		})
+	}
+}
+
+func TestPublicWebDDGSHelperDistinguishesEmptyResultsFromFailures(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Python is required to test the embedded DDGS helper")
+	}
+
+	// Stub only DDGS, then run the same isolated program used by Zentrale.
+	const fixture = `
+import sys
+from types import ModuleType
+
+class DDGSException(Exception):
+    pass
+
+class TimeoutException(DDGSException):
+    pass
+
+class DDGS:
+    def __init__(self, timeout):
+        pass
+
+    def text(self, query, *, backend, **kwargs):
+        assert backend == "yahoo"
+        if query == "empty":
+            raise DDGSException("No results found.")
+        raise TimeoutException("No results found.")
+
+sys.modules["ddgs"] = ModuleType("ddgs")
+sys.modules["ddgs.exceptions"] = ModuleType("ddgs.exceptions")
+sys.modules["ddgs"].DDGS = DDGS
+sys.modules["ddgs.exceptions"].DDGSException = DDGSException
+`
+
+	for _, query := range []string{"empty", "timeout"} {
+		t.Run(query, func(t *testing.T) {
+			command := exec.CommandContext(t.Context(), python, "-I", "-c", fixture+ddgsSearchScript)
+			command.Stdin = strings.NewReader(query)
+			output, err := command.Output()
+			if query == "empty" && (err != nil || string(output) != "[]\n") {
+				t.Fatalf("expected an empty JSON result, got %q (%v)", output, err)
+			}
+			if query == "timeout" && err == nil {
+				t.Fatal("a provider failure must not become an empty result")
 			}
 		})
 	}

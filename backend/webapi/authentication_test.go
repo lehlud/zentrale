@@ -5,13 +5,42 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
 	"github.com/graphql-go/graphql"
+	"github.com/labstack/echo/v4"
 	"github.com/lehlud/zentrale/auth"
 )
+
+func TestSessionCookiesUseTheAuthenticationModeLifetime(t *testing.T) {
+	for _, tc := range []struct {
+		name, issuer string
+		want         int
+	}{
+		{name: "password", want: 7 * 24 * 60 * 60},
+		{name: "oidc", issuer: "https://login.example.org", want: 4 * 60 * 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &Server{Auth: &auth.Service{OIDCIssuer: tc.issuer}, SecureCookie: true}
+			e := echo.New()
+			response := httptest.NewRecorder()
+			request := e.NewContext(httptest.NewRequest(http.MethodPost, "/", nil), response)
+
+			server.setSessionCookie(request, "signed-session-fixture")
+			server.setSessionCookie(request, "")
+			cookies := response.Result().Cookies()
+			if len(cookies) != 2 || cookies[0].Name != "zentrale_session" || cookies[0].MaxAge != tc.want || !cookies[0].Secure || !cookies[0].HttpOnly {
+				t.Fatalf("incorrect lifetime or flags: %+v", cookies)
+			}
+			if cookies[1].Value != "" || cookies[1].MaxAge != -1 {
+				t.Fatal("logout did not expire the session cookie")
+			}
+		})
+	}
+}
 
 func TestAuthenticationErrorsHaveOneProtocolCode(t *testing.T) {
 	fixture := newAPIFixture(t)

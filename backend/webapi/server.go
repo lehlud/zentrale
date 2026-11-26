@@ -167,7 +167,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 				return false, err
 			}
 
-			server.setSessionCookie(requestContext, token, 86400)
+			server.setSessionCookie(requestContext, token)
 			session.user, session.authenticated = server.Auth.User(token)
 			session.sessionHash = auth.TokenHash(token)
 
@@ -176,7 +176,7 @@ func (server *Server) Handler() (*echo.Echo, error) {
 
 		session.logout = func() error {
 			err := server.Store.DeleteUserSession(session.sessionHash)
-			server.setSessionCookie(requestContext, "", -1)
+			server.setSessionCookie(requestContext, "")
 			session.authenticated = false
 			session.user = domain.User{}
 			session.sessionHash = ""

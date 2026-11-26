@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -11,11 +12,17 @@ const (
 	oidcStartPath    = "/auth/oidc/start"
 )
 
-func (server *Server) setSessionCookie(request echo.Context, token string, maxAge int) {
+func (server *Server) setSessionCookie(request echo.Context, token string) {
 	sameSite := http.SameSiteStrictMode
 	if server.OIDC != nil {
 		sameSite = http.SameSiteLaxMode
 	}
+
+	maxAge := -1
+	if token != "" {
+		maxAge = int(server.Auth.SessionLifetime() / time.Second)
+	}
+
 	request.SetCookie(&http.Cookie{
 		Name:     "zentrale_session",
 		Value:    token,
@@ -54,7 +61,7 @@ func (server *Server) registerOIDC(e *echo.Echo) {
 			return request.String(http.StatusForbidden, "No active Zentrale account for this OpenID Connect identity. Contact your administrator.")
 		}
 
-		server.setSessionCookie(request, token, 86400)
+		server.setSessionCookie(request, token)
 		return request.Redirect(http.StatusSeeOther, "/")
 	})
 }

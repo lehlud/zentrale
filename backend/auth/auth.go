@@ -29,6 +29,8 @@ type Service struct {
 
 	mu       sync.Mutex
 	attempts map[string][]time.Time
+
+	sessionKey []byte
 }
 
 func New(store *datastore.Instance, envHash string) (*Service, error) {
@@ -38,7 +40,6 @@ func New(store *datastore.Instance, envHash string) (*Service, error) {
 const DefaultUsername = "admin"
 
 func NewWithIssuer(store *datastore.Instance, envHash, issuer string) (*Service, error) {
-	s := &Service{Store: store, OIDCIssuer: issuer, attempts: make(map[string][]time.Time)}
 	initial, err := store.UserAccount(domain.InitialUserID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -59,7 +60,7 @@ func NewWithIssuer(store *datastore.Instance, envHash, issuer string) (*Service,
 		if legacy != "" {
 			return nil, errors.New("a legacy password installation cannot be claimed through OIDC")
 		}
-		return s, nil
+		return newSessionService(store, issuer)
 	}
 
 	if envHash != "" {
@@ -79,7 +80,7 @@ func NewWithIssuer(store *datastore.Instance, envHash, issuer string) (*Service,
 		}
 	}
 
-	return s, nil
+	return newSessionService(store, issuer)
 }
 
 func initialAccount(username, passwordHash string) datastore.Account {
@@ -328,36 +329,4 @@ func (s *Service) LoginOIDC(issuer, subject, username, name string) (string, err
 		return "", errors.New("this account is disabled")
 	}
 	return s.createSession(account.ID)
-}
-
-func (s *Service) createSession(userID string) (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-
-	token := base64.RawURLEncoding.EncodeToString(b)
-	if err := s.Store.CreateUserSession(TokenHash(token), userID, time.Now().Add(24*time.Hour)); err != nil {
-		return "", err
-	}
-
-	return token, nil
-}
-
-func (s *Service) Valid(token string) bool {
-	_, valid := s.User(token)
-	return valid
-}
-
-func (s *Service) User(token string) (domain.User, bool) {
-	if len(token) != 43 {
-		return domain.User{}, false
-	}
-
-	user, err := s.Store.SessionUser(TokenHash(token), s.OIDCIssuer)
-	return user, err == nil
-}
-
-func (s *Service) Logout(token string) error {
-	return s.Store.DeleteUserSession(TokenHash(token))
 }

@@ -14,6 +14,10 @@ import (
 	"unicode"
 )
 
+const publicSearchQueryHelp = "Use short public search terms, never secrets or private file contents. " +
+	"Quote full names. If several people match, narrow the query with a known detail or a known source (site:example.org), or ask for context. " +
+	"Do not guess which person is meant."
+
 type webSearchResult struct {
 	Title       string `xml:"title" json:"title"`
 	URL         string `xml:"link" json:"url"`
@@ -77,7 +81,7 @@ func searchFromSources(ctx context.Context, client *http.Client, query string, s
 		Source:      strings.Join(checked, ", "),
 		Results:     []webSearchResult{},
 		Unavailable: failures,
-		Note:        "The sources that responded did not return relevant results. This does not mean no public sources exist. Ask for context if needed; do not infer an answer from the empty result.",
+		Note:        "The sources that responded did not return relevant results. This does not mean no public sources exist. Try fewer search terms or narrow to a known source with site:example.org. Ask for context if needed; do not infer an answer from an empty result.",
 	}, nil
 }
 

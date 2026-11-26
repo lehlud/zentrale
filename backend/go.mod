@@ -8,6 +8,7 @@ require (
 	github.com/fastschema/qjs v0.0.6
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/graphql-go/graphql v0.8.1
 	github.com/jfjallid/go-smb v0.12.0
@@ -30,7 +31,6 @@ require (
 	github.com/duckdb/duckdb-go-bindings v0.20000.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
