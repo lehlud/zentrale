@@ -887,13 +887,18 @@ test("provider forms preserve errors, guided login and inline model catalog", as
   await dialog
     .getByLabel("Name", { exact: true })
     .fill("Invalid endpoint test");
-  await dialog
-    .getByRole("button", { name: "Erweiterte Einstellungen" })
-    .click();
-  await dialog.getByLabel("API-Basis-URL").fill("http://remote.example/v1");
+  const advanced = dialog.getByRole("button", {
+    name: "Erweiterte Einstellungen",
+  });
+  const endpoint = dialog.getByLabel("API-Basis-URL");
+  await advanced.click();
+  await endpoint.fill("http://remote.example/v1");
+  await advanced.click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
 
-  await expect(dialog.getByLabel("API-Basis-URL")).toBeFocused();
+  await expect(advanced).toHaveAttribute("aria-expanded", "true");
+  await expect(endpoint).toBeFocused();
   await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
     "Invalid endpoint test",
   );

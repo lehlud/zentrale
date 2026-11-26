@@ -11,7 +11,7 @@ import {
   Select,
   TextField,
 } from "@heroui/react";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { useAPI } from "./api";
 import { browserLoginRedirectURI } from "./browser-login";
@@ -85,14 +85,16 @@ export function ProviderEditor({
   const requiresEndpoint = value.kind === "litellm" || (isModal && !apiModal);
   const update = (key: string, next: unknown) =>
     setValue((previous) => ({ ...previous, [key]: next }));
-  const focus = (field: string) =>
-    requestAnimationFrame(() =>
-      form.current
-        ?.querySelector<HTMLElement>(
-          `[data-field="${field}"] input,[data-field="${field}"] button`,
-        )
-        ?.focus(),
-    );
+
+  // Focus after the error, enabled controls and expanded panel are committed.
+  useLayoutEffect(() => {
+    const field = Object.keys(invalid)[0];
+    if (busy || !field) return;
+
+    form.current
+      ?.querySelector<HTMLElement>(`[data-field="${field}"] :is(input, button)`)
+      ?.focus();
+  }, [busy, invalid]);
 
   async function save() {
     if (submitting.current) {
@@ -101,7 +103,6 @@ export function ProviderEditor({
 
     if (!managedModal && !String(value.name ?? "").trim()) {
       setInvalid({ name: t("Dieses Feld ist erforderlich.") });
-      focus("name");
 
       return;
     }
@@ -112,7 +113,6 @@ export function ProviderEditor({
     const tokenSecret = String(value.modalTokenSecret ?? "").trim();
     if (requiresEndpoint && !endpoint) {
       setInvalid({ baseUrl: t("Dieses Feld ist erforderlich.") });
-      focus("baseUrl");
 
       return;
     }
@@ -129,7 +129,6 @@ export function ProviderEditor({
         if (invalidSegment >= 0) {
           const field = fields[invalidSegment];
           setInvalid({ [field]: t("Gib einen gültigen Modal-Namen ein.") });
-          focus(field);
           return;
         }
         endpoint = `modal://${segments.join("/")}`;
@@ -162,7 +161,6 @@ export function ProviderEditor({
                 { prefix },
               ),
             });
-            focus(field);
             return;
           }
         }
@@ -229,7 +227,6 @@ export function ProviderEditor({
       if (/provider URL/i.test(message)) {
         setAdvanced(true);
         setInvalid({ baseUrl: t(message) });
-        focus("baseUrl");
       } else setError(message);
     } finally {
       submitting.current = false;
