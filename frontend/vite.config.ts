@@ -4,6 +4,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Serve fonts as files, including small Noto Emoji subsets. The app's
+    // self-only font policy intentionally does not allow data: URLs.
+    assetsInlineLimit: 0,
+  },
   server: {
     proxy: {
       "/graphql": "http://127.0.0.1:8080",

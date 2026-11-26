@@ -5,7 +5,7 @@ import type {
   MachineConnectionCheck,
   PoolMachineConnectionCheck,
 } from "../src/generated";
-import { config } from "./fixtures/visual-data";
+import { adminStatus, config } from "./fixtures/visual-data";
 
 for (const english of [false, true]) {
   test(`pool connection sample, failures and exact-member retries: ${english ? "mobile-en" : "desktop-de"}`, async ({
@@ -94,7 +94,7 @@ for (const english of [false, true]) {
       const { query, variables = {} } = route.request().postDataJSON();
       const send = (data: unknown) => route.fulfill({ json: { data } });
       if (query.includes("status{")) {
-        return send({ status: { needsSetup: false, authenticated: true } });
+        return send({ status: adminStatus });
       }
       if (query.includes("testPool(")) {
         poolChecks++;

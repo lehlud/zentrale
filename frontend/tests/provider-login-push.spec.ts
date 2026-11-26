@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, gitConnections } from "./fixtures/visual-data";
+import { adminStatus, config, gitConnections } from "./fixtures/visual-data";
 
 test("provider device login subscribes once and receives completion without browser polling", async ({
   page,
@@ -17,8 +17,7 @@ test("provider device login subscribes once and receives completion without brow
     error: "",
   };
   const reads = (query: string, variables: Record<string, any> = {}) => {
-    if (/\bstatus\s*\{/.test(query))
-      return { status: { needsSetup: false, authenticated: true } };
+    if (/\bstatus\s*\{/.test(query)) return { status: adminStatus };
     if (query.includes("providerLogin("))
       return { providerLogin: variables.id === login.id ? login : null };
     if (query.includes("gitConnections")) return { gitConnections };

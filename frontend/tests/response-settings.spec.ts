@@ -1,14 +1,18 @@
 import { expect, test } from "@playwright/test";
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, models, gitConnections } from "./fixtures/visual-data";
+import {
+  adminStatus,
+  config,
+  models,
+  gitConnections,
+} from "./fixtures/visual-data";
 
 test("OpenAI transport and cache choices are saved without replacing credentials", async ({
   page,
 }) => {
   await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
   const reads = (query: string) => {
-    if (/\bstatus\s*\{/.test(query))
-      return { status: { needsSetup: false, authenticated: true } };
+    if (/\bstatus\s*\{/.test(query)) return { status: adminStatus };
     if (query.includes("models(providerId:")) return { models };
     if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
     if (query.includes("gitConnections")) return { gitConnections };

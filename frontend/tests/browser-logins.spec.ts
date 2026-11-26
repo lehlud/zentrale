@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, gitConnections } from "./fixtures/visual-data";
+import { adminStatus, config, gitConnections } from "./fixtures/visual-data";
 
 async function loginFixture(page: Page, locale = "de") {
   await page.addInitScript(
@@ -59,7 +59,7 @@ async function loginFixture(page: Page, locale = "de") {
   };
   const resolve = (query: string) => {
     if (/\bstatus\s*\{/.test(query)) {
-      return { status: { needsSetup: false, authenticated: true } };
+      return { status: adminStatus };
     }
 
     if (query.includes("gitLogin(")) return { gitLogin };

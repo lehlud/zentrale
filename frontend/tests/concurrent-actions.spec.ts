@@ -1,7 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 import { installPushFixture } from "./fixtures/push-fixture";
-import { config, gitConnections, project } from "./fixtures/visual-data";
+import {
+  adminStatus,
+  config,
+  gitConnections,
+  project,
+} from "./fixtures/visual-data";
 
 test("a pending deletion leaves other project rows and reads usable", async ({
   page,
@@ -9,8 +14,7 @@ test("a pending deletion leaves other project rows and reads usable", async ({
   const second = { ...project, id: "second", name: "Independent project" };
   const state = { ...structuredClone(config), projects: [project, second] };
   const read = (query: string) => {
-    if (query.includes("status{"))
-      return { status: { needsSetup: false, authenticated: true } };
+    if (query.includes("status{")) return { status: adminStatus };
     if (query.includes("models(")) return { models: [] };
     if (query.includes("sidebarAgents")) return { sidebarAgents: [] };
     if (query.includes("gitConnections")) return { ...state, gitConnections };

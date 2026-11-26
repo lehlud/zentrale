@@ -4,6 +4,7 @@ import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
 import {
+  adminStatus,
   agent,
   agents,
   config,
@@ -60,13 +61,7 @@ for (const variant of [
       }
 
       const data = query.includes("status{")
-        ? {
-            status: {
-              needsSetup: false,
-              authenticated: true,
-              githubConnected: false,
-            },
-          }
+        ? { status: adminStatus }
         : isTranscriptQuery(query)
           ? {
               ...transcript,

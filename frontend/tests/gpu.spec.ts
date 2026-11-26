@@ -3,6 +3,7 @@ import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { installPushFixture } from "./fixtures/push-fixture";
 
 import {
+  adminStatus,
   agent,
   agents,
   config,
@@ -23,16 +24,14 @@ for (const english of [false, true]) {
     const state = structuredClone(config);
     let saved: Record<string, unknown> | undefined;
     const push = await installPushFixture(page, (query) =>
-      query.includes("status{")
-        ? { status: { authenticated: true, needsSetup: false } }
-        : state,
+      query.includes("status{") ? { status: adminStatus } : state,
     );
     await page.route("**/graphql", async (route) => {
       const { query, variables = {} } = route.request().postDataJSON();
       if (query.includes("status{")) {
         return route.fulfill({
           json: {
-            data: { status: { authenticated: true, needsSetup: false } },
+            data: { status: adminStatus },
           },
         });
       }
@@ -94,7 +93,7 @@ for (const english of [false, true]) {
       const send = (data: unknown) =>
         route.fulfill({ json: { data: bootstrapData(query, data) } });
       if (query.includes("status{")) {
-        return send({ status: { authenticated: true, needsSetup: false } });
+        return send({ status: adminStatus });
       }
 
       if (isTranscriptQuery(query)) {

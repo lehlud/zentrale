@@ -106,9 +106,7 @@ async function connectionFixture(page: Page) {
       const data = await resolve(query, variables);
       if (query.trimStart().startsWith("mutation")) await push.push();
       if (
-        !query.includes("status{") &&
-        !isTranscriptQuery(query) &&
-        !query.includes("agents(projectId:") &&
+        /\bprojects\s*\(/.test(query) &&
         !query.trimStart().startsWith("mutation")
       ) {
         state.configReads++;
@@ -194,8 +192,11 @@ test("raw engine frames do not reload HTTP queries; subscription snapshots updat
   await expect
     .poll(
       () =>
-        fixture.subscriptionFrames.filter((frame) => frame.type === "subscribe")
-          .length,
+        fixture.subscriptionFrames.filter(
+          (frame) =>
+            frame.type === "subscribe" &&
+            /\b(?:status\s*\{|projects\s*\()/.test(frame.query),
+        ).length,
     )
     .toBe(3);
   const reads = fixture.state.configReads;

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { config, gitConnections } from "./fixtures/visual-data";
+import { adminStatus, config, gitConnections } from "./fixtures/visual-data";
 
 for (const english of [false, true]) {
   test(`guided creation preserves inputs and routes errors: ${english ? "mobile-en-dark" : "desktop-de-light"}`, async ({
@@ -34,7 +34,11 @@ for (const english of [false, true]) {
         throw new Error(message);
       };
       if (query.includes("status{")) {
-        return send({ status: { needsSetup: setup, authenticated: !setup } });
+        return send({
+          status: setup
+            ? { needsSetup: true, authenticated: false }
+            : adminStatus,
+        });
       }
 
       if (query.includes("saveProject")) {

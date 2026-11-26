@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installPushFixture } from "./fixtures/push-fixture";
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { config } from "./fixtures/visual-data";
+import { adminStatus, config } from "./fixtures/visual-data";
 
 const yaml = `id: training
 name: Training
@@ -54,7 +54,7 @@ for (const english of [false, true]) {
     ) => {
       const send = (data: unknown) => data;
       if (query.includes("status{")) {
-        return send({ status: { needsSetup: false, authenticated: true } });
+        return send({ status: adminStatus });
       }
 
       if (query.includes("poolConfiguration")) {
@@ -321,8 +321,7 @@ test("a failed Monaco download keeps YAML editable and savable", async ({
   await page.route("**/graphql", async (route) => {
     const { query, variables = {} } = route.request().postDataJSON();
     let data: unknown = config;
-    if (query.includes("status{"))
-      data = { status: { needsSetup: false, authenticated: true } };
+    if (query.includes("status{")) data = { status: adminStatus };
 
     if (query.includes("savePool")) {
       saved = variables.yaml;
