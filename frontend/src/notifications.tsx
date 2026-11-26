@@ -93,18 +93,21 @@ export function Notifications() {
   return (
     <Toast.Provider
       queue={queue}
-      placement="bottom end"
-      width={360}
+      placement="top end"
+      width={540}
       aria-label={t("Benachrichtigungen")}
     >
       {({ toast }) => (
         <Toast
           toast={toast}
           variant={toast.content.variant}
-          className="grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+          className="grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
         >
-          <Toast.Indicator variant={toast.content.variant} />
-          <Toast.Content>
+          <Toast.Indicator
+            variant={toast.content.variant}
+            className="size-10 self-start p-0"
+          />
+          <Toast.Content className="self-start">
             <Toast.Title>{toast.content.title}</Toast.Title>
             {toast.content.description && (
               <Toast.Description className="mt-1 leading-5">
@@ -122,7 +125,7 @@ export function Notifications() {
           </Toast.Content>
           <Toast.CloseButton
             aria-label={t("Benachrichtigung schließen")}
-            className="pointer-events-auto static col-start-3 row-start-1 size-11 opacity-100"
+            className="pointer-events-auto static col-start-3 row-start-1 size-10 self-start opacity-100"
           />
         </Toast>
       )}

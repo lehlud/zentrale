@@ -146,5 +146,24 @@ for (const mobile of [false, true]) {
       await expect(
         page.getByRole("dialog", { name: "Hauptnavigation" }),
       ).toHaveCount(0);
+
+    // The rail shortcut needs to focus the composer even in an existing draft.
+    for (const _ of [0, 1]) {
+      if (mobile)
+        await page
+          .getByRole("button", { name: "Menü öffnen", exact: true })
+          .click();
+      await page
+        .getByRole("link", { name: "Neue Unterhaltung", exact: true })
+        .click();
+      const input = page.getByRole("textbox", {
+        name: "Nachricht",
+        exact: true,
+      });
+      await expect(input).toBeFocused();
+      await expect(input).toHaveCSS("outline-style", "none");
+      await expect(input).toHaveCSS("border-top-width", "0px");
+      await expect(input).toHaveCSS("box-shadow", "none");
+    }
   });
 }

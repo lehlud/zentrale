@@ -55,6 +55,9 @@ const fieldLabels: Record<string, string> = {
   id: "Kennung",
   jobId: "Job",
   sourceId: "Quelle",
+  source: "Quelle",
+  note: "Hinweis",
+  unavailableSources: "Nicht erreichbare Quellen",
   sources: "Quellen",
   host: "Host",
   port: "Port",
@@ -262,9 +265,9 @@ function ActivityList({ items }: { items: unknown[] }) {
 
   return (
     <div className="min-w-0">
-      <ul className="space-y-3">
+      <ul className="divide-y divide-border">
         {batch.items.map((item, index) => (
-          <li key={index} className="min-w-0 border-l border-border pl-3">
+          <li key={index} className="min-w-0 py-2 first:pt-0 last:pb-0">
             <ActivityValue value={item} />
           </li>
         ))}
@@ -320,18 +323,37 @@ export function ActivityFields({
   }
 
   return (
-    <dl className="min-w-0 space-y-3 text-sm">
-      {fields.map(([key, item]) => (
-        <div
-          key={key}
-          className="grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-[minmax(7rem,10rem)_minmax(0,1fr)] sm:gap-3"
-        >
-          <dt className="text-xs leading-6 text-muted">{t(fieldLabel(key))}</dt>
-          <dd className="min-w-0 leading-6">
-            <ActivityValue value={item} field={key} />
-          </dd>
-        </div>
-      ))}
+    <dl className="flex min-w-0 flex-wrap items-start gap-x-6 gap-y-2 text-sm">
+      {fields.map(([key, item]) => {
+        const decoded = structured(item);
+        const group = decoded !== null && typeof decoded === "object";
+        const multiline =
+          typeof item === "string" && (item.length > 80 || item.includes("\n"));
+
+        return (
+          <div
+            key={key}
+            className={
+              group || multiline
+                ? "w-full min-w-0 space-y-0.5"
+                : "flex min-w-0 max-w-full flex-wrap items-baseline gap-x-2"
+            }
+          >
+            <dt className="break-words text-xs font-medium leading-6 text-muted">
+              {t(fieldLabel(key))}
+            </dt>
+            <dd
+              className={
+                group
+                  ? "min-w-0 rounded-lg bg-surface-secondary p-2.5"
+                  : "min-w-0 leading-6"
+              }
+            >
+              <ActivityValue value={group ? decoded : item} field={key} />
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }

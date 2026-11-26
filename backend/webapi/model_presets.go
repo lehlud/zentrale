@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"database/sql"
 	"errors"
 	"reflect"
 	"slices"
@@ -9,6 +10,33 @@ import (
 	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/domain"
 )
+
+func (builder *schemaBuilder) modelChoiceName(kind string) graphql.FieldResolveFn {
+	return func(params graphql.ResolveParams) (any, error) {
+		choice, _ := params.Source.(map[string]any)
+		providerID, _ := choice["providerId"].(string)
+		modelID, _ := choice["modelId"].(string)
+		if providerID == "" || modelID == "" {
+			return nil, nil
+		}
+
+		id := providerID
+		if kind == "model" {
+			id += ":" + modelID
+		}
+
+		var entry struct {
+			Name string `json:"name"`
+		}
+		if err := builder.server.Store.LoadFields(kind, id, &entry, []string{"name"}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return entry.Name, nil
+	}
+}
 
 func (server *Server) selectableModelPresets(scope string, user domain.User) ([]domain.ModelChoice, error) {
 	policy, err := server.Engine.ModelPresetPolicy(scope)

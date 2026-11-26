@@ -101,13 +101,13 @@ const ToolEntry = memo(function ToolEntry({
       : [];
 
   return (
-    <li className="my-1 min-w-0 border-l border-border pl-3 sm:pl-4">
+    <li className="my-0.5 min-w-0">
       <Accordion hideSeparator className="min-w-0">
         <Accordion.Item id={message.id}>
           {({ isExpanded }) => (
             <>
               <Accordion.Heading>
-                <Accordion.Trigger className="min-h-11 min-w-0 gap-2 py-1 font-mono text-xs">
+                <Accordion.Trigger className="min-h-8 min-w-0 gap-2 py-1 font-mono text-xs">
                   <span
                     aria-hidden="true"
                     className={
@@ -241,7 +241,7 @@ function CodeModeActivities({
 }) {
   const { t } = useI18n();
   return (
-    <ol className="space-y-3" aria-label={t("Ausgeführte Werkzeuge")}>
+    <ol aria-label={t("Ausgeführte Werkzeuge")}>
       {activities.map((activity, index) => {
         const id = `${parentId}-step-${index}`;
         return (
@@ -275,12 +275,13 @@ function CodeModeActivities({
 
 const MessageContent = memo(function MessageContent({
   message,
+  feedback,
 }: {
   message: Message;
+  feedback?: Record<string, unknown>;
 }) {
   const { t } = useI18n();
-  if (message.role === "event") {
-    const feedback = record(parseJSON(message.content));
+  if (feedback) {
     if (feedback.kind === "agent_coordination") {
       return <AgentCoordination value={feedback} />;
     }
@@ -472,7 +473,7 @@ export const AgentConversation = memo(function AgentConversation({
           {timeline.map((entry) => (
             <VirtualTranscriptItem
               key={entry.id}
-              estimate={entry.message?.role === "tool" ? 48 : 140}
+              estimate={entry.message?.role === "tool" ? 36 : 140}
             >
               {() => {
                 if (entry.goal)
@@ -504,7 +505,7 @@ export const AgentConversation = memo(function AgentConversation({
                     return (
                       <li
                         key={message.id}
-                        className="space-y-1 border-l border-border py-2 pl-4 font-mono text-xs"
+                        className="my-0.5 space-y-1 px-4 font-mono text-xs"
                       >
                         {pending.map((call, index) => (
                           <p
@@ -567,6 +568,13 @@ export const AgentConversation = memo(function AgentConversation({
                 }
 
                 const user = message.role === "user";
+                const feedback =
+                  message.role === "event"
+                    ? record(parseJSON(message.content))
+                    : undefined;
+                const question =
+                  feedback?.kind === "subagent_question" ||
+                  feedback?.kind === "parent_question_answer";
 
                 return (
                   <li
@@ -575,7 +583,9 @@ export const AgentConversation = memo(function AgentConversation({
                     className={
                       user
                         ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
-                        : "min-w-0 py-5"
+                        : question
+                          ? "min-w-0 py-0.5"
+                          : "min-w-0 py-5"
                     }
                   >
                     <div className="sr-only">
@@ -586,7 +596,7 @@ export const AgentConversation = memo(function AgentConversation({
                         <MessageTime message={message} />
                       </span>
                     </div>
-                    <MessageContent message={message} />
+                    <MessageContent message={message} feedback={feedback} />
                     {showDiagnostics && onInspect && !user && message.wire && (
                       <Button
                         className="mt-1 min-h-11 text-xs text-muted"

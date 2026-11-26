@@ -1,13 +1,15 @@
 import { Link, Tabs } from "@heroui/react";
 
 import { useAPI, useQuery } from "./api";
-import type { ModelChoice, ModelDefaults, Provider } from "./generated";
+import { ChatModelSelect, chatModelFields } from "./chat-model-select";
+import type { ModelChoice, Provider } from "./generated";
 import { PresetSelect } from "./model-presets";
+import type { ModelSelection, ModelSelections } from "./model-selection";
 import { ModelChoiceForm } from "./models";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
 
-const query = `query($agentId:String!) {
+const projectModelQuery = `query($agentId:String!) {
   conversationModels(agentId:$agentId) {
     main { providerId modelId reasoningLevel }
     approver { providerId modelId reasoningLevel }
@@ -16,20 +18,23 @@ const query = `query($agentId:String!) {
   modelProviders { id name }
 }`;
 
-type ConversationModelData = {
-  conversationModels: ModelDefaults;
-  conversationModelPresets?: ModelChoice[] | null;
-  modelProviders: Pick<Provider, "id" | "name">[];
+const chatModelQuery = `query($agentId:String!) {
+  conversationModels(agentId:$agentId) { main { ${chatModelFields} } }
+  conversationModelPresets(agentId:$agentId) { ${chatModelFields} }
+}`;
+
+type ChatModelData = {
+  conversationModels: { main: ModelChoice };
+  conversationModelPresets: ModelChoice[] | null;
 };
 
 const changeModel =
   "mutation($agentId:String!,$role:String!,$choice:ModelChoiceInput!){setConversationModel(agentId:$agentId,role:$role,choice:$choice)}";
 
 export function ShortChatModelPicker({ agentId }: { agentId: string }) {
-  const { t } = useI18n();
   const api = useAPI();
   const action = useAction();
-  const { data, error } = useQuery<ConversationModelData>(query, { agentId });
+  const { data, error } = useQuery<ChatModelData>(chatModelQuery, { agentId });
 
   if (!data?.conversationModels)
     return error ? <Failure message={error} /> : null;
@@ -40,17 +45,10 @@ export function ShortChatModelPicker({ agentId }: { agentId: string }) {
 
   return (
     <div className="min-w-0 max-w-[50%]">
-      <PresetSelect
-        compact
-        label={t("Modell")}
-        placeholder={t(
-          presets.length ? "Modell auswählen" : "Keine Modelle freigegeben.",
-        )}
+      <ChatModelSelect
         value={value}
         presets={presets}
-        providers={data.modelProviders ?? []}
-        disabled={action.busy || !presets.length}
-        allowEmpty={false}
+        disabled={action.busy}
         onChange={(choice) =>
           action.run(() =>
             api.mutate(changeModel, { agentId, role: "main", choice }),
@@ -75,10 +73,10 @@ export function ConversationModelDialog({
   const api = useAPI();
   const action = useAction();
   const { data, error, loading } = useQuery<{
-    conversationModels: ModelDefaults;
-    conversationModelPresets?: ModelChoice[] | null;
+    conversationModels: ModelSelections;
+    conversationModelPresets?: ModelSelection[] | null;
     modelProviders: Pick<Provider, "id" | "name">[];
-  }>(query, { agentId });
+  }>(projectModelQuery, { agentId });
   const roles = ["main", "approver"] as const;
   const providers = data?.modelProviders ?? [];
 
@@ -87,7 +85,7 @@ export function ConversationModelDialog({
 
     const choice = data.conversationModels[role];
     const presets = data.conversationModelPresets;
-    const selectModel = async (choice: ModelChoice) => {
+    const selectModel = async (choice: ModelSelection) => {
       await api.mutate(
         "mutation($agentId:String!,$role:String!,$choice:ModelChoiceInput!){setConversationModel(agentId:$agentId,role:$role,choice:$choice)}",
         { agentId, role, choice },

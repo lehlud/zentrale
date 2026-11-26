@@ -98,6 +98,11 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 		}
 	}
 
+	if goType == reflect.TypeFor[domain.ModelChoice]() {
+		fields["displayName"] = &graphql.Field{Type: graphql.String, Resolve: builder.modelChoiceName("model")}
+		fields["providerName"] = &graphql.Field{Type: graphql.String, Resolve: builder.modelChoiceName("provider")}
+	}
+
 	if goType == reflect.TypeFor[domain.Message]() {
 		fields["activities"] = &graphql.Field{
 			Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.ToolActivity]())))),

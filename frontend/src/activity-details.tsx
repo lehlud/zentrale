@@ -1,4 +1,4 @@
-import { Chip } from "@heroui/react";
+import { Chip, Link } from "@heroui/react";
 
 import { MoreButton, useBatch } from "./batches";
 import { CodeSnippet } from "./code-snippet";
@@ -46,6 +46,7 @@ const toolLabels: Record<string, string> = {
   venv_cleanup: "Python-Umgebung entfernen",
   container: "Container ausführen",
   websearch: "Im Web suchen",
+  web_search: "Im Web suchen",
   webfetch: "Webseite abrufen",
   humanize_text: "Text umformulieren",
   run_hosted_model: "Gehostetes Modell ausführen",
@@ -439,6 +440,64 @@ function ToolSearchResults({ items }: { items: unknown[] }) {
   );
 }
 
+function WebSearchResults({ result }: { result: Record<string, unknown> }) {
+  const { t } = useI18n();
+  const items = Array.isArray(result.results) ? result.results : [];
+
+  return (
+    <div className="min-w-0 space-y-2">
+      <ActivityFields value={result} omit={["results"]} />
+      {items.length ? (
+        <ol aria-label={t("Suchergebnisse")} className="divide-y divide-border">
+          {items.map((item, index) => {
+            const { title, url, snippet } = record(item);
+            const address = typeof url === "string" ? URL.parse(url) : null;
+            const href =
+              address && ["http:", "https:"].includes(address.protocol)
+                ? address.href
+                : null;
+            const label =
+              typeof title === "string" && title.trim()
+                ? title
+                : address?.hostname || t("Quelle");
+
+            return (
+              <li key={index} className="min-w-0 space-y-0.5 py-2.5 first:pt-0">
+                {href ? (
+                  <Link
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-fit text-sm font-medium [overflow-wrap:anywhere]"
+                  >
+                    {label}
+                  </Link>
+                ) : (
+                  <p className="text-sm font-medium [overflow-wrap:anywhere]">
+                    {label}
+                  </p>
+                )}
+                {href && (
+                  <p className="break-all text-xs text-muted">
+                    {address?.hostname}
+                  </p>
+                )}
+                {typeof snippet === "string" && snippet && (
+                  <p className="text-sm leading-6 text-muted [overflow-wrap:anywhere]">
+                    {snippet}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="text-sm text-muted">{t("Keine Suchergebnisse")}</p>
+      )}
+    </div>
+  );
+}
+
 export function ActivityResult({
   name,
   value,
@@ -453,6 +512,12 @@ export function ActivityResult({
   const decoded = structured(value);
   const result = record(decoded);
   if (name === "github") return <GitHubResult value={decoded} />;
+  if (
+    (name === "web_search" || name === "websearch") &&
+    Array.isArray(result.results)
+  ) {
+    return <WebSearchResults result={result} />;
+  }
   if (name === "tool_search" && Array.isArray(decoded)) {
     return <ToolSearchResults items={decoded} />;
   }

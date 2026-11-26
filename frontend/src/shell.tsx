@@ -78,7 +78,13 @@ const sidebarSections = [
   { id: "projects", label: "Projekte", icon: "projects" },
 ] as const;
 
-function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+function Navigation({
+  onNavigate,
+  onCompose,
+}: {
+  onNavigate?: () => void;
+  onCompose: () => void;
+}) {
   const { t } = useI18n();
   const sidebar = useSidebar()!;
   const user = useSessionUser();
@@ -132,6 +138,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             onPress={() => {
               setSection("chats");
               onNavigate?.();
+              onCompose();
             }}
             className={buttonVariants({
               variant: "ghost",
@@ -316,6 +323,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
   const compact = useMediaQuery("(max-width: 1023px)");
   const [collapsed, setCollapsed] = useState(savedCollapsed);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [focusDraft, setFocusDraft] = useState(false);
   const [creatingIn, setCreatingIn] = useState<string>();
   const [appearance, setAppearance] = useState(false);
   const { page, projectId, params } = useRoute();
@@ -326,6 +334,25 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
     () => setMenuOpen(false),
     [page, projectId, params.get("agent"), compact],
   );
+
+  useEffect(() => {
+    if (!focusDraft || menuOpen || page !== "chats" || projectId) return;
+
+    // The mobile drawer retains its focus scope until its exit animation ends.
+    let frame = requestAnimationFrame(function focusComposer() {
+      if (compact && document.getElementById("primary-navigation")) {
+        frame = requestAnimationFrame(focusComposer);
+        return;
+      }
+
+      document
+        .querySelector<HTMLTextAreaElement>("[data-short-chat-draft] textarea")
+        ?.focus();
+      setFocusDraft(false);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [compact, focusDraft, menuOpen, page, projectId]);
 
   function setPanelCollapsed(value: boolean) {
     setCollapsed(value);
@@ -398,7 +425,10 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
                 className="border-r border-separator bg-background p-0"
               >
                 <Drawer.Body className="min-h-0 flex-1 overflow-hidden p-0">
-                  <Navigation onNavigate={() => setMenuOpen(false)} />
+                  <Navigation
+                    onNavigate={() => setMenuOpen(false)}
+                    onCompose={() => setFocusDraft(true)}
+                  />
                 </Drawer.Body>
                 {appearanceDialog}
               </Drawer.Dialog>
@@ -410,7 +440,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
             aria-label={t("Hauptnavigation")}
             className="fixed inset-y-0 left-0 hidden w-[var(--sidebar-width)] border-r border-separator bg-background lg:block"
           >
-            <Navigation />
+            <Navigation onCompose={() => setFocusDraft(true)} />
           </aside>
         )}
         <div className="lg:pl-[var(--sidebar-width)]">

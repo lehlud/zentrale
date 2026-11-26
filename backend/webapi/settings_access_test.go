@@ -77,11 +77,11 @@ func TestPersonalIdentityAndProjectTargetGrants(t *testing.T) {
 func TestScopedModelSettings(t *testing.T) {
 	admin, bob, _ := settingsAccounts(t)
 	store := admin.engine.Store
-	if err := store.Save("provider", "account", "", domain.Provider{ID: "account", Kind: "openai"}); err != nil {
+	if err := store.Save("provider", "account", "", domain.Provider{ID: "account", Name: "Example Provider", Kind: "openai"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"chat-model", "project-model"} {
-		model := domain.LanguageModel{ID: id, ReasoningLevels: []string{"low", "high"}}
+		model := domain.LanguageModel{ID: id, Name: "Example " + id, ReasoningLevels: []string{"low", "high"}}
 		if err := store.Save("model", "account:"+id, "account", model); err != nil {
 			t.Fatal(err)
 		}
@@ -100,9 +100,15 @@ func TestScopedModelSettings(t *testing.T) {
 	personalHigh := map[string]any{"scope": "chat", "defaults": domain.ModelDefaults{Main: high}}
 	rejectSettings(t, bob, personal, personalHigh)
 	requireData(t, admin.query(t, personal, personalHigh))
-	options := requireData(t, bob.query(t, `{shortChatModelOptions{presets{modelId} defaults{main{reasoningLevel}}}}`, nil))["shortChatModelOptions"].(map[string]any)
+	options := requireData(t, bob.query(t, `{shortChatModelOptions{presets{modelId displayName providerName} defaults{main{reasoningLevel displayName}}}}`, nil))["shortChatModelOptions"].(map[string]any)
 	if len(options["presets"].([]any)) != 2 || options["defaults"].(map[string]any)["main"].(map[string]any)["reasoningLevel"] != "low" {
 		t.Fatal("draft received incorrect released choices", options)
+	}
+	for _, value := range options["presets"].([]any) {
+		preset := value.(map[string]any)
+		if preset["displayName"] != "Example chat-model" || preset["providerName"] != "Example Provider" {
+			t.Fatal("draft did not receive catalog names", preset)
+		}
 	}
 	const createShort = `mutation($choice:ModelChoiceInput!){createShortChat(choice:$choice){id modelId reasoningLevel}}`
 	rejectSettings(t, bob, createShort, map[string]any{"choice": project})
@@ -118,10 +124,11 @@ func TestScopedModelSettings(t *testing.T) {
 	}
 
 	chat := requireData(t, bob.query(t, `mutation{createShortChat(name:"Bob"){id}}`, nil))["createShortChat"].(map[string]any)["id"].(string)
-	const available = `query($id:String!){conversationModelPresets(agentId:$id){modelId reasoningLevel} conversationModels(agentId:$id){main{reasoningLevel}}}`
+	const available = `query($id:String!){conversationModelPresets(agentId:$id){modelId reasoningLevel} conversationModels(agentId:$id){main{reasoningLevel displayName providerName}}}`
 	vars := map[string]any{"id": chat}
 	data := requireData(t, bob.query(t, available, vars))
-	if len(data["conversationModelPresets"].([]any)) != 2 || data["conversationModels"].(map[string]any)["main"].(map[string]any)["reasoningLevel"] != "low" {
+	main := data["conversationModels"].(map[string]any)["main"].(map[string]any)
+	if len(data["conversationModelPresets"].([]any)) != 2 || main["reasoningLevel"] != "low" || main["displayName"] != "Example chat-model" || main["providerName"] != "Example Provider" {
 		t.Fatal("chat received incorrect scope or default", data)
 	}
 	rejectSettings(t, admin, available, vars)

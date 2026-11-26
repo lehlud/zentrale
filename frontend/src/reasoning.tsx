@@ -1,6 +1,7 @@
 import { Label, ListBox, Select } from "@heroui/react";
 import { useQuery } from "./api";
-import type { LanguageModel, ModelChoice } from "./generated";
+import type { LanguageModel } from "./generated";
+import type { ModelSelection as ModelChoice } from "./model-selection";
 import { useI18n } from "./preferences";
 import { Failure } from "./ui";
 

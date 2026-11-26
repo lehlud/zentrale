@@ -244,6 +244,9 @@ test("failed command output stays inside its disclosure and is not duplicated", 
     name: /Befehl ausführen.*make test/,
   });
   await expect(disclosure).toBeVisible();
+  const row = disclosure.locator("xpath=ancestor::li[1]");
+  await expect(row).toHaveCSS("border-left-width", "0px");
+  expect((await disclosure.boundingBox())!.height).toBeLessThan(40);
   await expect(
     page.getByText("unique command stderr", { exact: true }),
   ).toBeHidden();
@@ -254,6 +257,88 @@ test("failed command output stays inside its disclosure and is not duplicated", 
   await expect(
     page.getByText("unique command stderr", { exact: true }),
   ).toBeVisible();
+});
+
+test("web search shows a readable list of linked sources", async ({ page }) => {
+  const call = message("search-call", "assistant", "", 1);
+  call.wire = JSON.stringify([
+    {
+      type: "function_call",
+      call_id: "search-1",
+      name: "web_search",
+      arguments: '{"query":"Port history"}',
+    },
+  ]);
+  const result = message(
+    "search-result",
+    "tool",
+    JSON.stringify({
+      result: {
+        source: "Example Search",
+        results: [
+          {
+            title: "Port archive",
+            url: "https://archive.example.org/timeline",
+            snippet: "A short excerpt from the archive.",
+          },
+          {
+            title: "Invalid address",
+            url: "javascript:alert(1)",
+            snippet: "Text is still readable.",
+          },
+        ],
+      },
+    }),
+    2,
+  );
+  result.callId = "search-1";
+  result.toolName = "web_search";
+  await fixture(page, [call, result]);
+
+  await page
+    .getByRole("button", { name: /Im Web suchen.*Port history/ })
+    .click();
+  const results = page.getByRole("list", { name: "Suchergebnisse" });
+  await expect(results.getByRole("listitem")).toHaveCount(2);
+  await expect(
+    results.getByRole("link", { name: "Port archive" }),
+  ).toHaveAttribute("href", "https://archive.example.org/timeline");
+  await expect(
+    results.getByText("archive.example.org", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    results.getByText("A short excerpt from the archive."),
+  ).toBeVisible();
+  await expect(results.getByRole("link")).toHaveCount(1);
+  await expect(results.getByText("Invalid address")).toBeVisible();
+});
+
+test("consecutive subagent questions have compact spacing and still expand", async ({
+  page,
+}) => {
+  const questions = ["First question", "Second question"].map((title, index) =>
+    message(
+      `subagent-question-${index}`,
+      "event",
+      JSON.stringify({ kind: "subagent_question", question: { title } }),
+      index + 1,
+    ),
+  );
+  await fixture(page, questions);
+
+  const first = page.getByRole("button", {
+    name: /Rückfrage des Subagenten.*First question/,
+  });
+  const second = page.getByRole("button", {
+    name: /Rückfrage des Subagenten.*Second question/,
+  });
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  const top = (await first.boundingBox())!;
+  const bottom = (await second.boundingBox())!;
+  expect(bottom.y - (top.y + top.height)).toBeLessThan(10);
+  await first.click();
+  await expect(first).toHaveAttribute("aria-expanded", "true");
 });
 
 test("goal creation describes its objective once and edit headers use relative paths", async ({

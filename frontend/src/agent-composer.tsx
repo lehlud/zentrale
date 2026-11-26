@@ -2,12 +2,8 @@ import { Button } from "@heroui/react";
 import { memo, useEffect, useRef, useState, type Ref } from "react";
 import { useAPI } from "./api";
 import { useDraft } from "./drafts";
-import type {
-  Agent,
-  AgentInput,
-  ModelChoice,
-  SandboxStatus,
-} from "./generated";
+import type { Agent, AgentInput, SandboxStatus } from "./generated";
+import type { ModelSelection } from "./model-selection";
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 import { AgentInbox } from "./agent-inbox";
@@ -47,7 +43,7 @@ export const AgentComposer = memo(function AgentComposer({
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
   shortChat?: boolean;
-  initialChatModel?: ModelChoice;
+  initialChatModel?: ModelSelection;
   onShortChatStarted?: (id: string) => void;
 }) {
   const { t } = useI18n();

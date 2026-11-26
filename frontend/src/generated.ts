@@ -388,8 +388,10 @@ export type Message = {
   wire: string;
 };
 export type ModelChoice = {
+  displayName: string | null;
   modelId: string;
   providerId: string;
+  providerName: string | null;
   reasoningLevel: string;
 };
 export type ModelChoiceInput = {

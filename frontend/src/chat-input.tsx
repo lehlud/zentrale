@@ -35,9 +35,10 @@ export function ChatInput({
       <TextArea
         className={
           compact
-            ? "min-h-11 max-h-40 resize-none border-0 bg-transparent px-1 py-3 shadow-none focus:shadow-none [field-sizing:content]"
+            ? "min-h-11 max-h-40 resize-none border-0 bg-transparent px-1 py-3 outline-none [field-sizing:content]"
             : "min-h-16 max-h-40 resize-none [field-sizing:content]"
         }
+        style={compact ? { boxShadow: "none" } : undefined}
         rows={compact ? 1 : 2}
         {...input}
       />

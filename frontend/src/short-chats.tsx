@@ -4,9 +4,10 @@ import { ActionsMenu } from "./actions-menu";
 import { AgentComposer } from "./agent-composer";
 import { AgentView } from "./agent-view";
 import { useAPI, useQuery } from "./api";
-import type { ModelChoice, Provider } from "./generated";
+import { ChatModelSelect, chatModelFields } from "./chat-model-select";
+import type { ModelChoice } from "./generated";
 import { Icon } from "./icons";
-import { PresetSelect } from "./model-presets";
+import { modelSelectionKey, type ModelSelection } from "./model-selection";
 import { useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { RenameConversation } from "./rename-conversation";
@@ -28,39 +29,35 @@ export function ShortChats({ chatId }: { chatId: string }) {
 function NewShortChat() {
   const { t } = useI18n();
   const draftURL = location.href;
-  const [choice, setChoice] = useState<ModelChoice>();
+  const [choice, setChoice] = useState<ModelSelection>();
   const { data, error } = useQuery<{
     shortChatModelOptions: {
       presets: ModelChoice[] | null;
       defaults: { main: ModelChoice };
     };
-    modelProviders: Pick<Provider, "id" | "name">[];
   }>(`{
-    shortChatModelOptions { presets { providerId modelId reasoningLevel } defaults { main { providerId modelId reasoningLevel } } }
-    modelProviders { id name }
+    shortChatModelOptions {
+      presets { ${chatModelFields} }
+      defaults { main { ${chatModelFields} } }
+    }
   }`);
   const options = data?.shortChatModelOptions;
   const presets = options?.presets ?? [];
+  const selected =
+    choice &&
+    presets.find(
+      (preset) => modelSelectionKey(preset) === modelSelectionKey(choice),
+    );
 
   return (
-    <section>
+    <section data-short-chat-draft>
       <header className="flex min-h-16 items-center">
         <SidebarToggle iconOnly />
         {options && (
           <div className="min-w-0 max-w-[70%]">
-            <PresetSelect
-              compact
-              label={t("Modell")}
-              placeholder={t(
-                presets.length
-                  ? "Modell auswählen"
-                  : "Keine Modelle freigegeben.",
-              )}
+            <ChatModelSelect
               presets={presets}
-              value={choice ?? options.defaults.main}
-              providers={data?.modelProviders ?? []}
-              allowEmpty={false}
-              disabled={!presets.length}
+              value={selected ?? options.defaults.main}
               onChange={setChoice}
             />
           </div>
@@ -79,7 +76,7 @@ function NewShortChat() {
         latest={() => {}}
         autoFocus
         shortChat
-        initialChatModel={choice}
+        initialChatModel={selected ? choice : undefined}
         onShortChatStarted={(id) => {
           if (location.href === draftURL)
             location.replace(`${chatHref(id)}?compose=1`);

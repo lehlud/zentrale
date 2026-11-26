@@ -2,7 +2,12 @@ import { Button, Link } from "@heroui/react";
 import { useState } from "react";
 
 import { useAPI, useQuery } from "./api";
-import type { ModelChoice, ModelDefaults, Provider } from "./generated";
+import type { Provider } from "./generated";
+import {
+  modelSelectionKey as key,
+  type ModelSelection as ModelChoice,
+  type ModelSelections as ModelDefaults,
+} from "./model-selection";
 import { ModelChooser } from "./models";
 import { useI18n } from "./preferences";
 import { Failure, Loading, useAction } from "./ui";
@@ -23,12 +28,6 @@ export const emptyChoice: ModelChoice = {
 const choiceFields = "providerId modelId reasoningLevel";
 const defaultsFields = `main{${choiceFields}} approver{${choiceFields}}`;
 
-function key(choice: ModelChoice) {
-  return choice.modelId
-    ? JSON.stringify([choice.providerId, choice.modelId, choice.reasoningLevel])
-    : "";
-}
-
 function presetLabel(choice: ModelChoice, providers: ModelProvider[]) {
   const provider = providers.find((item) => item.id === choice.providerId);
   return `${provider?.name || choice.providerId} · ${choice.modelId} · ${choice.reasoningLevel || "default"}`;
@@ -43,7 +42,6 @@ export function PresetSelect({
   placeholder,
   disabled,
   allowEmpty = true,
-  compact = false,
 }: {
   label: string;
   value: ModelChoice;
@@ -53,7 +51,6 @@ export function PresetSelect({
   placeholder: string;
   disabled?: boolean;
   allowEmpty?: boolean;
-  compact?: boolean;
 }) {
   const current = key(value);
   const unavailable =
@@ -61,7 +58,7 @@ export function PresetSelect({
 
   return (
     <label className="grid min-w-0 gap-1 text-sm">
-      <span className={compact ? "sr-only" : undefined}>{label}</span>
+      <span>{label}</span>
       <select
         className="min-h-10 w-full rounded-lg border border-border bg-surface px-3"
         value={current}

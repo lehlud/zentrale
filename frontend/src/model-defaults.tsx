@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 
 import { CONFIG, useAPI, useQuery } from "./api";
 import type { Config } from "./config";
-import type { LanguageModel, ModelChoice, ModelDefaults } from "./generated";
+import type { LanguageModel } from "./generated";
+import type {
+  ModelSelection as ModelChoice,
+  ModelSelections as ModelDefaults,
+} from "./model-selection";
 import { ModelChooser } from "./models";
 import { ReasoningSelect } from "./reasoning";
 import { useI18n } from "./preferences";

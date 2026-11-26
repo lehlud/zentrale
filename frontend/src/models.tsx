@@ -10,7 +10,8 @@ import {
 import { useEffect, useState } from "react";
 
 import { useAPI, useQuery } from "./api";
-import type { LanguageModel, ModelChoice, Provider } from "./generated";
+import type { LanguageModel, Provider } from "./generated";
+import type { ModelSelection as ModelChoice } from "./model-selection";
 import { ModelMetadataEditor } from "./model-metadata";
 import { ReasoningSelect } from "./reasoning";
 import { ActionsMenu } from "./actions-menu";
