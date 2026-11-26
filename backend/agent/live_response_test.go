@@ -13,6 +13,11 @@ import (
 
 func nextLiveResponse(t *testing.T, events <-chan domain.Event) domain.LiveResponse {
 	t.Helper()
+	return awaitLiveResponse(t, events, func(domain.LiveResponse) bool { return true })
+}
+
+func awaitLiveResponse(t *testing.T, events <-chan domain.Event, matches func(domain.LiveResponse) bool) domain.LiveResponse {
+	t.Helper()
 	timeout := time.NewTimer(2 * time.Second)
 	defer timeout.Stop()
 
@@ -29,10 +34,12 @@ func nextLiveResponse(t *testing.T, events <-chan domain.Event) domain.LiveRespo
 					t.Fatal(err)
 				}
 
-				return response
+				if matches(response) {
+					return response
+				}
 			}
 		case <-timeout.C:
-			t.Fatal("no live response")
+			t.Fatal("no matching live response")
 		}
 	}
 }
@@ -190,7 +197,9 @@ func TestRetriedLiveResponseReplacesTheDraftAndCommitsOnlyTheFinalAnswer(t *test
 		t.Fatal(draft)
 	}
 	close(retry)
-	reset := nextLiveResponse(t, events)
+	reset := awaitLiveResponse(t, events, func(response domain.LiveResponse) bool {
+		return response.Snapshot
+	})
 	if reset.ID != start.ID || !reset.Snapshot || reset.Text != "" || reset.Revision <= draft.Revision || reset.Status != "running" {
 		t.Fatal("retry did not replace the entire draft", reset)
 	}
@@ -205,7 +214,9 @@ func TestRetriedLiveResponseReplacesTheDraftAndCommitsOnlyTheFinalAnswer(t *test
 	}
 	close(finish)
 	message := <-completed
-	last := nextLiveResponse(t, events)
+	last := awaitLiveResponse(t, events, func(response domain.LiveResponse) bool {
+		return response.Status != "running"
+	})
 	if last.Status != "completed" || last.Text != "Recovered answer" || message.ID != start.ID {
 		t.Fatal(last, message)
 	}
