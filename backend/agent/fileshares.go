@@ -57,9 +57,14 @@ func (engine *Engine) SaveFileShare(config FileShareConfig, password *string) (F
 	defer engine.configMu.Unlock()
 
 	config.Name = strings.TrimSpace(config.Name)
+	config.Protocol = strings.ToLower(strings.TrimSpace(config.Protocol))
 	if config.Name == "" || len(config.Name) > 128 {
 		return config, errors.New("a file share name of at most 128 bytes is required")
 	}
+	if config.Protocol == fileshare.ProtocolDomainShare {
+		config.Root, config.Username, config.HostKeySHA256 = "", "", ""
+	}
+
 	definition := fileShareDefinition{FileShareConfig: config}
 	if config.ID == "" {
 		definition.ID = NewID()
@@ -68,7 +73,14 @@ func (engine *Engine) SaveFileShare(config FileShareConfig, password *string) (F
 		if err != nil {
 			return config, err
 		}
-		definition.Password = previous.Password
+		// Do not transfer a DomainShare token to another endpoint or protocol.
+		domainShareInvolved := previous.Protocol == fileshare.ProtocolDomainShare || config.Protocol == fileshare.ProtocolDomainShare
+		sameEndpoint := previous.Protocol == config.Protocol && previous.Endpoint == config.Endpoint
+		if !domainShareInvolved || sameEndpoint {
+			definition.Password = previous.Password
+		} else if password == nil {
+			return config, errors.New("re-enter the credential when changing a DomainShare endpoint or protocol")
+		}
 	}
 	if password != nil {
 		definition.Password = *password
@@ -89,7 +101,7 @@ func (engine *Engine) SaveFileShare(config FileShareConfig, password *string) (F
 func (engine *Engine) FileShares(adminView bool) ([]map[string]any, error) {
 	var fields []string
 	if !adminView {
-		fields = []string{"id", "name"}
+		fields = []string{"id", "name", "protocol"}
 	}
 	return engine.Store.ListFields(fileShareKind, nil, 500, 0, fields)
 }
@@ -136,4 +148,13 @@ func (engine *Engine) ReadChatFile(ctx context.Context, chatID, shareID, path st
 		return nil, err
 	}
 	return share.Read(ctx, username, path, maxBytes)
+}
+
+func (engine *Engine) SearchChatFiles(ctx context.Context, chatID, shareID, query, cursor string) (fileshare.ShareSearchPage, error) {
+	share, username, err := engine.chatFileShare(chatID, shareID)
+	if err != nil {
+		return fileshare.ShareSearchPage{}, err
+	}
+
+	return share.Search(ctx, username, query, cursor)
 }

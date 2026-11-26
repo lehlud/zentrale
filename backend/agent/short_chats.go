@@ -104,8 +104,8 @@ func (engine *Engine) shortChatTools() []providers.Tool {
 			Schema: objectSchema(map[string]any{}),
 		})
 		for _, operation := range []struct{ name, description string }{
-			{"share_directory", "List files and folders at a path within a share. Use an empty path for its root."},
-			{"share_read", "Read a UTF-8 text file from a share (up to 64 KiB)."},
+			{"share_directory", "List files and folders at a path within a share. Use an empty path for its root. Append entry names (not labels) to the path."},
+			{"share_read", "Read a UTF-8 text file from a share, or extracted text at a DomainShare search result path (up to 64 KiB)."},
 		} {
 			tools = append(tools, providers.Tool{
 				Name: operation.name, Description: operation.description,
@@ -114,6 +114,20 @@ func (engine *Engine) shortChatTools() []providers.Tool {
 					"path":    textProperty("Path relative to the share root"),
 				}, "shareId", "path"),
 			})
+		}
+		for _, share := range shares {
+			if share["protocol"] != "domainshare" {
+				continue
+			}
+			tools = append(tools, providers.Tool{
+				Name: "share_search", Description: "Search a DomainShare index by filename and content. Use share_read with a result's path to read indexed text. This is a private search, not a web search.",
+				Schema: objectSchema(map[string]any{
+					"shareId": textProperty("DomainShare ID from share_list"),
+					"query":   textProperty("Search terms"),
+					"cursor":  textProperty("Optional nextCursor from a previous search with the same query"),
+				}, "shareId", "query"),
+			})
+			break
 		}
 	}
 	if settings, err := engine.ShortChatSettings(); err == nil && settings.enabled() {
@@ -150,6 +164,12 @@ func (engine *Engine) shortChatTool(ctx context.Context, chat domain.Agent, call
 			return nil, errors.New("could not list this share path")
 		}
 		return entries, nil
+	case "share_search":
+		results, err := engine.SearchChatFiles(ctx, chat.ID, shareID, stringArg(call.Arguments, "query"), stringArg(call.Arguments, "cursor"))
+		if err != nil {
+			return nil, errors.New("could not search this DomainShare")
+		}
+		return results, nil
 	case "share_read":
 		data, err := engine.ReadChatFile(ctx, chat.ID, shareID, path, maxChatTextBytes)
 		if err != nil {

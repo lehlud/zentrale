@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	ProtocolSMB    = "smb"
-	ProtocolSFTP   = "sftp"
-	ProtocolWebDAV = "webdav"
+	ProtocolSMB         = "smb"
+	ProtocolSFTP        = "sftp"
+	ProtocolWebDAV      = "webdav"
+	ProtocolDomainShare = "domainshare"
 
 	// MaxReadBytes bounds a single file read independently of the caller's limit.
 	MaxReadBytes = 16 << 20
@@ -49,7 +50,9 @@ var (
 // It may start with /; use / to explicitly select the protocol's root.
 // {username} is supported only as a complete Root segment. For SFTP,
 // HostKeySHA256 must be the server fingerprint in OpenSSH SHA256:… format.
-// For SMB, Username may be written as DOMAIN\user.
+// For SMB, Username may be written as DOMAIN\user. For DomainShare, Endpoint
+// is the HTTPS instance URL and Password is the agent token. DomainShare
+// determines the root and access rights from appUsername on every request.
 type Config struct {
 	Protocol      string
 	Endpoint      string
@@ -63,6 +66,7 @@ type Config struct {
 // path segments, usable as relative path components in subsequent calls.
 type Entry struct {
 	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
 	IsDir bool   `json:"isDir"`
 	Size  int64  `json:"size"`
 }
@@ -82,7 +86,7 @@ type Share struct {
 // New validates an administrative share definition without making a connection.
 func New(config Config) (*Share, error) {
 	protocol := strings.ToLower(strings.TrimSpace(config.Protocol))
-	if protocol != ProtocolSMB && protocol != ProtocolSFTP && protocol != ProtocolWebDAV {
+	if protocol != ProtocolSMB && protocol != ProtocolSFTP && protocol != ProtocolWebDAV && protocol != ProtocolDomainShare {
 		return nil, errors.New("unsupported fileshare protocol")
 	}
 
@@ -131,6 +135,16 @@ func New(config Config) (*Share, error) {
 		if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
 			return nil, errors.New("WebDAV endpoint must use HTTP or HTTPS")
 		}
+	case ProtocolDomainShare:
+		if endpoint.Scheme != "https" {
+			return nil, errors.New("DomainShare endpoint must use HTTPS")
+		}
+		if config.Password == "" || len(config.Password) > 512 || strings.ContainsFunc(config.Password, func(r rune) bool {
+			return r < '!' || r > '~'
+		}) {
+			return nil, errors.New("a valid DomainShare agent token is required")
+		}
+		config.Root = "/"
 	}
 
 	if config.Root == "" {
@@ -173,6 +187,8 @@ func (s *Share) List(ctx context.Context, appUsername, relativePath string) ([]E
 		entries, err = s.listSFTP(ctx, path)
 	case ProtocolWebDAV:
 		entries, err = s.listDAV(ctx, root, path)
+	case ProtocolDomainShare:
+		entries, err = s.listDomainShare(ctx, appUsername, path)
 	default:
 		return nil, ErrUnavailable
 	}
@@ -215,6 +231,8 @@ func (s *Share) Read(ctx context.Context, appUsername, relativePath string, maxB
 		return s.readSFTP(ctx, path, maxBytes)
 	case ProtocolWebDAV:
 		return s.readDAV(ctx, root, path, maxBytes)
+	case ProtocolDomainShare:
+		return s.readDomainShare(ctx, appUsername, path, maxBytes)
 	default:
 		return nil, ErrUnavailable
 	}
@@ -277,7 +295,8 @@ func validSegments(parts []string, protocol string, allowTemplate bool) bool {
 
 func validSegment(segment, protocol string) bool {
 	if segment == "" || segment == "." || segment == ".." || len(segment) > 255 ||
-		!utf8.ValidString(segment) || strings.ContainsAny(segment, `/\%:`) ||
+		!utf8.ValidString(segment) || strings.ContainsAny(segment, `/\%`) ||
+		(protocol != ProtocolDomainShare && strings.ContainsRune(segment, ':')) ||
 		strings.ContainsFunc(segment, unicode.IsControl) {
 		return false
 	}

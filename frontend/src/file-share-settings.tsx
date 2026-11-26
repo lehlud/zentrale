@@ -73,10 +73,12 @@ function ShareEditor({
   const [draft, setDraft] = useState(share);
   const [password, setPassword] = useState("");
   const [remove, setRemove] = useState(false);
+  const domainShare = draft.protocol === "domainshare";
   const address = {
     smb: "smb://server/freigabe",
     sftp: "sftp://server:22",
     webdav: "https://server/dav",
+    domainshare: "https://dateien.example.org",
   }[draft.protocol];
 
   function change(key: keyof FileShareConfig, value: string) {
@@ -117,11 +119,15 @@ function ShareEditor({
           <select
             className={fieldClass}
             value={draft.protocol}
-            onChange={(e) => change("protocol", e.target.value)}
+            onChange={(e) => {
+              setPassword("");
+              change("protocol", e.target.value);
+            }}
           >
             <option value="webdav">WebDAV</option>
             <option value="smb">SMB</option>
             <option value="sftp">SFTP</option>
+            <option value="domainshare">DomainShare</option>
           </select>
         </label>
         <label className="grid gap-1">
@@ -134,38 +140,55 @@ function ShareEditor({
             onChange={(e) => change("endpoint", e.target.value)}
           />
         </label>
+        {!domainShare && (
+          <>
+            <label className="grid gap-1">
+              {t("Startordner")}
+              <input
+                className={fieldClass}
+                placeholder="users/{username}"
+                value={draft.root}
+                onChange={(e) => change("root", e.target.value)}
+              />
+              <span className="text-xs text-muted">
+                {t(
+                  "Nutze `{username}` als Ordnernamen für einen eigenen Bereich pro Benutzer.",
+                )}
+              </span>
+            </label>
+            <label className="grid gap-1">
+              {t("Benutzername der Freigabe")}
+              <input
+                className={fieldClass}
+                autoComplete="off"
+                value={draft.username}
+                onChange={(e) => change("username", e.target.value)}
+              />
+            </label>
+          </>
+        )}
         <label className="grid gap-1">
-          {t("Startordner")}
-          <input
-            className={fieldClass}
-            placeholder="users/{username}"
-            value={draft.root}
-            onChange={(e) => change("root", e.target.value)}
-          />
-          <span className="text-xs text-muted">
-            {t(
-              "Nutze `{username}` als Ordnernamen für einen eigenen Bereich pro Benutzer.",
-            )}
-          </span>
-        </label>
-        <label className="grid gap-1">
-          {t("Benutzername der Freigabe")}
-          <input
-            className={fieldClass}
-            autoComplete="off"
-            value={draft.username}
-            onChange={(e) => change("username", e.target.value)}
-          />
-        </label>
-        <label className="grid gap-1">
-          {t("Passwort")}
+          {t(domainShare ? "Agenten-Token" : "Passwort")}
           <input
             className={fieldClass}
             autoComplete="new-password"
             type="password"
+            required={
+              domainShare &&
+              (!share.id ||
+                share.protocol !== draft.protocol ||
+                share.endpoint !== draft.endpoint)
+            }
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          {domainShare && (
+            <span className="text-xs text-muted">
+              {t(
+                "Der Zentrale-Benutzername muss dem AD-Kontonamen entsprechen. DomainShare prüft die Zugriffsrechte bei jeder Anfrage.",
+              )}
+            </span>
+          )}
         </label>
         {draft.protocol === "sftp" && (
           <label className="grid gap-1">

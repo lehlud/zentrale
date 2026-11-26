@@ -17,7 +17,7 @@ const (
 	davPropfindBody     = `<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>`
 )
 
-var davClient = &http.Client{
+var shareHTTPClient = &http.Client{
 	Transport: &http.Transport{
 		// Do not send configured credentials through environment proxies.
 		DialContext:            (&net.Dialer{Timeout: dialTimeout}).DialContext,
@@ -196,7 +196,7 @@ func (s *Share) davRequest(ctx context.Context, method string, path []string, is
 		}
 	}
 
-	response, err := davClient.Do(request)
+	response, err := shareHTTPClient.Do(request)
 	if err != nil {
 		return nil, operationError(ctx)
 	}

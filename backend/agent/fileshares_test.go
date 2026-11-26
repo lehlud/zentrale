@@ -101,7 +101,29 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 	}
 
 	public, err := engine.FileShares(false)
-	if err != nil || len(public) != 1 || len(public[0]) != 2 || public[0]["id"] != share.ID {
+	if err != nil || len(public) != 1 || len(public[0]) != 3 || public[0]["id"] != share.ID || public[0]["protocol"] != "webdav" {
 		t.Fatalf("unexpected public share projection: %+v (%v)", public, err)
+	}
+
+	token := "domainshare-fixture-token"
+	domainShare, err := engine.SaveFileShare(FileShareConfig{
+		Name: "Domain documents", Protocol: "domainshare", Endpoint: "https://files.example.org", Username: "not-the-owner",
+	}, &token)
+	if err != nil || domainShare.Username != "" {
+		t.Fatalf("DomainShare definition must not have a service username: %+v, %v", domainShare, err)
+	}
+	for _, owner := range []domain.Agent{chat, bobChat} {
+		_, username, err := engine.chatFileShare(owner.ID, domainShare.ID)
+		expected := map[string]string{chat.ID: "alice", bobChat.ID: "bob"}[owner.ID]
+		if err != nil || username != expected {
+			t.Fatalf("DomainShare used a different principal: %q, %v", username, err)
+		}
+	}
+	if _, err := engine.SearchChatFiles(context.Background(), project.ID, domainShare.ID, "notes", ""); err == nil {
+		t.Fatal("project agent could search a DomainShare")
+	}
+	domainShare.Endpoint = "https://other.example.org"
+	if _, err := engine.SaveFileShare(domainShare, nil); err == nil {
+		t.Fatal("saved token followed a changed endpoint")
 	}
 }
