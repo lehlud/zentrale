@@ -25,7 +25,9 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 	queries["modelProviders"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[ModelProvider]())),
 		Resolve: authenticated(func(_ graphql.ResolveParams) (any, error) {
-			providers, err := server.Store.ListFields("provider", nil, 500, 0, []string{"id", "name", "connected", "modelCount"})
+			providers, err := server.Store.ListFields("provider", nil, 500, 0, []string{
+				"id", "name", "connected", "modelCount", "authMode", "catalogStatus",
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -34,7 +36,9 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 				id, _ := provider["id"].(string)
 				name, _ := provider["name"].(string)
 				count, _ := provider["modelCount"].(float64)
-				if provider["connected"] == true && count > 0 {
+				ready := provider["connected"] == true ||
+					(provider["authMode"] != "oauth" && provider["catalogStatus"] == "ready")
+				if ready && count > 0 {
 					result = append(result, ModelProvider{ID: id, Name: name})
 				}
 			}

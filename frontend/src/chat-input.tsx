@@ -7,11 +7,12 @@ export function ChatInput({
   onChange,
   autoFocus,
   isDisabled,
+  isReadOnly,
   compact = false,
   ...input
 }: Pick<
   ComponentProps<typeof TextField>,
-  "value" | "onChange" | "autoFocus" | "isDisabled"
+  "value" | "onChange" | "autoFocus" | "isDisabled" | "isReadOnly"
 > &
   Pick<
     ComponentProps<typeof TextArea>,
@@ -28,6 +29,7 @@ export function ChatInput({
       onChange={onChange}
       autoFocus={autoFocus}
       isDisabled={isDisabled}
+      isReadOnly={isReadOnly}
     >
       <Label className="sr-only">{label}</Label>
       <TextArea

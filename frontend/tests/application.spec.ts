@@ -375,24 +375,38 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     page.getByText("2 Sprachmodelle", { exact: true }),
   ).toBeVisible();
 
-  await navigateToPage(page, "Einstellungen");
-  for (const [role, model] of [
-    ["Hauptmodell", "Fixture Main"],
-    ["Auto-Approver", "Fixture Approver"],
-  ]) {
-    const group = page.getByRole("group", { name: role, exact: true });
-    await group.getByRole("button", { name: "Auswählen", exact: true }).click();
-    await page
-      .getByRole("dialog")
-      .getByRole("option", { name: new RegExp(model) })
+  await navigateToPage(page, "Admin-Einstellungen");
+  const projectModels = page.locator("div.rounded-xl").filter({
+    has: page.getByRole("heading", { name: "Projekte", exact: true }),
+  });
+  for (const model of ["Fixture Main", "Fixture Approver"]) {
+    await projectModels
+      .getByRole("button", { name: "Modell freigeben" })
       .click();
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Auswahl übernehmen" })
-      .click();
+    const chooser = page.getByRole("dialog", { name: "Modell freigeben" });
+    await chooser.getByRole("option", { name: new RegExp(model) }).click();
+    await chooser.getByRole("button", { name: "Auswahl übernehmen" }).click();
+    await expect(chooser).toHaveCount(0);
   }
 
-  await page.getByRole("button", { name: "Modell-Defaults speichern" }).click();
+  for (const [role, model] of [
+    ["Standardmodell", "fixture-main"],
+    ["Auto-Approver", "fixture-approver"],
+  ]) {
+    const select = projectModels.getByRole("combobox", {
+      name: role,
+      exact: true,
+    });
+    const option = select.getByRole("option", { name: new RegExp(model) });
+    await select.selectOption({ label: (await option.textContent())! });
+  }
+
+  const saveModels = projectModels.getByRole("button", {
+    name: "Speichern",
+    exact: true,
+  });
+  await saveModels.click();
+  await expect(saveModels).toBeDisabled();
 
   await navigateToPage(page, "Projekte");
   await page.getByRole("button", { name: "Projekt anlegen" }).click();
