@@ -37,11 +37,14 @@ type searchSource struct {
 func searchPublicWeb(ctx context.Context, client *http.Client, query string) (webSearchResponse, error) {
 	var sources []searchSource
 	braveKey := strings.TrimSpace(os.Getenv("ZENTRALE_BRAVE_SEARCH_API_KEY"))
+	site := siteNavigationDomain(query)
 	if python := strings.TrimSpace(os.Getenv("ZENTRALE_DDGS_PYTHON")); python != "" {
-		sources = append(sources, searchSource{"Yahoo (DDGS)", ddgsSearch(python, braveKey == "")})
+		sources = append(sources, searchSource{"Yahoo (DDGS)", ddgsSearch(python, braveKey == "" && site == "")})
 	}
 	if braveKey != "" {
 		sources = append(sources, searchSource{"Brave Search API", braveSearch(braveKey)})
+	} else if site != "" {
+		sources = append(sources, searchSource{site + " (site links)", siteNavigationSearch(site)})
 	}
 	if len(sources) == 0 {
 		return webSearchResponse{}, errors.New("public web search is not configured; set ZENTRALE_DDGS_PYTHON or ZENTRALE_BRAVE_SEARCH_API_KEY")
@@ -96,6 +99,15 @@ func normalizedWords(text string) []string {
 	})
 }
 
+func searchWord(word string) string {
+	switch word {
+	case "docs", "documentation", "dokumentation":
+		return "doc"
+	default:
+		return word
+	}
+}
+
 var searchQuoteReplacer = strings.NewReplacer("“", `"`, "”", `"`, "„", `"`, "«", `"`, "»", `"`)
 
 func searchMatcher(query string) func(webSearchResult) bool {
@@ -120,7 +132,7 @@ func searchMatcher(query string) func(webSearchResult) bool {
 			}
 			for _, word := range normalizedWords(field) {
 				if !strings.Contains(stop, " "+word+" ") {
-					terms[word] = true
+					terms[searchWord(word)] = true
 				}
 			}
 		}
@@ -132,8 +144,7 @@ func searchMatcher(query string) func(webSearchResult) bool {
 			if err != nil {
 				return false
 			}
-			host := strings.ToLower(link.Hostname())
-			if host != site && !strings.HasSuffix(host, "."+site) {
+			if !inSearchDomain(link.Hostname(), site) {
 				return false
 			}
 		}
@@ -154,12 +165,18 @@ func searchMatcher(query string) func(webSearchResult) bool {
 		}
 		found := map[string]bool{}
 		for _, word := range normalizedWords(item.Title + " " + item.Description + " " + item.URL) {
+			word = searchWord(word)
 			if terms[word] {
 				found[word] = true
 			}
 		}
 		return len(found)*3 >= len(terms)*2
 	}
+}
+
+func inSearchDomain(host, site string) bool {
+	host = strings.ToLower(host)
+	return host == site || strings.HasSuffix(host, "."+site)
 }
 
 func relevantResults(items []webSearchResult, matches func(webSearchResult) bool) []webSearchResult {

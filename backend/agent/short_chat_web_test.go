@@ -196,6 +196,61 @@ func TestPublicWebSearchAPIKeyIsNotForwardedThroughRedirect(t *testing.T) {
 	}
 }
 
+func TestPublicWebSearchFallsBackToTheRequestedSitesLinks(t *testing.T) {
+	const query = "Go documentation site:example.org"
+	const homepage = `<a href="https://other.example/doc">Go documentation</a>
+<a href="/blog">Go news</a><a href="/doc">Go <span>User Manual</span></a>`
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+
+	dir := t.TempDir()
+	callsPath := filepath.Join(dir, "calls")
+	py := filepath.Join(dir, "python")
+	fixture := "#!/bin/sh\nIFS= read -r query || :\nprintf '%s' \"$query\" > " + strconv.Quote(callsPath) + "\nprintf '[]'\n"
+	if err := os.WriteFile(py, []byte(fixture), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZENTRALE_DDGS_PYTHON", py)
+
+	calls := 0
+	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.URL.String() != "https://example.org/" {
+			t.Errorf("must read only the requested homepage, got %s", request.URL)
+		}
+		if previous, err := os.ReadFile(callsPath); err != nil || string(previous) != query {
+			t.Errorf("the site must be read after Yahoo's empty result: %q, %v", previous, err)
+		}
+		return webFixture(request, http.StatusOK, "text/html", homepage)
+	})}
+
+	result, err := searchPublicWeb(t.Context(), client, query)
+	if calls != 1 || err != nil || result.Source != "example.org (site links)" || len(result.Results) != 1 || result.Results[0].URL != "https://example.org/doc" {
+		t.Fatalf("expected one relevant same-site link, got %v with %d requests (%v)", result, calls, err)
+	}
+}
+
+func TestPublicWebSiteFallbackRejectsCrossSiteRedirects(t *testing.T) {
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+
+	var hosts []string
+	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
+		hosts = append(hosts, request.URL.Host)
+		response, err := webFixture(request, http.StatusFound, "text/plain", "redirect")
+		response.Header.Set("Location", "https://elsewhere.example/doc")
+		return response, err
+	})}
+	_, err := searchPublicWeb(t.Context(), client, "docs site:example.org")
+	if strings.Join(hosts, ",") != "example.org" || err == nil {
+		t.Fatalf("the fallback must not follow cross-site redirects: %v, %v", hosts, err)
+	}
+	for _, invalid := range []string{"site:127.0.0.1", "site:localhost", "site:example.org:443", "site:example.org@other.example", "site:first.example site:second.example"} {
+		if domain := siteNavigationDomain(invalid); domain != "" {
+			t.Errorf("accepted invalid site in %q: %q", invalid, domain)
+		}
+	}
+}
+
 func TestPublicWebDDGSHelperDistinguishesEmptyResultsFromFailures(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -278,6 +333,26 @@ func TestPublicWebLiveSmoke(t *testing.T) {
 	if readErr != nil || !strings.Contains(page.(map[string]string)["text"], "Documentation") {
 		t.Fatalf("documentation page read failed: %v", readErr)
 	}
+}
+
+func TestPublicWebSiteLiveSmoke(t *testing.T) {
+	if os.Getenv("ZENTRALE_TEST_PUBLIC_WEB") != "1" {
+		t.Skip("set ZENTRALE_TEST_PUBLIC_WEB=1 to test a real site without a search key")
+	}
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
+
+	result, err := searchPublicWeb(t.Context(), chatWebClient, "Go documentation site:go.dev")
+	if err != nil || result.Source != "go.dev (site links)" {
+		t.Fatalf("site fallback failed: %+v, %v", result, err)
+	}
+	for _, item := range result.Results {
+		if strings.TrimSuffix(item.URL, "/") == "https://go.dev/doc" {
+			t.Logf("found the actual %s link without a search provider", item.URL)
+			return
+		}
+	}
+	t.Fatalf("the site fallback did not find the Go documentation index: %+v", result)
 }
 
 func TestPublicWebDDGSLiveSmoke(t *testing.T) {
