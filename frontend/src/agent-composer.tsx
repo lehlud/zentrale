@@ -2,7 +2,12 @@ import { Button } from "@heroui/react";
 import { memo, useEffect, useRef, useState, type Ref } from "react";
 import { useAPI } from "./api";
 import { useDraft } from "./drafts";
-import type { Agent, AgentInput, SandboxStatus } from "./generated";
+import type {
+  Agent,
+  AgentInput,
+  ModelChoice,
+  SandboxStatus,
+} from "./generated";
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 import { AgentInbox } from "./agent-inbox";
@@ -28,18 +33,22 @@ export const AgentComposer = memo(function AgentComposer({
   sandboxStatus,
   sandboxMode,
   shortChat = false,
+  initialChatModel,
+  onShortChatStarted,
 }: {
   agentId: string;
   current?: Agent;
   inputs: AgentInput[];
   following: boolean;
   latest: () => void;
-  composerRef: Ref<HTMLFormElement>;
+  composerRef?: Ref<HTMLFormElement>;
   autoFocus: boolean;
-  onDetails: () => void;
+  onDetails?: () => void;
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
   shortChat?: boolean;
+  initialChatModel?: ModelChoice;
+  onShortChatStarted?: (id: string) => void;
 }) {
   const { t } = useI18n();
   const api = useAPI();
@@ -48,6 +57,8 @@ export const AgentComposer = memo(function AgentComposer({
   const attachments = useComposerAttachments(agentId);
   const picker = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
+  const createdChatId = useRef("");
+  const mounted = useRef(true);
   const [sideQuestion, setSideQuestion] = useState<string | null>(null);
   const [teamworkOpen, setTeamworkOpen] = useState(false);
 
@@ -55,6 +66,13 @@ export const AgentComposer = memo(function AgentComposer({
     setSideQuestion(null);
     setTeamworkOpen(false);
   }, [agentId]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const hasMessage = Boolean(prompt.trim() || attachments.items.length);
   const send = async (mode: "steer" | "queue" = "steer", text = prompt) => {
@@ -98,15 +116,39 @@ export const AgentComposer = memo(function AgentComposer({
         if (handled) return;
       }
 
-      const uploaded = await attachments.upload();
-      if (!uploaded) return;
+      let targetId = agentId;
+      if (onShortChatStarted) {
+        if (!createdChatId.current) {
+          await action.run(
+            async () => {
+              const result = await api.mutate<{
+                createShortChat: { id: string };
+              }>(
+                "mutation($choice:ModelChoiceInput){createShortChat(choice:$choice){id}}",
+                { choice: initialChatModel },
+                { announce: false },
+              );
+              createdChatId.current = result.createShortChat.id;
+            },
+            "create",
+            { announce: false },
+          );
+        }
+
+        if (!createdChatId.current || !mounted.current) return;
+        targetId = createdChatId.current;
+      }
+
+      const uploaded = await attachments.upload(targetId);
+      if (!uploaded || !mounted.current) return;
 
       // /teamwork is an ordinary durable user request understood by the main
       // prompt. Preserve its wording; no routing inference or automatic spawn.
-      api.inputs.submit(agentId, text, mode, uploaded);
+      api.inputs.submit(targetId, text, mode, uploaded);
       setPrompt("");
       attachments.clear();
       latest();
+      onShortChatStarted?.(targetId);
     } finally {
       sending.current = false;
     }
@@ -120,13 +162,13 @@ export const AgentComposer = memo(function AgentComposer({
         onDragEnter={attachments.dragEnter}
         onDragLeave={attachments.dragLeave}
         onDragOver={attachments.dragOver}
-        className="fixed inset-x-0 bottom-0 z-20 bg-surface px-4 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 lg:left-[var(--sidebar-width,260px)] lg:px-8"
+        className="fixed inset-x-0 bottom-0 z-20 bg-surface px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 lg:left-[var(--sidebar-width,260px)] lg:px-8"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
       >
-        <div className="relative mx-auto max-w-[96rem]">
+        <div className={shortChat ? "relative mx-auto max-w-5xl" : "relative"}>
           <Failure message={action.error} />
           <Failure message={t(attachments.error)} />
           {attachments.dragging && (
@@ -209,14 +251,16 @@ export const AgentComposer = memo(function AgentComposer({
               event.target.value = "";
             }}
           />
-          <AgentInbox
-            agentId={agentId}
-            inputs={inputs}
-            onEdit={(text, files = []) => {
-              setPrompt(prompt ? prompt + "\n" + text : text);
-              attachments.restore(files);
-            }}
-          />
+          {!onShortChatStarted && (
+            <AgentInbox
+              agentId={agentId}
+              inputs={inputs}
+              onEdit={(text, files = []) => {
+                setPrompt(prompt ? prompt + "\n" + text : text);
+                attachments.restore(files);
+              }}
+            />
+          )}
           {!following && (
             <Button
               isIconOnly
@@ -229,13 +273,13 @@ export const AgentComposer = memo(function AgentComposer({
               <Icon name="down" className="size-3.5" />
             </Button>
           )}
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-1 rounded-2xl border border-border bg-surface-secondary p-1.5 focus-within:border-accent">
             <Button
               isIconOnly
               variant="ghost"
               className="min-h-11 min-w-11 shrink-0"
               aria-label={t("Dateien anhängen")}
-              isDisabled={attachments.uploading}
+              isDisabled={attachments.uploading || action.busy}
               onPress={() => picker.current?.click()}
             >
               <Icon name="attachment" />
@@ -245,7 +289,8 @@ export const AgentComposer = memo(function AgentComposer({
                 value={prompt}
                 onChange={setPrompt}
                 autoFocus={autoFocus}
-                isDisabled={attachments.uploading}
+                compact
+                isDisabled={attachments.uploading || action.busy}
                 label={t("Nachricht")}
                 placeholder={t("Schreib eine Nachricht …")}
                 onPaste={attachments.paste}
@@ -271,7 +316,7 @@ export const AgentComposer = memo(function AgentComposer({
                     value={prompt}
                     onChange={setPrompt}
                     autoFocus={autoFocus}
-                    isDisabled={attachments.uploading}
+                    isDisabled={attachments.uploading || action.busy}
                     label={t("Aufgabe oder neue Instruktion")}
                     placeholder={t("Was soll der Agent erledigen?")}
                     onPaste={attachments.paste}
@@ -312,26 +357,38 @@ export const AgentComposer = memo(function AgentComposer({
                 )}
               </ComposerCommandMenu>
             )}
+            {onDetails && (
+              <Button
+                isIconOnly
+                variant="ghost"
+                aria-label={
+                  current?.modelId
+                    ? t("Agentendetails für {model}", {
+                        model: current.modelId,
+                      })
+                    : t("Agentendetails")
+                }
+                className="min-h-11 min-w-11 shrink-0 text-muted"
+                onPress={onDetails}
+              >
+                <Icon name="info" />
+              </Button>
+            )}
+            {shortChat && (
+              <Button
+                isIconOnly
+                type="submit"
+                aria-label={t("Nachricht senden")}
+                isDisabled={!hasMessage || attachments.uploading}
+                isPending={action.busy}
+                className="min-h-11 min-w-11 shrink-0 rounded-xl"
+              >
+                <Icon name="send" />
+              </Button>
+            )}
           </div>
-          <div className="mt-2 flex min-h-7 min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-2 text-[11px] text-muted">
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={
-                current?.modelId
-                  ? t("Agentendetails für {model}", {
-                      model: current.modelId,
-                    })
-                  : t("Agentendetails")
-              }
-              className="min-h-7 min-w-0 max-w-[45%] px-2 text-[11px] text-muted"
-              onPress={onDetails}
-            >
-              <span className="truncate">
-                {current?.modelId || t("Agentendetails")}
-              </span>
-            </Button>
-            {!shortChat && current?.machineId && (
+          {!shortChat && current?.machineId && (
+            <div className="mt-1.5 flex justify-center px-2">
               <SandboxBadge
                 compact
                 mode={sandboxMode ?? sandboxStatus?.mode ?? "unknown"}
@@ -341,8 +398,8 @@ export const AgentComposer = memo(function AgentComposer({
                     : undefined
                 }
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </form>
       {!shortChat && sideQuestion !== null && (

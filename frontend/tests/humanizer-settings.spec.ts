@@ -64,7 +64,7 @@ test("switches between catalog, hosted GPU, and ZeroGPU Humanizers", async ({
     if (query.includes("setHumanizer")) await push.push();
     await route.fulfill({ json: { data } });
   });
-  await page.goto("/#/settings");
+  await page.goto("/#/admin-settings");
   const section = page.getByRole("region", { name: "Humanizer" });
   await expect(section.getByText("Ausgeschaltet")).toBeVisible();
   await section

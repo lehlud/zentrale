@@ -105,7 +105,7 @@ func (builder *schemaBuilder) providerQueries() graphql.Fields {
 	queries["modelDefaults"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[domain.ModelDefaults]()),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			defaults, err := server.Engine.ModelDefaults()
+			defaults, err := server.Engine.EffectiveModelDefaults(agent.ProjectModels, state(params.Context).user.ID)
 			return mapOf(defaults), err
 		}),
 	}
@@ -278,7 +278,19 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			if err != nil {
 				return false, err
 			}
-			err = server.Engine.SetConversationModel(params.Args["agentId"].(string), params.Args["role"].(string), choice)
+			id := params.Args["agentId"].(string)
+			var record domain.Agent
+			if err := server.Store.Load("agent", id, &record); err != nil {
+				return false, err
+			}
+			scope := agent.ProjectModels
+			if record.ChatOwnerID != "" {
+				scope = agent.ChatModels
+			}
+			if err := server.requireSelectableModel(scope, state(params.Context).user, choice); err != nil {
+				return false, err
+			}
+			err = server.Engine.SetConversationModel(id, params.Args["role"].(string), choice)
 			return err == nil, err
 		}),
 	}
@@ -391,9 +403,13 @@ func (builder *schemaBuilder) providerMutations() graphql.Fields {
 			if err != nil {
 				return nil, err
 			}
+			if err := server.requireSelectableModel(agent.ProjectModels, state(params.Context).user, mainChoice, approverChoice); err != nil {
+				return nil, err
+			}
 
-			created, err := server.Engine.CreateWithModels(
-				params.Args["projectId"].(string), params.Args["name"].(string), mainChoice, approverChoice, "",
+			created, err := server.Engine.CreateWithModelsFor(
+				state(params.Context).user.ID, params.Args["projectId"].(string),
+				params.Args["name"].(string), mainChoice, approverChoice, "",
 			)
 
 			return mapOf(created), err

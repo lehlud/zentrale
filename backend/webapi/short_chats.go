@@ -44,17 +44,48 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 		Args: graphql.FieldConfigArgument{
 			"limit":  {Type: graphql.Int, DefaultValue: 100},
 			"offset": {Type: graphql.Int, DefaultValue: 0},
+			"pinned": {Type: graphql.Boolean},
 		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			var pinned *bool
+			if value, ok := params.Args["pinned"].(bool); ok {
+				pinned = &value
+			}
+
 			return server.Store.ShortChats(state(params.Context).user.ID, params.Args["limit"].(int),
-				params.Args["offset"].(int), requestedResourceFields(params.Info, false))
+				params.Args["offset"].(int), requestedResourceFields(params.Info, false), pinned)
+		}),
+	}
+	mutations["setShortChatPinned"] = &graphql.Field{
+		Type: graphql.Boolean,
+		Args: graphql.FieldConfigArgument{
+			"id":     {Type: graphql.NewNonNull(graphql.String)},
+			"pinned": {Type: graphql.NewNonNull(graphql.Boolean)},
+		},
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			err := server.Engine.SetShortChatPinned(state(params.Context).user.ID,
+				params.Args["id"].(string), params.Args["pinned"].(bool))
+			return err == nil, err
 		}),
 	}
 	mutations["createShortChat"] = &graphql.Field{
 		Type: chatType,
-		Args: graphql.FieldConfigArgument{"name": {Type: graphql.String, DefaultValue: ""}},
+		Args: graphql.FieldConfigArgument{
+			"name":   {Type: graphql.String, DefaultValue: ""},
+			"choice": {Type: builder.input(reflect.TypeFor[domain.ModelChoice]())},
+		},
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			chat, err := server.Engine.CreateShortChat(state(params.Context).user.ID, params.Args["name"].(string))
+			choice, err := convert[domain.ModelChoice](params.Args["choice"])
+			if err != nil {
+				return nil, err
+			}
+
+			user := state(params.Context).user
+			if err := server.requireSelectableModel(agent.ChatModels, user, choice); err != nil {
+				return nil, err
+			}
+
+			chat, err := server.Engine.CreateShortChatWithModel(user.ID, params.Args["name"].(string), choice)
 			return mapOf(chat), err
 		}),
 	}

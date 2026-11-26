@@ -28,5 +28,3 @@ export { Keys } from "./keys";
 export { Machines } from "./machines";
 
 export { Providers } from "./providers";
-
-export { Settings } from "./settings";

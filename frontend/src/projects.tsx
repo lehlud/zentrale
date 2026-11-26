@@ -753,7 +753,7 @@ function projectFields(
       label: "Commit-Name (optional)",
       placeholder: data?.commitIdentity?.name,
       description: t(
-        "Beide Felder leer lassen, um die globale Commit-Identität zu verwenden.",
+        "Beide Felder leer lassen, um die persönliche Commit-Identität des Projektbesitzers zu verwenden.",
       ),
     },
     {
@@ -804,9 +804,9 @@ function projectCreationSteps(
       id: "identity",
       title: t("Wer soll als Commit-Autor erscheinen?"),
       description: data?.commitIdentity?.name
-        ? t("Globale Identität: {name} <{email}>.", data.commitIdentity)
+        ? t("Persönliche Identität: {name} <{email}>.", data.commitIdentity)
         : t(
-            "Beide Felder leer lassen, um die globale Commit-Identität zu verwenden.",
+            "Beide Felder leer lassen, um die persönliche Commit-Identität des Projektbesitzers zu verwenden.",
           ),
       fields: [],
       advancedFields: ["commitName", "commitEmail"],

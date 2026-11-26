@@ -1,7 +1,7 @@
 import { Button } from "@heroui/react";
 import { useState } from "react";
 import { useAPI, useQuery } from "./api";
-import type { User } from "./generated";
+import type { ProjectTarget, User } from "./generated";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, useAction } from "./ui";
 
@@ -25,6 +25,7 @@ export function AccountSettings({ oidc }: { oidc: boolean }) {
     `query{users{${userFields}}}`,
   );
   const [editing, setEditing] = useState<User | null>(null);
+  const [assigning, setAssigning] = useState<User | null>(null);
 
   return (
     <section className="space-y-3 border-t border-border pt-6">
@@ -37,7 +38,7 @@ export function AccountSettings({ oidc }: { oidc: boolean }) {
       <Failure message={error} />
       <ul className="divide-y divide-border">
         {data?.users.map((user) => (
-          <li key={user.id}>
+          <li key={user.id} className="flex items-center gap-1">
             <Button
               variant="ghost"
               className="min-h-11 w-full justify-between px-3"
@@ -56,6 +57,15 @@ export function AccountSettings({ oidc }: { oidc: boolean }) {
                 )}
               </span>
             </Button>
+            {user.role !== "admin" && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onPress={() => setAssigning(user)}
+              >
+                {t("Maschinenfreigaben")}
+              </Button>
+            )}
           </li>
         ))}
       </ul>
@@ -66,7 +76,95 @@ export function AccountSettings({ oidc }: { oidc: boolean }) {
           onClose={() => setEditing(null)}
         />
       )}
+      {assigning && (
+        <TargetGrants user={assigning} onClose={() => setAssigning(null)} />
+      )}
     </section>
+  );
+}
+
+function TargetGrants({ user, onClose }: { user: User; onClose: () => void }) {
+  const { t } = useI18n();
+  const api = useAPI();
+  const action = useAction();
+  const [draft, setDraft] = useState<string[]>();
+  const { data, error } = useQuery<{
+    projectTargets: ProjectTarget[];
+    projectTargetGrants: string[];
+  }>(
+    `query($userId:String!){projectTargets{id name kind} projectTargetGrants(userId:$userId)}`,
+    { userId: user.id },
+  );
+  const targets = data?.projectTargets ?? [];
+  const selected = draft ?? data?.projectTargetGrants ?? [];
+
+  return (
+    <Inspect
+      title={`${t("Maschinenfreigaben")} · @${user.username}`}
+      onClose={onClose}
+      isBusy={action.busy}
+    >
+      <div className="space-y-4">
+        <Failure message={error || action.error} />
+        <p className="text-sm text-muted">
+          {t(
+            "Freigaben gelten für neue Projekte und den Wechsel des Arbeitsorts. Bestehende Projekte bleiben unverändert.",
+          )}
+        </p>
+        {data && !targets.length && (
+          <p className="text-sm text-muted">
+            {t("Keine Maschinen oder Pools eingerichtet.")}
+          </p>
+        )}
+        <ul className="grid gap-2">
+          {targets.map(({ id, name, kind }) => {
+            const key = `${kind}:${id}`;
+            return (
+              <li key={key}>
+                <label className="flex min-h-8 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(key)}
+                    onChange={(event) =>
+                      setDraft(
+                        event.target.checked
+                          ? [...selected, key]
+                          : selected.filter((item) => item !== key),
+                      )
+                    }
+                  />
+                  {name || id}{" "}
+                  <span className="text-muted">
+                    {t(kind === "pool" ? "Pool" : "Maschine")}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        <Button
+          isDisabled={!data || !draft}
+          isPending={action.busy}
+          onPress={() =>
+            action.run(async () => {
+              const visible = new Set(
+                targets.map(({ id, kind }) => `${kind}:${id}`),
+              );
+              await api.mutate(
+                "mutation($userId:String!,$targets:[String!]!){setProjectTargetGrants(userId:$userId,targets:$targets)}",
+                {
+                  userId: user.id,
+                  targets: selected.filter((key) => visible.has(key)),
+                },
+              );
+              onClose();
+            })
+          }
+        >
+          {t("Speichern")}
+        </Button>
+      </div>
+    </Inspect>
   );
 }
 

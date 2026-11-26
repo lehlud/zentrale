@@ -54,11 +54,18 @@ test("a member can create a private short chat, not a project", async ({
       page.getByRole("link", { name: "Projekt anlegen", exact: true }),
     ).toHaveCount(0);
 
-    await page.getByRole("link", { name: "Kurzchats", exact: true }).click();
-    await page.getByRole("button", { name: "Neuer Chat", exact: true }).click();
-    await expect(page).toHaveURL(/#\/chats\/[a-zA-Z0-9_-]+/);
+    await expect(
+      page.getByRole("button", { name: "Admin", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("link", { name: "Neue Unterhaltung", exact: true })
+      .click();
+    await expect(page).toHaveURL(/#\/chats$/);
+    expect(await graphql(page.request, "{shortChats{id}}")).toEqual({
+      shortChats: [],
+    });
     const composer = page.getByPlaceholder("Schreib eine Nachricht …");
-    await expect(composer).toBeVisible();
+    await expect(composer).toBeFocused();
     await composer.fill("/");
     await expect(page.getByRole("listbox", { name: "Befehle" })).toHaveCount(0);
 
@@ -79,6 +86,7 @@ test("a member can create a private short chat, not a project", async ({
       const response = await submitted;
       expect(response.request().postDataJSON().variables.text).toBe(text);
       expect((await response.json()).errors).toBeUndefined();
+      await expect(page).toHaveURL(/#\/chats\/[a-zA-Z0-9_-]+/);
       await expect(composer).toHaveValue("");
       await expect(page.getByRole("dialog")).toHaveCount(0);
     }
@@ -88,6 +96,31 @@ test("a member can create a private short chat, not a project", async ({
       "{shortChats{id}}",
     );
     expect(shortChats).toHaveLength(1);
+
+    const name = "/side Eine Nebenfrage";
+    const pinActions = page.getByRole("button", {
+      name: `Aktionen für ${name}`,
+      exact: true,
+    });
+    const pinned = page.getByRole("list", { name: "Angeheftet", exact: true });
+    const history = page.getByRole("list", {
+      name: "Unterhaltungsverlauf",
+      exact: true,
+    });
+    await expect(
+      history.getByRole("link", { name, exact: true }),
+    ).toBeVisible();
+    await pinActions.click();
+    await page.getByRole("menuitem", { name: "Anheften", exact: true }).click();
+    await expect(pinned.getByRole("link", { name, exact: true })).toBeVisible();
+    await page.reload();
+    await expect(pinned.getByRole("link", { name, exact: true })).toBeVisible();
+    await pinActions.click();
+    await page.getByRole("menuitem", { name: "Loslösen", exact: true }).click();
+    await expect(
+      history.getByRole("link", { name, exact: true }),
+    ).toBeVisible();
+    await expect(pinned).toHaveCount(0);
 
     const adminPage = await administrator.newPage();
     await adminPage.goto(`/#/chats/${shortChats[0].id}`);

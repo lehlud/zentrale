@@ -251,6 +251,8 @@ type Agent struct {
 	ApproverID     string `json:"approverId"`
 	Name           string `json:"name"`
 	ChatOwnerID    string `json:"chatOwnerId,omitempty"` // Set only for a standalone short chat.
+	ChatPinned     bool   `json:"chatPinned"`
+	ChatNamed      bool   `json:"chatNamed,omitempty"` // A standalone chat was explicitly named.
 
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`

@@ -1,4 +1,4 @@
-import { Button, Link, buttonVariants } from "@heroui/react";
+import { Link, buttonVariants } from "@heroui/react";
 import { useRef } from "react";
 
 import { AgentControls } from "./agent-controls";
@@ -13,7 +13,8 @@ import { setRouteParameter, useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { Empty, useAction } from "./ui";
 import { conversationHref } from "./navigation";
-import { useSidebar } from "./shell";
+import { useSessionUser } from "./session";
+import { SidebarToggle } from "./shell";
 
 export function Workspace({
   project,
@@ -32,7 +33,7 @@ export function Workspace({
 }) {
   const { t } = useI18n();
 
-  const sidebar = useSidebar();
+  const admin = useSessionUser()?.role === "admin";
   const header = useRef<HTMLDivElement>(null);
   const action = useAction();
   const { params } = useRoute();
@@ -53,6 +54,7 @@ export function Workspace({
   if (project.archived) {
     return (
       <>
+        <SidebarToggle iconOnly />
         <nav
           className="flex flex-wrap gap-2 pb-4"
           aria-label={t("Unterhaltungen")}
@@ -100,16 +102,10 @@ export function Workspace({
           <div className="mx-auto max-w-xl py-16">
             <Empty
               action={
-                defaultsReady ? (
-                  <Button
-                    className="min-h-11"
-                    onPress={() => sidebar?.newConversation(project.id)}
-                  >
-                    {t("Neue Unterhaltung")}
-                  </Button>
-                ) : (
+                !defaultsReady &&
+                admin && (
                   <Link
-                    href="#/settings"
+                    href="#/admin-settings"
                     className={buttonVariants({
                       variant: "secondary",
                       className: "min-h-11",
@@ -122,9 +118,13 @@ export function Workspace({
             >
               {defaultsReady
                 ? t("Noch keine Agenten")
-                : t(
-                    "Wähle zuerst die Standardmodelle für Aufgaben und Freigaben.",
-                  )}
+                : admin
+                  ? t(
+                      "Wähle zuerst die Standardmodelle für Aufgaben und Freigaben.",
+                    )
+                  : t(
+                      "Ein Admin muss zuerst Standardmodelle für Projekte festlegen.",
+                    )}
             </Empty>
           </div>
         </div>

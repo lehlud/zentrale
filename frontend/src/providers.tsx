@@ -235,7 +235,7 @@ export function Providers() {
                     )}
                   </p>
                 </div>
-                <Link href="#/settings" className="min-h-11 text-xs">
+                <Link href="#/admin-settings" className="min-h-11 text-xs">
                   {t(
                     isHostedProvider(selected.kind)
                       ? "Humanizer einrichten"

@@ -81,6 +81,7 @@ for (const variant of [
     }, variant);
     const state = structuredClone(config);
     let rejectDefaults = true;
+    const modelPolicies: Record<string, unknown> = {};
     const logins = new Map<string, ProviderLogin>();
     let loginSequence = 0;
     let deviceLoginId = "";
@@ -104,7 +105,7 @@ for (const variant of [
         return send({ project, agents });
       }
 
-      if (query.includes("setModelDefaults")) {
+      if (query.includes("setModelPresetPolicy")) {
         if (rejectDefaults) {
           throw new Error(
             label(
@@ -114,9 +115,24 @@ for (const variant of [
           );
         }
 
-        state.modelDefaults = variables.input;
+        modelPolicies[variables.scope] = {
+          configured: true,
+          presets: variables.presets,
+          defaults: variables.defaults,
+        };
 
-        return send({ setModelDefaults: true });
+        return send({ setModelPresetPolicy: true });
+      }
+
+      if (query.includes("modelPresetPolicy(")) {
+        return send({
+          modelPresetPolicy: modelPolicies[variables.scope] ?? {
+            configured: false,
+            presets: [],
+            defaults: state.modelDefaults,
+          },
+          modelProviders: state.providers,
+        });
       }
 
       if (query.includes("beginProviderLogin")) {
@@ -473,27 +489,35 @@ for (const variant of [
 
     await shot("browser-login-error");
     await page.keyboard.press("Escape");
-    await page.goto("/#/settings");
+    await page.goto("/#/admin-settings");
 
     await expect(
       page.getByRole("heading", {
-        name: label("Standardmodelle", "Default models"),
+        name: label(
+          "Modellfreigaben und Standards",
+          "Model presets and defaults",
+        ),
         exact: true,
       }),
     ).toBeVisible();
 
-    const role = page.getByRole("group", {
-      name: label("Hauptmodell", "Main model"),
-      exact: true,
+    const role = page.locator("div.rounded-xl").filter({
+      has: page.getByRole("heading", {
+        name: label("Projekte", "Projects"),
+        exact: true,
+      }),
     });
     await role
-      .getByRole("button", { name: label("Ändern", "Change"), exact: true })
+      .getByRole("button", {
+        name: label("Modell freigeben", "Release model"),
+        exact: true,
+      })
       .click();
     dialog = page.getByRole("dialog");
 
     await expect(dialog).toHaveCount(1);
 
-    await dialog.getByRole("searchbox").fill(models[1].id);
+    await dialog.getByRole("searchbox").fill(models[0].id);
 
     await expect(dialog.getByRole("option")).toHaveCount(1);
 
@@ -507,61 +531,28 @@ for (const variant of [
       .click();
 
     await expect(dialog).toHaveCount(0);
-    await expect(role.getByText(models[1].name, { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("status").filter({
-        hasText: label("Nicht gespeicherte Änderungen", "Unsaved changes"),
-      }),
-    ).toBeVisible();
+    const modelSelect = role.getByRole("combobox", {
+      name: label("Standardmodell", "Default model"),
+      exact: true,
+    });
+    await modelSelect.selectOption({ index: 2 });
+    const choice = await modelSelect.inputValue();
+    const save = role.getByRole("button", {
+      name: label("Speichern", "Save"),
+      exact: true,
+    });
+    await save.click();
 
-    await page
-      .getByRole("button", {
-        name: label("Modell-Defaults speichern", "Save model defaults"),
-        exact: true,
-      })
-      .click();
-
-    await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    await expect(role.getByRole("alert")).toContainText(
       label("Speichern fehlgeschlagen.", "Saving failed."),
     );
-    await expect(role.getByText(models[1].name, { exact: true })).toBeVisible();
+    await expect(modelSelect).toHaveValue(choice);
 
     rejectDefaults = false;
-    await page
-      .getByRole("button", { name: label("Verwerfen", "Discard"), exact: true })
-      .click();
-
-    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
-    await expect(
-      role
-        .getByText(models[0].name, { exact: true })
-        .and(role.getByRole("paragraph")),
-    ).toBeVisible();
-
-    await role
-      .getByRole("button", { name: label("Ändern", "Change"), exact: true })
-      .click();
-    dialog = page.getByRole("dialog");
-    await dialog.getByRole("searchbox").fill(models[1].id);
-    await dialog.getByRole("option").click();
-    await dialog
-      .getByRole("button", {
-        name: label("Auswahl übernehmen", "Apply selection"),
-      })
-      .click();
-    await page
-      .getByRole("button", {
-        name: label("Modell-Defaults speichern", "Save model defaults"),
-        exact: true,
-      })
-      .click();
-
-    await expect(
-      page.getByRole("button", {
-        name: label("Modell-Defaults speichern", "Save model defaults"),
-        exact: true,
-      }),
-    ).toHaveCount(0);
+    await save.click();
+    await expect(save).toBeDisabled();
+    await expect(role.getByRole("alert")).toHaveCount(0);
+    await expect(modelSelect).toHaveValue(choice);
 
     await shot("defaults");
     if (variant.width > 1000)

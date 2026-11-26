@@ -94,7 +94,7 @@ export function useComposerAttachments(agentId: string) {
     setItems([]);
     setError("");
   };
-  const upload = async (): Promise<Attachment[] | null> => {
+  const upload = async (targetId = agentId): Promise<Attachment[] | null> => {
     if (controller.current) return null;
     if (!itemsRef.current.length) return [];
     if (itemsRef.current.length > MAX_ATTACHMENTS) {
@@ -124,7 +124,7 @@ export function useComposerAttachments(agentId: string) {
         const uploaded =
           item.uploaded ??
           (await api.uploadAttachment(
-            agentId,
+            targetId,
             item.id,
             item.file,
             abort.signal,

@@ -25,6 +25,8 @@ import {
   Terminal,
   Paperclip,
   File,
+  ArrowUp,
+  Pin,
   type LucideProps,
 } from "lucide-react";
 
@@ -55,6 +57,8 @@ const icons = {
   terminal: Terminal,
   attachment: Paperclip,
   file: File,
+  send: ArrowUp,
+  pin: Pin,
 };
 
 export function Icon({

@@ -118,7 +118,7 @@ func (builder *schemaBuilder) queries() graphql.Fields {
 	queries["commitIdentity"] = &graphql.Field{
 		Type: builder.output(resourceTypes["commitIdentity"]),
 		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
-			identity, err := server.Engine.CommitIdentity()
+			identity, err := server.Engine.UserCommitIdentity(state(params.Context).user.ID)
 			return mapOf(identity), err
 		}),
 	}

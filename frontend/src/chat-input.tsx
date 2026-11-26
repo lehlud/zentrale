@@ -7,6 +7,7 @@ export function ChatInput({
   onChange,
   autoFocus,
   isDisabled,
+  compact = false,
   ...input
 }: Pick<
   ComponentProps<typeof TextField>,
@@ -17,6 +18,7 @@ export function ChatInput({
     "placeholder" | "onPaste" | "onKeyDown"
   > & {
     label: string;
+    compact?: boolean;
   }) {
   return (
     <TextField
@@ -29,8 +31,12 @@ export function ChatInput({
     >
       <Label className="sr-only">{label}</Label>
       <TextArea
-        className="min-h-16 max-h-40 resize-none [field-sizing:content]"
-        rows={2}
+        className={
+          compact
+            ? "min-h-11 max-h-40 resize-none border-0 bg-transparent px-1 py-3 shadow-none focus:shadow-none [field-sizing:content]"
+            : "min-h-16 max-h-40 resize-none [field-sizing:content]"
+        }
+        rows={compact ? 1 : 2}
         {...input}
       />
     </TextField>

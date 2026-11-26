@@ -27,7 +27,7 @@ func (i *Instance) UserProjects(userID string, limit, offset int, fields []strin
 	return i.queryResources(query, args...)
 }
 
-func (i *Instance) ShortChats(userID string, limit, offset int, fields []string) ([]map[string]any, error) {
+func (i *Instance) ShortChats(userID string, limit, offset int, fields []string, pinned *bool) ([]map[string]any, error) {
 	if userID == "" || offset < 0 {
 		return nil, errors.New("invalid short chat listing")
 	}
@@ -37,9 +37,31 @@ func (i *Instance) ShortChats(userID string, limit, offset int, fields []string)
 
 	projection, args := resourceProjection(fields)
 	query := `SELECT ` + projection + ` FROM resources WHERE kind='agent' AND parent_id=''
-		AND json_extract(data, '$.chatOwnerId')=? AND json_extract(data, '$.role')='main'
-		ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`
-	return i.queryResources(query, append(args, userID, limit, offset)...)
+		AND json_extract(data, '$.chatOwnerId')=? AND json_extract(data, '$.role')='main'`
+	args = append(args, userID)
+	if pinned != nil {
+		query += ` AND coalesce(json_extract(data, '$.chatPinned'), 0)=?`
+		args = append(args, *pinned)
+	}
+
+	query += ` ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`
+	return i.queryResources(query, append(args, limit, offset)...)
+}
+
+// ProjectActivityCandidates returns only live/recoverable agent rows in the
+// user's visible projects. The web layer also checks in-memory worker state.
+func (i *Instance) ProjectActivityCandidates(userID string) ([]map[string]any, error) {
+	if userID == "" {
+		return nil, errors.New("invalid project activity listing")
+	}
+
+	return i.queryResources(`SELECT json_object('id',a.id,'projectId',p.id,'status',json_extract(a.data,'$.status'))
+		FROM resources AS a JOIN resources AS p ON p.kind='project' AND p.id=a.parent_id
+		WHERE a.kind='agent' AND json_extract(a.data,'$.status') IN ('running','interrupted')
+		AND coalesce(json_extract(p.data,'$.archived'),0)=0 AND (
+			coalesce(nullif(json_extract(p.data,'$.ownerId'), ''), ?) = ?
+			OR EXISTS(SELECT 1 FROM json_each(p.data, '$.memberIds') WHERE value=?)
+		)`, domain.InitialUserID, userID, userID)
 }
 
 // RemoveProject removes only application records, not repository files, shared

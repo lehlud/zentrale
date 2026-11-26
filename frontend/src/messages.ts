@@ -1339,12 +1339,42 @@ Object.assign(germanErrors, {
 
 Object.assign(english, {
   "Neue Unterhaltung": "New conversation",
+  "Neue Unterhaltung im Projekt": "New conversation in project",
+  Unterhaltungsverlauf: "History",
+  Angeheftet: "Pinned",
+  Anheften: "Pin",
+  Loslösen: "Unpin",
+  "Nachricht senden": "Send message",
   "Alle Projekte": "All projects",
   "Projekte und Unterhaltungen": "Projects and conversations",
   "Projekte filtern": "Filter projects",
   "Projekt zum Umsortieren ziehen": "Drag to reorder project",
   Verwaltung: "Administration",
   "Allgemeine Einstellungen": "General settings",
+  "Persönliche Einstellungen": "Personal settings",
+  "Admin-Einstellungen": "Admin settings",
+  "Nur für Administratoren verfügbar.": "Only available to administrators.",
+  "Persönliche Modellstandards": "Personal model defaults",
+  "Modellfreigaben und Standards": "Model presets and defaults",
+  "Modell freigeben": "Release model",
+  Standardmodell: "Default model",
+  "Keine Modelle freigegeben.": "No models are enabled.",
+  "Zuerst Modellfreigaben festlegen.": "Set up model presets first.",
+  "Bisherige Standards gelten, bis du die Freigaben speicherst.":
+    "Existing defaults remain in use until you save model presets.",
+  "Globaler Standard": "Global default",
+  "Nicht festgelegt": "Not set",
+  "Ein Admin muss zuerst Standardmodelle für Projekte festlegen.":
+    "An administrator must set default models for projects first.",
+  Maschinenfreigaben: "Machine access",
+  "Freigaben gelten für neue Projekte und den Wechsel des Arbeitsorts. Bestehende Projekte bleiben unverändert.":
+    "Grants apply to new projects and moves. Existing projects remain unchanged.",
+  "Keine Maschinen oder Pools eingerichtet.":
+    "No machines or pools are configured.",
+  "Beide Felder leer lassen, um die persönliche Commit-Identität des Projektbesitzers zu verwenden.":
+    "Leave both fields empty to use the project owner's commit identity.",
+  "Persönliche Identität: {name} <{email}>.":
+    "Personal identity: {name} <{email}>.",
   "Provider und Modelle": "Providers and models",
   "Darstellung und Sprache": "Appearance and language",
   "Seitenleiste öffnen": "Open sidebar",

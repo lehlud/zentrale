@@ -39,6 +39,14 @@ func (engine *Engine) meteredInference(ctx context.Context, agentID, purpose str
 			return providers.Result{}, fmt.Errorf("load inference agent: %w", err)
 		}
 		record.ID = agentID
+		if purpose != "humanizer" {
+			choice := domain.ModelChoice{
+				ProviderID: request.Config.ID, ModelID: request.Model.ID, ReasoningLevel: request.ReasoningLevel,
+			}
+			if err := engine.requireModelPreset(modelScope(record), choice); err != nil {
+				return providers.Result{}, err
+			}
+		}
 	}
 
 	settle, err := engine.reserveInferenceUsage(ctx, record, purpose, &request, boundsOutput)

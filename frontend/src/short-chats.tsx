@@ -1,22 +1,91 @@
-import { Button } from "@heroui/react";
+import { Button, Link, buttonVariants } from "@heroui/react";
 import { useState } from "react";
 import { ActionsMenu } from "./actions-menu";
+import { AgentComposer } from "./agent-composer";
 import { AgentView } from "./agent-view";
 import { useAPI, useQuery } from "./api";
+import type { ModelChoice, Provider } from "./generated";
 import { Icon } from "./icons";
-import { navigate, setRouteParameter } from "./navigation";
+import { PresetSelect } from "./model-presets";
+import { useRoute } from "./navigation";
 import { useI18n } from "./preferences";
 import { RenameConversation } from "./rename-conversation";
+import { SidebarToggle } from "./shell";
 import { Failure, Loading, useAction } from "./ui";
 
-type Chat = { id: string; name: string };
-const chatPageSize = 50;
+type Chat = { id: string; name: string; status: string };
+const chatPageSize = 8;
+const newChatHref = "#/chats";
+
+function chatHref(id: string) {
+  return `${newChatHref}/${encodeURIComponent(id)}`;
+}
 
 export function ShortChats({ chatId }: { chatId: string }) {
-  return chatId ? (
-    <ShortChat key={chatId} chatId={chatId} />
-  ) : (
-    <ShortChatList />
+  return chatId ? <ShortChat key={chatId} chatId={chatId} /> : <NewShortChat />;
+}
+
+function NewShortChat() {
+  const { t } = useI18n();
+  const draftURL = location.href;
+  const [choice, setChoice] = useState<ModelChoice>();
+  const { data, error } = useQuery<{
+    shortChatModelOptions: {
+      presets: ModelChoice[] | null;
+      defaults: { main: ModelChoice };
+    };
+    modelProviders: Pick<Provider, "id" | "name">[];
+  }>(`{
+    shortChatModelOptions { presets { providerId modelId reasoningLevel } defaults { main { providerId modelId reasoningLevel } } }
+    modelProviders { id name }
+  }`);
+  const options = data?.shortChatModelOptions;
+  const presets = options?.presets ?? [];
+
+  return (
+    <section>
+      <header className="flex min-h-16 items-center">
+        <SidebarToggle iconOnly />
+        {options && (
+          <div className="min-w-0 max-w-[70%]">
+            <PresetSelect
+              compact
+              label={t("Modell")}
+              placeholder={t(
+                presets.length
+                  ? "Modell auswählen"
+                  : "Keine Modelle freigegeben.",
+              )}
+              presets={presets}
+              value={choice ?? options.defaults.main}
+              providers={data?.modelProviders ?? []}
+              allowEmpty={false}
+              disabled={!presets.length}
+              onChange={setChoice}
+            />
+          </div>
+        )}
+      </header>
+      <Failure message={error} />
+      <div className="mx-auto max-w-xl px-2 pt-[min(15vh,8rem)] pb-40 text-center">
+        <h1 className="text-2xl font-medium tracking-tight">
+          {t("Neue Unterhaltung")}
+        </h1>
+      </div>
+      <AgentComposer
+        agentId="draft-short-chat"
+        inputs={[]}
+        following
+        latest={() => {}}
+        autoFocus
+        shortChat
+        initialChatModel={choice}
+        onShortChatStarted={(id) => {
+          if (location.href === draftURL)
+            location.replace(`${chatHref(id)}?compose=1`);
+        }}
+      />
+    </section>
   );
 }
 
@@ -26,96 +95,159 @@ function ShortChat({ chatId }: { chatId: string }) {
     { id: chatId },
   );
 
-  if (error) return <Failure message={error} />;
-  if (!data?.shortChat) return <Loading />;
-  return <AgentView agentId={data.shortChat.id} />;
+  if (data?.shortChat && !error)
+    return <AgentView agentId={data.shortChat.id} />;
+
+  return (
+    <section>
+      <SidebarToggle iconOnly />
+      {error ? <Failure message={error} /> : <Loading />}
+    </section>
+  );
 }
 
-function ShortChatList() {
+export function SidebarChatHistory({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
+  const { t } = useI18n();
+  const { page, projectId } = useRoute();
+  const activeId = page === "chats" ? projectId : "";
+  const draftActive = page === "chats" && !projectId;
+
+  return (
+    <section aria-label={t("Unterhaltungen")} className="space-y-2">
+      <Link
+        href={newChatHref}
+        onPress={onNavigate}
+        aria-current={draftActive ? "page" : undefined}
+        className={buttonVariants({
+          variant: draftActive ? "secondary" : "ghost",
+          className: "min-h-11 w-full justify-start gap-3 px-3 font-medium",
+        })}
+      >
+        <Icon name="compose" />
+        {t("Neue Unterhaltung")}
+      </Link>
+      <ChatHistoryGroup pinned activeId={activeId} onNavigate={onNavigate} />
+      <ChatHistoryGroup activeId={activeId} onNavigate={onNavigate} />
+    </section>
+  );
+}
+
+function ChatHistoryGroup({
+  pinned = false,
+  activeId,
+  onNavigate,
+}: {
+  pinned?: boolean;
+  activeId: string;
+  onNavigate?: () => void;
+}) {
   const { t } = useI18n();
   const api = useAPI();
   const action = useAction();
   const [offset, setOffset] = useState(0);
   const [renaming, setRenaming] = useState<Chat>();
-  const { data, error, loading } = useQuery<{ shortChats: Chat[] }>(
-    "query($limit:Int!,$offset:Int!){shortChats(limit:$limit,offset:$offset){id name}}",
-    { limit: chatPageSize + 1, offset },
+  const { data, error } = useQuery<{ shortChats: Chat[] }>(
+    `query($limit:Int!,$offset:Int!,$pinned:Boolean!){
+      shortChats(limit:$limit,offset:$offset,pinned:$pinned){id name status}
+    }`,
+    { limit: chatPageSize + 1, offset, pinned },
   );
   const chats = data?.shortChats ?? [];
+  const label = t(pinned ? "Angeheftet" : "Unterhaltungsverlauf");
 
-  async function create() {
-    await action.run(
-      async () => {
-        const { createShortChat: chat } = await api.mutate<{
-          createShortChat: Chat;
-        }>("mutation { createShortChat { id name } }", {}, { announce: false });
-        navigate("chats", chat.id);
-        setRouteParameter("compose", "1");
-      },
-      "default",
-      { announce: false },
-    );
-  }
+  if (!error && !action.error && !chats.length && offset === 0 && !renaming)
+    return null;
 
   return (
-    <section className="mx-auto max-w-2xl space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-medium tracking-tight">
-          {t("Kurzchats")}
-        </h1>
-        <Button isPending={action.busy} onPress={create}>
-          <Icon name="compose" /> {t("Neuer Chat")}
-        </Button>
-      </header>
-      <Failure message={error || action.error} />
-      {loading && !data ? (
-        <Loading />
-      ) : chats.length ? (
-        <ul className="divide-y divide-border">
-          {chats.slice(0, chatPageSize).map((chat) => (
-            <li key={chat.id} className="flex items-center gap-1">
-              <a
-                className="min-h-11 flex-1 truncate px-3 py-3 hover:bg-surface-secondary"
-                href={`#/chats/${encodeURIComponent(chat.id)}`}
-              >
-                {chat.name}
-              </a>
-              <ActionsMenu
-                label={t("Aktionen für {name}", { name: chat.name })}
-                actions={[
-                  {
-                    id: "rename",
-                    label: t("Umbenennen"),
-                    onAction: () => setRenaming(chat),
-                  },
-                  {
-                    id: "delete",
-                    label: t("Entfernen"),
-                    destructive: true,
-                    onAction: () =>
-                      void action.run(() => api.removeAgent(chat.id)),
-                  },
-                ]}
+    <div>
+      <h3 className="px-3 py-1 text-xs font-medium text-muted">{label}</h3>
+      <Failure
+        message={error || action.error}
+        onRetry={error ? () => api.refresh() : undefined}
+      />
+      <ul aria-label={label}>
+        {chats.slice(0, chatPageSize).map((chat) => (
+          <li key={chat.id} className="flex min-w-0 items-center">
+            <Link
+              href={chatHref(chat.id)}
+              onPress={onNavigate}
+              aria-current={activeId === chat.id ? "page" : undefined}
+              className={buttonVariants({
+                variant: activeId === chat.id ? "secondary" : "ghost",
+                className: "min-h-10 min-w-0 flex-1 justify-start gap-2 px-3",
+              })}
+            >
+              <Icon
+                name={pinned ? "pin" : "chat"}
+                className="size-4 text-muted"
               />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted">{t("Noch keine Kurzchats.")}</p>
-      )}
+              <span className="truncate" title={chat.name}>
+                {chat.name}
+              </span>
+            </Link>
+            <ActionsMenu
+              label={t("Aktionen für {name}", { name: chat.name })}
+              isDisabled={action.busy}
+              actions={[
+                {
+                  id: "pin",
+                  label: t(pinned ? "Loslösen" : "Anheften"),
+                  onAction: () =>
+                    void action.run(
+                      () =>
+                        api.mutate(
+                          "mutation($id:String!,$pinned:Boolean!){setShortChatPinned(id:$id,pinned:$pinned)}",
+                          { id: chat.id, pinned: !pinned },
+                          { announce: false },
+                        ),
+                      "default",
+                      { announce: false },
+                    ),
+                },
+                {
+                  id: "rename",
+                  label: t("Umbenennen"),
+                  isDisabled:
+                    chat.status === "running" || chat.status === "waiting",
+                  onAction: () => setRenaming(chat),
+                },
+                {
+                  id: "delete",
+                  label: t("Entfernen"),
+                  destructive: true,
+                  onAction: () =>
+                    void action.run(async () => {
+                      await api.removeAgent(chat.id);
+                      if (location.hash.split("?")[0] === chatHref(chat.id))
+                        location.replace(newChatHref);
+                    }),
+                },
+              ]}
+            />
+          </li>
+        ))}
+      </ul>
       {(offset > 0 || chats.length > chatPageSize) && (
         <div className="flex justify-between gap-3">
           <Button
             variant="ghost"
+            size="sm"
             isDisabled={offset === 0}
-            onPress={() => setOffset(offset - chatPageSize)}
+            onPress={() =>
+              setOffset((value) => Math.max(0, value - chatPageSize))
+            }
           >
             {t("Zurück")}
           </Button>
           <Button
             variant="ghost"
+            size="sm"
             isDisabled={chats.length <= chatPageSize}
-            onPress={() => setOffset(offset + chatPageSize)}
+            onPress={() => setOffset((value) => value + chatPageSize)}
           >
             {t("Weiter")}
           </Button>
@@ -127,6 +259,6 @@ function ShortChatList() {
           onClose={() => setRenaming(undefined)}
         />
       )}
-    </section>
+    </div>
   );
 }

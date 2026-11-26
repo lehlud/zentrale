@@ -33,6 +33,11 @@ func (server *Server) saveOwnedProject(ctx context.Context, value domain.Project
 	default:
 		return value, loadErr
 	}
+	if loadErr != nil || !slices.Equal(value.MachineIDs, previous.MachineIDs) || !slices.Equal(value.PoolIDs, previous.PoolIDs) {
+		if err := server.requireProjectTargets(user, value.MachineIDs, value.PoolIDs); err != nil {
+			return value, err
+		}
+	}
 	if user.ID != domain.InitialUserID && (value.RepositorySSHURL != "" || value.RepositorySSHKeyID != 0) {
 		return value, errors.New("use a personal Git connection instead of a global SSH key")
 	}

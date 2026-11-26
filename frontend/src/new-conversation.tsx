@@ -9,11 +9,12 @@ import {
 } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
-import { CONFIG, useAPI, useQuery } from "./api";
+import { useAPI, useQuery } from "./api";
 import type { Config } from "./config";
 import type { Agent } from "./generated";
 import { conversationHref } from "./navigation";
 import { useI18n } from "./preferences";
+import { useSessionUser } from "./session";
 import { Empty, Failure, Inspect, Loading, useAction } from "./ui";
 
 export function NewConversation({
@@ -25,7 +26,13 @@ export function NewConversation({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
+  const admin = useSessionUser()?.role === "admin";
+  const { data, error, loading } = useQuery<
+    Pick<Config, "modelDefaults" | "projects">
+  >(`{
+    projects(limit:500){id name}
+    modelDefaults{main{modelId} approver{modelId}}
+  }`);
   const [selected, setSelected] = useState(projectId);
   const started = useRef(false);
   const active = useRef(true);
@@ -115,12 +122,14 @@ export function NewConversation({
         ) : !ready ? (
           <Empty
             action={
-              <Link href="#/settings" onPress={onClose}>
-                {t("Standardmodelle auswählen")}
-              </Link>
+              admin ? (
+                <Link href="#/admin-settings" onPress={onClose}>
+                  {t("Standardmodelle auswählen")}
+                </Link>
+              ) : undefined
             }
           >
-            {t("Wähle zuerst die Standardmodelle für Aufgaben und Freigaben.")}
+            {t("Ein Admin muss zuerst Standardmodelle für Projekte festlegen.")}
           </Empty>
         ) : (
           <form

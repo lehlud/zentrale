@@ -164,7 +164,7 @@ func (engine *Engine) normalizeReasoning(choice domain.ModelChoice, role string)
 }
 
 func (engine *Engine) inferenceConfiguration(ctx context.Context, agentRecord domain.Agent) (inferenceConfig, error) {
-	choice, err := engine.resolveChoice(agentModelChoice(agentRecord), agentRecord.Role)
+	choice, err := engine.recordModelChoice(agentRecord)
 	if err != nil {
 		return inferenceConfig{}, err
 	}

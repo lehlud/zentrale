@@ -1,5 +1,30 @@
 # Multi-user operation
 
+## Settings and permissions
+
+Personal settings contain Git/platform connections and the account's commit
+identity. A project's override takes precedence over its owner's identity. The
+legacy installation identity belongs to the initial account; other users set
+their own, even when editing projects that already exist.
+
+Admin settings contain user management, the global Humanizer and file-share
+configuration, and separate released model presets for conversations and
+projects. Each preset pairs a provider model with a fixed thinking level. Admins
+set the two sets of defaults and may override them for themselves in personal
+settings. Everyone can switch a conversation to a released preset for its own
+scope. The short-chat code reviewer uses the configured reviewer default rather
+than the conversation's model selector. The provider-level model restriction also
+applies. Revoking a preset prevents further use, even if a conversation still
+displays that selection. Until an admin first saves a scope's presets, legacy
+defaults remain available to ordinary users and existing selections still work.
+
+Machines and pools are global. Admins can grant them individually under **Admin
+settings → Users → Machine access**. A regular user needs both project creation
+permission and a target grant to create a project. The same grant is needed when
+moving to a new target; existing assignments and project membership are not
+affected by grant changes. Short chats use the separately configured shared
+runtime, not these grants.
+
 Make a backup of the database and its credential key before upgrading an existing installation. Existing projects, Git connections, and commit identity remain with the initial administrator. Existing single-user passwords still work; sign in again as `admin`. Old session cookies are not reused.
 
 ## Sign-in and administration

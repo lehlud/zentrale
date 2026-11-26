@@ -17,8 +17,12 @@ func (engine *Engine) Create(projectID, name, providerID, approverProviderID, pa
 		domain.ModelChoice{ProviderID: approverProviderID}, parentID)
 }
 
-func (engine *Engine) CreateWithModels(
-	projectID, name string,
+func (engine *Engine) CreateWithModels(projectID, name string, mainChoice, approverChoice domain.ModelChoice, parentID string) (domain.Agent, error) {
+	return engine.CreateWithModelsFor("", projectID, name, mainChoice, approverChoice, parentID)
+}
+
+func (engine *Engine) CreateWithModelsFor(
+	userID, projectID, name string,
 	mainChoice, approverChoice domain.ModelChoice,
 	parentID string,
 ) (domain.Agent, error) {
@@ -37,7 +41,7 @@ func (engine *Engine) CreateWithModels(
 		return domain.Agent{}, err
 	}
 
-	mainChoice, err := engine.resolveChoice(mainChoice, "main")
+	mainChoice, err := engine.resolveScopedChoice(ProjectModels, userID, mainChoice, "main")
 	if err != nil {
 		return domain.Agent{}, err
 	}
@@ -47,7 +51,7 @@ func (engine *Engine) CreateWithModels(
 		return domain.Agent{}, err
 	}
 	if role == "main" {
-		approverChoice, err = engine.resolveChoice(approverChoice, "approver")
+		approverChoice, err = engine.resolveScopedChoice(ProjectModels, userID, approverChoice, "approver")
 		if err != nil {
 			return domain.Agent{}, err
 		}

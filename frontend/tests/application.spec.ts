@@ -49,7 +49,7 @@ async function navigateToPage(page: Page, name: string) {
       Schlüssel: "Schlüssel",
       Keys: "Keys",
       Provider: "Provider und Modelle",
-      Einstellungen: "Allgemeine Einstellungen",
+      Einstellungen: "Persönliche Einstellungen",
       Machines: "Machines",
       Maschinen: "Maschinen",
     };
@@ -57,14 +57,13 @@ async function navigateToPage(page: Page, name: string) {
     const englishLabels: Record<string, string> = {
       Keys: "Keys",
       Provider: "Providers and models",
-      Settings: "General settings",
+      Settings: "Personal settings",
       Machines: "Machines",
     };
-    await page
-      .getByRole("button", {
-        name: /^(Einstellungen öffnen|Open settings)$/,
-      })
-      .click();
+    const menu = /^(Einstellungen|Settings)$/.test(name)
+      ? /^(Einstellungen öffnen|Open settings)$/
+      : /^Admin$/;
+    await page.getByRole("button", { name: menu }).click();
     await page
       .getByRole("menuitem", {
         name: english
@@ -430,7 +429,7 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
 
   await page
     .getByRole("main")
-    .getByRole("button", { name: "Neue Unterhaltung", exact: true })
+    .getByRole("button", { name: "Neue Unterhaltung im Projekt", exact: true })
     .click();
 
   await expect(page.getByLabel("Aufgabe oder neue Instruktion")).toBeVisible();

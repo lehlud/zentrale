@@ -74,6 +74,10 @@ export function SidebarProjects({
   const { data, error, loading } = useQuery<{ projects: SidebarProject[] }>(
     `query { projects(limit:500) { id name emoji archived } }`,
   );
+  const activity = useQuery<{ activeProjectIds: string[] }>(
+    "query { activeProjectIds }",
+  );
+  const activeProjects = new Set(activity.data?.activeProjectIds);
   const [search, setSearch] = useState("");
   const orderKey = `${projectOrderKey}:${userId}`;
   const [order, setOrder] = useState(() =>
@@ -120,22 +124,22 @@ export function SidebarProjects({
   return (
     <nav
       aria-label={t("Projekte und Unterhaltungen")}
-      className="min-w-0 space-y-1"
+      className="min-w-0 space-y-1 border-t border-separator pt-3"
     >
-      <Link
-        href="#/projects"
-        onPress={onNavigate}
-        aria-current={page === "projects" && !projectId ? "page" : undefined}
-        className={buttonVariants({
-          variant: "ghost",
-          className: "min-h-11 w-full justify-start gap-3 px-3",
-        })}
-      >
-        <Icon name="projects" />
-        {t("Alle Projekte")}
-      </Link>
-      <div className="flex items-center justify-between px-3 pt-6 pb-2 text-xs text-muted">
-        <span>{t("Projekte")}</span>
+      <div className="flex min-h-11 items-center justify-between gap-1">
+        <Link
+          href="#/projects"
+          onPress={onNavigate}
+          aria-current={page === "projects" && !projectId ? "page" : undefined}
+          className={buttonVariants({
+            variant: page === "projects" && !projectId ? "secondary" : "ghost",
+            className:
+              "min-h-11 min-w-0 flex-1 justify-start gap-3 px-3 font-medium",
+          })}
+        >
+          <Icon name="projects" />
+          {t("Alle Projekte")}
+        </Link>
         {canCreate && (
           <Link
             href="#/projects?new=1"
@@ -180,6 +184,7 @@ export function SidebarProjects({
       <ul aria-label={t("Projekte")} className="space-y-1">
         {projects.items.map((project, index) => {
           const active = page === "projects" && projectId === project.id;
+          const working = activeProjects.has(project.id);
           const dropTarget = draggedIndex >= 0 && drag?.target === project.id;
 
           return (
@@ -220,6 +225,10 @@ export function SidebarProjects({
                 <Link
                   href={`#/projects/${encodeURIComponent(project.id)}`}
                   onPress={onNavigate}
+                  aria-current={active ? "page" : undefined}
+                  aria-describedby={
+                    working ? `project-activity-${project.id}` : undefined
+                  }
                   className={buttonVariants({
                     variant: active ? "secondary" : "ghost",
                     className:
@@ -230,7 +239,27 @@ export function SidebarProjects({
                   <span className="min-w-0 truncate" title={project.name}>
                     {project.name}
                   </span>
+                  {working && (
+                    <>
+                      <span
+                        className="working-indicator ml-auto shrink-0 text-accent"
+                        aria-hidden="true"
+                      >
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    </>
+                  )}
                 </Link>
+                {working && (
+                  <span
+                    id={`project-activity-${project.id}`}
+                    className="sr-only"
+                  >
+                    {t("Arbeitet")}
+                  </span>
+                )}
                 {canReorder && (
                   <span
                     aria-hidden="true"

@@ -1,7 +1,9 @@
 // Generated from the Go GraphQL schema. Run make generate.
 export type Agent = {
   approverId: string;
+  chatNamed: boolean;
   chatOwnerId: string;
+  chatPinned: boolean;
   contextStart: number;
   contextTokens: number;
   error: string;
@@ -418,6 +420,11 @@ export type ModelPolicyInput = {
   models?: Array<string> | null;
   restricted?: boolean | null;
 };
+export type ModelPresetPolicy = {
+  configured: boolean;
+  defaults: ModelDefaults;
+  presets: Array<ModelChoice>;
+};
 export type ModelProvider = {
   id: string;
   name: string;
@@ -477,7 +484,11 @@ export type Mutation = {
   setGitHubToken: boolean | null;
   setHumanizer: boolean | null;
   setModelDefaults: boolean | null;
+  setModelPresetPolicy: boolean | null;
+  setPersonalModelDefaults: boolean | null;
   setProjectMember: boolean | null;
+  setProjectTargetGrants: boolean | null;
+  setShortChatPinned: boolean | null;
   setup: boolean | null;
   setupModalHumanizer: Provider | null;
   startEditor: EditorStartResult | null;
@@ -631,6 +642,7 @@ export type ProviderLogin = {
   verificationUrl: string;
 };
 export type Query = {
+  activeProjectIds: Array<string>;
   agent: Agent | null;
   agentInputs: Array<AgentInput | null> | null;
   agentRemovalBusy: boolean;
@@ -639,6 +651,7 @@ export type Query = {
   approvals: Array<Approval | null> | null;
   commitIdentity: CommitIdentity | null;
   conversationBootstrap: ConversationBootstrap | null;
+  conversationModelPresets: Array<ModelChoice | null> | null;
   conversationModels: ModelDefaults | null;
   editorSession: EditorSession | null;
   fileShares: Array<FileShareConfig | null> | null;
@@ -659,15 +672,18 @@ export type Query = {
   model: LanguageModel | null;
   modelDefaults: ModelDefaults | null;
   modelPolicy: ModelPolicy | null;
+  modelPresetPolicy: ModelPresetPolicy | null;
   modelProviders: Array<ModelProvider | null> | null;
   models: Array<LanguageModel> | null;
   notes: Array<Note | null> | null;
+  personalModelDefaults: ModelDefaults | null;
   poolConfiguration: string;
   pools: Array<Pool | null> | null;
   project: Project | null;
   projectMembers: Array<ProjectMember | null> | null;
   projectMove: ProjectMove | null;
   projects: Array<Project | null> | null;
+  projectTargetGrants: Array<string> | null;
   projectTargets: Array<ProjectTarget | null> | null;
   providerKinds: Array<ProviderKind | null> | null;
   providerLogin: ProviderLogin | null;
@@ -676,6 +692,7 @@ export type Query = {
   recentMessages: Array<Message | null> | null;
   sandboxStatuses: Array<SandboxStatus | null> | null;
   shortChat: Agent | null;
+  shortChatModelOptions: ModelPresetPolicy | null;
   shortChats: Array<Agent | null> | null;
   shortChatSettings: ShortChatSettings | null;
   sources: Array<Source | null> | null;

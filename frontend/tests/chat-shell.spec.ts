@@ -87,6 +87,10 @@ for (const mobile of [false, true]) {
         return send({ project, agents: sessions });
       }
 
+      if (query.includes("activeProjectIds")) {
+        return { activeProjectIds: [project.id] };
+      }
+
       return send(config);
     };
     const push = await installPushFixture(page, resolve);
@@ -146,13 +150,28 @@ for (const mobile of [false, true]) {
       await expect(
         page.getByRole("button", { name: "Menü öffnen", exact: true }),
       ).toBeFocused();
+    }
 
-      await openNavigation();
+    await openNavigation();
+    const navigationWave = page
+      .getByRole("navigation", { name: "Hauptnavigation", exact: true })
+      .locator(".working-indicator > span")
+      .first();
+    await expect(navigationWave).toHaveCSS("animation-name", "working-pulse");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(navigationWave).toHaveCSS("animation-name", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    if (mobile) {
+      await page
+        .getByRole("button", { name: "Menü schließen", exact: true })
+        .click();
     }
 
     await page
-      .getByRole("navigation", { name: "Hauptnavigation", exact: true })
-      .getByRole("button", { name: "Neue Unterhaltung", exact: true })
+      .getByRole("button", {
+        name: "Neue Unterhaltung im Projekt",
+        exact: true,
+      })
       .click();
 
     await expect(page).toHaveURL(/agent=conversation-new/);
@@ -254,7 +273,7 @@ for (const mobile of [false, true]) {
   });
 }
 
-test("new conversation asks only for a project and preserves the choice after an error", async ({
+test("project pencil retries creation in the same project after an error", async ({
   page,
 }) => {
   page.setDefaultTimeout(10000);
@@ -328,40 +347,20 @@ test("new conversation asks only for a project and preserves the choice after an
       });
     }
   });
-  await page.goto("/#/projects");
+  await page.goto(`/#/projects/${secondProject.id}`);
   await page
-    .getByRole("navigation", {
-      name: "Projekte und Unterhaltungen",
-      exact: true,
-    })
-    .getByRole("link", { name: "Projekt anlegen", exact: true })
+    .getByRole("button", { name: "Neue Unterhaltung im Projekt", exact: true })
     .click();
-
-  await expect(
-    page.getByRole("heading", { name: "Neues Projekt", exact: true }),
-  ).toBeVisible();
-
-  await page.goBack();
-
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-
-  await page
-    .getByRole("button", { name: "Neue Unterhaltung", exact: true })
-    .click();
+  // The pencil attempts creation directly; the dialog is the recovery UI.
+  await expect.poll(() => attempts).toBe(1);
   const dialog = page.getByRole("dialog");
 
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
 
-  await dialog.getByRole("button", { name: /Projekt/ }).click();
-  await page
-    .getByRole("option", { name: secondProject.name, exact: true })
-    .click();
   const submit = dialog.getByRole("button", {
     name: "Unterhaltung starten",
     exact: true,
   });
-  await submit.click();
-
   await expect(dialog.getByRole("alert")).toContainText(
     "Die Unterhaltung konnte nicht gespeichert werden.",
   );
@@ -370,7 +369,9 @@ test("new conversation asks only for a project and preserves the choice after an
   );
 
   await mkdir("artifacts/ui", { recursive: true });
-  await page.screenshot({ path: "artifacts/ui/chat-project-choice-error.png" });
+  await page.screenshot({
+    path: "artifacts/ui/chat-project-creation-error.png",
+  });
   await submit.click();
 
   await expect(page).toHaveURL(/projects\/second\?agent=created/);

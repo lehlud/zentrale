@@ -8,6 +8,7 @@ const pages = new Set([
   "keys",
   "providers",
   "settings",
+  "admin-settings",
   "editor",
 ]);
 

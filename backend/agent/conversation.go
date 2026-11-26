@@ -30,7 +30,11 @@ func (engine *Engine) RenameAgent(agentID, name string) error {
 		return errors.New("stop the agent before renaming the conversation")
 	}
 
-	if err := engine.Store.Patch("agent", agentID, map[string]any{"name": name}); err != nil {
+	fields := map[string]any{"name": name}
+	if record.ChatOwnerID != "" {
+		fields["chatNamed"] = true
+	}
+	if err := engine.Store.Patch("agent", agentID, fields); err != nil {
 		return err
 	}
 
@@ -46,7 +50,11 @@ func (engine *Engine) nameFirstConversation(record *domain.Agent, text string) e
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	if record.Name != "Neue Unterhaltung" && record.Name != "New conversation" {
+	if record.ChatOwnerID != "" {
+		if record.ChatNamed || record.Name != defaultShortChatName {
+			return nil
+		}
+	} else if record.Name != "Neue Unterhaltung" && record.Name != "New conversation" {
 		return nil
 	}
 

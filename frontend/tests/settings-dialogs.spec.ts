@@ -77,6 +77,7 @@ for (const width of [1440, 390]) {
       .getByRole("button", { name: "Schließen", exact: true })
       .click();
 
+    await page.goto("/#/admin-settings");
     const openAccess = page.getByRole("button", {
       name: "Erweiterter API-Zugang",
       exact: true,
@@ -106,6 +107,7 @@ for (const width of [1440, 390]) {
     await expect(page.locator("body")).not.toContainText(
       "saved-sensitive-token",
     );
+    await page.getByRole("button", { name: "Benachrichtigung schließen" }).click();
     await openAccess.click();
     await expect(token).toHaveValue("");
     await dialog

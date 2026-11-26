@@ -63,11 +63,12 @@ func (engine *Engine) sourceReadinessKey(project domain.Project, sources []domai
 			return "", err
 		}
 	}
-	identity, err := engine.Store.Setting("commit_identity")
+	identity, err := engine.ProjectCommitIdentity(project)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(JSON([]any{project.ID, project.Directory, sources, bindings, accounts, keys, trusted, repositoryTrust, identity, project.CommitName, project.CommitEmail})))), nil
+	fingerprint := []any{project.ID, project.Directory, sources, bindings, accounts, keys, trusted, repositoryTrust, identity}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(JSON(fingerprint)))), nil
 }
 
 func (engine *Engine) connectionReadinessKey(record domain.Agent, machine domain.Machine, project domain.Project) (string, error) {

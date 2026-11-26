@@ -26,7 +26,7 @@ func (engine *Engine) ConversationModels(agentID string) (domain.ModelDefaults, 
 	}
 	current := func(record domain.Agent) domain.ModelChoice {
 		choice := agentModelChoice(record)
-		if resolved, err := engine.resolveChoice(choice, record.Role); err == nil {
+		if resolved, err := engine.recordModelChoice(record); err == nil {
 			return resolved
 		}
 		// Keep the old selection visible so a removed or disconnected model
@@ -48,15 +48,18 @@ func (engine *Engine) SetConversationModel(agentID, role string, choice domain.M
 	}
 	target := main
 	if role == "approver" {
+		if main.ChatOwnerID != "" {
+			return errors.New("the short-chat safety reviewer is configured by an administrator")
+		}
 		target = approver
 	}
 	if engine.agentRemoving(agentID) || engine.agentRemoving(target.ID) {
 		return errAgentRemoving
 	}
-	if _, err := engine.validateModelChoice(choice); err != nil {
-		return err
+	if choice.ProviderID == "" || choice.ModelID == "" {
+		return errors.New("select a model")
 	}
-	choice, err = engine.normalizeReasoning(choice, role)
+	choice, err = engine.resolveScopedChoice(modelScope(target), target.ChatOwnerID, choice, role)
 	if err != nil {
 		return err
 	}

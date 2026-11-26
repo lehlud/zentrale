@@ -4,7 +4,8 @@ import { useEffect } from "react";
 import { useAPI, useQuery } from "./api";
 import { Authentication } from "./authentication";
 import { BrowserLoginCallback, isBrowserLoginCallback } from "./browser-login";
-import { Keys, Machines, Providers, Settings } from "./config";
+import { Keys, Machines, Providers } from "./config";
+import { AdminSettings, Settings } from "./settings";
 import { SESSION_QUERY, SessionUserContext, type SessionData } from "./session";
 import { useRoute } from "./navigation";
 import { useI18n } from "./preferences";
@@ -76,9 +77,13 @@ export default function App() {
         {admin && page === "machines" && <Machines />}
         {admin && page === "keys" && <Keys />}
         {admin && page === "providers" && <Providers />}
-        {page === "settings" && (
-          <Settings admin={admin} oidc={Boolean(data?.status.oidc)} />
-        )}
+        {page === "settings" && <Settings admin={admin} />}
+        {page === "admin-settings" &&
+          (admin ? (
+            <AdminSettings oidc={Boolean(data?.status.oidc)} />
+          ) : (
+            <Failure message={t("Nur für Administratoren verfügbar.")} />
+          ))}
       </ApplicationShell>
     </SessionUserContext.Provider>
   );

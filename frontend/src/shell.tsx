@@ -12,6 +12,7 @@ import {
 import { Icon } from "./icons";
 import { useMediaQuery } from "./media";
 import { NewConversation } from "./new-conversation";
+import { SidebarChatHistory } from "./short-chats";
 import { SidebarProjects } from "./sidebar-projects";
 import { Inspect } from "./ui";
 import { useSessionUser } from "./session";
@@ -21,7 +22,7 @@ type SidebarState = {
   collapsed: boolean;
   menuOpen: boolean;
   toggle: () => void;
-  newConversation: (projectId?: string) => void;
+  newConversation: (projectId: string) => void;
   preferences: () => void;
 };
 
@@ -56,7 +57,7 @@ export function SidebarToggle({ iconOnly = false }: { iconOnly?: boolean }) {
 }
 
 const administration = [
-  { id: "settings", label: "Allgemeine Einstellungen" },
+  { id: "admin-settings", label: "Admin-Einstellungen" },
   { id: "providers", label: "Provider und Modelle" },
   { id: "machines", label: "Maschinen" },
   { id: "keys", label: "Schlüssel" },
@@ -64,7 +65,6 @@ const administration = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useI18n();
-  const { page, projectId } = useRoute();
   const api = useAPI();
   const sidebar = useSidebar()!;
   const user = useSessionUser();
@@ -89,41 +89,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </Button>
         </div>
       )}
-      <a
-        href="#/chats"
-        onClick={onNavigate}
-        aria-current={page === "chats" ? "page" : undefined}
-        className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm hover:bg-surface-secondary"
-      >
-        <Icon name="compose" className="size-5" />
-        {t("Kurzchats")}
-      </a>
-      <Button
-        variant="ghost"
-        className="min-h-11 w-full justify-start gap-3 px-3"
-        onPress={() => {
-          sidebar.newConversation(page === "projects" ? projectId : "");
-          onNavigate?.();
-        }}
-      >
-        <Icon name="compose" className="size-5" />
-        {t("Neue Unterhaltung")}
-      </Button>
+      <SidebarChatHistory onNavigate={onNavigate} />
       <SidebarProjects
         key={user?.id}
         userId={user?.id ?? ""}
         canCreate={admin || Boolean(user?.canCreateProjects)}
         onNavigate={onNavigate}
       />
-      <a
-        href="#/usage"
-        onClick={onNavigate}
-        aria-current={page === "usage" ? "page" : undefined}
-        className="flex min-h-11 w-full items-center rounded-lg px-3 text-sm hover:bg-surface-secondary"
-      >
-        {t("Verbrauch")}
-      </a>
-      <div className="mt-auto pt-3">
+      <div className="mt-auto space-y-1 border-t border-separator pt-3">
         <Dropdown>
           <Button
             variant="ghost"
@@ -135,20 +108,23 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             <Icon name="more" />
           </Button>
           <Dropdown.Popover placement="top start">
-            <Dropdown.Menu aria-label={t("Verwaltung")}>
-              {administration
-                .filter((item) => item.id === "settings" || admin)
-                .map((item) => (
-                  <Dropdown.Item
-                    id={item.id}
-                    key={item.id}
-                    href={`#/${item.id}`}
-                    onAction={onNavigate}
-                    className="min-h-11"
-                  >
-                    <Label>{t(item.label)}</Label>
-                  </Dropdown.Item>
-                ))}
+            <Dropdown.Menu aria-label={t("Einstellungen")}>
+              <Dropdown.Item
+                id="settings"
+                href="#/settings"
+                onAction={onNavigate}
+                className="min-h-11"
+              >
+                <Label>{t("Persönliche Einstellungen")}</Label>
+              </Dropdown.Item>
+              <Dropdown.Item
+                id="usage"
+                href="#/usage"
+                onAction={onNavigate}
+                className="min-h-11"
+              >
+                <Label>{t("Verbrauch")}</Label>
+              </Dropdown.Item>
               <Dropdown.Item
                 id="appearance"
                 onAction={() => {
@@ -170,6 +146,33 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
+        {admin && (
+          <Dropdown>
+            <Button
+              variant="ghost"
+              className="min-h-11 w-full justify-start gap-3 px-3 text-sm"
+            >
+              <Icon name="keys" className="size-5" />
+              <span className="flex-1 text-left">{t("Admin")}</span>
+              <Icon name="more" />
+            </Button>
+            <Dropdown.Popover placement="top start">
+              <Dropdown.Menu aria-label={t("Verwaltung")}>
+                {administration.map((item) => (
+                  <Dropdown.Item
+                    id={item.id}
+                    key={item.id}
+                    href={`#/${item.id}`}
+                    onAction={onNavigate}
+                    className="min-h-11"
+                  >
+                    <Label>{t(item.label)}</Label>
+                  </Dropdown.Item>
+                ))}
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
+        )}
       </div>
     </nav>
   );
@@ -192,7 +195,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
   const [appearance, setAppearance] = useState(false);
   const { page, projectId, params } = useRoute();
   const isConversation =
-    (page === "projects" || page === "chats") && Boolean(projectId);
+    page === "chats" || (page === "projects" && Boolean(projectId));
 
   useEffect(
     () => setMenuOpen(false),
@@ -238,7 +241,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
         collapsed,
         menuOpen,
         toggle,
-        newConversation: (id = "") => setCreatingIn(id),
+        newConversation: setCreatingIn,
         preferences: () => setAppearance(true),
       }}
     >

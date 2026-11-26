@@ -7,7 +7,7 @@ import { statusLabels } from "./agent-format";
 import type { Agent, Project } from "./generated";
 import { useI18n } from "./preferences";
 import type { useAction } from "./ui";
-import { SidebarToggle } from "./shell";
+import { SidebarToggle, useSidebar } from "./shell";
 import { AgentSwitcher } from "./agent-switcher";
 import { Icon } from "./icons";
 import { editorLaunchHref } from "./navigation";
@@ -40,6 +40,7 @@ export function AgentControls({
 }) {
   const { t } = useI18n();
   const api = useAPI();
+  const sidebar = useSidebar();
   const canRemove = current && current.role !== "approver";
   const [modelAgentId, setModelAgentId] = useState("");
   const [repositoryAgentId, setRepositoryAgentId] = useState("");
@@ -187,6 +188,16 @@ export function AgentControls({
               </Dropdown.Popover>
             </Dropdown>
           )}
+          <Button
+            isIconOnly
+            variant="ghost"
+            aria-label={t("Neue Unterhaltung im Projekt")}
+            className="min-h-11 min-w-11"
+            isDisabled={action.busy}
+            onPress={() => sidebar?.newConversation(project.id)}
+          >
+            <Icon name="compose" className="size-5" />
+          </Button>
         </div>
       </div>
       {current && (

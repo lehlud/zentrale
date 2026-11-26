@@ -20,6 +20,7 @@ import { Failure, Inspect, Loading, useAction } from "./ui";
 import { JobsPanel, ContextPanel } from "./agent-panels";
 import { AgentControls } from "./agent-controls";
 import { AgentConversation } from "./agent-conversation";
+import { ShortChatModelPicker } from "./conversation-models";
 import { ApproverLog } from "./approver-log";
 import { useTranscriptViewport } from "./transcript-viewport";
 import { SandboxBadge } from "./sandbox-badge";
@@ -215,6 +216,7 @@ export function AgentView({
           className="sticky top-0 z-10 flex min-h-16 items-center gap-3 border-b border-border bg-surface"
         >
           <SidebarToggle iconOnly />
+          {!project && !readOnly && <ShortChatModelPicker agentId={agentId} />}
           <h1 className="min-w-0 flex-1 truncate text-lg font-medium">
             {current?.name || t("Kurzchat")}
           </h1>

@@ -8,12 +8,11 @@ import {
 } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
-import { CONFIG, useAPI, useQuery } from "./api";
+import { useAPI, useQuery } from "./api";
 import {
   finishIdentitySave,
   reconcileIdentityDraft,
 } from "./commit-identity-draft";
-import type { Config } from "./config";
 import type { CommitIdentity } from "./generated";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
@@ -86,7 +85,9 @@ export function CommitIdentityFields({
 export function CommitIdentitySettings() {
   const { t } = useI18n();
   const api = useAPI();
-  const { data, error, loading } = useQuery<Config>(CONFIG);
+  const { data, error, loading } = useQuery<{ commitIdentity: CommitIdentity }>(
+    "{commitIdentity{name email}}",
+  );
   const [draft, setDraft] = useState<CommitIdentity>();
   const [editing, setEditing] = useState(false);
   const action = useAction();

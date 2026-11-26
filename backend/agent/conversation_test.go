@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
 	"github.com/lehlud/zentrale/providers"
 )
@@ -93,5 +94,34 @@ func TestConversationRenameValidationAndUnicodeTitle(t *testing.T) {
 		!strings.HasSuffix(agent.Name, "…") ||
 		!utf8.ValidString(agent.Name) {
 		t.Fatalf("long Unicode title not shortened safely: %q", agent.Name)
+	}
+}
+
+func TestShortChatAutomaticTitleHonorsExplicitDefaultName(t *testing.T) {
+	engine, _ := testEngine(t, nil)
+	owner := domain.User{ID: domain.InitialUserID, Username: "owner", Role: "admin"}
+	account := datastore.Account{User: owner, PasswordHash: "unused-test-password-hash"}
+	if created, err := engine.Store.BootstrapAccount(account, ""); err != nil || !created {
+		t.Fatalf("could not create short-chat owner: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{"", "Erste Nachricht mit Umlaut"},
+		{defaultShortChatName, defaultShortChatName},
+		{"New conversation", "New conversation"},
+	} {
+		chat, err := engine.CreateShortChat(domain.InitialUserID, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := engine.nameFirstConversation(&chat, "  Erste Nachricht\n mit Umlaut"); err != nil {
+			t.Fatal(err)
+		}
+		if chat.Name != tc.want {
+			t.Errorf("short chat initially named %q: got %q, want %q", tc.name, chat.Name, tc.want)
+		}
 	}
 }

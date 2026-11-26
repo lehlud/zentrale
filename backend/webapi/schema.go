@@ -108,9 +108,12 @@ func (server *Server) Schema() (graphql.Schema, error) {
 	builder := newSchemaBuilder(server)
 	queries, mutations := builder.queries(), builder.mutations()
 	queries["usageReport"] = builder.usageReportField()
+	queries["activeProjectIds"] = builder.activeProjectIDsField()
 	builder.shortChatFields(queries, mutations)
 	builder.accountFields(queries, mutations)
+	builder.modelPresetFields(queries, mutations)
 	builder.projectMemberFields(queries, mutations)
+	builder.projectTargetGrantFields(queries, mutations)
 	server.protectProjectFields(queries, mutations)
 	restrictAdminFields(queries, mutations)
 	return graphql.NewSchema(graphql.SchemaConfig{
@@ -129,7 +132,7 @@ func restrictAdminFields(queries, mutations graphql.Fields) {
 		"saveMachine", "savePool", "trustHostKey", "generateSSHKey", "renameSSHKey", "deleteSSHKey", "testMachine", "testPool",
 		"saveProvider", "testProvider", "saveModelMetadata", "setModelDefaults", "setHumanizer", "setupModalHumanizer",
 		"refreshModels", "beginProviderLogin", "pollProviderLogin", "cancelProviderLogin", "disconnectProvider",
-		"setGitHubToken", "setCommitIdentity",
+		"setGitHubToken",
 	} {
 		mutations[name].Resolve = adminOnly(mutations[name].Resolve)
 	}

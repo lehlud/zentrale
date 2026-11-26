@@ -148,7 +148,11 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 	moveArgs["machineId"] = &graphql.ArgumentConfig{Type: graphql.String, DefaultValue: ""}
 	moveArgs["poolId"] = &graphql.ArgumentConfig{Type: graphql.String, DefaultValue: ""}
 	simple("moveProject", moveArgs, func(params graphql.ResolveParams) (any, error) {
-		err := server.Engine.StartProjectMove(params.Args["projectId"].(string), params.Args["machineId"].(string), params.Args["poolId"].(string))
+		machineID, poolID := params.Args["machineId"].(string), params.Args["poolId"].(string)
+		if err := server.requireProjectTargets(state(params.Context).user, []string{machineID}, []string{poolID}); err != nil {
+			return false, err
+		}
+		err := server.Engine.StartProjectMove(params.Args["projectId"].(string), machineID, poolID)
 		return err == nil, err
 	})
 	simple("resetProjectVM", strArg("projectId"), func(params graphql.ResolveParams) (any, error) {
@@ -315,7 +319,7 @@ func (builder *schemaBuilder) mutations() graphql.Fields {
 			return false, err
 		}
 
-		return true, server.Engine.SaveCommitIdentity(identity)
+		return true, server.Engine.SaveUserCommitIdentity(state(params.Context).user.ID, identity)
 	})
 
 	mutations["testMachine"] = &graphql.Field{

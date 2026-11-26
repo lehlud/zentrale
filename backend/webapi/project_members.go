@@ -24,7 +24,13 @@ func (builder *schemaBuilder) projectMemberFields(queries, mutations graphql.Fie
 	server := builder.server
 	queries["projectTargets"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(reflect.TypeFor[ProjectTarget]())),
-		Resolve: authenticated(func(_ graphql.ResolveParams) (any, error) {
+		Resolve: authenticated(func(params graphql.ResolveParams) (any, error) {
+			user := state(params.Context).user
+			grants, err := server.projectTargetGrants(user.ID)
+			if err != nil {
+				return nil, err
+			}
+
 			targets := make([]map[string]any, 0)
 			for _, kind := range []string{"machine", "pool"} {
 				rows, err := server.Store.ListFields(kind, nil, 500, 0, []string{"id", "name", "jumpHostOnly"})
@@ -33,7 +39,8 @@ func (builder *schemaBuilder) projectMemberFields(queries, mutations graphql.Fie
 				}
 
 				for _, row := range rows {
-					if row["jumpHostOnly"] != true {
+					id, _ := row["id"].(string)
+					if row["jumpHostOnly"] != true && hasProjectTarget(user, grants, kind, id) {
 						targets = append(targets, map[string]any{"id": row["id"], "name": row["name"], "kind": kind})
 					}
 				}

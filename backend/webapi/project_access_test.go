@@ -15,6 +15,9 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	requireData(t, admin.query(t, `mutation {setup(username:"alice",password:"correct test password",commitIdentity:{name:"Alice",email:"alice@example.org"})}`, nil))
 	requireData(t, admin.query(t, `mutation {saveUser(input:{username:"bob",role:"user"},password:"bob test password"){id}}`, nil))
 	seedAccessibleProject(t, admin.engine.Store, "private-project", "private-agent")
+	if err := admin.engine.Store.Patch("agent", "private-agent", map[string]any{"status": "running"}); err != nil {
+		t.Fatal(err)
+	}
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -34,6 +37,13 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	reject(&bob, `{agent(id:"private-agent"){id}}`, nil)
 	reject(&bob, `{users{id}}`, nil)
 	reject(&bob, `mutation {saveProject(input:{id:"bob-project",name:"Bob's project",managedWorkspace:true}){id}}`, nil)
+	const activityQuery = `{activeProjectIds}`
+	if ids := requireData(t, admin.query(t, activityQuery, nil))["activeProjectIds"].([]any); len(ids) != 1 || ids[0] != "private-project" {
+		t.Fatalf("project owner did not see activity: %v", ids)
+	}
+	if ids := requireData(t, bob.query(t, activityQuery, nil))["activeProjectIds"].([]any); len(ids) != 0 {
+		t.Fatalf("private project activity leaked: %v", ids)
+	}
 
 	chat := requireData(t, bob.query(t, `mutation {createShortChat(name:"Bob's chat"){id approverId}}`, nil))["createShortChat"].(map[string]any)
 	const chatQuery = `query($id:String!){shortChat(id:$id){id name}}`
@@ -43,6 +53,28 @@ func TestMultiuserHTTPAccess(t *testing.T) {
 	reject(admin, `query($id:String!){agent(id:$id){id}}`, variables)
 	reject(&bob, `query($id:String!){agent(id:$id){id}}`, map[string]any{"id": chat["approverId"]})
 	reject(admin, chatQuery, map[string]any{"id": "private-agent"})
+
+	const pinMutation = `mutation($id:String!){setShortChatPinned(id:$id,pinned:true)}`
+	reject(admin, pinMutation, variables)
+	reject(&bob, pinMutation, map[string]any{"id": chat["approverId"]})
+	reject(admin, pinMutation, map[string]any{"id": "private-agent"})
+	requireData(t, bob.query(t, pinMutation, variables))
+	const historyQuery = `{pinned:shortChats(pinned:true){id chatPinned} history:shortChats(pinned:false){id}}`
+	history := requireData(t, bob.query(t, historyQuery, nil))
+	if pins := history["pinned"].([]any); len(pins) != 1 || pins[0].(map[string]any)["id"] != chat["id"] || pins[0].(map[string]any)["chatPinned"] != true {
+		t.Fatalf("chat pin not persisted: %v", pins)
+	}
+	if other := history["history"].([]any); len(other) != 0 {
+		t.Fatalf("pinned chat also appeared in history: %v", other)
+	}
+	if pins := requireData(t, admin.query(t, historyQuery, nil))["pinned"].([]any); len(pins) != 0 {
+		t.Fatalf("other user's pin leaked: %v", pins)
+	}
+	requireData(t, bob.query(t, `mutation($id:String!){setShortChatPinned(id:$id,pinned:false)}`, variables))
+	history = requireData(t, bob.query(t, historyQuery, nil))
+	if pins, recent := history["pinned"].([]any), history["history"].([]any); len(pins) != 0 || len(recent) != 1 {
+		t.Fatalf("unpin did not return chat to history: %v", history)
+	}
 
 	for _, field := range []string{"goal", "goalHistory", "goalReviews", "teamwork"} {
 		query := `query($id:String!){` + field + `(agentId:$id){__typename}}`
