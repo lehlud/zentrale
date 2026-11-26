@@ -3976,6 +3976,14 @@
       {
         "fields": [
           {
+            "name": "displayName",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
             "name": "modelId",
             "type": {
               "kind": "NON_NULL",
@@ -3997,6 +4005,14 @@
                 "name": "String",
                 "ofType": null
               }
+            }
+          },
+          {
+            "name": "providerName",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
             }
           },
           {
