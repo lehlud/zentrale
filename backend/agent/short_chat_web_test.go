@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -29,14 +30,15 @@ func webFixture(request *http.Request, status int, contentType, body string) (*h
 
 func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "fixture-key")
 	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Host != "www.bing.com" || request.URL.Query().Get("q") != "Go docs & examples" || request.URL.Query().Get("format") != "rss" {
+		if request.URL.Host != "api.search.brave.com" || request.URL.Query().Get("q") != "Go docs & examples" || request.Header.Get("X-Subscription-Token") != "fixture-key" {
 			t.Fatalf("unexpected search request: %s", request.URL)
 		}
-		return webFixture(request, 200, "text/xml", `<rss version="2.0"><channel>
-		  <item><title>Go docs</title><link>https://go.dev/doc/</link><description>Language documentation</description></item>
-		  <item><title>Invalid</title><link>file:///etc/hosts</link></item>
-		</channel></rss>`)
+		return webFixture(request, 200, "application/json", `{"web":{"results":[
+		  {"title":"Go docs and examples","url":"https://go.dev/doc/","description":"Language documentation"},
+		  {"title":"Go docs and examples","url":"file:///etc/hosts"}
+		]}}`)
 	})}
 
 	result, err := searchPublicWeb(t.Context(), client, " Go docs & examples ")
@@ -44,31 +46,28 @@ func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	results := result.Results
-	if result.Source != "Bing" || len(results) != 1 || results[0].URL != "https://go.dev/doc/" || results[0].Description != "Language documentation" {
+	if result.Source != "Brave Search API" || len(results) != 1 || results[0].URL != "https://go.dev/doc/" || results[0].Description != "Language documentation" {
 		t.Fatalf("unexpected search result: %#v", result)
 	}
 }
 
 func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 	const query = `site:example.org "Mira Rosenfeld"`
-	const matching = `<rss><channel><item><title>Mira Rosenfeld</title><link>https://example.org/mira</link></item></channel></rss>`
-	const irrelevant = `<rss><channel><item><title>Mira</title><link>https://example.org/names</link></item></channel></rss>`
-	const namesake = `<rss><channel><item><title>Mira Rosenfeld</title><link>https://other.example/mira</link></item></channel></rss>`
-	const yahooHit = `[{"title":"Mira Rosenfeld","url":"https://other.example/mira"},{"title":"Mira Rosenfeld","url":"https://example.org/speaker"}]`
-	const yahooMiss = `[{"title":"Parcel tracking","url":"https://example.org/tracking"}]`
+	const matching = `[{"title":"Mira Rosenfeld","url":"https://example.org/mira"}]`
+	const namesake = `[{"title":"Mira Rosenfeld","url":"https://other.example/mira"}]`
+	const braveHit = `{"web":{"results":[{"title":"Mira Rosenfeld","url":"https://other.example/mira"},{"title":"Mira Rosenfeld","url":"https://example.org/speaker"}]}}`
+	const braveMiss = `{"web":{"results":[{"title":"Parcel tracking","url":"https://example.org/tracking"}]}}`
 
 	for _, tc := range []struct {
-		name, bingBody, yahoo, wantSource, wantURL string
-		bingStatus, wantFallbackCalls              int
-		wantError, wantUnavailable                 bool
+		name, braveBody, yahoo, wantSource, wantURL string
+		braveStatus, wantFallbackCalls              int
+		wantError, wantUnavailable                  bool
 	}{
-		{name: "Bing hit", bingBody: matching, yahoo: yahooHit, bingStatus: 200, wantSource: "Bing", wantURL: "https://example.org/mira"},
-		{name: "Bing failure", bingStatus: 503, yahoo: yahooHit, wantFallbackCalls: 1, wantUnavailable: true, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
-		{name: "Bing irrelevant", bingStatus: 200, bingBody: irrelevant, yahoo: yahooHit, wantFallbackCalls: 1, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
-		{name: "qualified name rejects a namesake outside the source", bingStatus: 200, bingBody: namesake, yahoo: yahooHit, wantFallbackCalls: 1, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/speaker"},
-		{name: "no relevant hits", bingStatus: 200, bingBody: irrelevant, yahoo: yahooMiss, wantFallbackCalls: 1, wantSource: "Bing, Yahoo (DDGS)"},
-		{name: "empty DDGS result is not an outage", bingStatus: 200, bingBody: irrelevant, yahoo: `[]`, wantFallbackCalls: 1, wantSource: "Bing, Yahoo (DDGS)"},
-		{name: "both unavailable", bingStatus: 503, wantFallbackCalls: 1, wantError: true},
+		{name: "Yahoo hit", yahoo: matching, wantSource: "Yahoo (DDGS)", wantURL: "https://example.org/mira"},
+		{name: "Yahoo failure", braveStatus: 200, braveBody: braveHit, wantFallbackCalls: 1, wantUnavailable: true, wantSource: "Brave Search API", wantURL: "https://example.org/speaker"},
+		{name: "qualified name rejects a namesake outside the source", yahoo: namesake, braveStatus: 200, braveBody: braveHit, wantFallbackCalls: 1, wantSource: "Brave Search API", wantURL: "https://example.org/speaker"},
+		{name: "clean empty responses", yahoo: `[]`, braveStatus: 200, braveBody: braveMiss, wantFallbackCalls: 1, wantSource: "Yahoo (DDGS), Brave Search API"},
+		{name: "both unavailable", braveStatus: 503, wantFallbackCalls: 1, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -85,30 +84,30 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("ZENTRALE_DDGS_PYTHON", fixture)
-			t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "legacy-config-not-used")
+			t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "fixture-key")
 
-			bingRequests := 0
+			braveRequests := 0
 			client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
-				if request.URL.Host != "www.bing.com" || request.URL.Query().Get("q") != query {
+				if request.URL.Host != "api.search.brave.com" || request.URL.Query().Get("q") != query {
 					t.Fatalf("unexpected HTTP request: %s", request.URL)
 				}
-				if _, err := os.Stat(callsFile); !os.IsNotExist(err) {
-					t.Fatal("DDGS ran before Bing")
+				if calls, err := os.ReadFile(callsFile); err != nil || string(calls) != "x" {
+					t.Fatal("the API fallback must follow exactly one Yahoo attempt")
 				}
-				bingRequests++
-				return webFixture(request, tc.bingStatus, "text/xml", tc.bingBody)
+				braveRequests++
+				return webFixture(request, tc.braveStatus, "application/json", tc.braveBody)
 			})}
 
 			result, err := searchPublicWeb(t.Context(), client, query)
 			calls, readErr := os.ReadFile(callsFile)
-			if readErr != nil && !os.IsNotExist(readErr) {
+			if readErr != nil {
 				t.Fatal(readErr)
 			}
-			if bingRequests != 1 || len(calls) != tc.wantFallbackCalls {
-				t.Fatalf("provider call counts: Bing=%d, DDGS=%d", bingRequests, len(calls))
+			if len(calls) != 1 || braveRequests != tc.wantFallbackCalls {
+				t.Fatalf("provider call counts: DDGS=%d, Brave=%d", len(calls), braveRequests)
 			}
 			if tc.wantError {
-				if err == nil || !strings.Contains(err.Error(), "Bing: public web page returned HTTP 503") || !strings.Contains(err.Error(), "Yahoo (DDGS)") {
+				if err == nil || !strings.Contains(err.Error(), "Brave Search API: public web page returned HTTP 503") || !strings.Contains(err.Error(), "Yahoo (DDGS)") {
 					t.Fatalf("expected both failures: %v", err)
 				}
 				return
@@ -124,6 +123,76 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 				t.Fatalf("unexpected results: %+v", result.Results)
 			}
 		})
+	}
+}
+
+func TestPublicWebQuoteRecoveryPreservesExactPhraseAndDomain(t *testing.T) {
+	const quoted = `site:example.org "Mira Rosenfeld"`
+	const plain = `site:example.org Mira Rosenfeld`
+	const expectedURL = "https://example.org/mira"
+	var queries []string
+	results, err := searchWithQuoteRecovery(quoted, func(query string) ([]webSearchResult, error) {
+		queries = append(queries, query)
+		if query == quoted {
+			return nil, nil
+		}
+
+		return []webSearchResult{
+			{Title: "Mira meets Rosenfeld", URL: "https://example.org/unrelated"},
+			{Title: "Mira Rosenfeld", URL: "https://other.example/mira"},
+			{Title: "Mira Rosenfeld", URL: expectedURL},
+		}, nil
+	})
+	if err != nil || strings.Join(queries, "\n") != quoted+"\n"+plain {
+		t.Fatalf("expected one rephrased search after the miss: %v, %v", queries, err)
+	}
+	if kept := relevantResults(results, searchMatcher(quoted)); len(kept) != 1 || kept[0].URL != expectedURL {
+		t.Fatalf("rephrasing must preserve the original relevance filter: %+v", kept)
+	}
+}
+
+func TestPublicWebQuoteRecoveryDoesNotRetryHitsOrFailures(t *testing.T) {
+	problem := errors.New("provider unavailable")
+	for _, tc := range []struct {
+		name, query string
+		results     []webSearchResult
+		err         error
+	}{
+		{name: "hit", query: `"Mira Rosenfeld"`, results: []webSearchResult{{Title: "Mira Rosenfeld", URL: "https://example.org/mira"}}},
+		{name: "unquoted", query: "Mira Rosenfeld"},
+		{name: "provider error", query: `"Mira Rosenfeld"`, err: problem},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			_, err := searchWithQuoteRecovery(tc.query, func(string) ([]webSearchResult, error) {
+				calls++
+				return tc.results, tc.err
+			})
+			if calls != 1 || err != tc.err {
+				t.Fatalf("unexpected calls or error: %d, %v", calls, err)
+			}
+		})
+	}
+}
+
+func TestPublicWebSearchAPIKeyIsNotForwardedThroughRedirect(t *testing.T) {
+	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "fixture-key")
+	var hosts []string
+	client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
+		hosts = append(hosts, request.URL.Host)
+		if request.URL.Host != "api.search.brave.com" {
+			return webFixture(request, 200, "application/json", `{}`)
+		}
+
+		response, err := webFixture(request, http.StatusFound, "text/plain", "redirect")
+		response.Header.Set("Location", "https://other.example/search")
+		return response, err
+	})}
+
+	_, err := searchPublicWeb(t.Context(), client, "Go documentation")
+	if strings.Join(hosts, ",") != "api.search.brave.com" || err == nil || strings.Contains(err.Error(), "fixture-key") {
+		t.Fatalf("the redirect must not be followed: %v, %v", hosts, err)
 	}
 }
 

@@ -2,10 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,9 +17,9 @@ const publicSearchQueryHelp = "Use short public search terms, never secrets or p
 	"Do not guess which person is meant."
 
 type webSearchResult struct {
-	Title       string `xml:"title" json:"title"`
-	URL         string `xml:"link" json:"url"`
-	Description string `xml:"description" json:"snippet,omitempty"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"snippet,omitempty"`
 }
 
 type webSearchResponse struct {
@@ -37,9 +35,16 @@ type searchSource struct {
 }
 
 func searchPublicWeb(ctx context.Context, client *http.Client, query string) (webSearchResponse, error) {
-	sources := []searchSource{{"Bing", searchRSS}}
+	var sources []searchSource
+	braveKey := strings.TrimSpace(os.Getenv("ZENTRALE_BRAVE_SEARCH_API_KEY"))
 	if python := strings.TrimSpace(os.Getenv("ZENTRALE_DDGS_PYTHON")); python != "" {
-		sources = append(sources, searchSource{"Yahoo (DDGS)", ddgsSearch(python)})
+		sources = append(sources, searchSource{"Yahoo (DDGS)", ddgsSearch(python, braveKey == "")})
+	}
+	if braveKey != "" {
+		sources = append(sources, searchSource{"Brave Search API", braveSearch(braveKey)})
+	}
+	if len(sources) == 0 {
+		return webSearchResponse{}, errors.New("public web search is not configured; set ZENTRALE_DDGS_PYTHON or ZENTRALE_BRAVE_SEARCH_API_KEY")
 	}
 
 	return searchFromSources(ctx, client, query, sources)
@@ -176,23 +181,4 @@ func relevantResults(items []webSearchResult, matches func(webSearchResult) bool
 		}
 	}
 	return results
-}
-
-func searchRSS(ctx context.Context, client *http.Client, query string) ([]webSearchResult, error) {
-	address := "https://www.bing.com/search?format=rss&q=" + url.QueryEscape(query)
-	response, err := openPublicWeb(ctx, client, address, "application/rss+xml, application/xml, text/xml")
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	var feed struct {
-		XMLName xml.Name          `xml:"rss"`
-		Items   []webSearchResult `xml:"channel>item"`
-	}
-	if err := xml.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&feed); err != nil {
-		return nil, errors.New("the search feed did not return readable RSS")
-	}
-
-	return feed.Items, nil
 }
