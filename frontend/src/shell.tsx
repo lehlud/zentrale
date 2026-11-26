@@ -4,11 +4,11 @@ import {
   Dropdown,
   Label,
   Link,
-  Tabs,
   buttonVariants,
 } from "@heroui/react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
+import { Tab, TabList, TabPanel, Tabs } from "react-aria-components";
 
 import { useAPI } from "./api";
 import { useRoute } from "./navigation";
@@ -142,18 +142,18 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </Link>
         </div>
 
-        <Tabs.ListContainer className="col-start-1 row-start-2 min-h-0 overflow-y-auto border-r border-separator">
-          <Tabs.List
+        <div className="col-start-1 row-start-2 min-h-0 overflow-y-auto border-r border-separator [scrollbar-width:none]">
+          <TabList
             aria-label={t("Bereiche")}
-            className="min-w-0 items-center gap-1 bg-transparent px-1 pt-1"
+            className="flex w-full flex-col items-center gap-1 py-1"
           >
             {sidebarSections.map(({ id, label, icon }) => (
-              <Tabs.Tab
+              <Tab
                 key={id}
                 id={id}
                 aria-label={t(label)}
                 onPress={sidebar.expand}
-                className="size-11 rounded-lg p-0 text-muted hover:bg-default data-[selected]:bg-default data-[selected]:text-foreground"
+                className="size-11 shrink-0 cursor-pointer rounded-lg text-muted outline-none hover:bg-default data-[focus-visible]:ring-2 data-[focus-visible]:ring-inset data-[focus-visible]:ring-accent data-[selected]:bg-default data-[selected]:text-foreground"
               >
                 <span
                   title={t(label)}
@@ -161,16 +161,16 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
                 >
                   <Icon name={icon} className="size-5" />
                 </span>
-              </Tabs.Tab>
+              </Tab>
             ))}
-          </Tabs.List>
-        </Tabs.ListContainer>
+          </TabList>
+        </div>
 
         <div id="sidebar-section-panels" className="contents">
-          <Tabs.Panel id="chats" className={panelClass} shouldForceMount>
+          <TabPanel id="chats" className={panelClass} shouldForceMount>
             <SidebarChatHistory onNavigate={onNavigate} />
-          </Tabs.Panel>
-          <Tabs.Panel id="projects" className={panelClass} shouldForceMount>
+          </TabPanel>
+          <TabPanel id="projects" className={panelClass} shouldForceMount>
             <SidebarProjects
               key={user?.id}
               userId={user?.id ?? ""}
@@ -179,7 +179,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               }
               onNavigate={onNavigate}
             />
-          </Tabs.Panel>
+          </TabPanel>
         </div>
 
         {!collapsed && (

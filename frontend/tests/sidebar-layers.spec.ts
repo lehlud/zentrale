@@ -29,10 +29,14 @@ for (const mobile of [false, true]) {
     });
 
     await page.goto("/#/chats");
-    if (mobile)
+    if (mobile) {
       await page
         .getByRole("button", { name: "Menü öffnen", exact: true })
         .click();
+      await expect(
+        page.locator('[data-slot="drawer-content"][data-entering="true"]'),
+      ).toHaveCount(0);
+    }
 
     const rail = page.getByRole("tablist", { name: "Bereiche", exact: true });
     const chats = rail.getByRole("tab", {
@@ -59,6 +63,34 @@ for (const mobile of [false, true]) {
     expect((await rail.boundingBox())!.x).toBeLessThan(
       (await history.boundingBox())!.x,
     );
+
+    // ARIA visibility alone also passes for icons clipped by the narrow rail.
+    const railBounds = (await rail.boundingBox())!;
+    expect(railBounds.height).toBeLessThan(120);
+    const compose = (await page
+      .getByRole("link", { name: "Neue Unterhaltung", exact: true })
+      .boundingBox())!;
+
+    for (const tab of [chats, projects]) {
+      const icon = (await tab.locator("svg").boundingBox())!;
+      const target = (await tab.boundingBox())!;
+
+      expect(target.width).toBeGreaterThanOrEqual(44);
+      expect(target.height).toBeGreaterThanOrEqual(44);
+      expect(target.x).toBeGreaterThanOrEqual(railBounds.x);
+      expect(target.x + target.width).toBeLessThanOrEqual(
+        railBounds.x + railBounds.width,
+      );
+      expect(
+        Math.abs(icon.x + icon.width / 2 - (target.x + target.width / 2)),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(icon.x + icon.width / 2 - (compose.x + compose.width / 2)),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(icon.y + icon.height / 2 - (target.y + target.height / 2)),
+      ).toBeLessThan(1);
+    }
 
     await chats.focus();
     await page.keyboard.press("ArrowDown");

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/lehlud/zentrale/netguard"
 	"golang.org/x/net/html"
@@ -55,6 +53,10 @@ func openPublicWeb(ctx context.Context, client *http.Client, address, accept str
 		return nil, err
 	}
 	request.Header.Set("Accept", accept)
+	return doPublicWeb(client, request)
+}
+
+func doPublicWeb(client *http.Client, request *http.Request) (*http.Response, error) {
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, errors.New("could not load the public web page")
@@ -64,66 +66,6 @@ func openPublicWeb(ctx context.Context, client *http.Client, address, accept str
 		return nil, fmt.Errorf("public web page returned HTTP %d (%s)", response.StatusCode, http.StatusText(response.StatusCode))
 	}
 	return response, nil
-}
-
-type webSearchResult struct {
-	Title       string `xml:"title" json:"title"`
-	URL         string `xml:"link" json:"url"`
-	Description string `xml:"description" json:"snippet,omitempty"`
-}
-
-func searchPublicWeb(ctx context.Context, client *http.Client, query string) (any, error) {
-	query = strings.TrimSpace(query)
-	if len(query) == 0 || len(query) > 512 {
-		return nil, errors.New("search requires 1–512 bytes of search terms")
-	}
-
-	terms := url.QueryEscape(query)
-	primary, cancel := context.WithTimeout(ctx, 12*time.Second)
-	results, err := searchRSS(primary, client, "https://www.bing.com/search?format=rss&q="+terms)
-	cancel()
-	if err == nil {
-		return map[string]any{"source": "Bing", "results": results}, nil
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
-	fallback, cancel := context.WithTimeout(ctx, 12*time.Second)
-	defer cancel()
-	response, errFallback := readPublicWeb(fallback, client, "https://html.duckduckgo.com/html/?q="+terms)
-	if errFallback != nil {
-		return nil, fmt.Errorf("public web search unavailable (Bing: %v; DuckDuckGo: %v)", err, errFallback)
-	}
-	return response, nil
-}
-
-func searchRSS(ctx context.Context, client *http.Client, address string) ([]webSearchResult, error) {
-	response, err := openPublicWeb(ctx, client, address, "application/rss+xml, application/xml, text/xml")
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	var feed struct {
-		XMLName xml.Name          `xml:"rss"`
-		Items   []webSearchResult `xml:"channel>item"`
-	}
-	if err := xml.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&feed); err != nil {
-		return nil, errors.New("the search feed did not return readable RSS")
-	}
-
-	results := make([]webSearchResult, 0, min(10, len(feed.Items)))
-	for _, item := range feed.Items {
-		link, err := url.Parse(item.URL)
-		if err == nil && validateChatWebURL(link) == nil && strings.TrimSpace(item.Title) != "" {
-			results = append(results, item)
-		}
-		if len(results) == 10 {
-			break
-		}
-	}
-	return results, nil
 }
 
 func fetchChatWeb(ctx context.Context, address string) (any, error) {
