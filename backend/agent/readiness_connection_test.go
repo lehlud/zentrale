@@ -246,6 +246,7 @@ func TestReadinessSourceCredentialTrustAndConfigurationFingerprints(t *testing.T
 		first = current
 	}
 	project.CommitName = "New identity"
+	project.CommitEmail = "new@example.org"
 	if key() == first {
 		t.Fatal("identity change not detected")
 	}
