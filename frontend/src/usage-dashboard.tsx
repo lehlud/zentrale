@@ -1,4 +1,4 @@
-import { Button, Input, Label, TextField } from "@heroui/react";
+import { Input, Label, TextField } from "@heroui/react";
 import { useState } from "react";
 
 import { useAPI, useQuery } from "./api";
@@ -6,6 +6,7 @@ import { MoreButton, useBatch } from "./batches";
 import type { UsageReportRow } from "./generated";
 import { useI18n } from "./preferences";
 import { Empty, Failure, Loading, Title } from "./ui";
+import { UsageChart, usageDays } from "./usage-chart";
 
 type Usage = Pick<
   UsageReportRow,
@@ -34,6 +35,7 @@ type Report = {
   usageReport: Usage[];
   users?: { id: string; name: string; username: string }[];
   projects: { id: string; name: string }[];
+  modelProviders?: { id: string; name: string }[];
 };
 
 const fields = `day providerId modelId userId projectId purpose uncachedTokens cachedTokens outputTokens
@@ -64,24 +66,24 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
   const [userId, setUserId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [metric, setMetric] = useState<"tokens" | "cost">("tokens");
-  const valid = Boolean(from && to && from < to);
+  const days = usageDays(from, to);
+  const valid = days.length > 0;
 
   const { data, error, loading } = useQuery<Report>(
     `query($from:String,$to:String,$userId:ID,$projectId:ID,$admin:Boolean!){
       usageReport(from:$from,to:$to,userId:$userId,projectId:$projectId){${fields}}
       users @include(if:$admin){id name username}
       projects(limit:500){id name}
+      modelProviders{id name}
     }`,
     { from, to, userId: userId || null, projectId: projectId || null, admin },
     { enabled: valid },
   );
 
   const rows = data?.usageReport ?? [];
-  const days = new Map<string, Usage[]>();
   const groups = new Map<string, Usage[]>();
 
   for (const row of rows) {
-    const day = String(row.day);
     const key = JSON.stringify([
       row.userId,
       row.projectId,
@@ -89,20 +91,17 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
       row.modelId,
       row.purpose,
     ]);
-    groupRow(days, day, row);
     groupRow(groups, key, row);
   }
 
-  const chart = [...days].sort(([a], [b]) => a.localeCompare(b));
-  const measure = (items: Usage[]) =>
+  const measure = (row: Usage) =>
     metric === "cost"
-      ? sum(items, "realCost")
-      : sum(items, "uncachedTokens") +
-        sum(items, "cachedTokens") +
-        sum(items, "outputTokens");
-  const highest = Math.max(0, ...chart.map(([, items]) => measure(items)));
+      ? row.realCost
+      : row.uncachedTokens + row.cachedTokens + row.outputTokens;
+  const total = (items: Usage[]) =>
+    items.reduce((value, row) => value + measure(row), 0);
   const breakdown = useBatch(
-    [...groups].sort(([, a], [, b]) => measure(b) - measure(a)),
+    [...groups].sort(([, a], [, b]) => total(b) - total(a)),
     `${from}:${to}:${userId}:${projectId}`,
   );
   const number = new Intl.NumberFormat();
@@ -115,6 +114,17 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
   const fictionalCost = sum(rows, "fictionalCost");
   const unknownCache =
     sum(rows, "unknownCacheReads") + sum(rows, "unknownCacheWrites");
+  const names = {
+    userId: new Map(
+      data?.users?.map((user) => [user.id, user.name || user.username]),
+    ),
+    projectId: new Map(
+      data?.projects?.map((project) => [project.id, project.name]),
+    ),
+    providerId: new Map(
+      data?.modelProviders?.map((provider) => [provider.id, provider.name]),
+    ),
+  };
 
   return (
     <div className="space-y-5">
@@ -175,7 +185,7 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
       {valid && data && !rows.length && (
         <Empty>{t("Für diesen Zeitraum gibt es keine Nutzung.")}</Empty>
       )}
-      {valid && rows.length > 0 && (
+      {valid && data && (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
             <Summary
@@ -220,48 +230,18 @@ export function UsageDashboard({ admin }: { admin: boolean }) {
               )}
             </p>
           )}
-          <section
-            aria-label={t("Verbrauch pro Tag")}
-            className="space-y-3 rounded-xl border border-border p-4"
-          >
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                aria-pressed={metric === "tokens"}
-                variant={metric === "tokens" ? "primary" : "ghost"}
-                onPress={() => setMetric("tokens")}
-              >
-                {t("Tokens")}
-              </Button>
-              <Button
-                size="sm"
-                aria-pressed={metric === "cost"}
-                variant={metric === "cost" ? "primary" : "ghost"}
-                onPress={() => setMetric("cost")}
-              >
-                {t("Kosten")}
-              </Button>
-            </div>
-            <div className="flex h-36 items-end gap-1 overflow-x-auto">
-              {chart.map(([day, items]) => {
-                const value = measure(items);
-                const label = `${day}: ${metric === "cost" ? usd.format(value) : number.format(value)}`;
-                return (
-                  <div
-                    key={day}
-                    role="img"
-                    aria-label={label}
-                    title={label}
-                    className="min-w-1 flex-1 rounded-t bg-accent"
-                    style={{
-                      height: `${highest ? Math.max(1, (100 * value) / highest) : 1}%`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </section>
-          <div className="overflow-x-auto">
+          <UsageChart
+            days={days}
+            samples={rows.map((row) => ({ ...row, value: measure(row) }))}
+            metric={metric}
+            onMetricChange={setMetric}
+            groupLabel={(group, id) => {
+              if (group === "userId" && !admin) return t("Du");
+              if (group === "projectId" && !id) return t("Ohne Projekt");
+              return group === "modelId" ? id : names[group].get(id) || id;
+            }}
+          />
+          <div className="overflow-x-auto" hidden={!rows.length}>
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border text-muted">

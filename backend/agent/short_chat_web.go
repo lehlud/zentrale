@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/lehlud/zentrale/netguard"
 	"golang.org/x/net/html"
@@ -37,7 +40,9 @@ func validateChatWebURL(address *url.URL) error {
 	return nil
 }
 
-func fetchChatWeb(ctx context.Context, address string) (any, error) {
+const webBodyLimit = 512 << 10
+
+func openPublicWeb(ctx context.Context, client *http.Client, address, accept string) (*http.Response, error) {
 	parsed, err := url.Parse(address)
 	if err != nil {
 		return nil, errors.New("invalid web address")
@@ -49,21 +54,94 @@ func fetchChatWeb(ctx context.Context, address string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Accept", "text/html, text/plain")
-	response, err := chatWebClient.Do(request)
+	request.Header.Set("Accept", accept)
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, errors.New("could not load the public web page")
 	}
-	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("public web page did not return content")
+		response.Body.Close()
+		return nil, fmt.Errorf("public web page returned HTTP %d (%s)", response.StatusCode, http.StatusText(response.StatusCode))
+	}
+	return response, nil
+}
+
+type webSearchResult struct {
+	Title       string `xml:"title" json:"title"`
+	URL         string `xml:"link" json:"url"`
+	Description string `xml:"description" json:"snippet,omitempty"`
+}
+
+func searchPublicWeb(ctx context.Context, client *http.Client, query string) (any, error) {
+	query = strings.TrimSpace(query)
+	if len(query) == 0 || len(query) > 512 {
+		return nil, errors.New("search requires 1–512 bytes of search terms")
 	}
 
+	terms := url.QueryEscape(query)
+	primary, cancel := context.WithTimeout(ctx, 12*time.Second)
+	results, err := searchRSS(primary, client, "https://www.bing.com/search?format=rss&q="+terms)
+	cancel()
+	if err == nil {
+		return map[string]any{"source": "Bing", "results": results}, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	fallback, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	response, errFallback := readPublicWeb(fallback, client, "https://html.duckduckgo.com/html/?q="+terms)
+	if errFallback != nil {
+		return nil, fmt.Errorf("public web search unavailable (Bing: %v; DuckDuckGo: %v)", err, errFallback)
+	}
+	return response, nil
+}
+
+func searchRSS(ctx context.Context, client *http.Client, address string) ([]webSearchResult, error) {
+	response, err := openPublicWeb(ctx, client, address, "application/rss+xml, application/xml, text/xml")
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	var feed struct {
+		XMLName xml.Name          `xml:"rss"`
+		Items   []webSearchResult `xml:"channel>item"`
+	}
+	if err := xml.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&feed); err != nil {
+		return nil, errors.New("the search feed did not return readable RSS")
+	}
+
+	results := make([]webSearchResult, 0, min(10, len(feed.Items)))
+	for _, item := range feed.Items {
+		link, err := url.Parse(item.URL)
+		if err == nil && validateChatWebURL(link) == nil && strings.TrimSpace(item.Title) != "" {
+			results = append(results, item)
+		}
+		if len(results) == 10 {
+			break
+		}
+	}
+	return results, nil
+}
+
+func fetchChatWeb(ctx context.Context, address string) (any, error) {
+	return readPublicWeb(ctx, chatWebClient, address)
+}
+
+func readPublicWeb(ctx context.Context, client *http.Client, address string) (any, error) {
+	response, err := openPublicWeb(ctx, client, address, "text/html, application/xhtml+xml, text/plain")
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
 	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	reader := io.LimitReader(response.Body, 512<<10)
+	reader := io.LimitReader(response.Body, webBodyLimit)
 	var text string
 	switch contentType {
-	case "text/html":
+	case "text/html", "application/xhtml+xml":
 		text = chatHTMLText(reader, response.Request.URL)
 	case "text/plain":
 		body, err := io.ReadAll(io.LimitReader(reader, maxChatTextBytes))
@@ -73,6 +151,9 @@ func fetchChatWeb(ctx context.Context, address string) (any, error) {
 		text = strings.ToValidUTF8(string(body), "�")
 	default:
 		return nil, errors.New("the web page is not HTML or plain text")
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("public web page contains no readable text; try another source")
 	}
 	return map[string]string{"url": response.Request.URL.String(), "text": text}, nil
 }

@@ -351,7 +351,7 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 	case "container":
 		return engine.runContainer(ctx, agentRecord, request)
 	case "websearch":
-		return engine.searchWeb(ctx, agentRecord, stringArg(arguments, "query"))
+		return searchPublicWeb(ctx, chatWebClient, stringArg(arguments, "query"))
 	case "webfetch":
 		return engine.research(ctx, agentRecord, stringArg(arguments, "url"), boolArg(arguments, "raw"))
 	case "github":

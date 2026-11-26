@@ -116,8 +116,9 @@ for (const mobile of [false, true]) {
 
       await expect(open).toBeFocused();
       await expect(
-        page.getByRole("navigation", { name: "Hauptnavigation", exact: true }),
-      ).toHaveCount(0);
+        page.getByRole("tablist", { name: "Bereiche", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByRole("tabpanel")).toHaveCount(0);
 
       await page.reload();
 
@@ -155,9 +156,12 @@ for (const mobile of [false, true]) {
     await openNavigation();
     const navigationWave = page
       .getByRole("navigation", { name: "Hauptnavigation", exact: true })
-      .locator(".working-indicator > span")
+      .locator(".project-name-working")
       .first();
-    await expect(navigationWave).toHaveCSS("animation-name", "working-pulse");
+    await expect(navigationWave).toHaveCSS(
+      "animation-name",
+      "project-name-wave",
+    );
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(navigationWave).toHaveCSS("animation-name", "none");
     await page.emulateMedia({ reducedMotion: "no-preference" });

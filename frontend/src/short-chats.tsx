@@ -15,7 +15,7 @@ import { Failure, Loading, useAction } from "./ui";
 
 type Chat = { id: string; name: string; status: string };
 const chatPageSize = 8;
-const newChatHref = "#/chats";
+export const newChatHref = "#/chats";
 
 function chatHref(id: string) {
   return `${newChatHref}/${encodeURIComponent(id)}`;
@@ -114,22 +114,12 @@ export function SidebarChatHistory({
   const { t } = useI18n();
   const { page, projectId } = useRoute();
   const activeId = page === "chats" ? projectId : "";
-  const draftActive = page === "chats" && !projectId;
 
   return (
     <section aria-label={t("Unterhaltungen")} className="space-y-2">
-      <Link
-        href={newChatHref}
-        onPress={onNavigate}
-        aria-current={draftActive ? "page" : undefined}
-        className={buttonVariants({
-          variant: draftActive ? "secondary" : "ghost",
-          className: "min-h-11 w-full justify-start gap-3 px-3 font-medium",
-        })}
-      >
-        <Icon name="compose" />
-        {t("Neue Unterhaltung")}
-      </Link>
+      <h2 className="flex min-h-11 items-center px-2 text-sm font-semibold">
+        {t("Unterhaltungen")}
+      </h2>
       <ChatHistoryGroup pinned activeId={activeId} onNavigate={onNavigate} />
       <ChatHistoryGroup activeId={activeId} onNavigate={onNavigate} />
     </section>
@@ -150,7 +140,7 @@ function ChatHistoryGroup({
   const action = useAction();
   const [offset, setOffset] = useState(0);
   const [renaming, setRenaming] = useState<Chat>();
-  const { data, error } = useQuery<{ shortChats: Chat[] }>(
+  const { data, error, loading } = useQuery<{ shortChats: Chat[] }>(
     `query($limit:Int!,$offset:Int!,$pinned:Boolean!){
       shortChats(limit:$limit,offset:$offset,pinned:$pinned){id name status}
     }`,
@@ -159,16 +149,34 @@ function ChatHistoryGroup({
   const chats = data?.shortChats ?? [];
   const label = t(pinned ? "Angeheftet" : "Unterhaltungsverlauf");
 
-  if (!error && !action.error && !chats.length && offset === 0 && !renaming)
+  if (
+    pinned &&
+    !error &&
+    !action.error &&
+    !chats.length &&
+    offset === 0 &&
+    !renaming
+  )
     return null;
 
   return (
-    <div>
-      <h3 className="px-3 py-1 text-xs font-medium text-muted">{label}</h3>
+    <details open className="group/chat-group">
+      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted hover:bg-default [&::-webkit-details-marker]:hidden">
+        <Icon
+          name="chevron"
+          className="size-3.5 -rotate-90 group-open/chat-group:rotate-0"
+        />
+        {label}
+      </summary>
       <Failure
         message={error || action.error}
         onRetry={error ? () => api.refresh() : undefined}
       />
+      {!pinned && !loading && !error && !chats.length && offset === 0 && (
+        <p className="px-3 py-2 text-xs text-muted">
+          {t("Noch keine Unterhaltungen")}
+        </p>
+      )}
       <ul aria-label={label}>
         {chats.slice(0, chatPageSize).map((chat) => (
           <li key={chat.id} className="flex min-w-0 items-center">
@@ -259,6 +267,6 @@ function ChatHistoryGroup({
           onClose={() => setRenaming(undefined)}
         />
       )}
-    </div>
+    </details>
   );
 }

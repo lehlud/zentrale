@@ -17,11 +17,6 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
-func (engine *Engine) searchWeb(ctx context.Context, agentRecord domain.Agent, query string) (any, error) {
-	address := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
-	return engine.research(ctx, agentRecord, address, false)
-}
-
 //go:embed scripts/fetch.py
 var fetchScript string
 

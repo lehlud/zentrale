@@ -1,4 +1,12 @@
-import { Button, Drawer, Dropdown, Label } from "@heroui/react";
+import {
+  Button,
+  Drawer,
+  Dropdown,
+  Label,
+  Link,
+  Tabs,
+  buttonVariants,
+} from "@heroui/react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
 
@@ -12,7 +20,7 @@ import {
 import { Icon } from "./icons";
 import { useMediaQuery } from "./media";
 import { NewConversation } from "./new-conversation";
-import { SidebarChatHistory } from "./short-chats";
+import { newChatHref, SidebarChatHistory } from "./short-chats";
 import { SidebarProjects } from "./sidebar-projects";
 import { Inspect } from "./ui";
 import { useSessionUser } from "./session";
@@ -22,6 +30,7 @@ type SidebarState = {
   collapsed: boolean;
   menuOpen: boolean;
   toggle: () => void;
+  expand: () => void;
   newConversation: (projectId: string) => void;
   preferences: () => void;
 };
@@ -35,7 +44,7 @@ export function useSidebar() {
 export function SidebarToggle({ iconOnly = false }: { iconOnly?: boolean }) {
   const state = useSidebar();
   const { t } = useI18n();
-  if (!state || (!state.compact && !state.collapsed)) {
+  if (!state?.compact) {
     return null;
   }
 
@@ -44,14 +53,14 @@ export function SidebarToggle({ iconOnly = false }: { iconOnly?: boolean }) {
       id="sidebar-toggle"
       variant="ghost"
       isIconOnly={iconOnly}
-      aria-label={t(state.compact ? "Menü öffnen" : "Seitenleiste öffnen")}
-      aria-expanded={state.compact ? state.menuOpen : false}
+      aria-label={t("Menü öffnen")}
+      aria-expanded={state.menuOpen}
       aria-controls="primary-navigation"
       className="min-h-11 min-w-11 shrink-0"
       onPress={state.toggle}
     >
       <Icon name="sidebar" className="size-5" />
-      {!iconOnly && <span>{t(state.compact ? "Menü" : "Seitenleiste")}</span>}
+      {!iconOnly && <span>{t("Menü")}</span>}
     </Button>
   );
 }
@@ -63,7 +72,135 @@ const administration = [
   { id: "keys", label: "Schlüssel" },
 ] as const;
 
+const sidebarSections = [
+  { id: "chats", label: "Unterhaltungen", icon: "chat" },
+  { id: "projects", label: "Projekte", icon: "projects" },
+] as const;
+
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useI18n();
+  const sidebar = useSidebar()!;
+  const user = useSessionUser();
+  const { page, projectId } = useRoute();
+  const routeSection = page === "projects" || page === "chats" ? page : null;
+  const [section, setSection] = useState<string>(routeSection ?? "chats");
+  const collapsed = sidebar.collapsed && !sidebar.compact;
+
+  useEffect(() => {
+    if (routeSection) setSection(routeSection);
+  }, [routeSection]);
+
+  const panelClass = `col-start-2 row-span-2 row-start-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain px-2 py-2 [scrollbar-width:thin] data-[inert]:hidden ${collapsed ? "hidden" : ""}`;
+
+  return (
+    <nav aria-label={t("Hauptnavigation")} className="h-full min-h-0">
+      <Tabs
+        orientation="vertical"
+        selectedKey={section}
+        onSelectionChange={(key) => {
+          setSection(String(key));
+          sidebar.expand();
+        }}
+        className="grid h-full min-h-0 grid-cols-[3.25rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0"
+      >
+        <div className="col-start-1 row-start-1 flex flex-col items-center gap-1 border-r border-separator py-2">
+          {sidebar.compact ? (
+            <Drawer.CloseTrigger
+              aria-label={t("Menü schließen")}
+              className="static min-h-11 min-w-11"
+            />
+          ) : (
+            <Button
+              isIconOnly
+              variant="ghost"
+              aria-label={t(
+                collapsed ? "Seitenleiste öffnen" : "Seitenleiste schließen",
+              )}
+              aria-controls="sidebar-section-panels"
+              aria-expanded={!collapsed}
+              className="size-11 text-muted"
+              onPress={sidebar.toggle}
+            >
+              <Icon name="sidebar" className="size-5" />
+            </Button>
+          )}
+          <Link
+            href={newChatHref}
+            aria-label={t("Neue Unterhaltung")}
+            aria-current={page === "chats" && !projectId ? "page" : undefined}
+            onPress={() => {
+              setSection("chats");
+              onNavigate?.();
+            }}
+            className={buttonVariants({
+              variant: "ghost",
+              isIconOnly: true,
+              className: "size-11",
+            })}
+          >
+            <Icon name="compose" className="size-5" />
+          </Link>
+        </div>
+
+        <Tabs.ListContainer className="col-start-1 row-start-2 min-h-0 overflow-y-auto border-r border-separator">
+          <Tabs.List
+            aria-label={t("Bereiche")}
+            className="min-w-0 items-center gap-1 bg-transparent px-1 pt-1"
+          >
+            {sidebarSections.map(({ id, label, icon }) => (
+              <Tabs.Tab
+                key={id}
+                id={id}
+                aria-label={t(label)}
+                onPress={sidebar.expand}
+                className="size-11 rounded-lg p-0 text-muted hover:bg-default data-[selected]:bg-default data-[selected]:text-foreground"
+              >
+                <span
+                  title={t(label)}
+                  className="grid size-full place-items-center"
+                >
+                  <Icon name={icon} className="size-5" />
+                </span>
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs.ListContainer>
+
+        <div id="sidebar-section-panels" className="contents">
+          <Tabs.Panel id="chats" className={panelClass} shouldForceMount>
+            <SidebarChatHistory onNavigate={onNavigate} />
+          </Tabs.Panel>
+          <Tabs.Panel id="projects" className={panelClass} shouldForceMount>
+            <SidebarProjects
+              key={user?.id}
+              userId={user?.id ?? ""}
+              canCreate={
+                user?.role === "admin" || Boolean(user?.canCreateProjects)
+              }
+              onNavigate={onNavigate}
+            />
+          </Tabs.Panel>
+        </div>
+
+        {!collapsed && (
+          <div
+            className="col-start-1 row-start-3 border-r border-separator"
+            aria-hidden="true"
+          />
+        )}
+        <NavigationMenus compact={collapsed} onNavigate={onNavigate} />
+      </Tabs>
+    </nav>
+  );
+}
+
+function NavigationMenus({
+  compact,
+  onNavigate,
+}: {
+  compact: boolean;
+  onNavigate?: () => void;
+}) {
   const { t } = useI18n();
   const api = useAPI();
   const sidebar = useSidebar()!;
@@ -71,110 +208,105 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const admin = user?.role === "admin";
 
   return (
-    <nav
-      aria-label={t("Hauptnavigation")}
-      className="flex min-h-full flex-col gap-3"
+    <div
+      className={`row-start-3 space-y-1 border-t border-separator p-1 ${compact ? "col-start-1 border-r" : "col-start-2 px-2"}`}
     >
-      {!sidebar.compact && (
-        <div className="flex justify-end">
-          <Button
-            id="sidebar-toggle"
-            isIconOnly
-            variant="ghost"
-            aria-label={t("Seitenleiste schließen")}
-            className="min-h-11 min-w-11 text-muted"
-            onPress={sidebar.toggle}
-          >
-            <Icon name="sidebar" className="size-5" />
-          </Button>
-        </div>
-      )}
-      <SidebarChatHistory onNavigate={onNavigate} />
-      <SidebarProjects
-        key={user?.id}
-        userId={user?.id ?? ""}
-        canCreate={admin || Boolean(user?.canCreateProjects)}
-        onNavigate={onNavigate}
-      />
-      <div className="mt-auto space-y-1 border-t border-separator pt-3">
+      <Dropdown>
+        <Button
+          variant="ghost"
+          isIconOnly={compact}
+          aria-label={t("Einstellungen öffnen")}
+          className={
+            compact
+              ? "size-11"
+              : "min-h-11 w-full justify-start gap-2 px-2 text-sm"
+          }
+        >
+          <Icon name="settings" className="size-5" />
+          {!compact && (
+            <>
+              <span className="flex-1 text-left">{t("Einstellungen")}</span>
+              <Icon name="more" />
+            </>
+          )}
+        </Button>
+        <Dropdown.Popover placement="top start">
+          <Dropdown.Menu aria-label={t("Einstellungen")}>
+            <Dropdown.Item
+              id="settings"
+              href="#/settings"
+              onAction={onNavigate}
+              className="min-h-11"
+            >
+              <Label>{t("Persönliche Einstellungen")}</Label>
+            </Dropdown.Item>
+            <Dropdown.Item
+              id="usage"
+              href="#/usage"
+              onAction={onNavigate}
+              className="min-h-11"
+            >
+              <Label>{t("Verbrauch")}</Label>
+            </Dropdown.Item>
+            <Dropdown.Item
+              id="appearance"
+              onAction={() => {
+                sidebar.preferences();
+              }}
+              className="min-h-11"
+            >
+              <Label>{t("Darstellung und Sprache")}</Label>
+            </Dropdown.Item>
+            <Dropdown.Item
+              id="logout"
+              onAction={() =>
+                void api.mutate("mutation{logout}").catch(() => api.refresh())
+              }
+              className="min-h-11"
+            >
+              <Label>{t("Abmelden")}</Label>
+            </Dropdown.Item>
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown>
+      {admin && (
         <Dropdown>
           <Button
             variant="ghost"
-            aria-label={t("Einstellungen öffnen")}
-            className="min-h-11 w-full justify-start gap-3 px-3 text-sm"
+            isIconOnly={compact}
+            aria-label={t("Admin")}
+            className={
+              compact
+                ? "size-11"
+                : "min-h-11 w-full justify-start gap-2 px-2 text-sm"
+            }
           >
-            <Icon name="settings" className="size-5" />
-            <span className="flex-1 text-left">{t("Einstellungen")}</span>
-            <Icon name="more" />
+            <Icon name="keys" className="size-5" />
+            {!compact && (
+              <>
+                <span className="flex-1 text-left">{t("Admin")}</span>
+                <Icon name="more" />
+              </>
+            )}
           </Button>
           <Dropdown.Popover placement="top start">
-            <Dropdown.Menu aria-label={t("Einstellungen")}>
-              <Dropdown.Item
-                id="settings"
-                href="#/settings"
-                onAction={onNavigate}
-                className="min-h-11"
-              >
-                <Label>{t("Persönliche Einstellungen")}</Label>
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="usage"
-                href="#/usage"
-                onAction={onNavigate}
-                className="min-h-11"
-              >
-                <Label>{t("Verbrauch")}</Label>
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="appearance"
-                onAction={() => {
-                  sidebar.preferences();
-                }}
-                className="min-h-11"
-              >
-                <Label>{t("Darstellung und Sprache")}</Label>
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="logout"
-                onAction={() =>
-                  void api.mutate("mutation{logout}").catch(() => api.refresh())
-                }
-                className="min-h-11"
-              >
-                <Label>{t("Abmelden")}</Label>
-              </Dropdown.Item>
+            <Dropdown.Menu aria-label={t("Verwaltung")}>
+              {administration.map((item) => (
+                <Dropdown.Item
+                  id={item.id}
+                  key={item.id}
+                  href={`#/${item.id}`}
+                  onAction={onNavigate}
+                  className="min-h-11"
+                >
+                  <Label>{t(item.label)}</Label>
+                </Dropdown.Item>
+              ))}
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        {admin && (
-          <Dropdown>
-            <Button
-              variant="ghost"
-              className="min-h-11 w-full justify-start gap-3 px-3 text-sm"
-            >
-              <Icon name="keys" className="size-5" />
-              <span className="flex-1 text-left">{t("Admin")}</span>
-              <Icon name="more" />
-            </Button>
-            <Dropdown.Popover placement="top start">
-              <Dropdown.Menu aria-label={t("Verwaltung")}>
-                {administration.map((item) => (
-                  <Dropdown.Item
-                    id={item.id}
-                    key={item.id}
-                    href={`#/${item.id}`}
-                    onAction={onNavigate}
-                    className="min-h-11"
-                  >
-                    <Label>{t(item.label)}</Label>
-                  </Dropdown.Item>
-                ))}
-              </Dropdown.Menu>
-            </Dropdown.Popover>
-          </Dropdown>
-        )}
-      </div>
-    </nav>
+      )}
+    </div>
   );
 }
 
@@ -202,13 +334,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
     [page, projectId, params.get("agent"), compact],
   );
 
-  const toggle = () => {
-    if (compact) {
-      setMenuOpen(!menuOpen);
-      return;
-    }
-
-    const value = !collapsed;
+  function setPanelCollapsed(value: boolean) {
     setCollapsed(value);
 
     try {
@@ -216,10 +342,11 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
     } catch {
       /* Preferences remain usable without storage. */
     }
+  }
 
-    requestAnimationFrame(() =>
-      document.getElementById("sidebar-toggle")?.focus(),
-    );
+  const toggle = () => {
+    if (compact) setMenuOpen((open) => !open);
+    else setPanelCollapsed(!collapsed);
   };
   const appearanceDialog = appearance && (
     <Inspect
@@ -241,6 +368,9 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
         collapsed,
         menuOpen,
         toggle,
+        expand: () => {
+          if (collapsed && !compact) setPanelCollapsed(false);
+        },
         newConversation: setCreatingIn,
         preferences: () => setAppearance(true),
       }}
@@ -248,7 +378,9 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
       <div
         className="min-h-dvh bg-surface"
         style={
-          { "--sidebar-width": collapsed ? "0px" : "260px" } as CSSProperties
+          {
+            "--sidebar-width": collapsed ? "3.25rem" : "20rem",
+          } as CSSProperties
         }
       >
         <a
@@ -265,23 +397,14 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
           <Drawer.Backdrop isOpen={menuOpen} onOpenChange={setMenuOpen}>
             <Drawer.Content
               placement="left"
-              className="w-80 max-w-[calc(100vw-3rem)]"
+              className="w-80 max-w-[calc(100vw-1.5rem)]"
             >
               <Drawer.Dialog
                 id="primary-navigation"
                 aria-label={t("Hauptnavigation")}
                 className="border-r border-separator bg-background p-0"
               >
-                <Drawer.Header className="min-h-16 shrink-0 flex-row items-center justify-between px-4 py-2">
-                  <Drawer.Heading className="sr-only">
-                    {t("Hauptnavigation")}
-                  </Drawer.Heading>
-                  <Drawer.CloseTrigger
-                    aria-label={t("Menü schließen")}
-                    className="min-h-11 min-w-11"
-                  />
-                </Drawer.Header>
-                <Drawer.Body className="flex-1 px-3 pb-4 pt-0">
+                <Drawer.Body className="min-h-0 flex-1 overflow-hidden p-0">
                   <Navigation onNavigate={() => setMenuOpen(false)} />
                 </Drawer.Body>
                 {appearanceDialog}
@@ -289,15 +412,13 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
             </Drawer.Content>
           </Drawer.Backdrop>
         ) : (
-          !collapsed && (
-            <aside
-              id="primary-navigation"
-              aria-label={t("Hauptnavigation")}
-              className="fixed inset-y-0 left-0 hidden w-[260px] overflow-y-auto border-r border-separator bg-background px-3 py-3 lg:block"
-            >
-              <Navigation />
-            </aside>
-          )
+          <aside
+            id="primary-navigation"
+            aria-label={t("Hauptnavigation")}
+            className="fixed inset-y-0 left-0 hidden w-[var(--sidebar-width)] border-r border-separator bg-background lg:block"
+          >
+            <Navigation />
+          </aside>
         )}
         <div className="lg:pl-[var(--sidebar-width)]">
           <main

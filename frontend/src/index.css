@@ -109,3 +109,31 @@ pre {
     opacity: 0.7;
   }
 }
+
+.project-name-working {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .project-name-working {
+    background: linear-gradient(
+      90deg,
+      var(--foreground) 38%,
+      var(--accent) 50%,
+      var(--foreground) 62%
+    );
+    background-size: 300% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: project-name-wave 2.8s linear infinite;
+  }
+}
+
+@keyframes project-name-wave {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}

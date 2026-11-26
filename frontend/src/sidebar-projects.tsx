@@ -1,4 +1,4 @@
-import { Input, Link, TextField, buttonVariants } from "@heroui/react";
+import { Button, Input, Link, TextField, buttonVariants } from "@heroui/react";
 import { useState } from "react";
 
 import { ActionsMenu } from "./actions-menu";
@@ -84,6 +84,7 @@ export function SidebarProjects({
     savedProjectOrder(orderKey, userId === "initial-admin"),
   );
   const [drag, setDrag] = useState<{ id: string; target?: string }>();
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const sorted = orderProjects(
     (data?.projects ?? []).filter((project) => !project.archived),
     order,
@@ -124,21 +125,24 @@ export function SidebarProjects({
   return (
     <nav
       aria-label={t("Projekte und Unterhaltungen")}
-      className="min-w-0 space-y-1 border-t border-separator pt-3"
+      className="min-w-0 space-y-1"
     >
       <div className="flex min-h-11 items-center justify-between gap-1">
+        <h2 className="min-w-0 flex-1 truncate px-2 text-sm font-semibold">
+          {t("Projektliste")}
+        </h2>
         <Link
           href="#/projects"
+          aria-label={t("Alle Projekte")}
           onPress={onNavigate}
           aria-current={page === "projects" && !projectId ? "page" : undefined}
           className={buttonVariants({
             variant: page === "projects" && !projectId ? "secondary" : "ghost",
-            className:
-              "min-h-11 min-w-0 flex-1 justify-start gap-3 px-3 font-medium",
+            isIconOnly: true,
+            className: "size-11",
           })}
         >
           <Icon name="projects" />
-          {t("Alle Projekte")}
         </Link>
         {canCreate && (
           <Link
@@ -184,6 +188,7 @@ export function SidebarProjects({
       <ul aria-label={t("Projekte")} className="space-y-1">
         {projects.items.map((project, index) => {
           const active = page === "projects" && projectId === project.id;
+          const open = expanded[project.id] ?? active;
           const working = activeProjects.has(project.id);
           const dropTarget = draggedIndex >= 0 && drag?.target === project.id;
 
@@ -222,6 +227,27 @@ export function SidebarProjects({
                   setDrag(undefined);
                 }}
               >
+                <Button
+                  variant="ghost"
+                  isIconOnly
+                  aria-label={t("Unterhaltungen in {name}", {
+                    name: project.name,
+                  })}
+                  aria-expanded={open}
+                  aria-controls={`project-conversations-${project.id}`}
+                  className="min-h-11 w-9 shrink-0 text-muted"
+                  onPress={() =>
+                    setExpanded((current) => ({
+                      ...current,
+                      [project.id]: !open,
+                    }))
+                  }
+                >
+                  <Icon
+                    name="chevron"
+                    className={`size-4 ${open ? "" : "-rotate-90"}`}
+                  />
+                </Button>
                 <Link
                   href={`#/projects/${encodeURIComponent(project.id)}`}
                   onPress={onNavigate}
@@ -232,25 +258,16 @@ export function SidebarProjects({
                   className={buttonVariants({
                     variant: active ? "secondary" : "ghost",
                     className:
-                      "min-h-11 min-w-0 flex-1 justify-start gap-3 px-3",
+                      "min-h-11 min-w-0 flex-1 justify-start gap-2 px-2",
                   })}
                 >
                   <ProjectIcon emoji={project.emoji} />
-                  <span className="min-w-0 truncate" title={project.name}>
+                  <span
+                    className={`min-w-0 truncate ${working ? "project-name-working" : ""}`}
+                    title={project.name}
+                  >
                     {project.name}
                   </span>
-                  {working && (
-                    <>
-                      <span
-                        className="working-indicator ml-auto shrink-0 text-accent"
-                        aria-hidden="true"
-                      >
-                        <span />
-                        <span />
-                        <span />
-                      </span>
-                    </>
-                  )}
                 </Link>
                 {working && (
                   <span
@@ -286,12 +303,14 @@ export function SidebarProjects({
                   />
                 )}
               </div>
-              {active && (
-                <SidebarConversations
-                  projectId={project.id}
-                  onNavigate={onNavigate}
-                />
-              )}
+              <div id={`project-conversations-${project.id}`} hidden={!open}>
+                {open && (
+                  <SidebarConversations
+                    projectId={project.id}
+                    onNavigate={onNavigate}
+                  />
+                )}
+              </div>
             </li>
           );
         })}
@@ -338,15 +357,17 @@ function SidebarConversations({
 }) {
   const { t } = useI18n();
   const api = useAPI();
-  const { params } = useRoute();
+  const { page, projectId: routeProject, params } = useRoute();
   const { data, error } = useQuery<{ agents: Agent[] }>(
     "query($id:String!){agents(projectId:$id,limit:500){id projectId parentId approverId name role status}}",
     { id: projectId },
   );
   const conversations = useBatch(agentTree(data?.agents ?? []), projectId);
   const activeId =
-    params.get("agent") ||
-    data?.agents.find((agent) => agent.role === "main")?.id;
+    page === "projects" && routeProject === projectId
+      ? params.get("agent") ||
+        data?.agents.find((agent) => agent.role === "main")?.id
+      : undefined;
   const [renaming, setRenaming] = useState<Agent>();
   const action = useAction();
 

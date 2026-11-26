@@ -41,6 +41,7 @@ async function closeNavigation(page: Page) {
 async function navigateToPage(page: Page, name: string) {
   await openNavigation(page);
   if (name === "Projekte" || name === "Projects") {
+    await page.getByRole("tab", { name: /^(Projekte|Projects)$/ }).click();
     await page
       .getByRole("link", { name: /^(Alle Projekte|All projects)$/ })
       .click();

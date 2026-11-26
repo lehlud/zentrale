@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -140,11 +139,7 @@ func (engine *Engine) shortChatTool(ctx context.Context, chat domain.Agent, call
 	shareID, path := stringArg(call.Arguments, "shareId"), stringArg(call.Arguments, "path")
 	switch call.Name {
 	case "web_search":
-		query := strings.TrimSpace(stringArg(call.Arguments, "query"))
-		if query == "" || len(query) > 512 {
-			return nil, errors.New("search requires 1–512 bytes of search terms")
-		}
-		return fetchChatWeb(ctx, "https://html.duckduckgo.com/html/?q="+url.QueryEscape(query))
+		return searchPublicWeb(ctx, chatWebClient, stringArg(call.Arguments, "query"))
 	case "web_read":
 		return fetchChatWeb(ctx, stringArg(call.Arguments, "url"))
 	case "share_list":
