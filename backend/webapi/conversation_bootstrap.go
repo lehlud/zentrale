@@ -110,7 +110,7 @@ func (builder *schemaBuilder) conversationBootstrapField(queries graphql.Fields)
 			var machine map[string]any
 			if id != "" {
 				var agent domain.Agent
-				if err := server.Store.LoadFields("agent", id, &agent, agentFields); err != nil {
+				if err := server.Store.LoadFields("agent", id, &agent, append(agentFields, "contextTokens")); err != nil {
 					return nil, err
 				}
 				if agent.ProjectID != projectID {

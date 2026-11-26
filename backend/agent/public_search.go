@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"golang.org/x/net/html"
 )
 
 type webSearchResult struct {
@@ -36,18 +33,9 @@ type searchSource struct {
 }
 
 func searchPublicWeb(ctx context.Context, client *http.Client, query string) (webSearchResponse, error) {
-	sources := []searchSource{
-		{"Bing", searchRSS},
-		{"DuckDuckGo", searchDuckDuckGo},
-		{"Wikipedia (de)", wikipediaSearch("de")},
-		{"Wikipedia (en)", wikipediaSearch("en")},
-	}
-	if key := strings.TrimSpace(os.Getenv("ZENTRALE_BRAVE_SEARCH_API_KEY")); key != "" {
-		sources = []searchSource{{"Brave", func(ctx context.Context, client *http.Client, terms string) ([]webSearchResult, error) {
-			return searchBrave(ctx, client, terms, key)
-		}}}
-	} else if python := strings.TrimSpace(os.Getenv("ZENTRALE_DDGS_PYTHON")); python != "" {
-		sources = append([]searchSource{{"Yahoo (DDGS)", ddgsSearch(python)}}, sources...)
+	sources := []searchSource{{"Bing", searchRSS}}
+	if python := strings.TrimSpace(os.Getenv("ZENTRALE_DDGS_PYTHON")); python != "" {
+		sources = append(sources, searchSource{"Yahoo (DDGS)", ddgsSearch(python)})
 	}
 
 	return searchFromSources(ctx, client, query, sources)
@@ -77,7 +65,7 @@ func searchFromSources(ctx context.Context, client *http.Client, query string, s
 
 		checked = append(checked, source.name)
 		if results := relevantResults(items, matches); len(results) > 0 {
-			return webSearchResponse{Source: source.name, Results: results}, nil
+			return webSearchResponse{Source: source.name, Results: results, Unavailable: failures}, nil
 		}
 	}
 
@@ -203,174 +191,4 @@ func searchRSS(ctx context.Context, client *http.Client, query string) ([]webSea
 	}
 
 	return feed.Items, nil
-}
-
-func searchDuckDuckGo(ctx context.Context, client *http.Client, query string) ([]webSearchResult, error) {
-	address := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
-	response, err := openPublicWeb(ctx, client, address, "text/html")
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	page, err := html.Parse(io.LimitReader(response.Body, webBodyLimit))
-	if err != nil {
-		return nil, errors.New("the search page could not be read")
-	}
-
-	var results []webSearchResult
-	for node := range page.Descendants() {
-		if !hasHTMLClass(node, "result") {
-			continue
-		}
-
-		var item webSearchResult
-		for element := range node.Descendants() {
-			switch {
-			case element.Data == "a" && hasHTMLClass(element, "result__a"):
-				item.Title = htmlNodeText(element)
-				for _, attr := range element.Attr {
-					if attr.Key == "href" {
-						item.URL = duckDuckGoResultURL(attr.Val)
-						break
-					}
-				}
-			case hasHTMLClass(element, "result__snippet"):
-				item.Description = htmlNodeText(element)
-			}
-		}
-		if item.URL != "" {
-			results = append(results, item)
-		}
-	}
-
-	return results, nil
-}
-
-func duckDuckGoResultURL(raw string) string {
-	base := &url.URL{Scheme: "https", Host: "html.duckduckgo.com"}
-	link, err := base.Parse(raw)
-	if err != nil {
-		return ""
-	}
-
-	if (link.Hostname() == "duckduckgo.com" || link.Hostname() == base.Host) && link.Path == "/l/" {
-		return link.Query().Get("uddg")
-	}
-	return link.String()
-}
-
-func hasHTMLClass(node *html.Node, class string) bool {
-	for _, attr := range node.Attr {
-		if attr.Key == "class" {
-			for _, name := range strings.Fields(attr.Val) {
-				if name == class {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func htmlNodeText(node *html.Node) string {
-	var text strings.Builder
-	for child := range node.Descendants() {
-		if child.Type == html.TextNode {
-			text.WriteString(child.Data)
-		}
-	}
-	return strings.Join(strings.Fields(text.String()), " ")
-}
-
-func wikipediaSearch(language string) func(context.Context, *http.Client, string) ([]webSearchResult, error) {
-	return func(ctx context.Context, client *http.Client, query string) ([]webSearchResult, error) {
-		// For an exact-name question, search the encyclopedia for the name,
-		// not the repeated chat wording. The original match rules still apply.
-		terms := searchQuoteReplacer.Replace(query)
-		if parts := strings.Split(terms, `"`); len(parts) == 3 && strings.TrimSpace(parts[1]) != "" {
-			terms = `"` + strings.TrimSpace(parts[1]) + `"`
-		}
-
-		origin := "https://" + language + ".wikipedia.org"
-		address := origin + "/w/rest.php/v1/search/page?limit=8&q=" + url.QueryEscape(terms)
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-		if err != nil {
-			return nil, err
-		}
-		request.Header.Set("Accept", "application/json")
-		request.Header.Set("User-Agent", "Zentrale/1.0 (https://github.com/lehlud/zentrale)")
-		response, err := doPublicWeb(client, request)
-		if err != nil {
-			return nil, err
-		}
-		defer response.Body.Close()
-
-		var payload struct {
-			Pages []struct {
-				Key, Title, Excerpt string
-			} `json:"pages"`
-		}
-		if err := json.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&payload); err != nil || payload.Pages == nil {
-			return nil, errors.New("the encyclopedia did not return search results in its expected format")
-		}
-
-		results := make([]webSearchResult, 0, len(payload.Pages))
-		for _, page := range payload.Pages {
-			if page.Key == "" {
-				continue
-			}
-			results = append(results, webSearchResult{
-				Title:       page.Title,
-				URL:         origin + "/wiki/" + url.PathEscape(page.Key),
-				Description: wikipediaSnippet(page.Excerpt),
-			})
-		}
-		return results, nil
-	}
-}
-
-func wikipediaSnippet(excerpt string) string {
-	// Wikimedia highlights matched words with markup. Search/match plain text.
-	page, err := html.Parse(strings.NewReader(excerpt))
-	if err != nil {
-		return ""
-	}
-	return htmlNodeText(page)
-}
-
-func searchBrave(ctx context.Context, client *http.Client, query, key string) ([]webSearchResult, error) {
-	address := "https://api.search.brave.com/res/v1/web/search?count=10&text_decorations=false&q=" + url.QueryEscape(query)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("X-Subscription-Token", key)
-
-	// Do not forward the subscription token, even if the provider redirects.
-	keyedClient := *client
-	keyedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	response, err := doPublicWeb(&keyedClient, request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-
-	var payload struct {
-		Web struct {
-			Results []struct {
-				Title, URL, Description string
-			} `json:"results"`
-		} `json:"web"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, webBodyLimit)).Decode(&payload); err != nil {
-		return nil, errors.New("the Brave search API did not return readable JSON")
-	}
-
-	results := make([]webSearchResult, 0, len(payload.Web.Results))
-	for _, item := range payload.Web.Results {
-		results = append(results, webSearchResult{Title: item.Title, URL: item.URL, Description: item.Description})
-	}
-	return results, nil
 }

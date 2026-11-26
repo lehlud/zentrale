@@ -32,6 +32,7 @@ const (
 var toolPolicies = map[string]toolPolicy{
 	"apply_patch":          {},
 	"read_file":            {Review: reviewReadSnapshot},
+	"view_image":           {Review: reviewInHandler, HideInCodeMode: true},
 	"list_files":           {},
 	"write_file":           {},
 	"delete_file":          {},
@@ -218,7 +219,7 @@ func decodeNativeInteraction(call providers.Call) (interaction, error) {
 		if _, exists := arguments["limit"]; !exists {
 			arguments["limit"] = float64(200)
 		}
-	case "list_files":
+	case "list_files", "view_image":
 	case "apply_patch":
 		requiredArgument = "input"
 	case "update_plan":
@@ -264,6 +265,8 @@ func (engine *Engine) runTool(ctx context.Context, agentRecord domain.Agent, req
 	arguments := request.Arguments
 
 	switch request.Action {
+	case "view_image":
+		return engine.approvedImage(ctx, agentRecord, request)
 	case "write_stdin":
 		return engine.writeStdin(ctx, agentRecord, request)
 	case "mcp_connect", "mcp_list", "mcp_tools", "mcp_call", "mcp_disconnect":

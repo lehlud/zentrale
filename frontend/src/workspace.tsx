@@ -152,7 +152,6 @@ export function Workspace({
               managedTranscript
               sandboxMode={bootstrap.sandboxMode}
               sandboxStatus={bootstrap.sandboxStatus ?? undefined}
-              machineName={bootstrap.machineName}
             />
           </WorkspaceFiles>
         )

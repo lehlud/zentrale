@@ -21,6 +21,14 @@ func validateToolArguments(request interaction) error {
 	case "read_file":
 		_, err := fileReadOptions(request.Arguments)
 		return err
+	case "view_image":
+		filename := stringArg(request.Arguments, "path")
+		if len(request.Arguments) != 1 || filename == "" || len(filename) > 4096 || !noSecrets(filename) || request.Network {
+			return errors.New("view_image takes only a project path and does not use the network")
+		}
+		if strings.TrimSpace(request.Justification) == "" {
+			return errors.New("view_image requires a justification")
+		}
 	case "apply_patch":
 		patch := stringArg(request.Arguments, "input")
 		if len(patch) > 1024*1024 || !noSecrets(patch) {

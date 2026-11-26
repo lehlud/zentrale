@@ -37,8 +37,8 @@ function NewShortChat() {
     };
   }>(`{
     shortChatModelOptions {
-      presets { ${chatModelFields} }
-      defaults { main { ${chatModelFields} } }
+      presets { ${chatModelFields} contextWindow }
+      defaults { main { ${chatModelFields} contextWindow } }
     }
   }`);
   const options = data?.shortChatModelOptions;
@@ -76,6 +76,7 @@ function NewShortChat() {
         latest={() => {}}
         autoFocus
         shortChat
+        draftContextWindow={(selected || options?.defaults.main)?.contextWindow}
         initialChatModel={selected ? choice : undefined}
         onShortChatStarted={(id) => {
           if (location.href === draftURL)

@@ -467,14 +467,16 @@ test("setup, configuration, agents, approvals and responsive navigation", async 
     page.getByText(/^Nicht durch den Auftrag gedeckt \(approvalId:/),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: /^Agentendetails/ }).click();
-  const detailsDialog = page.locator('[data-slot="modal-dialog"]').last();
+  await page.getByRole("button", { name: "Kontextfenster" }).click();
+  const detailsDialog = page.getByRole("dialog", { name: "Kontextfenster" });
 
   await expect(
     detailsDialog.getByText("Nicht durch den Auftrag gedeckt", { exact: true }),
   ).toHaveCount(0);
   await expect(
-    detailsDialog.getByRole("heading", { name: "Arbeitsplan", exact: true }),
+    detailsDialog.getByText(
+      "Der Kontext wird bei Bedarf automatisch verdichtet.",
+    ),
   ).toBeVisible();
 
   await page.keyboard.press("Escape");

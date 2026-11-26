@@ -70,6 +70,14 @@ func mainTools() []providers.Tool {
 		executionTool(),
 		stdinTool(),
 		fileReadTool(),
+		{
+			Name:        "view_image",
+			Description: "Inspect a PNG or JPEG in the project as an actual image with a vision-capable model, not as ASCII or OCR. Read-only, independently reviewed. Up to 8 MiB and 20 megapixels per image.",
+			Schema: objectSchema(map[string]any{
+				"path":          textProperty("Path to a regular image file in the project workspace."),
+				"justification": textProperty("Why this image is needed for the user's task."),
+			}, "path", "justification"),
+		},
 		fileListTool(),
 		patchTool(),
 		{

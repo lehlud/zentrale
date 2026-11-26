@@ -38,6 +38,28 @@ func (builder *schemaBuilder) modelChoiceName(kind string) graphql.FieldResolveF
 	}
 }
 
+func (builder *schemaBuilder) selectedModelContextWindow(params graphql.ResolveParams) (any, error) {
+	source, _ := params.Source.(map[string]any)
+	providerID, _ := source["providerId"].(string)
+	modelID, _ := source["modelId"].(string)
+	if providerID == "" || modelID == "" {
+		return nil, nil
+	}
+
+	var model domain.LanguageModel
+	if err := builder.server.Store.LoadFields("model", providerID+":"+modelID, &model, []string{"contextWindow"}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if model.ContextWindow <= 0 {
+		return nil, nil
+	}
+
+	return model.ContextWindow, nil
+}
+
 func (server *Server) selectableModelPresets(scope string, user domain.User) ([]domain.ModelChoice, error) {
 	policy, err := server.Engine.ModelPresetPolicy(scope)
 	if err != nil || policy.Configured {

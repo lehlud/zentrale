@@ -523,7 +523,7 @@ for (const variant of [
 
     await page
       .getByRole("button", {
-        name: new RegExp("^" + label("Agentendetails", "Agent details")),
+        name: label("Kontextfenster", "Context window"),
       })
       .click();
     dialog = page.getByRole("dialog");
@@ -533,7 +533,7 @@ for (const variant of [
     ).toHaveCount(0);
     await expect(
       dialog.getByRole("heading", {
-        name: label("Ausführungsumgebung", "Execution environment"),
+        name: label("Kontextfenster", "Context window"),
       }),
     ).toBeVisible();
     await expect(dialog).not.toContainText('"command"');
@@ -546,7 +546,7 @@ for (const variant of [
 
     await expect(
       page.getByRole("button", {
-        name: new RegExp("^" + label("Agentendetails", "Agent details")),
+        name: label("Kontextfenster", "Context window"),
       }),
     ).toBeFocused();
     expect(

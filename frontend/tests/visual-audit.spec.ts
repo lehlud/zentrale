@@ -871,18 +871,21 @@ for (const variant of variants) {
     await setLogDiagnostics(page, false);
     await page
       .getByRole("button", {
-        name: new RegExp("^" + label("Agentendetails", "Agent details")),
+        name: label("Kontextfenster", "Context window"),
       })
       .click();
-    await capture("agent-details");
-    await dialog()
+    await capture("agent-context");
+    await page.keyboard.press("Escape");
+    const jobOutput = page
       .getByRole("button", {
         name: new RegExp("^" + label("Ausgabe öffnen:", "Open output:")),
       })
-      .first()
-      .click();
+      .first();
+    await jobOutput.click();
+    await expect(jobOutput).toHaveAttribute("aria-expanded", "true");
     await capture("job-output");
-    await close();
+    await jobOutput.click();
+    await expect(jobOutput).toHaveAttribute("aria-expanded", "false");
     await page
       .getByRole("button", {
         name: /^(Agent wechseln|Switch agent):/,
@@ -896,11 +899,11 @@ for (const variant of variants) {
     await capture("agent-empty-conversation");
     await page
       .getByRole("button", {
-        name: new RegExp("^" + label("Agentendetails", "Agent details")),
+        name: label("Kontextfenster", "Context window"),
       })
       .click();
-    await capture("agent-empty-details");
-    await close();
+    await capture("agent-empty-context");
+    await page.keyboard.press("Escape");
     emptyTranscript = false;
     await go("projects/forecast");
     await go("projects/forecast?agent=" + agent.approverId);

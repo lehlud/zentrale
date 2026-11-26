@@ -309,18 +309,8 @@ for (const english of [false, true]) {
         queue.getByText("LOST_RECEIPT", { exact: true }),
       ).toHaveCount(1);
 
-      await page
-        .getByRole("button", {
-          name: new RegExp("^" + label("Agentendetails", "Agent details")),
-        })
-        .click();
-      const details = page.getByRole("dialog");
-
       await expect(
-        details.getByRole("heading", { name: /Freigaben|Approvals/ }),
-      ).toHaveCount(0);
-      await expect(
-        details.getByRole("button", {
+        page.getByRole("button", {
           name: label(
             "Ausgabe öffnen: python3 background.py",
             "Open output: python3 background.py",
@@ -328,8 +318,19 @@ for (const english of [false, true]) {
         }),
       ).toBeVisible();
       await expect(
-        details.getByText("python3 completed.py", { exact: true }),
+        page.getByText("python3 completed.py", { exact: true }),
       ).toHaveCount(0);
+
+      await page
+        .getByRole("button", {
+          name: label("Kontextfenster", "Context window"),
+        })
+        .click();
+      await expect(
+        page.getByRole("dialog", {
+          name: label("Kontextfenster", "Context window"),
+        }),
+      ).toBeVisible();
 
       await page.screenshot({
         path: `artifacts/ui/input-queue-${variant}-details.png`,

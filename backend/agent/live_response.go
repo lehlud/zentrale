@@ -169,6 +169,7 @@ func (engine *Engine) completeVisible(
 	if err != nil {
 		return result, message, err
 	}
+	request.Messages = attachProjectImages(ctx, agentID, request.Messages)
 
 	writer := engine.beginResponse(agentID)
 	request.OnText = writer.append

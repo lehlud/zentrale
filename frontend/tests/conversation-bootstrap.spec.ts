@@ -32,15 +32,13 @@ test("bootstrap selection contains core attachments but excludes detail blobs", 
     project,
     agents,
     modelDefaults: config.modelDefaults,
-    machineName: "",
     sandboxMode: "",
   } as unknown as ConversationBootstrap;
   const first = bootstrapTranscript(core)!;
   expect(first.messages).toBe(core.messages);
   expect(first.jobs).toEqual([]);
-  expect(first.approvals).toEqual([]);
-  first.usageSummary.inputTokens = 99;
-  expect(bootstrapTranscript(core)!.usageSummary.inputTokens).toBe(0);
+  expect(first.agent.contextTokens).toBe(core.agent?.contextTokens);
+  expect(first.agent.contextWindow).toBe(core.agent?.contextWindow);
   expect(bootstrapTranscript({ ...core, agent: null })).toBeUndefined();
 });
 

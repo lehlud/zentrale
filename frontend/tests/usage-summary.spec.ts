@@ -95,7 +95,22 @@ test("usage shows reported cache counts separately from missing measurements", a
     });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
-  await page.getByRole("button", { name: /^Agentendetails für / }).click();
+  const trigger = page.getByRole("button", { name: "Kontextfenster" });
+  await expect(trigger.locator("circle[stroke-dasharray]")).toHaveAttribute(
+    "stroke-dasharray",
+    "25 100",
+  );
+  await expect(
+    page.getByRole("button", { name: /Agentendetails/ }),
+  ).toHaveCount(0);
+  await trigger.click();
+  const panel = page.getByRole("dialog", { name: "Kontextfenster" });
+  await expect(panel).toContainText("32.000");
+  await expect(panel).toContainText("96.000");
+  await expect(panel).toContainText("128.000");
+  await expect(
+    panel.getByRole("button", { name: /compact|verdichten/i }),
+  ).toHaveCount(0);
   const summary = page
     .locator("details")
     .filter({ has: page.locator("summary", { hasText: "Tokens" }) })
@@ -191,9 +206,9 @@ test("failed model rounds remain inspectable before any successful usage", async
     });
   });
   await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
-  await page.getByRole("button", { name: /^Agentendetails für / }).click();
+  await page.getByRole("button", { name: "Kontextfenster" }).click();
   expect(diagnostics).toBe(0);
-  const dialog = page.locator('[data-slot="modal-dialog"]:not([data-exiting])');
+  const dialog = page.getByRole("dialog", { name: "Kontextfenster" });
   await dialog.getByText("Modellrunden und Diagnose", { exact: true }).click();
   await dialog.getByText(/Hauptarbeit · gpt-6.1-sol/).click();
   await expect(dialog).toContainText("Tokenzahlen nicht gemeldet");

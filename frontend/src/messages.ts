@@ -576,6 +576,15 @@ export const english: Record<string, string> = {
   "Keine SSH-Schlüssel": "No SSH keys",
   Kontext: "Context",
   "Kontextfenster (Tokens)": "Context window (tokens)",
+  Kontextfenster: "Context window",
+  "{percent} belegt": "{percent} used",
+  "Belegt (ca.)": "Used (approx.)",
+  "Freie Tokens (ca.)": "Available tokens (approx.)",
+  "Limit (Tokens)": "Limit (tokens)",
+  "Für dieses Modell ist keine Kontextgröße bekannt.":
+    "The context window size is unknown for this model.",
+  "Der Kontext wird bei Bedarf automatisch verdichtet.":
+    "Context is automatically compacted when needed.",
   Laden: "Loading",
   "Maschine bearbeiten": "Edit machine",
   "Maschine hinzufügen": "Add machine",
@@ -1166,6 +1175,7 @@ Object.assign(english, {
   "Befehl ausführen": "Run command",
   "Python ausführen": "Run Python",
   "Datei lesen": "Read file",
+  "Bild ansehen": "View image",
   "Datei schreiben": "Write file",
   "Datei entfernen": "Remove file",
   "Dateien auflisten": "List files",

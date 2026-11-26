@@ -188,6 +188,8 @@ export const agent = {
   machineId: machine.id,
   error: "",
   contextStart: 0,
+  contextWindow: 128000,
+  contextTokens: 32000,
   summary:
     "Training mit Checkpoints fortsetzen. Nach einem Maschinenwechsel wird der Agent informiert und startet den Prozess selbst neu.",
 };

@@ -97,38 +97,46 @@ export function Notifications() {
       width={540}
       aria-label={t("Benachrichtigungen")}
     >
-      {({ toast }) => (
-        <Toast
-          toast={toast}
-          variant={toast.content.variant}
-          className="pointer-events-none grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
-        >
-          <Toast.Indicator
-            variant={toast.content.variant}
-            className="size-11 self-start p-0"
-          />
-          <Toast.Content className="self-start">
-            <Toast.Title>{toast.content.title}</Toast.Title>
-            {toast.content.description && (
-              <Toast.Description className="mt-1 leading-5">
-                {toast.content.description}
-              </Toast.Description>
-            )}
-            {toast.content.actionProps && (
-              <Toast.ActionButton
-                {...toast.content.actionProps}
-                className="pointer-events-auto mt-2 min-h-11 self-start"
-                size="sm"
-                variant="secondary"
-              />
-            )}
-          </Toast.Content>
-          <Toast.CloseButton
-            aria-label={t("Benachrichtigung schließen")}
-            className="pointer-events-auto static col-start-3 row-start-1 size-11 self-start opacity-100"
-          />
-        </Toast>
-      )}
+      {({ toast }) => {
+        const { title, description, variant, actionProps } = toast.content;
+        const compact = !description && !actionProps;
+        const alignment = compact ? "self-center" : "self-start";
+
+        return (
+          <Toast
+            toast={toast}
+            variant={variant}
+            className={`pointer-events-none grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] ${
+              compact ? "start-auto w-max max-w-full px-2 py-1" : ""
+            }`}
+          >
+            <Toast.Indicator
+              variant={variant}
+              className={`size-11 p-0 ${alignment}`}
+            />
+            <Toast.Content className={alignment}>
+              <Toast.Title className="wrap-anywhere">{title}</Toast.Title>
+              {description && (
+                <Toast.Description className="mt-1 leading-5">
+                  {description}
+                </Toast.Description>
+              )}
+              {actionProps && (
+                <Toast.ActionButton
+                  {...actionProps}
+                  className="pointer-events-auto mt-2 min-h-11 self-start"
+                  size="sm"
+                  variant="secondary"
+                />
+              )}
+            </Toast.Content>
+            <Toast.CloseButton
+              aria-label={t("Benachrichtigung schließen")}
+              className={`pointer-events-auto static col-start-3 row-start-1 size-11 opacity-100 ${alignment}`}
+            />
+          </Toast>
+        );
+      }}
     </Toast.Provider>
   );
 }

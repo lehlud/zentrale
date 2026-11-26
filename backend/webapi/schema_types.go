@@ -103,6 +103,10 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 		fields["providerName"] = &graphql.Field{Type: graphql.String, Resolve: builder.modelChoiceName("provider")}
 	}
 
+	if goType == reflect.TypeFor[domain.Agent]() || goType == reflect.TypeFor[domain.ModelChoice]() {
+		fields["contextWindow"] = &graphql.Field{Type: graphql.Int, Resolve: builder.selectedModelContextWindow}
+	}
+
 	if goType == reflect.TypeFor[domain.Message]() {
 		fields["activities"] = &graphql.Field{
 			Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.ToolActivity]())))),

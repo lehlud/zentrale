@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -70,6 +71,18 @@ func (engine *Engine) file(
 	action string,
 	args map[string]any,
 	network, outside bool,
+) (map[string]any, error) {
+	return engine.fileOperation(ctx, agentRecord, action, args, network, outside, nil)
+}
+
+// A visual snapshot has a separate output so bytes cannot enter tool results.
+func (engine *Engine) fileOperation(
+	ctx context.Context,
+	agentRecord domain.Agent,
+	action string,
+	args map[string]any,
+	network, outside bool,
+	image *domain.AttachmentImage,
 ) (result map[string]any, err error) {
 	ctx, cancel := context.WithTimeout(ctx, fileOperationTimeout)
 	defer cancel()
@@ -77,7 +90,7 @@ func (engine *Engine) file(
 	defer func() {
 		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			warning := ""
-			if phase == "remote helper" && action != "read_file" && action != "list_files" {
+			if phase == "remote helper" && action != "read_file" && action != "list_files" && action != "view_image" {
 				warning = "; changes may already have been applied: read affected files before retrying"
 			}
 			err = fmt.Errorf("%s timed out during %s%s: %w", action, phase, warning, ctx.Err())
@@ -138,6 +151,14 @@ func (engine *Engine) file(
 	command := "python3 -I -c " + remote.Quote(script) +
 		" '.' \"$TMPDIR\" " + filenameArgument +
 		" " + remote.Quote(action) + " '-' " + remote.Quote(JSON(options))
+	var imagePath string
+	if image != nil {
+		imagePath, err = remote.WorkspaceRelative(project.Directory, filename)
+		if err != nil || imagePath == "." {
+			return nil, ErrWorkspaceFileNotFound
+		}
+		command = workspaceFileCommand(".", imagePath, maxProjectImageBytes)
+	}
 
 	phase = "sandbox preparation"
 	command, level, err := engine.sandbox(ctx, connection, machine, remote.Execution{
@@ -167,14 +188,22 @@ func (engine *Engine) file(
 		return nil, err
 	}
 
-	input := strings.NewReader(payload)
 	phase = "remote helper"
-	out, err := remote.RunPipe(ctx, connection, command, input)
-	if err != nil {
-		return nil, fmt.Errorf("remote file operation: %w", err)
-	}
+	if image != nil {
+		err = streamWorkspaceFile(ctx, connection, command, maxProjectImageBytes, func(size int64, stream io.Reader) error {
+			var readErr error
+			*image, readErr = readProjectImage(size, stream)
+			return readErr
+		})
+		result = map[string]any{"path": imagePath}
+	} else {
+		out, runErr := remote.RunPipe(ctx, connection, command, strings.NewReader(payload))
+		if runErr != nil {
+			return nil, fmt.Errorf("remote file operation: %w", runErr)
+		}
 
-	result, err = decodeFileResult(out)
+		result, err = decodeFileResult(out)
+	}
 	if err != nil {
 		return nil, err
 	}

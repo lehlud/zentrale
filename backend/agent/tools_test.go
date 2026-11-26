@@ -21,7 +21,7 @@ func TestToolPolicyPreservesReviewAndDiscoveryBoundaries(t *testing.T) {
 			machine_select resource_list storage_list storage_quota subagent steer_agent
 			inspect_agent question_answer huggingface_files huggingface_download`,
 		reviewReadSnapshot: `read_file`,
-		reviewInHandler:    `write_stdin mcp_connect mcp_list mcp_tools mcp_call mcp_disconnect humanize_text run_hosted_model`,
+		reviewInHandler:    `view_image write_stdin mcp_connect mcp_list mcp_tools mcp_call mcp_disconnect humanize_text run_hosted_model`,
 		reviewNone: `code_mode tool_search approval_clarify context_clear context_rotate
 			context_compact instructions_read update_plan create_goal get_goal update_goal
 			tool_output thread_history teamwork note_save note_list note_read note_delete question_ask question_list
@@ -29,7 +29,7 @@ func TestToolPolicyPreservesReviewAndDiscoveryBoundaries(t *testing.T) {
 	}
 	network := strings.Fields("packages_install websearch webfetch github clone_source huggingface_files huggingface_download")
 	lifetime := strings.Fields("exec python venv_create packages_install container source_git clone_source huggingface_download")
-	hidden := strings.Fields("code_mode tool_search approval_clarify context_clear context_rotate context_compact humanize_text")
+	hidden := strings.Fields("view_image code_mode tool_search approval_clarify context_clear context_rotate context_compact humanize_text")
 	wantNames := []string{"exec_command"}
 	count := 0
 	for review, actions := range groups {

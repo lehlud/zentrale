@@ -76,6 +76,14 @@
             }
           },
           {
+            "name": "contextWindow",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
             "name": "error",
             "type": {
               "kind": "NON_NULL",
@@ -3975,6 +3983,14 @@
       },
       {
         "fields": [
+          {
+            "name": "contextWindow",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
           {
             "name": "displayName",
             "type": {

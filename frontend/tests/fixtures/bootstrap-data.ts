@@ -1,7 +1,7 @@
 import { agent, agents, config, project } from "./visual-data";
 
 // Keep fixture content identical across the legacy core query, the compact
-// first-paint bootstrap, and the on-demand details query.
+// first-paint bootstrap, and the on-demand conversation usage query.
 export function isTranscriptQuery(query: string) {
   return (
     query.includes("recentMessages") ||
@@ -26,15 +26,6 @@ export function bootstrapData(
   if (!query.includes("conversationBootstrap(")) {
     if (query.includes("usageSummary(") && !query.includes("recentMessages")) {
       return {
-        agent: core.agent
-          ? {
-              id: (core.agent as Record<string, unknown>).id,
-              summary: (core.agent as Record<string, unknown>).summary ?? "",
-            }
-          : null,
-        jobs: core.jobs ?? [],
-        approvals: core.approvals ?? [],
-        notes: core.notes ?? [],
         usageSummary: core.usageSummary,
       };
     }

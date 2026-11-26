@@ -66,8 +66,18 @@ func (engine *Engine) ReadWorkspaceFile(ctx context.Context, projectID, agentID,
 		return err
 	}
 	defer connection.Close()
-	command := "exec python3 -I -u -c " + remote.Quote(workspaceFileScript) + " " +
-		remote.Quote(path.Clean(directory)) + " " + remote.Quote(strings.TrimPrefix(relative, "./")) + " " + strconv.FormatInt(limit, 10)
+	command := workspaceFileCommand(path.Clean(directory), relative, limit)
+	return streamWorkspaceFile(ctx, connection, command, limit, func(size int64, stream io.Reader) error {
+		return send(path.Base(relative), size, stream)
+	})
+}
+
+func workspaceFileCommand(root, relative string, limit int64) string {
+	return "exec python3 -I -u -c " + remote.Quote(workspaceFileScript) + " " +
+		remote.Quote(root) + " " + remote.Quote(strings.TrimPrefix(relative, "./")) + " " + strconv.FormatInt(limit, 10)
+}
+
+func streamWorkspaceFile(ctx context.Context, connection *remote.Connection, command string, limit int64, send func(int64, io.Reader) error) error {
 	process, err := remote.StartProcess(ctx, connection, command)
 	if err != nil {
 		return err
@@ -88,6 +98,6 @@ func (engine *Engine) ReadWorkspaceFile(ctx context.Context, projectID, agentID,
 		if err != nil || size < 0 || size > limit {
 			return errors.New("invalid workspace file response")
 		}
-		return send(path.Base(relative), size, stream)
+		return send(size, io.LimitReader(stream, size))
 	}
 }

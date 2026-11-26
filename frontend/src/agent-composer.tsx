@@ -8,6 +8,7 @@ import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 import { AgentInbox } from "./agent-inbox";
 import { ChatInput } from "./chat-input";
+import { ContextWindow } from "./context-window";
 import { SandboxBadge } from "./sandbox-badge";
 import { Icon } from "./icons";
 import { useComposerAttachments } from "./composer-attachments";
@@ -25,7 +26,7 @@ export const AgentComposer = memo(function AgentComposer({
   latest,
   composerRef,
   autoFocus,
-  onDetails,
+  draftContextWindow,
   sandboxStatus,
   sandboxMode,
   shortChat = false,
@@ -39,7 +40,7 @@ export const AgentComposer = memo(function AgentComposer({
   latest: () => void;
   composerRef?: Ref<HTMLFormElement>;
   autoFocus: boolean;
-  onDetails?: () => void;
+  draftContextWindow?: number | null;
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
   shortChat?: boolean;
@@ -354,23 +355,11 @@ export const AgentComposer = memo(function AgentComposer({
                 )}
               </ComposerCommandMenu>
             )}
-            {onDetails && (
-              <Button
-                isIconOnly
-                variant="ghost"
-                aria-label={
-                  current?.modelId
-                    ? t("Agentendetails für {model}", {
-                        model: current.modelId,
-                      })
-                    : t("Agentendetails")
-                }
-                className="min-h-11 min-w-11 shrink-0 text-muted"
-                onPress={onDetails}
-              >
-                <Icon name="info" />
-              </Button>
-            )}
+            <ContextWindow
+              agentId={current?.id}
+              tokens={current?.contextTokens}
+              limit={current?.contextWindow ?? draftContextWindow}
+            />
             {shortChat && (
               <Button
                 isIconOnly

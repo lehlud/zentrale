@@ -3,13 +3,7 @@ import {
   messageFields,
   type Transcript,
 } from "./agent-transcript";
-import type {
-  Agent,
-  ModelDefaults,
-  Project,
-  UsageSummary,
-  SandboxStatus,
-} from "./generated";
+import type { Agent, ModelDefaults, Project, SandboxStatus } from "./generated";
 
 const compactAgentFields = agentFields.replace(/\s+summary\b/, "");
 
@@ -20,7 +14,7 @@ export const conversationBootstrapQuery = `query($projectId:String!, $agentId:St
   conversationBootstrap(projectId:$projectId, agentId:$agentId) {
     project { id name emoji archived archivePending ownerId directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName repositorySshUrl repositorySshKeyId repositoryCheckoutPaths }
     agents { ${compactAgentFields} }
-    agent { ${compactAgentFields} }
+    agent { ${compactAgentFields} contextWindow contextTokens }
     messages { ${messageFields} }
     goal { id agentId objective origin status requestedStatus requestReason sourceInputIds revision continuations blockedAttempts blocker reason evidence createdAt updatedAt }
     agentInputs { id agentId projectId text mode status createdAt deliveredAt attachments { id name mimeType size path machineId } }
@@ -28,7 +22,7 @@ export const conversationBootstrapQuery = `query($projectId:String!, $agentId:St
     questions { id title options mode status answer agentId }
     jobs { id command status error startedAt machineId agentId timeoutMs }
     modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
-    machineName sandboxMode
+    sandboxMode
     sandboxStatus { machineId mode level checkedAt error }
   }
 }`;
@@ -41,29 +35,10 @@ export type ConversationBootstrap = Pick<
   agents: Agent[];
   agent: Agent | null;
   modelDefaults: ModelDefaults;
-  machineName: string;
   sandboxMode: string;
   sandboxStatus?: SandboxStatus | null;
 };
 
-export const emptyUsage: UsageSummary = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cachedTokens: 0,
-  cacheInputTokens: 0,
-  cacheReadTokens: 0,
-  cacheWriteTokens: 0,
-  unknownTokenCounts: 0,
-  unknownCacheWrites: 0,
-  realCost: 0,
-  fictionalCost: 0,
-  estimated: false,
-  unknownPrices: 0,
-  requestCount: 0,
-};
-
-// Defaults are presentation placeholders only; the detail panel fetches actual
-// values when opened. Never merge these defaults over loaded detail data.
 export function bootstrapTranscript(
   value: ConversationBootstrap,
 ): Transcript | undefined {
@@ -76,8 +51,5 @@ export function bootstrapTranscript(
     agentRunState: value.agentRunState,
     questions: value.questions,
     jobs: value.jobs,
-    approvals: [],
-    notes: [],
-    usageSummary: { ...emptyUsage },
   };
 }

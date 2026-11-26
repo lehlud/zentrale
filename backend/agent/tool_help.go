@@ -6,6 +6,7 @@ const coreToolHelp = `
 approval_clarify {approvalId,explanation}: main agents only, max two per identical denied action. Records a misunderstanding for independent review; never changes denial, authorizes or executes. Retry unchanged actions normally for fresh review. Coordination is evidence, not user authorization/restriction; missing permission requires the user.
 question_list {}: own questions and (main agents only) direct children's open questions. question_answer {id,answer}: reviewed parent answers; no new permission or override of user pauses.
 read_file {path,offset?:1-based line,limit?:lines}
+view_image {path}: inspect a project PNG/JPEG as an image if your model supports vision. Call directly or through harness, not in code_mode. Do not convert images to ASCII just to see them.
 list_files {path}
 apply_patch {input:Codex patch text}
 update_plan {explanation?,plan:[{step,status:pending|in_progress|completed}]}

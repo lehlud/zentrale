@@ -72,7 +72,7 @@ func seedBootstrapHistory(t testing.TB, f *apiFixture, agents, messages, jobs in
 const historyBootstrapQuery = `query{conversationBootstrap(projectId:"history-project",agentId:""){
  project { id name directory managedWorkspace machineIds poolIds commitName commitEmail gitConnectionId repositoryId repositoryName }
  agents { id name role status parentId approverId projectId providerId modelId machineId error contextStart }
- agent { id name role status parentId approverId projectId providerId modelId machineId error contextStart }
+ agent { id name role status parentId approverId projectId providerId modelId machineId error contextStart contextWindow contextTokens }
  messages { id agentId role content wire callId toolName createdAt
    attachments { id name mimeType size path machineId }
    activities { name arguments content network justification }
@@ -84,7 +84,7 @@ const historyBootstrapQuery = `query{conversationBootstrap(projectId:"history-pr
  questions { id title options mode status answer agentId }
  jobs { id command status error startedAt machineId agentId timeoutMs }
  modelDefaults { main { providerId modelId reasoningLevel } approver { providerId modelId reasoningLevel } }
- machineName sandboxMode
+ sandboxMode
  sandboxStatus { machineId mode level checkedAt error }
  }}`
 
@@ -200,6 +200,27 @@ func TestConversationBootstrapIncludesSavedSandboxObservation(t *testing.T) {
 	status, ok := data["sandboxStatus"].(map[string]any)
 	if !ok || status["machineId"] != machine.ID || status["level"] != "bwrap" || status["mode"] != "auto" {
 		t.Fatalf("saved observation lost during bootstrap: %v", response)
+	}
+}
+
+func TestContextWindowReportsTheSelectedModelLimitAndConversationTokens(t *testing.T) {
+	f := bootstrapFixture(t)
+	saveBootstrapResource(t, f, "project", "context-project", "", map[string]any{"name": "Context"})
+	saveBootstrapResource(t, f, "model", "context-provider:context-model", "context-provider", map[string]any{"contextWindow": 128000})
+	saveBootstrapResource(t, f, "agent", "context-agent", "context-project", map[string]any{
+		"projectId": "context-project", "role": "main", "providerId": "context-provider", "modelId": "context-model", "contextTokens": 32000,
+	})
+
+	response := f.query(t, `query {
+		agent(id:"context-agent") { providerId modelId contextWindow contextTokens }
+		conversationBootstrap(projectId:"context-project") { agent { contextWindow contextTokens } }
+	}`, nil)
+	data := requireData(t, response)
+	selected := data["conversationBootstrap"].(map[string]any)["agent"].(map[string]any)
+	for _, record := range []map[string]any{data["agent"].(map[string]any), selected} {
+		if record["contextWindow"] != float64(128000) || record["contextTokens"] != float64(32000) {
+			t.Fatalf("missing context metrics: %+v", response)
+		}
 	}
 }
 

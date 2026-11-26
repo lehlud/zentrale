@@ -135,7 +135,7 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		}
 		if turnContext == nil || turnRevision != processedRevision || turnModel != choice {
 			providers.CloseResponsesTurn(turnContext)
-			turnContext = withToolFeedback(providers.WithResponsesTurn(ctx))
+			turnContext = withTurnImages(withToolFeedback(providers.WithResponsesTurn(ctx)))
 			turnRevision, turnModel = processedRevision, choice
 		}
 
@@ -244,7 +244,7 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		consecutiveCommentary = 0
 		engine.setRunState(agentID, "tools", nil)
 
-		if err := engine.executeCalls(ctx, agentRecord, result.Calls); err != nil {
+		if err := engine.executeCalls(turnContext, agentRecord, result.Calls); err != nil {
 			return processedRevision, err
 		}
 	}

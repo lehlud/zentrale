@@ -2,34 +2,27 @@ import { Button } from "@heroui/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAPI, useQuery } from "./api";
-import { CostSummary } from "./usage-summary";
 import { AgentQuestion } from "./agent-question";
 import { ModelResponse } from "./model-response";
 import { ActivityOutput } from "./activity-details";
-import {
-  shortChatTranscriptQuery,
-  transcriptDetailsQuery,
-  type Transcript,
-} from "./agent-transcript";
+import { shortChatTranscriptQuery, type Transcript } from "./agent-transcript";
 import type { Agent, Project, SandboxStatus } from "./generated";
 import { useMemo } from "react";
 import { useTranscriptHistory } from "./transcript-history";
 import { HostKeyTrust } from "./ssh-trust";
 import { useI18n } from "./preferences";
 import { Failure, Inspect, Loading, useAction } from "./ui";
-import { JobsPanel, ContextPanel } from "./agent-panels";
+import { JobsPanel } from "./jobs-panel";
 import { AgentControls } from "./agent-controls";
 import { AgentConversation } from "./agent-conversation";
 import { ShortChatModelPicker } from "./conversation-models";
 import { ApproverLog } from "./approver-log";
 import { useTranscriptViewport } from "./transcript-viewport";
-import { SandboxBadge } from "./sandbox-badge";
 import { useRoute } from "./navigation";
 import { LiveAssistantResponse } from "./live-assistant-response";
 import { AgentComposer } from "./agent-composer";
 import { useStableValue } from "./stable-data";
 import { AgentGoal } from "./agent-goal";
-import { emptyUsage } from "./conversation-bootstrap";
 import { SidebarToggle } from "./shell";
 
 export function AgentView({
@@ -40,7 +33,6 @@ export function AgentView({
   onSelect,
   sandboxStatus,
   sandboxMode,
-  machineName,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
   initialTranscript,
@@ -54,7 +46,6 @@ export function AgentView({
   onSelect?: (id: string) => void;
   sandboxStatus?: SandboxStatus;
   sandboxMode?: string;
-  machineName?: string;
   focusAgentSwitcher?: boolean;
   onAgentSwitcherFocus?: () => void;
   initialTranscript?: Transcript;
@@ -65,38 +56,13 @@ export function AgentView({
 
   const api = useAPI();
   const { params } = useRoute();
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const {
-    data: core,
-    error,
-    loading,
-  } = useQuery<Transcript>(
+  const { data, error, loading } = useQuery<Transcript>(
     shortChatTranscriptQuery,
     {
       id: agentId,
     },
     { enabled: !managedTranscript, initialData: initialTranscript },
   );
-  const details = useQuery<
-    Pick<Transcript, "jobs" | "approvals" | "notes" | "usageSummary"> & {
-      agent: Pick<Agent, "id" | "summary"> | null;
-    }
-  >(transcriptDetailsQuery, { id: agentId }, { enabled: detailsOpen });
-  const data = useMemo(
-    () =>
-      core
-        ? {
-            ...core,
-            approvals: core.approvals ?? [],
-            notes: core.notes ?? [],
-            usageSummary: core.usageSummary ?? emptyUsage,
-            ...details.data,
-            agent: { ...core.agent, ...details.data?.agent },
-          }
-        : undefined,
-    [core, details.data],
-  );
-
   const [inspection, setInspection] = useState<{
     title: string;
     content: string;
@@ -121,10 +87,7 @@ export function AgentView({
     ((current.status === "interrupted" && !agentFailure) ||
       (current.status === "stopped" && Boolean(data?.agentInputs?.length)));
   const inputs = useStableValue(data?.agentInputs ?? []);
-  const viewport = useTranscriptViewport(
-    detailsOpen || Boolean(inspection),
-    Boolean(data),
-  );
+  const viewport = useTranscriptViewport(Boolean(inspection), Boolean(data));
   const incoming = useMemo(
     () =>
       data ? [...data.messages, ...(data.recentMessages ?? [])] : undefined,
@@ -146,7 +109,6 @@ export function AgentView({
     );
   }, [api, data]);
 
-  const openDetails = useCallback(() => setDetailsOpen(true), []);
   const detailsTitle = t("Schrittdetails");
   const inspectModel = useCallback(
     (content: string) =>
@@ -356,7 +318,6 @@ export function AgentView({
           latest={viewport.latest}
           composerRef={viewport.composer}
           autoFocus={params.get("compose") === "1" && !focusAgentSwitcher}
-          onDetails={openDetails}
           shortChat={!project}
           sandboxStatus={sandboxStatus}
           sandboxMode={sandboxMode}
@@ -393,68 +354,9 @@ export function AgentView({
               )}
             </Button>
           )}
-          {data && details.data && (
-            <CostSummary totals={data.usageSummary} agentId={agentId} />
-          )}
         </footer>
       )}
-      {detailsOpen && (
-        <Inspect
-          title={t("Agentendetails")}
-          onClose={() => setDetailsOpen(false)}
-        >
-          <div className="space-y-8">
-            {details.loading && <Loading />}
-            <Failure message={details.error} onRetry={() => api.refresh()} />
-            <section className="space-y-3">
-              <h2 className="text-base font-medium">
-                {t("Ausführungsumgebung")}
-              </h2>
-              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                <dt className="text-muted">{t("Modell")}</dt>
-                <dd className="break-all">{current?.modelId || "—"}</dd>
-                {project && (
-                  <>
-                    <dt className="text-muted">{t("Maschine")}</dt>
-                    <dd className="break-words">
-                      {machineName || current?.machineId || "—"}
-                    </dd>
-                  </>
-                )}
-              </dl>
-              {project && (
-                <SandboxBadge
-                  mode={sandboxMode ?? sandboxStatus?.mode ?? "unknown"}
-                  status={
-                    sandboxStatus?.machineId === current?.machineId
-                      ? sandboxStatus
-                      : undefined
-                  }
-                />
-              )}
-              {data && details.data && (
-                <CostSummary totals={data.usageSummary} agentId={agentId} />
-              )}
-            </section>
-            <section>
-              <h2 className="mb-4 text-base font-medium">
-                {t("Laufende Jobs")}
-              </h2>
-              <JobsPanel
-                jobs={(data?.jobs ?? []).filter(
-                  (job) => job.status === "running",
-                )}
-              />
-            </section>
-            <section>
-              <h2 className="mb-4 text-base font-medium">{t("Kontext")}</h2>
-              <ContextPanel current={current} notes={data?.notes ?? []} />
-            </section>
-          </div>
-          {inspectionDialog}
-        </Inspect>
-      )}
-      {!detailsOpen && inspectionDialog}
+      {inspectionDialog}
     </section>
   );
 }

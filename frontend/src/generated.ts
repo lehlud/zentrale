@@ -6,6 +6,7 @@ export type Agent = {
   chatPinned: boolean;
   contextStart: number;
   contextTokens: number;
+  contextWindow: number | null;
   error: string;
   id: string;
   machineId: string;
@@ -388,6 +389,7 @@ export type Message = {
   wire: string;
 };
 export type ModelChoice = {
+  contextWindow: number | null;
   displayName: string | null;
   modelId: string;
   providerId: string;
