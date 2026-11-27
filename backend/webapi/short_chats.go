@@ -42,6 +42,7 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 	})
 	saveSettings.Resolve = adminOnly(saveSettings.Resolve)
 	mutations["saveShortChatSettings"] = saveSettings
+	builder.shortChatKnowledgeFields(queries, mutations)
 	queries["shortChat"] = &graphql.Field{
 		Type: chatType,
 		Args: gitStringArgs("id"),

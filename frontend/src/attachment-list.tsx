@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 import { attachmentPath, isPreviewImage, type Attachment } from "./attachments";
 import { ImagePreview } from "./image-preview";
 import { Icon } from "./icons";
-import { isOfficeFile, OfficePreview } from "./office-preview";
+import { isOfficeFile, OpenOfficePreview } from "./office-preview";
 import { useI18n } from "./preferences";
 
 export const ArchivedAttachments = createContext<Record<
@@ -19,8 +19,8 @@ export function AttachmentList({
 }) {
   const { t } = useI18n();
   const archive = useContext(ArchivedAttachments);
+  const openOffice = useContext(OpenOfficePreview);
   const [preview, setPreview] = useState<{
-    kind: "image" | "office";
     name: string;
     src: string;
   }>();
@@ -58,9 +58,7 @@ export function AttachmentList({
                 <button
                   type="button"
                   className="shrink-0 cursor-zoom-in rounded focus-visible:outline-2"
-                  onClick={() =>
-                    setPreview({ kind: "image", name: attachment.name, src })
-                  }
+                  onClick={() => setPreview({ name: attachment.name, src })}
                   aria-label={t("Bild öffnen: {name}", {
                     name: attachment.name,
                   })}
@@ -77,17 +75,11 @@ export function AttachmentList({
                 <Icon name="file" className="size-7" />
               )}
               <span className="min-w-0">
-                {office && download ? (
+                {office && download && openOffice ? (
                   <button
                     type="button"
                     className="block max-w-full cursor-pointer truncate text-left text-sm underline"
-                    onClick={() =>
-                      setPreview({
-                        kind: "office",
-                        name: attachment.name,
-                        src: download,
-                      })
-                    }
+                    onClick={() => openOffice(attachment.name, download)}
                   >
                     {attachment.name}
                   </button>
@@ -122,15 +114,8 @@ export function AttachmentList({
           );
         })}
       </ul>
-      {preview?.kind === "image" && (
+      {preview && (
         <ImagePreview {...preview} onClose={() => setPreview(undefined)} />
-      )}
-      {preview?.kind === "office" && (
-        <OfficePreview
-          name={preview.name}
-          url={preview.src}
-          onClose={() => setPreview(undefined)}
-        />
       )}
     </>
   );

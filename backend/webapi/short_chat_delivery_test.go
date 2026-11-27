@@ -62,6 +62,22 @@ func TestShortChatDeliveredFileDownloadIsPrivateAndForced(t *testing.T) {
 	get(owner.client, strings.Replace(download, chatID, siblingID, 1), http.StatusNotFound)
 	get(owner.client, strings.TrimSuffix(download, "?download=1"), http.StatusNotFound)
 
+	input := strings.ReplaceAll(strings.ReplaceAll(download, file.ID, "workbook"), "?download=1", "?name=workbook.xlsx")
+	upload, err := owner.client.Post(owner.server.URL+input, "application/octet-stream", strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload.Body.Close()
+	if upload.StatusCode != http.StatusOK {
+		t.Fatalf("upload workbook: HTTP %d", upload.StatusCode)
+	}
+	input = strings.Replace(input, "?name=workbook.xlsx", "?download=1", 1)
+	_, uploadedData := get(owner.client, input, http.StatusOK)
+	if uploadedData != content {
+		t.Fatalf("uploaded attachment download changed bytes: %q", uploadedData)
+	}
+	get(outsider.client, input, http.StatusNotFound)
+
 	response, err := owner.client.Post(owner.server.URL+strings.Replace(download, "?download=1", "?name=report.html", 1), "text/html", strings.NewReader(content))
 	if err != nil {
 		t.Fatal(err)

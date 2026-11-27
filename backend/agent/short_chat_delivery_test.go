@@ -148,7 +148,7 @@ func assertDeliveredFile(t *testing.T, engine *Engine, chatID, filename, content
 	if len(message.Attachments) != 1 || result.Result != message.Attachments[0].Delivery() || message.Attachments[0].AgentID != chatID {
 		t.Fatalf("delivery result and transcript attachment do not agree in the current chat: %+v", message)
 	}
-	meta, data, err := engine.DeliveredAttachment(chatID, message.Attachments[0].ID)
+	meta, data, err := engine.DownloadAttachment(chatID, message.Attachments[0].ID)
 	if err != nil || string(data) != content || meta.Name != filename || meta.Path != "" || meta.MachineID != "" {
 		t.Fatalf("delivered file missing from scoped blob store: %+v, %q, %v", meta, data, err)
 	}
@@ -161,7 +161,7 @@ func TestTruncatedShortChatDeliveryIsNeverStored(t *testing.T) {
 	if _, err := engine.uploadAttachment(context.Background(), chat.ID, id, "short.txt", 10, strings.NewReader("short")); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("truncated attachment returned %v", err)
 	}
-	if _, _, err := engine.DeliveredAttachment(chat.ID, id); err == nil {
+	if _, _, err := engine.DownloadAttachment(chat.ID, id); err == nil {
 		t.Fatal("partially transferred file was made downloadable")
 	}
 }

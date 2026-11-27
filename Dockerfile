@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 python3-venv \
-        qemu-system-x86 qemu-utils e2fsprogs kmod mount file binutils \
+        qemu-system-x86 qemu-utils e2fsprogs kmod mount file binutils poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 zentrale \
     && useradd --uid 10001 --gid zentrale --home-dir /data \

@@ -1,10 +1,12 @@
 package webapi
 
 import (
+	"mime"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -52,5 +54,31 @@ func (server *Server) officeAsset(c echo.Context) error {
 	headers.Set("Content-Security-Policy", policy)
 	headers.Set("Access-Control-Allow-Origin", "*")
 	headers.Set("Referrer-Policy", "no-referrer")
+	if info, err := os.Stat(filename + ".gz"); err == nil && info.Mode().IsRegular() {
+		headers.Add("Vary", "Accept-Encoding")
+		if c.Request().Header.Get("Range") == "" && acceptsOfficeGzip(c.Request().Header.Get("Accept-Encoding")) {
+			headers.Set("Content-Encoding", "gzip")
+			headers.Set("Content-Type", mime.TypeByExtension(filepath.Ext(filename)))
+			return c.File(filename + ".gz")
+		}
+	}
 	return c.File(filename)
+}
+
+func acceptsOfficeGzip(header string) bool {
+	for _, entry := range strings.Split(header, ",") {
+		coding, options, _ := strings.Cut(entry, ";")
+		if !strings.EqualFold(strings.TrimSpace(coding), "gzip") {
+			continue
+		}
+		for _, option := range strings.Split(options, ";") {
+			name, value, ok := strings.Cut(option, "=")
+			if ok && strings.TrimSpace(name) == "q" {
+				quality, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				return err == nil && quality > 0 && quality <= 1
+			}
+		}
+		return true
+	}
+	return false
 }

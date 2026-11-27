@@ -4667,6 +4667,14 @@
             }
           },
           {
+            "name": "deleteShortChatDocument",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "disconnectGitConnection",
             "type": {
               "kind": "SCALAR",
@@ -4879,6 +4887,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "ShortChatSettings",
+              "ofType": null
+            }
+          },
+          {
+            "name": "saveShortChatSystemPrompt",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
               "ofType": null
             }
           },
@@ -7054,6 +7070,18 @@
             }
           },
           {
+            "name": "shortChatDocuments",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "ShortChatDocument",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "shortChatLocalAvailable",
             "type": {
               "kind": "SCALAR",
@@ -7082,6 +7110,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "ShortChatSettings",
+              "ofType": null
+            }
+          },
+          {
+            "name": "shortChatSystemPrompt",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
               "ofType": null
             }
           },
@@ -7574,6 +7610,61 @@
         "inputFields": null,
         "kind": "OBJECT",
         "name": "SandboxStatus"
+      },
+      {
+        "fields": [
+          {
+            "name": "createdAt",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "id",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "size",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "ShortChatDocument"
       },
       {
         "fields": [

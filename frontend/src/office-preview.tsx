@@ -1,5 +1,13 @@
-import { Button, Modal } from "@heroui/react";
-import { useEffect, useRef, useState } from "react";
+import { Button } from "@heroui/react";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { MAX_ATTACHMENT_BYTES } from "./attachments";
 import { useI18n } from "./preferences";
@@ -105,7 +113,13 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
           lang: locale,
           mode: "view",
           user: { id: "viewer", name: "Zentrale" },
-          customization: { plugins: false, macros: false, chat: false },
+          customization: {
+            compactToolbar: false,
+            hideRightMenu: false,
+            plugins: false,
+            macros: false,
+            chat: false,
+          },
         },
       });
       send("openDocument", {
@@ -180,28 +194,29 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
     window.addEventListener("message", onMessage);
     child.src = entry.href;
 
-    void documentBytes(url, request.signal)
-      .then((bytes) => {
-        if (request.signal.aborted) return;
-
-        worker = new Worker(new URL("x2t/preview-worker.js", root).href);
-        worker.onerror = fail;
-        worker.onmessage = ({ data }) => {
-          worker?.terminate();
+    async function convert() {
+      try {
+        const converter = new Worker(new URL("x2t/preview-worker.js", root));
+        worker = converter;
+        converter.onerror = fail;
+        converter.onmessage = ({ data }) => {
+          converter.terminate();
           if (request.signal.aborted) return;
           if (!(data.binary instanceof ArrayBuffer)) {
             fail();
             return;
           }
-
           converted = data;
           open();
         };
-        worker.postMessage({ extension, bytes }, [bytes]);
-      })
-      .catch(() => {
+        const bytes = await documentBytes(url, request.signal);
+        if (request.signal.aborted) return;
+        converter.postMessage({ extension, bytes }, [bytes]);
+      } catch {
         if (!request.signal.aborted) fail();
-      });
+      }
+    }
+    void convert();
 
     return () => {
       request.abort();
@@ -238,42 +253,103 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
   );
 }
 
-export function OfficePreview({
+export const OpenOfficePreview = createContext<
+  ((name: string, url: string) => void) | null
+>(null);
+
+export function OfficePreviews({
+  scope,
+  children,
+}: {
+  scope: string;
+  children: ReactNode;
+}) {
+  const [file, setFile] = useState<{
+    scope: string;
+    name: string;
+    url: string;
+    open: boolean;
+  }>();
+  const open = useCallback(
+    (name: string, url: string) => {
+      setFile({ scope, name, url, open: true });
+    },
+    [scope],
+  );
+  const close = useCallback(() => {
+    setFile((current) => current && { ...current, open: false });
+  }, []);
+
+  useEffect(() => {
+    if (!file) return;
+    if (file.scope !== scope) {
+      setFile(undefined);
+      return;
+    }
+    if (file.open) return;
+    // Retain just the most recent viewer in memory for a short reopen.
+    const timeout = window.setTimeout(() => setFile(undefined), 45_000);
+    return () => window.clearTimeout(timeout);
+  }, [file, scope]);
+
+  return (
+    <OpenOfficePreview.Provider value={open}>
+      {children}
+      {file?.scope === scope && (
+        <OfficePreview key={file.url} {...file} onClose={close} />
+      )}
+    </OpenOfficePreview.Provider>
+  );
+}
+
+function OfficePreview({
   name,
   url,
+  open,
   onClose,
 }: {
   name: string;
   url: string;
+  open: boolean;
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    if (open && !element.open) element.showModal();
+    if (!open && element.open) element.close();
+  }, [open]);
   return (
-    <Modal isOpen onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop isDismissable={false}>
-        <Modal.Container size="full">
-          <Modal.Dialog className="flex h-dvh max-h-dvh flex-col gap-0 overflow-hidden p-0">
-            <Modal.Header className="flex shrink-0 flex-row items-center gap-3 border-b border-border p-3">
-              <Modal.Heading className="min-w-0 flex-1 truncate">
-                {name}
-              </Modal.Heading>
-              <a
-                href={url}
-                download={name}
-                className="shrink-0 text-sm text-accent underline-offset-4 hover:underline"
-              >
-                {t("Herunterladen")}
-              </a>
-              <Button variant="ghost" size="sm" onPress={onClose}>
-                {t("Schließen")}
-              </Button>
-            </Modal.Header>
-            <div className="min-h-0 flex-1">
-              <OfficeDocument name={name} url={url} />
-            </div>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <dialog
+      ref={dialog}
+      aria-labelledby={heading}
+      className="m-0 h-dvh w-full max-h-none max-w-none overflow-hidden bg-background p-0 text-foreground open:flex open:flex-col"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="flex shrink-0 items-center gap-3 border-b border-border p-3">
+        <h2 id={heading} className="min-w-0 flex-1 truncate font-medium">
+          {name}
+        </h2>
+        <a
+          href={url}
+          download={name}
+          className="shrink-0 text-sm text-accent underline-offset-4 hover:underline"
+        >
+          {t("Herunterladen")}
+        </a>
+        <Button variant="ghost" size="sm" onPress={onClose}>
+          {t("Schließen")}
+        </Button>
+      </header>
+      <div className="min-h-0 flex-1">
+        <OfficeDocument name={name} url={url} />
+      </div>
+    </dialog>
   );
 }

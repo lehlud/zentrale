@@ -290,15 +290,15 @@ func (engine *Engine) AttachmentImage(agentID, id string) (domain.Attachment, []
 	return attachment, data, nil
 }
 
-func (engine *Engine) DeliveredAttachment(agentID, id string) (domain.Attachment, []byte, error) {
-	unavailable := errors.New("delivered file not found in this chat")
+func (engine *Engine) DownloadAttachment(agentID, id string) (domain.Attachment, []byte, error) {
+	unavailable := errors.New("attachment not found in this conversation")
 	record, err := engine.UserAttachmentTarget(agentID)
-	if err != nil || record.ChatOwnerID == "" || !strings.HasPrefix(id, domain.DeliveredAttachmentPrefix) {
+	if err != nil || (record.ChatOwnerID == "" && strings.HasPrefix(id, domain.DeliveredAttachmentPrefix)) {
 		return domain.Attachment{}, nil, unavailable
 	}
 
 	attachment, data, err := engine.Store.Attachment(agentID, id)
-	if err != nil || attachment.AgentID != agentID || attachment.ID != id || attachment.ProjectID != "" ||
+	if err != nil || attachment.AgentID != agentID || attachment.ID != id || attachment.ProjectID != record.ProjectID ||
 		attachment.Size != int64(len(data)) || len(data) > MaxAttachmentBytes {
 		return domain.Attachment{}, nil, unavailable
 	}

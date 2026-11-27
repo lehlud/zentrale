@@ -1,6 +1,6 @@
 /* global importScripts, Module */
 
-// One worker per preview. Closing the dialog drops its entire WASM heap.
+// One conversion per worker. The viewer terminates it after receiving the result.
 let initialize;
 const ready = new Promise((resolve) => {
   initialize = resolve;

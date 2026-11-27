@@ -145,6 +145,13 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		var tools []providers.Tool
 		if shortChat {
 			system, tools = shortChatPrompt, engine.shortChatTools(agentID)
+			additional, err := engine.ShortChatSystemPrompt()
+			if err != nil {
+				return processedRevision, err
+			}
+			if additional != "" {
+				system += "\n\nAdditional instructions from the administrator\n" + additional
+			}
 		} else {
 			system, tools = engine.buildSystemPrompt(agentRecord), engine.agentToolsForModel(configuration.Model)
 		}

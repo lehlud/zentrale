@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS attachment_blobs (
     metadata TEXT NOT NULL CHECK(json_valid(metadata)), bytes BLOB NOT NULL,
     PRIMARY KEY(agent_id,id)
 );
+CREATE TABLE IF NOT EXISTS short_chat_documents (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, bytes BLOB NOT NULL,
+    size INTEGER NOT NULL, created_at TIMESTAMP NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS short_chat_reference_sections USING fts4(
+    document_id, section, page, text, title,
+    notindexed=document_id, notindexed=section, notindexed=page,
+    tokenize=unicode61 "remove_diacritics=2", prefix="3"
+);
 CREATE TABLE IF NOT EXISTS resources (
     kind VARCHAR NOT NULL,
     id VARCHAR NOT NULL,
@@ -86,6 +95,7 @@ func initializeSchema(db *sql.DB) error {
 		"SELECT kind,id,parent_id,data,created_at FROM resources LIMIT 0",
 		"SELECT id,type,agent_id,data,created_at FROM events LIMIT 0",
 		"SELECT agent_id,project_id,id,metadata,bytes FROM attachment_blobs LIMIT 0",
+		"SELECT id,name,bytes,size,created_at FROM short_chat_documents LIMIT 0",
 	} {
 		if _, err := tx.Exec(query); err != nil {
 			return fmt.Errorf("incompatible development database schema; no data was changed: %w", err)

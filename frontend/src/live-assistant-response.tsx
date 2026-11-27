@@ -42,6 +42,7 @@ const phaseLabels: Record<string, string> = {
   web_read: "Webseite wird gelesen …",
   reading_shares: "Dateifreigaben werden aufgelistet …",
   searching_shares: "Dateifreigabe wird durchsucht …",
+  searching_knowledge: "Wissensbasis wird durchsucht …",
   reading_file: "Datei wird gelesen …",
   delivering_file: "Datei wird bereitgestellt …",
   humanizing_text: "Text wird umformuliert …",

@@ -36,7 +36,7 @@ func (server *Server) attachment(requestContext echo.Context) error {
 	}
 	if r.Method == http.MethodGet {
 		if r.URL.Query().Get("download") == "1" {
-			return server.downloadDeliveredAttachment(requestContext)
+			return server.downloadAttachment(requestContext)
 		}
 
 		metadata, data, err := server.Engine.AttachmentImage(requestContext.Param("agent"), requestContext.Param("id"))
@@ -69,10 +69,10 @@ func (server *Server) attachment(requestContext echo.Context) error {
 	return requestContext.JSON(http.StatusOK, metadata)
 }
 
-func (server *Server) downloadDeliveredAttachment(requestContext echo.Context) error {
-	metadata, data, err := server.Engine.DeliveredAttachment(requestContext.Param("agent"), requestContext.Param("id"))
+func (server *Server) downloadAttachment(requestContext echo.Context) error {
+	metadata, data, err := server.Engine.DownloadAttachment(requestContext.Param("agent"), requestContext.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "delivered file not found")
+		return echo.NewHTTPError(http.StatusNotFound, "attachment not found")
 	}
 
 	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": metadata.Name})

@@ -205,6 +205,8 @@ func (server *Server) Handler() (*echo.Echo, error) {
 	e.GET("/events", func(requestContext echo.Context) error { return server.events(requestContext, schema) })
 	e.POST("/attachments/:agent/:id", server.attachment, server.projectURL("agent", true, true))
 	e.GET("/attachments/:agent/:id", server.attachment, server.projectURL("agent", true, false))
+	e.POST("/short-chat-knowledge", server.uploadShortChatDocument)
+	e.GET("/short-chat-knowledge/:id", server.downloadShortChatDocument)
 	e.GET("/transcript-export/:agent", server.transcriptExport)
 	e.GET("/workspace-file/:project", server.workspaceFile, server.projectURL("project", false, true))
 	e.GET("/office/*", server.officeAsset)

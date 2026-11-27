@@ -1,5 +1,6 @@
 """Install the pinned CryptPad build of Euro-Office and its WASM converter."""
 
+import gzip
 import hashlib
 import re
 import shutil
@@ -79,13 +80,24 @@ def install(output, cache):
                 )
                 sdk_file.write_text(source)
 
+            for asset in (entry, entry.with_name("app.js"), *(root / "sdkjs" / sdk).glob("sdk-all*.js")):
+                compress_asset(asset)
+
         shutil.copyfile(HERE / "office-frame.js", root / "preview-frame.js")
         shutil.copyfile(HERE / "office-worker.js", root / "x2t/preview-worker.js")
         shutil.copyfile(HERE / "office-notices.txt", root / "NOTICE.txt")
+        compress_asset(root / "x2t/x2t.js")
+        compress_asset(root / "x2t/x2t.wasm")
 
         if output.exists():
             shutil.rmtree(output)
         root.rename(output)
+
+
+def compress_asset(path):
+    with path.open("rb") as original, path.with_name(path.name + ".gz").open("wb") as encoded:
+        with gzip.GzipFile(filename="", fileobj=encoded, mode="wb", mtime=0, compresslevel=6) as compressed:
+            shutil.copyfileobj(original, compressed)
 
 
 if __name__ == "__main__":

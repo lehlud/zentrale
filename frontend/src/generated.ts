@@ -469,6 +469,7 @@ export type Mutation = {
   createShortChat: Agent | null;
   deleteFileShare: boolean | null;
   deleteResource: boolean | null;
+  deleteShortChatDocument: boolean | null;
   deleteSSHKey: boolean | null;
   disconnectGitConnection: boolean | null;
   disconnectHuggingFace: boolean | null;
@@ -497,6 +498,7 @@ export type Mutation = {
   saveProject: Project | null;
   saveProvider: Provider | null;
   saveShortChatSettings: ShortChatSettings | null;
+  saveShortChatSystemPrompt: boolean | null;
   saveSource: Source | null;
   saveUser: User | null;
   setCommitIdentity: boolean | null;
@@ -713,11 +715,13 @@ export type Query = {
   recentMessages: Array<Message | null> | null;
   sandboxStatuses: Array<SandboxStatus | null> | null;
   shortChat: Agent | null;
+  shortChatDocuments: Array<ShortChatDocument | null> | null;
   shortChatLocalAvailable: boolean | null;
   shortChatLocalIssue: string | null;
   shortChatModelOptions: ModelPresetPolicy | null;
   shortChats: Array<Agent | null> | null;
   shortChatSettings: ShortChatSettings | null;
+  shortChatSystemPrompt: string | null;
   sources: Array<Source | null> | null;
   sshKeys: Array<SSHKey | null> | null;
   status: Status | null;
@@ -743,6 +747,12 @@ export type SandboxStatus = {
   level: string;
   machineId: string;
   mode: string;
+};
+export type ShortChatDocument = {
+  createdAt: string;
+  id: string;
+  name: string;
+  size: number;
 };
 export type ShortChatSettings = {
   local: boolean;

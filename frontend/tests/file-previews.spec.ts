@@ -144,26 +144,44 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
       bytes.length,
     );
     const outside: string[] = [];
+    let downloads = 0;
+    let converterStarts = 0;
     page.on("request", (request) => {
+      if (new URL(request.url()).pathname.endsWith("/x2t/preview-worker.js"))
+        converterStarts++;
       if (
         request.url().startsWith("http") &&
         new URL(request.url()).origin !== new URL(baseURL!).origin
       )
         outside.push(request.url());
     });
-    await page.route(`**/attachments/${chat.id}/*`, (route) =>
-      route.fulfill({
+    await page.route(`**/attachments/${chat.id}/*`, (route) => {
+      downloads++;
+      return route.fulfill({
         contentType: "application/octet-stream",
         headers: { "content-disposition": "attachment" },
         body: bytes,
-      }),
-    );
+      });
+    });
     await openChat(page, [input], output);
 
     if (extension === "xlsx") {
-      await page.getByRole("button", { name: input.name, exact: true }).click();
+      const open = page.getByRole("button", { name: input.name, exact: true });
+      const converterModule = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/office/x2t/x2t.wasm",
+      );
+      await open.click();
       const preview = page.getByRole("dialog", { name: input.name });
       await expect(preview.locator("iframe")).toBeVisible({ timeout: 30_000 });
+      expect((await converterModule).headers()["content-encoding"]).toBe(
+        "gzip",
+      );
+      await expect(
+        preview
+          .frameLocator("iframe")
+          .locator('[role="tabpanel"][data-tab="view"]'),
+      ).toBeVisible();
       await expect(
         preview
           .frameLocator("iframe")
@@ -171,7 +189,15 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
           .filter({ visible: true })
           .first(),
       ).toBeVisible();
+      const initialLoad = { downloads, converterStarts };
+      expect(initialLoad).toEqual({ downloads: 1, converterStarts: 1 });
       await preview.getByRole("button", { name: "Schließen" }).click();
+      await expect(preview).not.toBeVisible();
+      await open.click();
+      await expect(preview.locator("iframe")).toBeVisible();
+      expect({ downloads, converterStarts }).toEqual(initialLoad);
+      await page.keyboard.press("Escape");
+      await expect(preview).not.toBeVisible();
     }
     await page.getByRole("button", { name: output.name, exact: true }).click();
     const preview = page.getByRole("dialog", { name: output.name });

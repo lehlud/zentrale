@@ -196,3 +196,62 @@ test("an admin can configure short-chat and VM retention", async ({ page }) => {
     "mutation{saveShortChatSettings(input:{retentionDays:45,vmLifetimeDays:7}){retentionDays vmLifetimeDays}}",
   );
 });
+
+test("an admin can extend the short-chat prompt and manage references", async ({
+  page,
+}) => {
+  const { status } = await graphql<{ status: { needsSetup: boolean } }>(
+    page.request,
+    "{status{needsSetup}}",
+  );
+  await graphql(
+    page.request,
+    status.needsSetup
+      ? 'mutation{setup(password:"browser test password",commitIdentity:{name:"Browser Test Agent",email:"browser-agent@example.test"})}'
+      : 'mutation{login(password:"browser test password")}',
+  );
+  await page.goto("/#/admin-settings");
+  const promptButton = page.getByRole("button", {
+    name: "Systemprompt ergänzen",
+  });
+  await promptButton.click();
+  const prompt = page.getByRole("dialog", { name: "Systemprompt ergänzen" });
+  const instructions = prompt.getByLabel(
+    "Zusätzliche Anweisungen für Kurzchats",
+  );
+  await instructions.fill("Verwende die Begriffe aus dem Handbuch.");
+  await prompt.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(prompt).not.toBeVisible();
+  await promptButton.click();
+  await expect(instructions).toHaveValue(
+    "Verwende die Begriffe aus dem Handbuch.",
+  );
+  await instructions.fill("");
+  await prompt.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(prompt).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Wissensbasis verwalten" }).click();
+  const knowledge = page.getByRole("dialog", { name: "Wissensbasis" });
+  const chosen = page.waitForEvent("filechooser");
+  await knowledge
+    .getByRole("button", { name: "Datei zur Wissensbasis hinzufügen" })
+    .click();
+  await (
+    await chosen
+  ).setFiles({
+    name: "Handbuch.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Handbuch\nDer Startknopf leuchtet grün."),
+  });
+  const document = knowledge.getByRole("link", { name: "Handbuch.md" });
+  await expect(document).toBeVisible();
+  const download = page.waitForEvent("download");
+  await document.click();
+  expect((await download).suggestedFilename()).toBe("Handbuch.md");
+  await knowledge.getByRole("button", { name: "Entfernen" }).click();
+  await page
+    .getByRole("dialog", { name: "Nachschlagewerk entfernen" })
+    .getByRole("button", { name: "Entfernen" })
+    .click();
+  await expect(document).toHaveCount(0);
+});

@@ -14,6 +14,7 @@ import { ApplicationShell } from "./shell";
 import { Failure, Loading } from "./ui";
 import { EditorLauncher } from "./editor-launcher";
 import { ShortChats } from "./short-chats";
+import { OfficePreviews } from "./office-preview";
 import { UsageDashboard } from "./usage-dashboard";
 
 export default function App() {
@@ -69,26 +70,28 @@ export default function App() {
   return (
     <SessionUserContext.Provider value={data?.status.user}>
       <ApplicationShell key={userId}>
-        <Failure message={error} onRetry={() => api.refresh()} />
-        {page === "projects" &&
-          (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
-        {page === "chats" && <ShortChats chatId={projectId} />}
-        {page === "usage" &&
-          (admin ? (
-            <UsageDashboard />
-          ) : (
-            <Failure message={t("Nur für Administratoren verfügbar.")} />
-          ))}
-        {admin && page === "machines" && <Machines />}
-        {admin && page === "keys" && <Keys />}
-        {admin && page === "providers" && <Providers />}
-        {page === "settings" && <Settings admin={admin} />}
-        {page === "admin-settings" &&
-          (admin ? (
-            <AdminSettings oidc={Boolean(data?.status.oidc)} />
-          ) : (
-            <Failure message={t("Nur für Administratoren verfügbar.")} />
-          ))}
+        <OfficePreviews scope={`${page}/${projectId}`}>
+          <Failure message={error} onRetry={() => api.refresh()} />
+          {page === "projects" &&
+            (projectId ? <ProjectView projectId={projectId} /> : <Projects />)}
+          {page === "chats" && <ShortChats chatId={projectId} />}
+          {page === "usage" &&
+            (admin ? (
+              <UsageDashboard />
+            ) : (
+              <Failure message={t("Nur für Administratoren verfügbar.")} />
+            ))}
+          {admin && page === "machines" && <Machines />}
+          {admin && page === "keys" && <Keys />}
+          {admin && page === "providers" && <Providers />}
+          {page === "settings" && <Settings admin={admin} />}
+          {page === "admin-settings" &&
+            (admin ? (
+              <AdminSettings oidc={Boolean(data?.status.oidc)} />
+            ) : (
+              <Failure message={t("Nur für Administratoren verfügbar.")} />
+            ))}
+        </OfficePreviews>
       </ApplicationShell>
     </SessionUserContext.Provider>
   );
