@@ -1204,6 +1204,25 @@
       {
         "fields": [
           {
+            "name": "entries",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          }
+        ],
+        "inputFields": null,
+        "kind": "OBJECT",
+        "name": "FileShareCheck"
+      },
+      {
+        "fields": [
+          {
             "name": "endpoint",
             "type": {
               "kind": "NON_NULL",
@@ -1264,6 +1283,18 @@
             }
           },
           {
+            "name": "restricted",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "root",
             "type": {
               "kind": "NON_NULL",
@@ -1272,6 +1303,25 @@
                 "kind": "SCALAR",
                 "name": "String",
                 "ofType": null
+              }
+            }
+          },
+          {
+            "name": "userIds",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "SCALAR",
+                    "name": "String"
+                  }
+                }
               }
             }
           },
@@ -1336,11 +1386,35 @@
             }
           },
           {
+            "name": "restricted",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "root",
             "type": {
               "kind": "SCALAR",
               "name": "String",
               "ofType": null
+            }
+          },
+          {
+            "name": "userIds",
+            "type": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              }
             }
           },
           {
@@ -4401,6 +4475,14 @@
             "type": {
               "kind": "SCALAR",
               "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
+            "name": "checkFileShare",
+            "type": {
+              "kind": "OBJECT",
+              "name": "FileShareCheck",
               "ofType": null
             }
           },

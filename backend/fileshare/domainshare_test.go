@@ -118,6 +118,35 @@ func TestDomainShareListsReadsAndSearchesForTheCaller(t *testing.T) {
 	}
 }
 
+func TestDomainShareDistinguishesEmptyRootsFromInvalidResponses(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("username") {
+		case "alice":
+			fmt.Fprint(w, `{"sources":[]}`)
+		case "bob":
+			fmt.Fprint(w, `{"healthy":true}`)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(server.Close)
+	trustDomainShareFixture(t, server)
+	share, err := New(Config{Protocol: ProtocolDomainShare, Endpoint: server.URL, Password: "test-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if entries, err := share.List(t.Context(), "alice", ""); err != nil || len(entries) != 0 {
+		t.Fatalf("empty root was not a success: %+v, %v", entries, err)
+	}
+	if _, err := share.List(t.Context(), "bob", ""); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("unexpected JSON passed the root check: %v", err)
+	}
+	if _, err := share.List(t.Context(), "carol", ""); !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("permission failure passed the root check: %v", err)
+	}
+}
+
 func TestDomainShareRequiresValidTLSAndDoesNotFollowRedirects(t *testing.T) {
 	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != domainShareAPIPrefix+"/list" {

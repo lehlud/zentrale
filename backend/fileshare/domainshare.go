@@ -72,6 +72,10 @@ func (s *Share) listDomainShare(ctx context.Context, username string, path []str
 		if err := s.domainShareJSON(ctx, username, "/list", url.Values{}, &response); err != nil {
 			return nil, err
 		}
+		if response.Sources == nil {
+			return nil, ErrUnavailable
+		}
+
 		for _, root := range response.Sources {
 			if root.ID != domainShareDocumentRoot && validSegment(root.ID, s.protocol) {
 				entries = append(entries, Entry{Name: root.ID, Label: root.Label, IsDir: true})

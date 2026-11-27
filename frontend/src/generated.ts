@@ -115,13 +115,18 @@ export type FileChange = {
   removed: number;
   truncated: boolean;
 };
+export type FileShareCheck = {
+  entries: number;
+};
 export type FileShareConfig = {
   endpoint: string;
   hostKeySha256: string;
   id: string;
   name: string;
   protocol: string;
+  restricted: boolean;
   root: string;
+  userIds: Array<string>;
   username: string;
 };
 export type FileShareConfigInput = {
@@ -130,7 +135,9 @@ export type FileShareConfigInput = {
   id?: string | null;
   name?: string | null;
   protocol?: string | null;
+  restricted?: boolean | null;
   root?: string | null;
+  userIds?: Array<string> | null;
   username?: string | null;
 };
 export type GitConnection = {
@@ -443,6 +450,7 @@ export type Mutation = {
   cancelGoal: boolean | null;
   cancelInput: boolean | null;
   cancelProviderLogin: boolean | null;
+  checkFileShare: FileShareCheck | null;
   completeBrowserLogin: boolean | null;
   configureGitConnection: GitConnection | null;
   configureHuggingFaceOAuth: HuggingFaceConnection | null;

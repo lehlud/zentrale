@@ -94,7 +94,7 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 	queries["fileShares"] = &graphql.Field{
 		Type: graphql.NewList(builder.output(shareConfig)),
 		Resolve: adminOnly(func(_ graphql.ResolveParams) (any, error) {
-			return server.Engine.FileShares(true)
+			return server.Engine.FileShares()
 		}),
 	}
 	mutations["saveFileShare"] = &graphql.Field{
@@ -104,16 +104,34 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 			"password": {Type: graphql.String},
 		},
 		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
-			config, err := convert[agent.FileShareConfig](params.Args["input"])
+			config, password, err := fileShareInput(params)
 			if err != nil {
 				return nil, err
 			}
-			var password *string
-			if value, ok := params.Args["password"].(string); ok {
-				password = &value
-			}
+
 			saved, err := server.Engine.SaveFileShare(config, password)
 			return mapOf(saved), err
+		}),
+	}
+	mutations["checkFileShare"] = &graphql.Field{
+		Type: builder.output(reflect.TypeFor[agent.FileShareCheck]()),
+		Args: graphql.FieldConfigArgument{
+			"input":    {Type: graphql.NewNonNull(builder.input(shareConfig))},
+			"password": {Type: graphql.String},
+			"userId":   {Type: graphql.String},
+		},
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
+			config, password, err := fileShareInput(params)
+			if err != nil {
+				return nil, err
+			}
+
+			userID, _ := params.Args["userId"].(string)
+			if userID == "" {
+				userID = state(params.Context).user.ID
+			}
+			checked, err := server.Engine.CheckFileShare(params.Context, config, password, userID)
+			return mapOf(checked), err
 		}),
 	}
 	mutations["deleteFileShare"] = &graphql.Field{
@@ -124,6 +142,15 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 			return err == nil, err
 		}),
 	}
+}
+
+func fileShareInput(params graphql.ResolveParams) (agent.FileShareConfig, *string, error) {
+	config, err := convert[agent.FileShareConfig](params.Args["input"])
+	var password *string
+	if value, ok := params.Args["password"].(string); ok {
+		password = &value
+	}
+	return config, password, err
 }
 
 func (server *Server) deleteAccess(user domain.User, kind, id string) error {

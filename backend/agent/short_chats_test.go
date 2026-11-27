@@ -18,7 +18,7 @@ func TestShortChatRejectsGoalsAndSubagents(t *testing.T) {
 	chat := createTestShortChat(t, engine, addTestChatUser(t, engine, "short-chat-owner"))
 
 	for _, name := range []string{"create_goal", "get_goal", "update_goal", "subagent", "teamwork"} {
-		for _, tool := range engine.shortChatTools() {
+		for _, tool := range engine.shortChatTools(chat.ID) {
 			if tool.Name == name {
 				t.Errorf("short chats advertise %s", name)
 			}

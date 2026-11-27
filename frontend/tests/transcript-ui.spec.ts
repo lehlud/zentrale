@@ -313,6 +313,38 @@ test("web search shows a readable list of linked sources", async ({ page }) => {
   await expect(results.getByText("Invalid address")).toBeVisible();
 });
 
+for (const [locale, label] of [
+  ["de", "Webseite abrufen"],
+  ["en", "Fetch web page"],
+] as const) {
+  test(`web read uses the localized tool label (${locale})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (locale) => localStorage.setItem("zentrale-locale", locale),
+      locale,
+    );
+
+    const call = message("read-call", "assistant", "", 1);
+    call.wire = JSON.stringify([
+      {
+        type: "function_call",
+        call_id: "read-1",
+        name: "web_read",
+        arguments: '{"url":"https://example.org/"}',
+      },
+    ]);
+    const result = message("read-result", "tool", '{"result":"Text"}', 2);
+    result.callId = "read-1";
+    result.toolName = "web_read";
+
+    await fixture(page, [call, result]);
+    await expect(
+      page.getByRole("button", { name: new RegExp(label) }),
+    ).toBeVisible();
+  });
+}
+
 test("consecutive subagent questions have compact spacing and still expand", async ({
   page,
 }) => {

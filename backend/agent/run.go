@@ -143,7 +143,7 @@ func (engine *Engine) loop(ctx context.Context, agentID string) (uint64, error) 
 		var system string
 		var tools []providers.Tool
 		if shortChat {
-			system, tools = shortChatPrompt, engine.shortChatTools()
+			system, tools = shortChatPrompt, engine.shortChatTools(agentID)
 		} else {
 			system, tools = engine.buildSystemPrompt(agentRecord), engine.agentToolsForModel(configuration.Model)
 		}

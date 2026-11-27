@@ -32,6 +32,27 @@ func rejectSettings(t *testing.T, fixture *apiFixture, query string, vars map[st
 	}
 }
 
+func TestFileShareSettingsAreAdminOnly(t *testing.T) {
+	admin, bob, bobID := settingsAccounts(t)
+	const query = `{fileShares{id restricted userIds}}`
+	const save = `mutation($input:FileShareConfigInput!){saveFileShare(input:$input){id restricted userIds}}`
+	const check = `mutation($input:FileShareConfigInput!,$userId:String){checkFileShare(input:$input,userId:$userId){entries}}`
+	vars := map[string]any{"input": map[string]any{
+		"name": "Team documents", "protocol": "webdav", "endpoint": "https://files.example.org", "root": "/",
+		"restricted": true, "userIds": []string{bobID},
+	}}
+
+	rejectSettings(t, bob, query, nil)
+	rejectSettings(t, bob, save, vars)
+	rejectSettings(t, bob, check, vars)
+	rejectSettings(t, admin, check, vars) // The signed-in admin is not in this draft's grant.
+
+	data := requireData(t, admin.query(t, save, vars))["saveFileShare"].(map[string]any)
+	if !data["restricted"].(bool) || len(data["userIds"].([]any)) != 1 || data["userIds"].([]any)[0] != bobID {
+		t.Fatalf("grant not returned by the admin API: %v", data)
+	}
+}
+
 func TestPersonalIdentityAndProjectTargetGrants(t *testing.T) {
 	admin, bob, bobID := settingsAccounts(t)
 	const identityQuery = `{commitIdentity{name email}}`

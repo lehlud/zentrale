@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lehlud/zentrale/datastore"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/providers"
 )
 
 func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
@@ -42,6 +44,7 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 	}
 
 	var requests atomic.Int32
+	var bobRootChecked atomic.Bool
 	dav := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		username, password, _ := r.BasicAuth()
@@ -52,6 +55,9 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 		path := r.URL.Path
 		aliceFile, bobFile := path == "/users/alice/notes.txt", path == "/users/bob/notes.txt"
 		if r.Method == "PROPFIND" && (path == "/users/" || path == "/users/alice/" || path == "/users/bob/" || aliceFile || bobFile) {
+			if path == "/users/bob/" {
+				bobRootChecked.Store(true)
+			}
 			resource := ""
 			if strings.HasSuffix(r.URL.Path, "/") {
 				resource = "<d:collection/>"
@@ -85,6 +91,27 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 	if requests.Load() != 0 {
 		t.Fatal("saving share configuration opened a remote connection")
 	}
+
+	draft := share
+	draft.ID, draft.Name = "", "Unsaved Bob share"
+	draft.Restricted, draft.UserIDs = true, []string{bobAccount.ID}
+	if _, err := engine.CheckFileShare(t.Context(), draft, &password, account.ID); err == nil || requests.Load() != 0 {
+		t.Fatalf("ungranted test user reached the server: %v, requests=%d", err, requests.Load())
+	}
+	if checked, err := engine.CheckFileShare(t.Context(), draft, &password, bobAccount.ID); err != nil || checked.Entries != 0 || !bobRootChecked.Load() {
+		t.Fatalf("draft root check: %+v, %v, requests=%d", checked, err, requests.Load())
+	}
+	if rows, err := engine.FileShares(); err != nil || len(rows) != 1 || rows[0]["name"] != share.Name {
+		t.Fatalf("draft check changed the saved shares: %+v, %v", rows, err)
+	}
+
+	changed := share
+	changed.Endpoint += "/other"
+	before := requests.Load()
+	if _, err := engine.CheckFileShare(t.Context(), changed, nil, account.ID); err == nil || requests.Load() != before {
+		t.Fatalf("stored password followed a changed endpoint: %v, requests=%d", err, requests.Load())
+	}
+
 	if _, err := engine.ReadChatFile(context.Background(), project.ID, share.ID, "notes.txt", 1024); err == nil {
 		t.Fatal("project agent accessed a fileshare")
 	}
@@ -100,8 +127,8 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 		t.Fatalf("second user's share did not get a separate root: %q, %v", data, err)
 	}
 
-	public, err := engine.FileShares(false)
-	if err != nil || len(public) != 1 || len(public[0]) != 3 || public[0]["id"] != share.ID || public[0]["protocol"] != "webdav" {
+	public, err := engine.chatFileShares(chat.ID)
+	if err != nil || len(public) != 1 || public[0].ID != share.ID || public[0].Protocol != "webdav" {
 		t.Fatalf("unexpected public share projection: %+v (%v)", public, err)
 	}
 
@@ -111,6 +138,15 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 	}, &token)
 	if err != nil || domainShare.Username != "" {
 		t.Fatalf("DomainShare definition must not have a service username: %+v, %v", domainShare, err)
+	}
+	shareToolNames := func(chatID string) string {
+		var names []string
+		for _, tool := range engine.shortChatTools(chatID) {
+			if strings.HasPrefix(tool.Name, "share_") {
+				names = append(names, tool.Name)
+			}
+		}
+		return strings.Join(names, ",")
 	}
 	for _, owner := range []domain.Agent{chat, bobChat} {
 		_, username, err := engine.chatFileShare(owner.ID, domainShare.ID)
@@ -122,6 +158,46 @@ func TestChatFileShareUsesOwnerScopeWithoutRemoteEngine(t *testing.T) {
 	if _, err := engine.SearchChatFiles(context.Background(), project.ID, domainShare.ID, "notes", ""); err == nil {
 		t.Fatal("project agent could search a DomainShare")
 	}
+	if names := shareToolNames(project.ID); names != "" {
+		t.Fatalf("project advertises share tools: %s", names)
+	}
+
+	domainShare.Restricted, domainShare.UserIDs = true, []string{account.ID, account.ID}
+	domainShare, err = engine.SaveFileShare(domainShare, nil)
+	if err != nil || len(domainShare.UserIDs) != 1 {
+		t.Fatalf("saving restricted share: %+v, %v", domainShare, err)
+	}
+	if names := shareToolNames(chat.ID); names != "share_list,share_directory,share_read,share_search" {
+		t.Fatalf("DomainShare tools missing in existing chat: %s", names)
+	}
+	if names := shareToolNames(bobChat.ID); names != "share_list,share_directory,share_read" {
+		t.Fatalf("Bob's WebDAV-only tool catalog: %s", names)
+	}
+
+	list, err := engine.shortChatTool(t.Context(), bobChat, providers.Call{Name: "share_list"})
+	if err != nil || len(list.([]chatFileShareInfo)) != 1 || list.([]chatFileShareInfo)[0].ID != share.ID {
+		t.Fatalf("hidden share was discoverable by Bob: %+v, %v", list, err)
+	}
+	for _, name := range []string{"share_directory", "share_search", "share_read"} {
+		forged := providers.Call{Name: name, Arguments: map[string]any{
+			"shareId": domainShare.ID, "path": "notes.txt", "query": "notes",
+		}}
+		if _, err := engine.shortChatTool(t.Context(), bobChat, forged); !errors.Is(err, errChatShareUnavailable) {
+			t.Errorf("%s did not reject Bob before connection: %v", name, err)
+		}
+	}
+
+	account.Disabled = true
+	if err := store.UpdateAccount(account, true); err != nil {
+		t.Fatal(err)
+	}
+	if names := shareToolNames(chat.ID); names != "" {
+		t.Fatalf("disabled owner has share tools: %s", names)
+	}
+	if _, err := engine.ReadChatFile(t.Context(), chat.ID, share.ID, "notes.txt", 1024); err == nil {
+		t.Fatal("disabled owner could still read files")
+	}
+
 	domainShare.Endpoint = "https://other.example.org"
 	if _, err := engine.SaveFileShare(domainShare, nil); err == nil {
 		t.Fatal("saved token followed a changed endpoint")
