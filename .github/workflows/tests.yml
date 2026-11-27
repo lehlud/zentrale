@@ -231,6 +231,7 @@ jobs:
           trap 'docker logs zentrale-ci || true; docker rm -f zentrale-ci >/dev/null 2>&1 || true' EXIT
           docker run --detach --name zentrale-ci \
             --publish 127.0.0.1:18082:8080 zentrale:ci -db :memory:
+          docker exec zentrale-ci sh -ec 'command -v file && command -v strings'
           ready=0
           for attempt in $(seq 1 60); do
             if curl --fail --silent --max-time 2 http://127.0.0.1:18082/ >/dev/null; then

@@ -220,6 +220,7 @@ STANDARD_PACKAGES = {
     "direnv": ("direnv",),
     "just": ("just",),
     "podman": ("podman",),
+    "podman-compose": ("podman-compose",),
     "bubblewrap": ("bwrap",),
     "crun": ("crun",),
     "passt": ("pasta",),
@@ -292,10 +293,17 @@ def prepare_fedora(request):
     mount("tmpfs", str(root / "run"), "tmpfs", NOSUID | NODEV, "mode=0755")
     mount("tmpfs", str(root / "tmp"), "tmpfs", NOSUID | NODEV, "mode=1777")
     mount("tmpfs", str(root / "dev"), "tmpfs", NOSUID | NOEXEC, "mode=0755")
-    for name in ("null", "zero", "random", "urandom", "tty"):
+    for name in ("null", "zero", "full", "random", "urandom", "tty"):
         target = root / "dev" / name
         target.touch()
         mount("/dev/" + name, str(target), flags=BIND)
+    (root / "dev/shm").mkdir()
+    mount("tmpfs", str(root / "dev/shm"), "tmpfs", NOSUID | NODEV | NOEXEC, "mode=1777")
+    load_module("tun")
+    os.chmod("/dev/net/tun", 0o666)
+    (root / "dev/net").mkdir()
+    (root / "dev/net/tun").touch()
+    mount("/dev/net/tun", str(root / "dev/net/tun"), flags=BIND)
     (root / "dev/pts").mkdir()
     mount(
         "devpts",
@@ -670,10 +678,39 @@ def prepare_guest_administration(root, request):
         '[storage]\ndriver="vfs"\n'
         '[storage.options.vfs]\nignore_chown_errors="true"\n'
     )
+    prepare_container_cgroups(request["uid"], request["gid"])
+    # Load Netavark's modules before it enters a user namespace. Overlay also
+    # lets guests reopen existing Podman stores that selected that driver.
+    for module in (
+        "bridge", "veth", "nf_tables", "nft_chain_nat", "nft_masq", "nft_ct",
+        "nft_fib_inet", "overlay",
+    ):
+        load_module(module)
     (containers / "containers.conf").write_text(
-        '[containers]\ncgroups="disabled"\n'
         '[engine]\ncgroup_manager="cgroupfs"\nevents_logger="file"\n'
+        '[network]\nfirewall_driver="nftables"\n'
     )
+
+
+def prepare_container_cgroups(uid, gid):
+    # The cgroup2 hierarchy is wholly inside the guest. Only the workload
+    # subtree is delegated. PID 1 and the relay stay in the root cgroup.
+    root = Path("/sys/fs/cgroup")
+    mount("cgroup2", str(root), "cgroup2", NOSUID | NODEV | NOEXEC)
+    controllers = (root / "cgroup.controllers").read_text().split()
+    enable = " ".join("+" + name for name in controllers)
+    if enable:
+        (root / "cgroup.subtree_control").write_text(enable)
+    delegated = root / "zentrale"
+    delegated.mkdir()
+    if enable:
+        (delegated / "cgroup.subtree_control").write_text(enable)
+    commands = delegated / "commands"
+    commands.mkdir()
+    for directory in (delegated, commands):
+        for name in ("cgroup.procs", "cgroup.threads", "cgroup.subtree_control"):
+            os.chown(directory / name, uid, gid)
+        os.chown(directory, uid, gid)
 
 
 def prepare_user_shell(root):

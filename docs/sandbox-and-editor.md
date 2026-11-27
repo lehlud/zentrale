@@ -12,17 +12,21 @@ have separate project VMs, including concurrent GPU jobs.
 
 Guests include Python 3 (`python` and `python3`), pip, Git, ripgrep (`rg`), fd,
 ast-grep (`sg`), cloc, tree, bat, jq, yq, gron, jc, DuckDB, sqlite3, csvkit,
-Miller (`mlr`), qsv, sd, Perl, delta, direnv, mise, just, Podman, curl, SSH
+Miller (`mlr`), qsv, sd, Perl, delta, direnv, mise, just, Podman, Podman Compose, curl, SSH
 clients, less, Make, fish and standard file/archive/process tools. Missing
 standard tools are added without resetting an existing disk. Upstream binaries
 are version-pinned and checksum-verified; downloads and installation happen
 inside the guest. Interactive terminals use fish; harness commands use a POSIX
 shell. Agents use rootless Podman, installing Docker in the guest only when
-Podman cannot satisfy a concrete requirement.
+Podman cannot satisfy a concrete requirement. The guest delegates a cgroup v2
+subtree to the workload user so rootless containers can set resource limits.
+An attached Compose stack can run as a background harness job if it needs to
+outlive the initiating tool call.
 
 The SSH host needs Linux x86_64, accessible `/dev/kvm`, QEMU with `microvm`,
 `qemu-img`, Python 3.10+ with `lzma` or `/usr/bin/xz`, `mkfs.ext4`, `tar`, and
-`modprobe`. Preparing a fallback kernel's modules also needs `depmod`.
+`modprobe`. Virtme uses `file` or `strings` to identify the kernel.
+Preparing a fallback kernel's modules also needs `depmod`.
 Automatic selection fails if these
 requirements are unavailable. It never silently switches to Bubblewrap or host
 execution. Weaker levels remain explicit administrator choices.

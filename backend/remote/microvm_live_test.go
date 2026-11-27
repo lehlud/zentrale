@@ -209,8 +209,26 @@ func TestManagedMicroVMLive(t *testing.T) {
 		t.Fatal("independent conversations did not share the project VM")
 	}
 	t.Run("default guest tools and agent privilege boundary", func(t *testing.T) {
-		run(first, "for tool in python python3 rg fd ast-grep sg cloc tree sudo bat jq yq gron jc duckdb sqlite3 csvcut mlr qsv sd perl delta direnv mise just podman; do command -v \"$tool\" || exit 1; done", false, false)
+		run(first, "for tool in python python3 rg fd ast-grep sg cloc tree sudo bat jq yq gron jc duckdb sqlite3 csvcut mlr qsv sd perl delta direnv mise just podman podman-compose; do command -v \"$tool\" || exit 1; done", false, false)
 		run(first, "if sudo -n true 2>/dev/null; then exit 1; fi", false, false)
+	})
+	t.Run("rootless Compose applies cgroup limits on its default network", func(t *testing.T) {
+		output := run(first, `set -eu
+directory=$(mktemp -d)
+cd "$directory"
+trap 'podman compose --project-name zentrale-cgroup-probe down; rm -rf -- "$directory"' EXIT
+cat > compose.yaml <<'YAML'
+services:
+  probe:
+    image: docker.io/library/alpine:3.22
+    mem_limit: 48m
+    pids_limit: 48
+    command: ["/bin/sh", "-c", 'test "$(cat /sys/fs/cgroup/memory.max)" = 50331648 && test "$(cat /sys/fs/cgroup/pids.max)" = 48 && echo compose-limits-ok']
+YAML
+podman compose --project-name zentrale-cgroup-probe up --abort-on-container-exit`, true, false)
+		if !strings.Contains(output, "compose-limits-ok") {
+			t.Fatalf("Compose did not start with the requested limits: %s", output)
+		}
 	})
 	if firstBoot == "" ||
 		!strings.Contains(run(first, "cat /etc/os-release", false, false), `VERSION_ID=45`) {

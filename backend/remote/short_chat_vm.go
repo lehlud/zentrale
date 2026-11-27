@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,9 @@ func RunShortChatVM(
 	if connection.localShortChatRoot != "" {
 		invocation, err := stageMicroVM(ctx, connection, machine, execution)
 		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("could not prepare local short-chat MicroVM", "error", err)
+			}
 			return "", err
 		}
 		commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)

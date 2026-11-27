@@ -74,21 +74,39 @@ class GuestShellTests(unittest.TestCase):
                     patch.object(guest, "login_shell", return_value=shell),
                     patch.object(guest.os, "chroot") as chroot,
                     patch.object(guest.os, "chdir") as chdir,
+                    patch.object(guest.LIBC, "syscall", return_value=0) as syscall,
+                    patch.object(guest.LIBC, "umount2", return_value=0) as umount2,
                     patch.object(guest.os, "fchown"),
                     patch.object(guest, "drop_privileges") as privileges,
                     patch.object(guest.resource, "setrlimit"),
+                    patch.object(guest.Path, "write_text", autospec=True) as write,
+                    patch.object(guest.Path, "is_file", return_value=False),
                     patch.object(guest.os, "execve") as execute,
                 ):
                     guest.execute(request, session, "pwd")
 
                 root = "/run/zentrale-tools" if tooling else guest.FEDORA
-                chroot.assert_called_once_with(root)
-                chdir.assert_called_once_with("/home/zentrale/project")
+                if not tooling:
+                    chroot.assert_not_called()
+                    self.assertEqual([call.args for call in chdir.call_args_list], [(root,), ("/home/zentrale/project",)])
+                    syscall.assert_called_once_with(guest.SYS_PIVOT_ROOT_X86_64, b".", b".")
+                    umount2.assert_called_once_with(b".", guest.MNT_DETACH)
+                    write.assert_called_once_with(Path("/sys/fs/cgroup/zentrale/commands/cgroup.procs"), "0")
+                else:
+                    chroot.assert_called_once_with(root)
+                    chdir.assert_called_once_with("/home/zentrale/project")
+                    syscall.assert_not_called()
+                    umount2.assert_not_called()
+                    write.assert_not_called()
                 privileges.assert_called_once_with(1000, 1000, guest_root, bool(request.get("terminalProtocol")) and not tooling)
                 environment = execute.call_args.args[2]
                 self.assertEqual(environment["HOME"], "/root" if guest_root else "/home/zentrale")
                 self.assertEqual(environment["TMPDIR"], "/tmp/zentrale")
                 self.assertEqual(environment["XDG_CACHE_HOME"], "/tmp/zentrale/cache")
+                self.assertEqual(
+                    environment.get("CONTAINERS_STORAGE_CONF"),
+                    None if tooling else "/etc/containers/storage.conf",
+                )
                 self.assertEqual(environment["SHELL"], shell)
                 self.assertNotIn("/host/", json.dumps(environment))
                 if request.get("tty"):
@@ -101,7 +119,12 @@ class GuestShellTests(unittest.TestCase):
                     # sudo on the terminal's private Fedora mount.
                     self.assertEqual(
                         [call.args for call in mount.call_args_list],
-                        [(None, root), ("proc", root + "/proc", "proc", 14)],
+                        [
+                            (None, root), ("proc", root + "/proc", "proc", 14),
+                            ("/sys/fs/cgroup", root + "/sys/fs/cgroup"),
+                            (None, root + "/sys/fs/cgroup"),
+                            ("/sys/fs/cgroup/zentrale", root + "/sys/fs/cgroup/zentrale"),
+                        ],
                     )
                     self.assertEqual(mount.call_args_list[0].kwargs["flags"], 4096 | 32 | 4)
 

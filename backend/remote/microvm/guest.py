@@ -1,7 +1,7 @@
 """Launch one reviewed action inside the agent's persistent Fedora guest.
 
 PID 1 and this launcher use the read-only host tooling inside the VM. User
-commands see only the Fedora chroot, its project export and private temporary
+commands see only the Fedora filesystem, its project export and private temporary
 export. They cannot reach the supervisor mailbox or the host's root filesystem.
 """
 
@@ -19,6 +19,7 @@ LIBC = ctypes.CDLL(None, use_errno=True)
 CONTROL = "/run/zentrale-control"
 FEDORA = "/run/fedora"
 CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWNET = 0x20000, 0x20000000, 0x40000000
+SYS_PIVOT_ROOT_X86_64, MNT_DETACH = 155, 2
 
 
 class Header(ctypes.Structure):
@@ -96,6 +97,13 @@ def execute(request, session, command):
     mount("proc", root.rstrip("/") + "/proc", "proc", 2 | 4 | 8)
     if not request["network"]:
         mount("sysfs", root.rstrip("/") + "/sys", "sysfs", 1 | 2 | 4 | 8)
+    if not tooling:
+        cgroups = root + "/sys/fs/cgroup"
+        mount("/sys/fs/cgroup", cgroups, flags=4096)
+        # Keep the guest supervisor's cgroups read-only, including for sudo.
+        mount(None, cgroups, flags=4096 | 32 | 1 | 2 | 4 | 8)
+        mount("/sys/fs/cgroup/zentrale", cgroups + "/zentrale", flags=4096)
+        Path("/sys/fs/cgroup/zentrale/commands/cgroup.procs").write_text("0")
 
     descriptor = os.memfd_create("zentrale-command", 0)
     os.write(descriptor, command.encode())
@@ -119,7 +127,15 @@ def execute(request, session, command):
     if request.get("tty"):
         environment["TERM"] = "xterm-256color"
 
-    os.chroot(root)
+    if tooling:
+        os.chroot(root)
+    else:
+        # Linux rejects creating a user namespace after chroot. Switch the root
+        # mount in the private task namespace for rootless Bubblewrap and Podman.
+        # Detach the old root before dropping privileges.
+        os.chdir(root)
+        checked(LIBC.syscall(SYS_PIVOT_ROOT_X86_64, b".", b"."), "switch Fedora root mount")
+        checked(LIBC.umount2(b".", MNT_DETACH), "detach old VM root")
     os.chdir("/home/zentrale/project")
     for number in (0, 1, 2):
         os.fchown(
@@ -129,6 +145,9 @@ def execute(request, session, command):
         )
 
     drop_privileges(session["uid"], session["gid"], guest_root, user_terminal)
+    if not tooling and not Path(environment["HOME"], ".config/containers/storage.conf").is_file():
+        # Apply the guest's storage driver and options to rootless Podman too.
+        environment["CONTAINERS_STORAGE_CONF"] = "/etc/containers/storage.conf"
     resource.setrlimit(resource.RLIMIT_NPROC, (256, 256))
     os.execve("/bin/sh", ["/bin/sh", "/proc/self/fd/" + str(descriptor)], environment)
 

@@ -188,6 +188,11 @@ def prerequisites(configuration=None):
         if shutil.which(name, path=SYSTEM_PATH) is None:
             raise UnavailableError("required MicroVM command is missing: " + name)
 
+    # Virtme detects the guest kernel version with file, then falls back to
+    # strings. Minimal runtime images can be missing both.
+    if not any(shutil.which(name, path=SYSTEM_PATH) for name in ("file", "strings")):
+        raise UnavailableError("detecting the MicroVM kernel version requires file or strings")
+
     machines = subprocess.run(
         [shutil.which("qemu-system-x86_64", path=SYSTEM_PATH), "-machine", "help"],
         check=True,
@@ -242,6 +247,10 @@ def compatible_host_kernel(pci=False):
         "NAMESPACES",
         "PID_NS",
         "NET_NS",
+        "USER_NS",
+        "CGROUPS",
+        "CGROUP_PIDS",
+        "MEMCG",
         "DEVTMPFS",
         "TMPFS",
         "PROC_FS",
@@ -275,6 +284,15 @@ def check_guest_kernel_modules(root=Path("/"), version=None, pci=False):
         "virtio_blk",
         "ext4",
         "virtio_net",
+        "tun",
+        "bridge",
+        "veth",
+        "nf_tables",
+        "nft_chain_nat",
+        "nft_masq",
+        "nft_ct",
+        "nft_fib_inet",
+        "overlay",
     ) + (("virtio_pci",) if pci else ()):
         result = subprocess.run(
             [

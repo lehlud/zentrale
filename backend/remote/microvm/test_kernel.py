@@ -44,6 +44,7 @@ class GuestKernelTests(unittest.TestCase):
             patch.object(guest, "load_module"),
             patch.object(guest, "mount") as mount,
             patch.object(guest.os, "chown"),
+            patch.object(guest.os, "chmod"),
             patch.object(guest.LIBC, "prctl"),
             patch.object(
                 Path,
@@ -180,14 +181,16 @@ class GuestKernelTests(unittest.TestCase):
             ),
         ):
             self.assertIsNone(runner.compatible_host_kernel())
-        with (
-            patch.object(runner.Path, "is_file", return_value=True),
-            patch.object(runner.os, "access", return_value=True),
-            patch.object(
-                runner.Path, "read_text", return_value="# CONFIG_NET_NS is not set\n"
-            ),
-        ):
-            self.assertIsNone(runner.compatible_host_kernel())
+        for feature in ("NET_NS", "USER_NS", "CGROUPS", "CGROUP_PIDS", "MEMCG"):
+            with (
+                self.subTest(feature=feature),
+                patch.object(runner.Path, "is_file", return_value=True),
+                patch.object(runner.os, "access", return_value=True),
+                patch.object(
+                    runner.Path, "read_text", return_value=f"# CONFIG_{feature} is not set\n"
+                ),
+            ):
+                self.assertIsNone(runner.compatible_host_kernel())
         with patch.object(runner.Path, "is_file", return_value=False):
             self.assertIsNone(runner.compatible_host_kernel())
 
