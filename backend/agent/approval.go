@@ -61,6 +61,9 @@ func (engine *Engine) approve(
 	agentRecord domain.Agent,
 	request interaction,
 ) (blanket bool, err error) {
+	if agentRecord.ChatOwnerID != "" && ctx.Err() == nil {
+		engine.setRunState(agentRecord.ID, "tool_review", nil)
+	}
 	queue, stopWaiting := context.WithTimeout(ctx, approvalTimeout)
 	defer stopWaiting()
 	phaseContext := queue

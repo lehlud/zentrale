@@ -296,15 +296,9 @@ func microVMAction(
 	} else if startupProgress(ctx) == nil {
 		output, err = RunPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)))
 	} else {
-		var reported [len(managedVMStartupPhases)]sync.Once
-		output, err = RunStreamingPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)), func(snapshot string) {
-			for index, phase := range managedVMStartupPhases {
-				marker := startupPhasePrefix + phase + "\n"
-				if strings.HasPrefix(snapshot, marker) || strings.Contains(snapshot, "\n"+marker) {
-					reported[index].Do(func() { ReportStartupPhase(ctx, phase) })
-				}
-			}
-		})
+		output, err = RunStreamingPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)), vmStartupProgressOutput(ctx))
+	}
+	if startupProgress(ctx) != nil {
 		// This marker belongs only to the trusted stage/prepare protocol. Keep
 		// arbitrary output and all error diagnostics; never globally filter logs.
 		output = stripStartupBootMarker(output)
@@ -348,6 +342,21 @@ var managedVMStartupPhases = [...]string{
 	"vm_preparing_guest",
 	"vm_installing_packages",
 	"vm_preparing_tools",
+}
+
+func vmStartupProgressOutput(ctx context.Context) func(string) {
+	if startupProgress(ctx) == nil {
+		return nil
+	}
+	var reported [len(managedVMStartupPhases)]sync.Once
+	return func(snapshot string) {
+		for index, phase := range managedVMStartupPhases {
+			marker := startupPhasePrefix + phase + "\n"
+			if strings.HasPrefix(snapshot, marker) || strings.Contains(snapshot, "\n"+marker) {
+				reported[index].Do(func() { ReportStartupPhase(ctx, phase) })
+			}
+		}
+	}
 }
 
 func stripStartupBootMarker(output string) string {

@@ -20,6 +20,8 @@ import (
 var shortChatScopePattern = regexp.MustCompile(`^shortchat-[a-f0-9]{56}$`)
 var shortChatDirectoryPattern = regexp.MustCompile(`^chat-[a-f0-9]{64}$`)
 var shortChatInstallationPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+var shortChatVenvPattern = regexp.MustCompile(`^\.venv-[A-Za-z0-9_-]+$`)
+var shortChatPackagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*\])?(==[A-Za-z0-9][A-Za-z0-9.+!_-]*)?$`)
 
 const shortChatExitMarker = "\nZENTRALE_SHORT_CHAT_EXIT "
 
@@ -90,6 +92,45 @@ func RunShortChatVM(
 	userScope, chatDirectory, command string,
 	attachments io.Reader,
 ) (string, error) {
+	return runShortChatVM(ctx, connection, machine, userScope, chatDirectory, command, attachments, "", false)
+}
+
+func ValidateShortChatPackages(packages []string) error {
+	for _, name := range packages {
+		if !shortChatPackagePattern.MatchString(name) {
+			return errors.New("use PyPI package names with optional extras or exact versions")
+		}
+	}
+	return nil
+}
+
+func InstallShortChatVenv(ctx context.Context, connection *Connection, machine domain.Machine, userScope, chatDirectory, venv string, packages []string) (string, error) {
+	if !shortChatVenvPattern.MatchString(venv) {
+		return "", errors.New("invalid short-chat Python environment name")
+	}
+	if err := ValidateShortChatPackages(packages); err != nil {
+		return "", err
+	}
+	script := "set -eu\nexport UV_CACHE_DIR=/tmp/uv-cache\n" +
+		"uv --no-config venv --no-python-downloads --python /usr/bin/python3 " + Quote(venv) + "\n"
+	if len(packages) > 0 {
+		script += "uv --no-config pip install --default-index https://pypi.org/simple --only-binary :all: --link-mode copy --python " + Quote(venv+"/bin/python") + " --"
+		for _, name := range packages {
+			script += " " + Quote(name)
+		}
+	}
+	return runShortChatVM(ctx, connection, machine, userScope, chatDirectory, script, nil, venv, len(packages) > 0)
+}
+
+func runShortChatVM(
+	ctx context.Context,
+	connection *Connection,
+	machine domain.Machine,
+	userScope, chatDirectory, command string,
+	attachments io.Reader,
+	venv string,
+	network bool,
+) (string, error) {
 	workspace, err := ShortChatWorkspacePath(connection, userScope)
 	if err != nil || !shortChatDirectoryPattern.MatchString(chatDirectory) {
 		return "", errors.New("invalid short-chat VM scope")
@@ -103,6 +144,7 @@ func RunShortChatVM(
 	ctx = WithInvocation(ctx, Invocation{})
 
 	temporary := connection.ProjectTemporaryDirectory(userScope)
+	ReportStartupPhase(ctx, "preparing_environment")
 	if err := prepareShortChatWorkspace(ctx, connection, workspace, temporary); err != nil {
 		return "", err
 	}
@@ -112,9 +154,15 @@ func RunShortChatVM(
 		ProjectID:          userScope,
 		Workspace:          workspace,
 		TemporaryDirectory: temporary,
-		Command:            shortChatGuestCommand(chatDirectory, attachments != nil),
+		Command:            shortChatGuestCommand(chatDirectory, attachments != nil, venv, network),
 		shortChatScript:    command,
+		Network:            network,
 	}
+	phase, timeout := "running_code", 30*time.Second
+	if venv != "" {
+		phase, timeout = "installing_python_packages", 3*time.Minute
+	}
+	ReportStartupPhase(ctx, "sandbox")
 	if connection.localShortChatRoot != "" {
 		invocation, err := stageMicroVM(ctx, connection, machine, execution)
 		if err != nil {
@@ -123,7 +171,8 @@ func RunShortChatVM(
 			}
 			return "", err
 		}
-		commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		ReportStartupPhase(ctx, phase)
+		commandContext, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return shortChatCommandResult(runLocalMicroVM(commandContext, connection, machine, "run", attachments, invocation))
 	}
@@ -135,7 +184,8 @@ func RunShortChatVM(
 		return "", errors.New("short-chat execution was not staged inside a managed MicroVM")
 	}
 
-	commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ReportStartupPhase(ctx, phase)
+	commandContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return shortChatCommandResult(RunPipe(commandContext, connection, wrapped, attachments))
 }
@@ -186,8 +236,31 @@ if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE
 	return err
 }
 
-func shortChatGuestCommand(chatDirectory string, attachments bool) string {
+func shortChatGuestCommand(chatDirectory string, attachments bool, venv string, network bool) string {
 	directory := Quote("/home/zentrale/project/" + chatDirectory)
+	prepare := "umask 077\n" +
+		"if [ -L " + directory + " ]; then exit 78; fi\n" +
+		"mkdir -p -- " + directory + " && cd -- " + directory + " || exit 78\n" +
+		"[ \"$(pwd -P)\" = " + directory + " ] || exit 78\n"
+	sandbox := "/usr/bin/bwrap --unshare-all --die-with-parent --new-session --clearenv " +
+		"--ro-bind /usr /usr --ro-bind /etc /etc --ro-bind-try /opt/zentrale /opt/zentrale " +
+		"--symlink usr/bin /bin --symlink usr/sbin /sbin " +
+		"--symlink usr/lib /lib --symlink usr/lib64 /lib64 --dev /dev --proc /proc " +
+		"--chdir /home/zentrale/project --ro-bind-data \"$ZENTRALE_SHORT_CHAT_SCRIPT_FD\" /run/zentrale-command " +
+		"--setenv HOME /home/zentrale --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv TMPDIR /tmp "
+	if venv != "" {
+		// Give the installer a fresh directory only. It cannot see user data,
+		// existing virtual environments, or configuration supplied by a chat.
+		if network {
+			sandbox += "--share-net "
+		}
+		return prepare + "staging=$(mktemp -d .venv-building.XXXXXXXX) || exit 78\n" +
+			"trap 'rm -rf -- \"$staging\"' EXIT\n" +
+			"if " + sandbox + "--tmpfs /tmp --bind \"$staging\" " + Quote("/home/zentrale/project/"+venv) + " -- /bin/sh /run/zentrale-command 2>&1; then\n" +
+			"mv -T --no-clobber -- \"$staging\" " + Quote(venv) + " && test ! -d \"$staging\" || exit 78\n" +
+			"code=0\nelse\ncode=$?\nfi\n" +
+			"printf '" + shortChatExitMarker + "%s\\n' \"$code\"\n"
+	}
 	const scratch = ".zentrale-tmp"
 	script := ""
 	if attachments {
@@ -197,20 +270,11 @@ func shortChatGuestCommand(chatDirectory string, attachments bool) string {
 	// exits. Host and outer guest errors never enter the model's tool output.
 	script += "/bin/sh /run/zentrale-command 2>&1\n" +
 		"printf '" + shortChatExitMarker + "%s\\n' \"$?\""
-	return "umask 077\n" +
-		"if [ -L " + directory + " ]; then exit 78; fi\n" +
-		"mkdir -p -- " + directory + " && cd -- " + directory + " || exit 78\n" +
-		"[ \"$(pwd -P)\" = " + directory + " ] || exit 78\n" +
+	return prepare +
 		"[ ! -L " + scratch + " ] && mkdir -p -- " + scratch + " || exit 78\n" +
 		"[ ! -L " + scratch + "/attachments ] || exit 78\n" +
-		"exec /usr/bin/bwrap --unshare-all --die-with-parent --new-session --clearenv " +
-		"--ro-bind /usr /usr --ro-bind /etc /etc --ro-bind-try /opt/zentrale /opt/zentrale " +
-		"--symlink usr/bin /bin --symlink usr/sbin /sbin " +
-		"--symlink usr/lib /lib --symlink usr/lib64 /lib64 --dev /dev --proc /proc " +
-		"--bind . /home/zentrale/project --chdir /home/zentrale/project " +
+		"exec " + sandbox + "--bind . /home/zentrale/project " +
 		"--bind " + scratch + " /tmp --tmpfs /tmp/attachments " +
 		"--tmpfs /home/zentrale/project/" + scratch + " " +
-		"--ro-bind-data \"$ZENTRALE_SHORT_CHAT_SCRIPT_FD\" /run/zentrale-command " +
-		"--setenv HOME /home/zentrale --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv TMPDIR /tmp " +
 		"-- /bin/sh -c " + Quote(script) + "\n"
 }

@@ -185,6 +185,9 @@ func (engine *Engine) humanize(ctx context.Context, record domain.Agent, request
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if record.ChatOwnerID != "" && ctx.Err() == nil {
+		engine.setRunState(record.ID, "humanizing_text", nil)
+	}
 	output, err := engine.rewriteHumanizerTexts(ctx, record, settings, configuration, account, texts, maxOutput)
 	if err != nil && batch && len(output) > 0 {
 		return map[string]any{"texts": output, "failedItem": len(output) + 1, "error": err.Error()}, nil

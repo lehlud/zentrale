@@ -10,6 +10,32 @@ import (
 	"github.com/lehlud/zentrale/remote"
 )
 
+func (engine *Engine) createShortChatVenv(ctx context.Context, chat domain.Agent, args map[string]any) (any, error) {
+	packages, err := stringsArg(args, "packages")
+	if err != nil {
+		return nil, err
+	}
+	if err := remote.ValidateShortChatPackages(packages); err != nil {
+		return nil, err
+	}
+	request := interaction{
+		Action: "venv_create", Arguments: map[string]any{"packages": packages, "index": "https://pypi.org/simple"},
+		Network: len(packages) > 0, Justification: stringArg(args, "justification"),
+	}
+	machineID, poolID, err := engine.reviewedShortChatTarget(ctx, chat, request)
+	if err != nil {
+		return nil, err
+	}
+	venv := ".venv-" + NewID()
+	_, err = engine.withShortChatVM(ctx, chat, machineID, poolID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, userScope, chatDirectory string) (string, error) {
+		return remote.InstallShortChatVenv(ctx, connection, machine, userScope, chatDirectory, venv, packages)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"venv": venv, "python": "./" + venv + "/bin/python", "packages": packages}, nil
+}
+
 func (engine *Engine) createVenv(
 	ctx context.Context,
 	agentRecord domain.Agent,

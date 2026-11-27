@@ -24,6 +24,9 @@ const phaseLabels: Record<string, string> = {
   recovering_sandbox: "Umgebung wird wiederhergestellt …",
   workspace: "Projektverzeichnis wird vorbereitet …",
   sandbox: "Sandbox wird vorbereitet …",
+  waiting_runtime: terminalStartupLabels.waiting_runtime,
+  selecting_environment: terminalStartupLabels.selecting_environment,
+  preparing_environment: terminalStartupLabels.preparing_environment,
   vm_starting: terminalStartupLabels.vm_starting,
   vm_retrying_boot: terminalStartupLabels.vm_retrying_boot,
   vm_allocating_memory: terminalStartupLabels.vm_allocating_memory,
@@ -31,6 +34,17 @@ const phaseLabels: Record<string, string> = {
   vm_installing_packages: terminalStartupLabels.vm_installing_packages,
   vm_preparing_tools: terminalStartupLabels.vm_preparing_tools,
   repository: "Repository wird vorbereitet …",
+  tools: "Werkzeuge werden ausgeführt …",
+  tool_review: "Auto-Approver prüft den Werkzeugaufruf …",
+  running_code: "Code wird ausgeführt …",
+  installing_python_packages: "Python-Umgebung wird eingerichtet …",
+  web_search: "Websuche läuft …",
+  web_read: "Webseite wird gelesen …",
+  reading_shares: "Dateifreigaben werden aufgelistet …",
+  searching_shares: "Dateifreigabe wird durchsucht …",
+  reading_file: "Datei wird gelesen …",
+  delivering_file: "Datei wird bereitgestellt …",
+  humanizing_text: "Text wird umformuliert …",
   retrying_model: "Modellverbindung unterbrochen, neuer Versuch …",
   waiting_question: "Eine notwendige Antwort steht noch aus …",
 };
@@ -76,8 +90,8 @@ export function LiveAssistantResponse({
   const generating = response?.status === "running";
   const label = t(
     phaseLabels[phase ?? ""] ??
-      (generating
-        ? text
+      (phase === "model" || generating
+        ? generating && text
           ? "Schreibt …"
           : "Antwort wird vorbereitet …"
         : "Arbeitet …"),

@@ -221,6 +221,7 @@ STANDARD_PACKAGES = {
     "just": ("just",),
     "podman": ("podman",),
     "podman-compose": ("podman-compose",),
+    "uv": ("uv",),
     "bubblewrap": ("bwrap",),
     "crun": ("crun",),
     "passt": ("pasta",),

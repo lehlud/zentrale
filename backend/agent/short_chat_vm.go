@@ -55,9 +55,6 @@ func (engine *Engine) RunShortChatCommand(
 	machineID, poolID, command string,
 	attachmentIDs ...string,
 ) (string, error) {
-	if (machineID == "") == (poolID == "") {
-		return "", errors.New("short-chat execution requires one configured machine or pool")
-	}
 	if err := validateShortChatCommand(command); err != nil {
 		return "", err
 	}
@@ -68,6 +65,32 @@ func (engine *Engine) RunShortChatCommand(
 	if err != nil {
 		return "", err
 	}
+	return engine.withShortChatVM(ctx, chat, machineID, poolID, func(ctx context.Context, connection *remote.Connection, machine domain.Machine, userScope, chatDirectory string) (string, error) {
+		var input io.Reader
+		if len(attachments) != 0 {
+			reader, writer := io.Pipe()
+			defer reader.Close()
+			input = reader
+			go func() {
+				_ = writer.CloseWithError(engine.writeChatAttachments(writer, chat.ID, attachments))
+			}()
+		}
+		return remote.RunShortChatVM(ctx, connection, machine, userScope, chatDirectory, command, input)
+	})
+}
+
+func (engine *Engine) withShortChatVM(
+	ctx context.Context,
+	chat domain.Agent,
+	machineID, poolID string,
+	run func(context.Context, *remote.Connection, domain.Machine, string, string) (string, error),
+) (string, error) {
+	if (machineID == "") == (poolID == "") {
+		return "", errors.New("short-chat execution requires one configured machine or pool")
+	}
+	if err := engine.verifyShortChatVMOwner(chat); err != nil {
+		return "", err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -75,10 +98,12 @@ func (engine *Engine) RunShortChatCommand(
 	userScope, chatDirectory := engine.shortChatWorkspace(chat)
 	entry, _ := engine.vmOperations.LoadOrStore(userScope, &vmOperation{gate: make(chan struct{}, 1)})
 	operation := entry.(*vmOperation)
+	remote.ReportStartupPhase(ctx, "waiting_runtime")
 	if err := operation.Lock(ctx); err != nil {
 		return "", err
 	}
 	defer operation.Unlock()
+	remote.ReportStartupPhase(ctx, "selecting_environment")
 
 	if err := engine.verifyShortChatVMOwner(chat); err != nil {
 		return "", err
@@ -108,6 +133,7 @@ func (engine *Engine) RunShortChatCommand(
 	if machineID == remote.LocalShortChatMachineID {
 		connection, machine, err = remote.LocalShortChatConnection(engine.installationID)
 	} else {
+		remote.ReportStartupPhase(ctx, "connecting")
 		connection, machine, err = engine.Remote.ConnectForJob(ctx, target, userScope, placement.MemberID, false, nil)
 		defer engine.Remote.Release(userScope)
 	}
@@ -134,16 +160,7 @@ func (engine *Engine) RunShortChatCommand(
 		return "", err
 	}
 
-	var input io.Reader
-	if len(attachments) != 0 {
-		reader, writer := io.Pipe()
-		defer reader.Close()
-		input = reader
-		go func() {
-			_ = writer.CloseWithError(engine.writeChatAttachments(writer, chat.ID, attachments))
-		}()
-	}
-	output, err := remote.RunShortChatVM(ctx, connection, machine, userScope, chatDirectory, command, input)
+	output, err := run(ctx, connection, machine, userScope, chatDirectory)
 	if err != nil {
 		var commandError *remote.ShortChatCommandError
 		if errors.As(err, &commandError) {

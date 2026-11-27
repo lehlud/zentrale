@@ -111,6 +111,9 @@ func runLocalMicroVM(ctx context.Context, connection *Connection, machine domain
 	command := exec.CommandContext(ctx, "python3", args...)
 	command.Env = localVMEnvironment(connection)
 	output := &limitedOutput{}
+	if action == "stage" || action == "prepare" {
+		output.onOutput = vmStartupProgressOutput(ctx)
+	}
 	command.Stdin, command.Stdout, command.Stderr = input, output, output
 	command.WaitDelay = 2 * time.Second
 	if err := command.Run(); err != nil {

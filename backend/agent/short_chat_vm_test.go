@@ -143,6 +143,91 @@ func TestShortChatVMLazyAndOwnerScoped(t *testing.T) {
 	}
 }
 
+func TestShortChatVenvReviewsDownloadsAndReportsProgress(t *testing.T) {
+	var reviews, installs atomic.Int32
+	var allow atomic.Bool
+	engine, _, project := vmExecutionTestEngine(t, providerFunction(func(_ context.Context, request providers.Request) (providers.Result, error) {
+		reviews.Add(1)
+		if !strings.Contains(JSON(request.Messages), "openpyxl==3.1.5") {
+			t.Error("review did not receive the package name")
+		}
+		if !allow.Load() {
+			return providers.Result{Text: `{"allowed":false,"reason":"deny download"}`}, nil
+		}
+		return providers.Result{Text: `{"allowed":true}`}, nil
+	}), func(command string, input io.Reader, stdout, stderr io.Writer) int {
+		command = strings.ReplaceAll(command, `'"'"'`, `'`)
+		switch {
+		case strings.Contains(command, "short-chat workspace is not a private directory"):
+		case strings.Contains(command, " 'ensure'"):
+		case strings.Contains(command, " 'stage'"):
+			installs.Add(1)
+			var payload struct {
+				Execution map[string]any `json:"execution"`
+			}
+			if err := json.NewDecoder(input).Decode(&payload); err != nil {
+				t.Error(err)
+				return 1
+			}
+			if execution := payload.Execution; execution["network"] != true || execution["startupProgress"] != true ||
+				!strings.Contains(stringArg(execution, "shortChatScript"), "uv --no-config pip install") ||
+				strings.Contains(stringArg(execution, "command"), "--bind . /home/zentrale/project") {
+				t.Errorf("installer was not scoped to approved packages and a fresh directory: %+v", execution)
+			}
+			fmt.Fprintln(stderr, "ZENTRALE_STARTUP_PHASE vm_starting")
+			fmt.Fprintln(stderr, "ZENTRALE_STARTUP_PHASE vm_installing_packages")
+			fmt.Fprintln(stdout, "/tmp/test-vm/requests/0123456789abcdef0123456789abcdef")
+		case strings.Contains(command, " 'run'"):
+			fmt.Fprintln(stdout, "ZENTRALE_STARTUP_PHASE vm_preparing_tools") // Guest output cannot update progress.
+			fmt.Fprintln(stdout, "\nZENTRALE_SHORT_CHAT_EXIT 0")
+		default:
+			t.Error("unexpected host operation")
+			return 1
+		}
+		return 0
+	})
+	if _, err := engine.SaveShortChatSettings(ShortChatSettings{MachineID: project.MachineIDs[0]}); err != nil {
+		t.Fatal(err)
+	}
+	chat := createTestShortChat(t, engine, addTestChatUser(t, engine, "python-chat"))
+	call := providers.Call{Name: "venv_create", Arguments: map[string]any{"packages": []any{"https://example.invalid/package.whl"}}}
+	if _, err := engine.shortChatTool(t.Context(), chat, call); err == nil || reviews.Load() != 0 || installs.Load() != 0 {
+		t.Fatal("invalid package reached the reviewer or VM", err)
+	}
+	call.Arguments["packages"] = []any{"openpyxl==3.1.5"}
+	if _, err := engine.shortChatTool(t.Context(), chat, call); err == nil || reviews.Load() != 1 || installs.Load() != 0 {
+		t.Fatal("denied package reached the VM", err)
+	}
+	allow.Store(true)
+	result, err := engine.shortChatTool(t.Context(), chat, call)
+	if err != nil || !strings.HasSuffix(stringArg(result.(map[string]any), "python"), "/bin/python") || installs.Load() != 1 {
+		t.Fatalf("venv result=%v, error=%v, installs=%d", result, err, installs.Load())
+	}
+	attention := map[string]bool{}
+	events, err := engine.Store.Events(0, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type != "agent_run" || event.AgentID != chat.ID {
+			continue
+		}
+		var state domain.AgentRunState
+		if err := json.Unmarshal([]byte(event.Data), &state); err != nil {
+			t.Fatal(err)
+		}
+		attention[state.Phase] = true
+	}
+	for _, phase := range []string{"tool_review", "sandbox", "vm_starting", "vm_installing_packages", "installing_python_packages", "tools"} {
+		if !attention[phase] {
+			t.Errorf("short chat did not publish %q: %v", phase, attention)
+		}
+	}
+	if attention["vm_preparing_tools"] {
+		t.Fatal("guest command output changed the startup phase")
+	}
+}
+
 func addTestChatUser(t *testing.T, engine *Engine, name string) string {
 	t.Helper()
 	user := domain.User{ID: NewID(), Username: name, Name: name, Role: domain.RoleUser}

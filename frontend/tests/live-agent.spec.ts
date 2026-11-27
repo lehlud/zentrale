@@ -12,6 +12,71 @@ import {
 } from "./fixtures/visual-data";
 import type { LiveResponse } from "../src/live-responses";
 
+test("short chats show tool and VM phases while waiting for model text", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem("zentrale-locale", "de"));
+  const chat = { ...agent, id: "short-chat", projectId: "", status: "running" };
+  let phase = "model";
+  let socket: WebSocketRoute | undefined;
+  const resolve = (query: string) => {
+    if (query.includes("status{"))
+      return { status: { authenticated: true, needsSetup: false } };
+    if (query.includes("shortChat(id:")) return { shortChat: chat };
+    if (isTranscriptQuery(query)) {
+      return {
+        agent: chat,
+        agentRunState: { agentId: chat.id, phase, error: "", hostKey: {} },
+        messages: [],
+        jobs: [],
+        questions: [],
+      };
+    }
+    return config;
+  };
+  const push = await installPushFixture(page, resolve, (connection) => {
+    socket = connection;
+  });
+  await page.route("**/graphql", async (route) => {
+    const { query } = route.request().postDataJSON();
+    await route.fulfill({ json: { data: resolve(query) } });
+  });
+  await page.goto(`/#/chats/${chat.id}`);
+  const status = page
+    .getByRole("region", { name: "Agentenverlauf" })
+    .getByRole("status");
+  await expect(status).toHaveText("Antwort wird vorbereitet …");
+  const draft: LiveResponse = {
+    id: "chat-draft",
+    agentId: chat.id,
+    text: "",
+    revision: 0,
+    snapshot: true,
+    status: "running",
+    createdAt: new Date().toISOString(),
+  };
+  socket!.send(
+    JSON.stringify({
+      id: 0,
+      type: "response",
+      agentId: chat.id,
+      data: JSON.stringify(draft),
+    }),
+  );
+  for (const [step, label] of [
+    ["searching_shares", "Dateifreigabe wird durchsucht …"],
+    ["tool_review", "Auto-Approver prüft den Werkzeugaufruf …"],
+    ["vm_installing_packages", "Fedora-Pakete werden installiert …"],
+    ["installing_python_packages", "Python-Umgebung wird eingerichtet …"],
+    ["running_code", "Code wird ausgeführt …"],
+    ["model", "Antwort wird vorbereitet …"],
+  ]) {
+    phase = step;
+    await push.push();
+    await expect(status).toHaveText(label);
+  }
+});
+
 test("restart diagnostics do not mask work or announce a resume as completed", async ({
   page,
 }) => {
