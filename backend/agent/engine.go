@@ -209,6 +209,7 @@ func New(store *datastore.Instance, providerClient providers.Client) (*Engine, e
 	}
 	slog.Info("Zentrale recovery complete", "phases_ms", timings)
 	engine.workers.Go(engine.superviseVMs)
+	engine.workers.Go(engine.prewarmLocalShortChatBase)
 	engine.workers.Go(engine.cleanupDeletedVMs)
 	engine.workers.Go(engine.superviseDaemonStops)
 	engine.workers.Go(func() { hostedClient.RecoverPredictions(ctx) })

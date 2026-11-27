@@ -123,5 +123,11 @@ func (engine *Engine) SaveShortChatSettings(settings ShortChatSettings) (ShortCh
 		}
 	}
 
-	return settings, engine.Store.SetSetting("short_chat_execution", JSON(settings))
+	if err := engine.Store.SetSetting("short_chat_execution", JSON(settings)); err != nil {
+		return settings, err
+	}
+	if settings.Local {
+		engine.workers.Go(engine.prewarmLocalShortChatBase)
+	}
+	return settings, nil
 }

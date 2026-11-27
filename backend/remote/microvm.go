@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"slices"
@@ -141,21 +142,19 @@ func microVMConfiguration(machines ...domain.Machine) string {
 // Compress the embedded program once. Per-machine options travel separately so
 // interactive commands do not repeat the compression or exceed the SSH limit.
 var compressedMicroVMBundle = sync.OnceValue(func() string {
-	bundle, err := json.Marshal(map[string]any{
-		"runner":         managedMicroVMRunner,
-		"projectScratch": projectScratchScript,
-		"memory":         managedMicroVMMemory,
-		"configuration":  json.RawMessage(microVMConfiguration()),
-	})
-	if err != nil {
-		panic(err)
-	}
+	// The trusted text files contain no NUL. Keeping their original bytes
+	// avoids JSON escaping the embedded Python sources before compression.
+	bundle := strings.Join([]string{
+		managedMicroVMRunner, projectScratchScript, managedMicroVMMemory,
+		managedMicroVMGuest, managedMicroVMInit, managedMicroVMStreams,
+		terminalRelay, managedVFIO, managedNVIDIA, string(managedMicroVMRelease),
+	}, "\x00")
 	var compressed bytes.Buffer
 	writer, err := xz.WriterConfig{DictCap: 1 << 20}.NewWriter(&compressed)
 	if err != nil {
 		panic(err)
 	}
-	_, _ = writer.Write(bundle)
+	_, _ = io.WriteString(writer, bundle)
 	_ = writer.Close()
 	return pythonBase85(compressed.Bytes())
 })
@@ -177,14 +176,15 @@ except ImportError:
     def decompress(data):
         return subprocess.check_output(['/usr/bin/xz','-dc'],input=data)
 ` +
-		"bundle=json.loads(decompress(base64.b85decode('" + compressedMicroVMBundle() + "')))\n" +
-		"bundle['configuration'].update(json.loads(base64.b85decode('" + pythonBase85(options) + "')))\n" +
-		`for name, key in [('project_scratch', 'projectScratch'), ('memory', 'memory')]:
+		"runner,scratch,memory,guest,init,streams,terminal,vfio,nvidia,release=decompress(base64.b85decode('" + compressedMicroVMBundle() + "')).decode().split(chr(0))\n" +
+		"configuration=json.loads(base64.b85decode('" + pythonBase85(options) + "'))\n" +
+		`configuration.update(release=json.loads(release),guest=guest,init=init,streams=streams,terminal=terminal,vfio=vfio,nvidia=nvidia)
+for name, source in [('project_scratch', scratch), ('memory', memory)]:
     module = types.ModuleType(name)
     sys.modules[name] = module
-    exec(compile(bundle[key], '<zentrale-' + name + '>', 'exec'), module.__dict__)
-sys.argv.insert(2,json.dumps(bundle['configuration']))
-exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))`
+    exec(compile(source, '<zentrale-' + name + '>', 'exec'), module.__dict__)
+sys.argv.insert(2,json.dumps(configuration))
+exec(compile(runner,'<zentrale-microvm>','exec'))`
 }
 
 func PrepareProjectScratchCommand(directory string) string {
@@ -264,8 +264,9 @@ func microVMAction(
 			"workspace":          execution.Workspace,
 			"temporaryDirectory": execution.TemporaryDirectory,
 
-			"command": execution.Command,
-			"network": execution.Network,
+			"command":         execution.Command,
+			"network":         execution.Network,
+			"shortChatScript": execution.shortChatScript,
 
 			"guestRoot":      execution.GuestRoot,
 			"tooling":        execution.Tooling,

@@ -18,12 +18,13 @@ type Execution struct {
 	Workspace          string
 	TemporaryDirectory string
 
-	Command        string
-	Network        bool
-	OutsideSandbox bool
-	GuestRoot      bool
-	Tooling        bool // Trusted file harness; never supplied by a model.
-	CheckWorkspace bool // Check the guest's workspace export before retrying a stalled checkout.
+	Command         string
+	Network         bool
+	OutsideSandbox  bool
+	GuestRoot       bool
+	Tooling         bool   // Trusted file harness; never supplied by a model.
+	CheckWorkspace  bool   // Check the guest's workspace export before retrying a stalled checkout.
+	shortChatScript string // Script passed by file descriptor into the inner Bubblewrap sandbox.
 
 	ProtocolIO       bool // Persistent stdin configured by the harness for MCP or interactive commands.
 	TTY              bool

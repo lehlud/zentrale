@@ -46,22 +46,16 @@ func TestManagedVMSSHCommandFitsShellArgumentAndPreservesConfiguration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bundle struct {
-		Runner        string `json:"runner"`
-		Memory        string `json:"memory"`
-		Configuration struct {
-			NVIDIA string `json:"nvidia"`
-		} `json:"configuration"`
-	}
-	if err := json.Unmarshal(payload, &bundle); err != nil {
-		t.Fatal(err)
-	}
-	if bundle.Runner != managedMicroVMRunner || bundle.Memory != managedMicroVMMemory || bundle.Configuration.NVIDIA != managedNVIDIA {
+	if !reflect.DeepEqual(strings.Split(string(payload), "\x00"), []string{
+		managedMicroVMRunner, projectScratchScript, managedMicroVMMemory,
+		managedMicroVMGuest, managedMicroVMInit, managedMicroVMStreams,
+		terminalRelay, managedVFIO, managedNVIDIA, string(managedMicroVMRelease),
+	}) {
 		t.Fatal("compression changed trusted runner or machine configuration")
 	}
 	// Run the actual bootstrap and inspect the runtime configuration before
 	// executing the runner. The per-machine options must survive shell quoting.
-	runner := Quote(`exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))`)
+	runner := Quote(`exec(compile(runner,'<zentrale-microvm>','exec'))`)
 	inspect := strings.Replace(command, runner[1:len(runner)-1], "print(sys.argv[2])", 1)
 	if inspect == command {
 		t.Fatal("runner bootstrap was not found")

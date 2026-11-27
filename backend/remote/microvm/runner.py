@@ -817,7 +817,7 @@ def virtme_arguments(runtime, kernel, invocation, request):
                 + str(invocation / ("storage-" + str(index))),
             ]
         )
-    if not request.get("provision") and not request.get("editorPort"):
+    if (not request.get("provision") or request.get("prepareTools")) and not request.get("editorPort"):
         arguments.extend(["--net", "user"])
     # Order 2 covers 16 KiB blocks, including fragmented free memory that
     # Linux's default 2 MiB reporting granularity can leave resident in QEMU.
@@ -1069,14 +1069,26 @@ def terminate_vm(child, control):
     reap_vm_group(child)
 
 
-def provision_base(cache, configuration, runtime, kernel):
+def fedora_base_path(cache, artifact, prepare_tools=False):
+    profile = "-local-tools" if prepare_tools else ""
+    return cache / ("fedora-" + artifact["sha256"] + profile + ".raw")
+
+
+def provision_base(cache, configuration, runtime, kernel, prepare_tools=False):
     artifact = configuration["release"]["fedora"]
-    base = cache / ("fedora-" + artifact["sha256"] + ".raw")
+    base = fedora_base_path(cache, artifact, prepare_tools)
     if base.is_file():
         return base
     archive = install_fedora(cache, artifact)
 
-    with tempfile.TemporaryDirectory(prefix="fedora-build-", dir=cache) as temporary:
+    prefix = "fedora-tools-build-" if prepare_tools else "fedora-build-"
+    if prepare_tools:
+        # The caller holds the build lock. Reclaim partial disks if the
+        # server lost power or was stopped while warming the template.
+        for unfinished in cache.glob(prefix + "*"):
+            if unfinished.is_dir() and not unfinished.is_symlink():
+                shutil.rmtree(unfinished)
+    with tempfile.TemporaryDirectory(prefix=prefix, dir=cache) as temporary:
         control = Path(temporary)
         scratch = control / "scratch"
         scratch.mkdir()
@@ -1086,6 +1098,14 @@ def provision_base(cache, configuration, runtime, kernel):
             "provision": True,
             "diskFormat": "raw",
         }
+        if prepare_tools:
+            request.update(
+                prepareTools=True,
+                uid=os.getuid(),
+                gid=os.getgid(),
+                standardTools=configuration["release"].get("tools", {}),
+                csvkitRequirements=configuration["release"].get("csvkitRequirements", []),
+            )
         prepare_control(control, configuration, runtime, request)
         # The guest resolves symlinks in its own filesystem. Put the archive
         # inside the 9p export without copying it on the host's tmpfs.
@@ -1120,7 +1140,7 @@ def provision_base(cache, configuration, runtime, kernel):
                 sys.stdout.flush()
                 sys.stderr.flush()
                 os._exit(status)
-            deadline = time.monotonic() + 90
+            deadline = time.monotonic() + (300 if prepare_tools else 90)
             try:
                 while time.monotonic() < deadline:
                     finished, status = os.waitpid(child, os.WNOHANG)
@@ -1163,7 +1183,7 @@ def bootstrap_failure(cache, control, message, exit_code=None):
     )
 
 
-def ensure_ready(cache, configuration, kernel):
+def ensure_ready(cache, configuration, kernel, base_required=True):
     with (cache / "setup.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         source_release, host_kernel = configuration["release"], kernel
@@ -1199,7 +1219,14 @@ def ensure_ready(cache, configuration, kernel):
                     raise
                 # A mirror may replace packages between index lookup and fetch.
                 # Refresh the complete snapshot so kernel and headers stay paired.
-        base = provision_base(cache, configuration, runtime, kernel)
+        base = None
+        if base_required:
+            if os.environ.get("ZENTRALE_LOCAL_VM_ROOT"):
+                prepared = fedora_base_path(cache, configuration["release"]["fedora"], True)
+                if prepared.is_file():
+                    base = prepared
+            if base is None:
+                base = provision_base(cache, configuration, runtime, kernel)
     return runtime, base, kernel
 
 
@@ -1682,7 +1709,13 @@ def boot_session(scope, configuration, runtime, kernel, disk, execution, identit
                     and capacity >= DEFAULT_RAM + HOTPLUG_BLOCK
                     and supports_hotplug_memory(qemu, kernel)):
                 mode = "hotplug"
+    # Balloon-only QEMU starts with the entire ceiling and makes the guest
+    # wait for its initial shrink. Keep short chats at the baseline on those
+    # hosts. VirtIO-Mem can still grow from the baseline when supported.
+    local_short_chat = bool(os.environ.get("ZENTRALE_LOCAL_VM_ROOT"))
     while mode:
+        if local_short_chat and mode == "balloon":
+            break
         try:
             cpus = vcpus
             if mode == "hotplug" and vcpus > RETRY_BOOT_CPUS and nested_amd_kvm():
@@ -2075,6 +2108,18 @@ def main():
         # Machine selection has no project context. Build the runtime only
         # when a cold project VM can first move its scratch off a full tmpfs.
         print("microvm", flush=True)
+        return 0
+
+    if action == "warm-local-base":
+        if not os.environ.get("ZENTRALE_LOCAL_VM_ROOT"):
+            raise RuntimeError("image preparation requires a local short-chat VM cache")
+        cache = cache_directory()
+        artifact = configuration["release"]["fedora"]
+        if not fedora_base_path(cache, artifact, True).is_file():
+            runtime, _, kernel = ensure_ready(cache, configuration, prerequisites(configuration), base_required=False)
+            with (cache / "local-tools.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                provision_base(cache, configuration, runtime, kernel, prepare_tools=True)
         return 0
 
     if action in ("stage", "prepare", "reset", "remove", "stop", "info"):

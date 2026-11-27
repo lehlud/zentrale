@@ -146,7 +146,7 @@ func (engine *Engine) shortChatTools(chatID string) []providers.Tool {
 	}
 	if settings, err := engine.ShortChatSettings(); err == nil && settings.enabled() {
 		tools = append(tools, providers.Tool{
-			Name: "run_code", Description: "Run a shell command in this chat's workspace. Use only when needed. Starts the isolated environment on demand, without internet access. Selected files are available for this command under /tmp/attachments/<id>/; list the directory to find each filename.",
+			Name: "run_code", Description: "Run a shell script in this chat's isolated workspace without internet access. Combine related steps in one call. /tmp persists within this chat. Save deliverable files in the current working directory. Selected attachments are available only for this call under /tmp/attachments/<id>/.",
 			Schema: objectSchema(map[string]any{
 				"command":       textProperty("Shell command"),
 				"justification": textProperty("Why execution is needed for the user's request"),
@@ -202,6 +202,9 @@ func (engine *Engine) shortChatTool(ctx context.Context, chat domain.Agent, call
 			return nil, errors.New("short-chat execution is disabled")
 		}
 		command := stringArg(call.Arguments, "command")
+		if err := validateShortChatCommand(command); err != nil {
+			return nil, err
+		}
 		ids, err := shortChatAttachmentIDs(call.Arguments["attachmentIds"])
 		if err != nil {
 			return nil, err

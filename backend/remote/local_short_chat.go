@@ -77,6 +77,18 @@ func LocalShortChatConnection(installationID string) (*Connection, domain.Machin
 	return connection, machine, nil
 }
 
+// PrewarmLocalShortChatBase prepares the shared Fedora tool image without a
+// user workspace or any chat data. A running user VM does not depend on it.
+func PrewarmLocalShortChatBase(ctx context.Context, installationID string) error {
+	connection, machine, err := LocalShortChatConnection(installationID)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	_, err = runLocalMicroVM(ctx, connection, machine, "warm-local-base", nil, "")
+	return err
+}
+
 func localVMEnvironment(connection *Connection) []string {
 	return []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",

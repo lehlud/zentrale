@@ -28,6 +28,25 @@ type shortChatVMPlacement struct {
 
 const shortChatVMIdleTime = 3 * time.Minute
 
+func validateShortChatCommand(command string) error {
+	if strings.TrimSpace(command) == "" || strings.ContainsRune(command, '\x00') {
+		return errors.New("a short-chat command must be non-empty and contain no NUL bytes")
+	}
+	return nil
+}
+
+func (engine *Engine) prewarmLocalShortChatBase() {
+	settings, err := engine.ShortChatSettings()
+	if err != nil || !settings.Local {
+		return
+	}
+	ctx, cancel := context.WithTimeout(engine.ctx, 6*time.Minute)
+	defer cancel()
+	if err := remote.PrewarmLocalShortChatBase(ctx, engine.installationID); err != nil && ctx.Err() == nil {
+		slog.Warn("could not prepare the local short-chat base image", "error", err)
+	}
+}
+
 // RunShortChatCommand provisions only when asked to execute a command. The
 // target IDs must come from administrator settings, never from tool arguments.
 func (engine *Engine) RunShortChatCommand(
@@ -39,8 +58,8 @@ func (engine *Engine) RunShortChatCommand(
 	if (machineID == "") == (poolID == "") {
 		return "", errors.New("short-chat execution requires one configured machine or pool")
 	}
-	if strings.TrimSpace(command) == "" || len(command) > 16<<10 || strings.ContainsRune(command, '\x00') {
-		return "", errors.New("a short-chat command must be non-empty and at most 16 KiB")
+	if err := validateShortChatCommand(command); err != nil {
+		return "", err
 	}
 	if err := engine.verifyShortChatVMOwner(chat); err != nil {
 		return "", err
@@ -126,6 +145,10 @@ func (engine *Engine) RunShortChatCommand(
 	}
 	output, err := remote.RunShortChatVM(ctx, connection, machine, userScope, chatDirectory, command, input)
 	if err != nil {
+		var commandError *remote.ShortChatCommandError
+		if errors.As(err, &commandError) {
+			return "", commandError
+		}
 		return "", shortChatVMFailure(ctx)
 	}
 	return output, nil

@@ -83,6 +83,16 @@ def login_shell(root, guest_root, tooling):
     return "/usr/bin/fish"
 
 
+def script_descriptor(script):
+    descriptor = os.memfd_create("zentrale-command", 0)
+    with os.fdopen(descriptor, "wb", closefd=False) as output:
+        output.write(script.encode())
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    os.fchmod(descriptor, 0o444)
+    os.set_inheritable(descriptor, True)
+    return descriptor
+
+
 def execute(request, session, command):
     tooling = request.get("tooling", False)
     root = "/run/zentrale-tools" if tooling else FEDORA
@@ -105,11 +115,7 @@ def execute(request, session, command):
         mount("/sys/fs/cgroup/zentrale", cgroups + "/zentrale", flags=4096)
         Path("/sys/fs/cgroup/zentrale/commands/cgroup.procs").write_text("0")
 
-    descriptor = os.memfd_create("zentrale-command", 0)
-    os.write(descriptor, command.encode())
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    os.fchmod(descriptor, 0o444)
-    os.set_inheritable(descriptor, True)
+    descriptor = script_descriptor(command)
 
     guest_root = request.get("guestRoot", False) and not tooling
     environment = {
@@ -126,6 +132,8 @@ def execute(request, session, command):
     }
     if request.get("tty"):
         environment["TERM"] = "xterm-256color"
+    if request.get("shortChatScript"):
+        environment["ZENTRALE_SHORT_CHAT_SCRIPT_FD"] = str(script_descriptor(request["shortChatScript"]))
 
     if tooling:
         os.chroot(root)

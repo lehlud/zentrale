@@ -3,12 +3,15 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lehlud/zentrale/domain"
@@ -17,6 +20,18 @@ import (
 var shortChatScopePattern = regexp.MustCompile(`^shortchat-[a-f0-9]{56}$`)
 var shortChatDirectoryPattern = regexp.MustCompile(`^chat-[a-f0-9]{64}$`)
 var shortChatInstallationPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+const shortChatExitMarker = "\nZENTRALE_SHORT_CHAT_EXIT "
+
+// ShortChatCommandError contains output from the isolated shell only.
+type ShortChatCommandError struct {
+	ExitCode int
+	Output   string
+}
+
+func (failure *ShortChatCommandError) Error() string {
+	return fmt.Sprintf("command exited with status %d\n%s", failure.ExitCode, failure.Output)
+}
 
 // ShortChatMachine validates that the machine can use only the managed runner,
 // then removes capabilities that must not be exposed to a short chat.
@@ -92,17 +107,13 @@ func RunShortChatVM(
 		return "", err
 	}
 
-	if attachments != nil {
-		command = "umask 077; mkdir /tmp/attachments && " +
-			"tar -xf - -C /tmp/attachments --no-same-owner --no-same-permissions || exit 78\n" + command
-	}
-
 	execution := Execution{
 		AgentID:            EditorScopeID(userScope, ""),
 		ProjectID:          userScope,
 		Workspace:          workspace,
 		TemporaryDirectory: temporary,
-		Command:            shortChatGuestCommand(chatDirectory, command),
+		Command:            shortChatGuestCommand(chatDirectory, attachments != nil),
+		shortChatScript:    command,
 	}
 	if connection.localShortChatRoot != "" {
 		invocation, err := stageMicroVM(ctx, connection, machine, execution)
@@ -114,7 +125,7 @@ func RunShortChatVM(
 		}
 		commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return runLocalMicroVM(commandContext, connection, machine, "run", attachments, invocation)
+		return shortChatCommandResult(runLocalMicroVM(commandContext, connection, machine, "run", attachments, invocation))
 	}
 	wrapped, level, err := Sandbox(ctx, connection, machine, execution)
 	if err != nil {
@@ -126,7 +137,29 @@ func RunShortChatVM(
 
 	commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return RunPipe(commandContext, connection, wrapped, attachments)
+	return shortChatCommandResult(RunPipe(commandContext, connection, wrapped, attachments))
+}
+
+func shortChatCommandResult(output string, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	index := strings.LastIndex(output, shortChatExitMarker)
+	if index < 0 {
+		return output, nil
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(output[index+len(shortChatExitMarker):]))
+	if err != nil || code < 0 || code > 255 {
+		return output, nil
+	}
+	output = output[:index]
+	if code == 0 {
+		return output, nil
+	}
+	if len(output) > 4096 {
+		output = strings.ToValidUTF8(output[len(output)-4096:], "�")
+	}
+	return "", &ShortChatCommandError{ExitCode: code, Output: strings.TrimSpace(output)}
 }
 
 func prepareShortChatWorkspace(ctx context.Context, connection *Connection, workspace, temporary string) error {
@@ -153,16 +186,31 @@ if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE
 	return err
 }
 
-func shortChatGuestCommand(chatDirectory, command string) string {
+func shortChatGuestCommand(chatDirectory string, attachments bool) string {
 	directory := Quote("/home/zentrale/project/" + chatDirectory)
+	const scratch = ".zentrale-tmp"
+	script := ""
+	if attachments {
+		script = "umask 077; tar -xf - -C /tmp/attachments --no-same-owner --no-same-permissions || exit 78\n"
+	}
+	// A successful launcher supplies the exit status after the inner shell
+	// exits. Host and outer guest errors never enter the model's tool output.
+	script += "/bin/sh /run/zentrale-command 2>&1\n" +
+		"printf '" + shortChatExitMarker + "%s\\n' \"$?\""
 	return "umask 077\n" +
 		"if [ -L " + directory + " ]; then exit 78; fi\n" +
 		"mkdir -p -- " + directory + " && cd -- " + directory + " || exit 78\n" +
 		"[ \"$(pwd -P)\" = " + directory + " ] || exit 78\n" +
+		"[ ! -L " + scratch + " ] && mkdir -p -- " + scratch + " || exit 78\n" +
+		"[ ! -L " + scratch + "/attachments ] || exit 78\n" +
 		"exec /usr/bin/bwrap --unshare-all --die-with-parent --new-session --clearenv " +
-		"--ro-bind /usr /usr --ro-bind /etc /etc --symlink usr/bin /bin --symlink usr/sbin /sbin " +
-		"--symlink usr/lib /lib --symlink usr/lib64 /lib64 --dev /dev --proc /proc --tmpfs /tmp " +
+		"--ro-bind /usr /usr --ro-bind /etc /etc --ro-bind-try /opt/zentrale /opt/zentrale " +
+		"--symlink usr/bin /bin --symlink usr/sbin /sbin " +
+		"--symlink usr/lib /lib --symlink usr/lib64 /lib64 --dev /dev --proc /proc " +
 		"--bind . /home/zentrale/project --chdir /home/zentrale/project " +
-		"--setenv HOME /home/zentrale --setenv PATH /usr/bin:/bin --setenv TMPDIR /tmp " +
-		"-- /bin/sh -c " + Quote(command) + "\n"
+		"--bind " + scratch + " /tmp --tmpfs /tmp/attachments " +
+		"--tmpfs /home/zentrale/project/" + scratch + " " +
+		"--ro-bind-data \"$ZENTRALE_SHORT_CHAT_SCRIPT_FD\" /run/zentrale-command " +
+		"--setenv HOME /home/zentrale --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv TMPDIR /tmp " +
+		"-- /bin/sh -c " + Quote(script) + "\n"
 }

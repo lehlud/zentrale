@@ -21,7 +21,7 @@ func TestShortChatVMLazyAndOwnerScoped(t *testing.T) {
 	var calls atomic.Int32
 	var lock sync.Mutex
 	var staged []map[string]any
-	const guestCommand = "printf 'from guest'"
+	guestCommand := "# " + strings.Repeat("x", 140<<10) + "\nprintf 'from guest'"
 
 	var plainTurns atomic.Int32
 	plainProvider := providerFunction(func(ctx context.Context, request providers.Request) (providers.Result, error) {
@@ -132,7 +132,7 @@ func TestShortChatVMLazyAndOwnerScoped(t *testing.T) {
 		}
 		guestScript, _ := execution["command"].(string)
 		if !strings.Contains(guestScript, "/home/zentrale/project/chat-"+shortChatDigest(scope, chat.ID)) ||
-			!strings.Contains(guestScript, "from guest") {
+			strings.Contains(guestScript, "from guest") || execution["shortChatScript"] != guestCommand {
 			t.Errorf("command uses wrong working directory: %s", guestScript)
 		}
 	}

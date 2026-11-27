@@ -280,11 +280,12 @@ def prepare_fedora(request):
             ],
             check=True,
         )
-        # Finish the ext4 transaction before acknowledging a usable base image.
-        if LIBC.umount(FEDORA.encode()) != 0:
-            raise OSError(ctypes.get_errno(), "unmount Fedora base image")
-        (Path(CONTROL) / "provisioned").touch()
-        return
+        if not request.get("prepareTools"):
+            # Finish the ext4 transaction before acknowledging a usable base image.
+            if LIBC.umount(FEDORA.encode()) != 0:
+                raise OSError(ctypes.get_errno(), "unmount Fedora base image")
+            (Path(CONTROL) / "provisioned").touch()
+            return
 
     # Mount the persistent Fedora disk into the task filesystem view.
     root = Path(FEDORA)
@@ -969,7 +970,7 @@ def serve_jobs(request):
             time.sleep(0.1)
         report_startup_phase("vm_preparing_guest")
     prepare_fedora(request)
-    if request.get("provision"):
+    if request.get("provision") and not request.get("prepareTools"):
         return
     nvidia = None
     if request.get("gpuBackend") == "nvidia":
@@ -983,6 +984,10 @@ def serve_jobs(request):
     prepare_user_shell(Path(FEDORA))
     prepare_standard_binaries(Path(FEDORA), request.get("standardTools", {}))
     prepare_csvkit(Path(FEDORA), request.get("csvkitRequirements", []))
+    if request.get("prepareTools"):
+        os.sync()
+        (Path(CONTROL) / "provisioned").touch()
+        return
     prepare_guest_administration(Path(FEDORA), request)
     prepare_tooling(request)
     proof = {
