@@ -110,6 +110,14 @@ func (engine *Engine) SubmitInputWithAttachments(agentID, id, text, mode string,
 		return input, err
 	}
 
+	engine.wakeAcceptedInput(record, input)
+	return input, nil
+}
+
+// Caller holds configMu. A durable receipt can always be resumed or recovered,
+// even if there is an error starting the worker just after the commit.
+func (engine *Engine) wakeAcceptedInput(record domain.Agent, input domain.AgentInput) {
+	agentID := record.ID
 	engine.Emit("input", agentID, input)
 	engine.mu.Lock()
 	active := engine.running[agentID] != nil
@@ -117,22 +125,19 @@ func (engine *Engine) SubmitInputWithAttachments(agentID, id, text, mode string,
 	engine.stopRequested[agentID] = false
 	engine.mu.Unlock()
 
-	if mode == "steer" || !active || wasStopped {
-		if !active {
-			if err := engine.resumeBlockedInputs(agentID); err != nil {
-				engine.setRunState(agentID, "error", err)
-				return input, nil
-			}
-		}
-
-		// A committed receipt remains accepted if starting a worker fails. It can
-		// be resumed from the UI or recovered after a service restart.
-		if err := engine.startOrWakeAgent(record); err != nil {
+	if input.Mode != "steer" && active && !wasStopped {
+		return
+	}
+	if !active {
+		if err := engine.resumeBlockedInputs(agentID); err != nil {
 			engine.setRunState(agentID, "error", err)
+			return
 		}
 	}
 
-	return input, nil
+	if err := engine.startOrWakeAgent(record); err != nil {
+		engine.setRunState(agentID, "error", err)
+	}
 }
 
 // Caller holds configMu. Steering is delivered between whole tool batches.
@@ -195,6 +200,7 @@ func (engine *Engine) deliverInputs(agentID string, allowQueued bool) (bool, err
 			ID:          input.ID,
 			AgentID:     agentID,
 			Role:        "user",
+			LineageID:   input.LineageID,
 			Content:     input.Text,
 			Attachments: input.Attachments,
 			CreatedAt:   input.DeliveredAt,

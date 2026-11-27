@@ -49,6 +49,7 @@ for (const variant of [
       const index = sequence++;
       messages.push({
         id: `detail-${index}`,
+        lineageId: `detail-${index}`,
         agentId: agent.id,
         role,
         content,

@@ -81,6 +81,15 @@ func rasterMIME(data []byte) string {
 // UploadAttachment persists a bounded stream on Zentrale without contacting the
 // VM. The agent stages referenced uploads when preparing a model request.
 func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _ string, source io.Reader) (domain.Attachment, error) {
+	if strings.HasPrefix(id, domain.DeliveredAttachmentPrefix) {
+		return domain.Attachment{}, errors.New("invalid attachment ID")
+	}
+	return engine.uploadAttachment(ctx, agentID, id, name, -1, source)
+}
+
+// A framed remote stream also provides its expected size, so an incomplete
+// transfer is never persisted as a delivered attachment.
+func (engine *Engine) uploadAttachment(ctx context.Context, agentID, id, name string, expectedSize int64, source io.Reader) (domain.Attachment, error) {
 	var result domain.Attachment
 
 	if !inputIDPattern.MatchString(id) {
@@ -117,6 +126,9 @@ func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _
 	if len(data) > MaxAttachmentBytes {
 		return result, errors.New("attachment exceeds 25 MiB")
 	}
+	if expectedSize >= 0 && int64(len(data)) != expectedSize {
+		return result, io.ErrUnexpectedEOF
+	}
 
 	// Revalidate while serializing with agent/project deletion. Neither the
 	// body read nor any VM work belongs under this lock.
@@ -135,7 +147,8 @@ func (engine *Engine) UploadAttachment(ctx context.Context, agentID, id, name, _
 		return result, errAgentRemoving
 	}
 
-	if current, err := engine.UserAttachmentTarget(agentID); err != nil || current.ProjectID != record.ProjectID {
+	if current, err := engine.UserAttachmentTarget(agentID); err != nil ||
+		current.ProjectID != record.ProjectID || current.ChatOwnerID != record.ChatOwnerID {
 		return result, errors.New("attachment scope no longer exists")
 	}
 
@@ -274,6 +287,22 @@ func (engine *Engine) AttachmentImage(agentID, id string) (domain.Attachment, []
 	if attachment.AgentID != agentID || attachment.ID != id || attachment.ProjectID != record.ProjectID || rasterMIME(data) == "" || rasterMIME(data) != attachment.MimeType {
 		return attachment, nil, errors.New("not a raster image in this scope")
 	}
+	return attachment, data, nil
+}
+
+func (engine *Engine) DeliveredAttachment(agentID, id string) (domain.Attachment, []byte, error) {
+	unavailable := errors.New("delivered file not found in this chat")
+	record, err := engine.UserAttachmentTarget(agentID)
+	if err != nil || record.ChatOwnerID == "" || !strings.HasPrefix(id, domain.DeliveredAttachmentPrefix) {
+		return domain.Attachment{}, nil, unavailable
+	}
+
+	attachment, data, err := engine.Store.Attachment(agentID, id)
+	if err != nil || attachment.AgentID != agentID || attachment.ID != id || attachment.ProjectID != "" ||
+		attachment.Size != int64(len(data)) || len(data) > MaxAttachmentBytes {
+		return domain.Attachment{}, nil, unavailable
+	}
+
 	return attachment, data, nil
 }
 

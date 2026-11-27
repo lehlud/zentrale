@@ -232,7 +232,8 @@ test("title-only notices fit their text and center the title between the control
   expect(geometry.height).toBeLessThan(60);
   expect(geometry.top).toBeLessThan(50);
   expect(geometry.right).toBeCloseTo(1264, 0);
-  expect(geometry.closeWidth).toBeGreaterThanOrEqual(44);
+  expect(geometry.closeWidth).toBeGreaterThanOrEqual(24);
+  expect(geometry.closeWidth).toBeLessThan(40);
   expect(geometry.centerOffsets.every((offset) => Math.abs(offset) < 2)).toBe(
     true,
   );

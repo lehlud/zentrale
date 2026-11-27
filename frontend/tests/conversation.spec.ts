@@ -51,6 +51,7 @@ for (const variant of [
       extra: Partial<Message> = {},
     ): Message => ({
       id: `chat-${sequence}`,
+      lineageId: `chat-${sequence}`,
       agentId: agent.id,
       role,
       content,

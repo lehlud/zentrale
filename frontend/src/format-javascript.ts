@@ -1,3 +1,5 @@
+import FormatterWorker from "./javascript-format.worker?worker";
+
 type Request = {
   source: string;
   resolve: (text: string) => void;
@@ -24,10 +26,7 @@ function stop() {
 
 function formatter() {
   if (worker) return worker;
-  const created = new Worker(
-    new URL("./javascript-format.worker.ts", import.meta.url),
-    { type: "module" },
-  );
+  const created = new FormatterWorker();
   worker = created;
   created.onmessage = (event: MessageEvent<{ id: number; text: string }>) => {
     if (worker !== created) return;

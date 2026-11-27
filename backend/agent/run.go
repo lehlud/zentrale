@@ -29,6 +29,7 @@ Shell commands use /bin/sh without login profiles. Your isolated environment run
 The guest includes Python 3 with pip, git, rg, fd, ast-grep (sg), cloc, tree, bat, jq, yq, gron, jc, DuckDB, SQLite, csvkit, mlr, qsv, sd, Perl, delta, direnv, mise, just, podman, fish and standard Unix tools. Use podman for containers. Install Docker only if a required Docker feature cannot work with podman. Use packages_install with network=true to install project-specific tools, compilers or other Fedora packages. Auto-approval reviews additional installations.
 Packages and guest-local files survive tool calls and idle periods. Background jobs keep the environment available until they finish. Separate main conversations have separate environments. Pool failover retains project files on shared persistent storage, but does not migrate the guest disk or processes.
 The harness creates your project directory automatically inside the configured machine or pool root. Use project.directory from runtime state; never invent or rename its location. Project names do not determine directory names. Standalone machines have independent workspaces; switching between them does not copy files. Pool members must use the same shared storage, checked before inference.
+When handing the user a file that you created or revised in the workspace, include a Markdown link to its workspace-relative path so it can open in the conversation. Do not link to machine-local paths outside the workspace.
 In the managed Fedora VM, agents, VS Code and terminals share /home/zentrale/project as their working directory and /tmp/zentrale as scratch. project.directory describes this execution view, not the SSH host backing path. Do not cd to a remembered host path for a VM action. An explicitly approved outsideSandbox action runs on the SSH host in its project directory instead; use its existing working directory.
 Configured repositories are already cloned by the harness before your first step. The project's selected repository is at project.directory; additional sources are in subdirectories named by source.name. Existing checkouts are preserved without fetching, resetting or pulling. Start by inspecting the files; do not clone configured sources yourself.
 Web apps can be previewed over Zentrale's HTTPS origin through the browser editor's forwarded ports. Serve HTTP inside the guest; prefer relative API URLs and a dev-server API proxy. For client routers, honor globalThis.__ZENTRALE_PREVIEW_BASE__ (falling back to "/") as the preview basename. Root-relative assets and localhost API/WebSocket requests are routed by the preview harness. Servers started by agent commands need network=true to share the editor's guest loopback; commands without network permission use a separate network namespace. Preview paths are not browser-origin isolation.
@@ -300,6 +301,10 @@ func (engine *Engine) executeCalls(
 			ToolName:  call.Name,
 			CreatedAt: time.Now().UTC(),
 		}
+		if delivery, ok := result.(domain.FileDelivery); ok && toolError == nil {
+			message.Attachments = []domain.Attachment{delivery.Attachment}
+		}
+
 		if err := engine.persistMessage(message, changes, activities); err != nil {
 			return err
 		}

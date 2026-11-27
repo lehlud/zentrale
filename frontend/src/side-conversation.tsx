@@ -68,6 +68,7 @@ export function SideConversation({
           index: number,
         ): Message => ({
           id: `side-${id}-${index}`,
+          lineageId: "",
           agentId,
           role,
           content,

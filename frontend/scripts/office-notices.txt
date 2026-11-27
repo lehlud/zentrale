@@ -1,0 +1,12 @@
+Zentrale's browser viewer uses the CryptPad build of Euro-Office, based on
+the original ONLYOFFICE work. The upstream copyright and license notices
+in the editor, fonts and JavaScript assets are retained.
+
+Source of the distributed editor (AGPL-3.0-or-later):
+https://github.com/cryptpad/onlyoffice-editor/tree/v9.3.2%2B3
+Source of the browser converter:
+https://github.com/cryptpad/onlyoffice-x2t-wasm/tree/v9.3.2%2B4
+Original projects: https://github.com/Euro-Office and https://github.com/ONLYOFFICE
+
+Zentrale's packaging and sandbox bridge:
+https://github.com/lehlud/zentrale/tree/master/frontend/scripts

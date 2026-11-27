@@ -110,6 +110,7 @@ func (server *Server) Schema() (graphql.Schema, error) {
 	queries["usageReport"] = builder.usageReportField()
 	queries["activeProjectIds"] = builder.activeProjectIDsField()
 	builder.shortChatFields(queries, mutations)
+	builder.conversationBranchFields(queries, mutations)
 	builder.accountFields(queries, mutations)
 	builder.modelPresetFields(queries, mutations)
 	builder.projectMemberFields(queries, mutations)

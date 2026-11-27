@@ -132,7 +132,7 @@ export function Notifications() {
             </Toast.Content>
             <Toast.CloseButton
               aria-label={t("Benachrichtigung schließen")}
-              className={`pointer-events-auto static col-start-3 row-start-1 size-11 opacity-100 ${alignment}`}
+              className={`pointer-events-auto static col-start-3 row-start-1 size-8 rounded-full border-0 bg-transparent opacity-100 hover:bg-default ${alignment}`}
             />
           </Toast>
         );

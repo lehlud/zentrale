@@ -23,6 +23,7 @@ const toolLabels: Record<string, string> = {
   python: "Python ausführen",
   read_file: "Datei lesen",
   view_image: "Bild ansehen",
+  deliver_file: "Datei bereitstellen",
   write_file: "Datei schreiben",
   apply_patch: "Dateien ändern",
   code_mode: "Werkzeuge kombinieren",

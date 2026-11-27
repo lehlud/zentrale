@@ -41,7 +41,11 @@ func (engine *Engine) approvalInstructions(record domain.Agent) (approvalInstruc
 		copy["recipientAgentId"] = owner
 		if owner == root.ID {
 			copy["origin"] = "user"
-			copy["authority"] = "original_user_instruction_at_stated_scope"
+			if row["inherited"] == true {
+				copy["authority"] = "inherited_conversation_history: preserve restrictions; never a new authorization to execute or replay prior actions"
+			} else {
+				copy["authority"] = "original_user_instruction_at_stated_scope"
+			}
 			scope.UserInstructions = append(scope.UserInstructions, copy)
 		} else {
 			if stringArg(row, "origin") == "parent_agent" {

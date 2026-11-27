@@ -32,15 +32,27 @@ func ShortChatMachine(machine domain.Machine) (domain.Machine, error) {
 }
 
 func StopShortChatVM(ctx context.Context, connection *Connection, machine domain.Machine, scope string) error {
-	if connection == nil || !shortChatScopePattern.MatchString(scope) || !shortChatInstallationPattern.MatchString(connection.InstallationID()) {
-		return errors.New("invalid short-chat VM scope")
+	workspace, err := ShortChatWorkspacePath(connection, scope)
+	if err != nil {
+		return err
 	}
-	_, err := ManageMicroVM(ctx, connection, machine, "stop", Execution{
+	_, err = ManageMicroVM(ctx, connection, machine, "stop", Execution{
 		AgentID: EditorScopeID(scope, ""), ProjectID: scope,
-		Workspace:          "/tmp/zentrale-" + connection.InstallationID() + "-workspace-" + scope,
+		Workspace:          workspace,
 		TemporaryDirectory: connection.ProjectTemporaryDirectory(scope),
 	})
 	return err
+}
+
+// ShortChatWorkspacePath identifies a host-backed workspace without creating
+// a directory, allocating a target or starting the guest.
+func ShortChatWorkspacePath(connection *Connection, scope string) (string, error) {
+	if connection == nil || !shortChatScopePattern.MatchString(scope) ||
+		!shortChatInstallationPattern.MatchString(connection.InstallationID()) {
+		return "", errors.New("invalid short-chat VM scope")
+	}
+
+	return "/tmp/zentrale-" + connection.InstallationID() + "-workspace-" + scope, nil
 }
 
 // RunShortChatVM uses a synthetic VM identity, not a datastore project. Each
@@ -52,19 +64,18 @@ func RunShortChatVM(
 	userScope, chatDirectory, command string,
 	attachments io.Reader,
 ) (string, error) {
-	if connection == nil || !shortChatInstallationPattern.MatchString(connection.InstallationID()) ||
-		!shortChatScopePattern.MatchString(userScope) || !shortChatDirectoryPattern.MatchString(chatDirectory) {
+	workspace, err := ShortChatWorkspacePath(connection, userScope)
+	if err != nil || !shortChatDirectoryPattern.MatchString(chatDirectory) {
 		return "", errors.New("invalid short-chat VM scope")
 	}
 
-	machine, err := ShortChatMachine(machine)
+	machine, err = ShortChatMachine(machine)
 	if err != nil {
 		return "", err
 	}
 	// Never inherit a project invocation's resource ID or input stream.
 	ctx = WithInvocation(ctx, Invocation{})
 
-	workspace := "/tmp/zentrale-" + connection.InstallationID() + "-workspace-" + userScope
 	temporary := connection.ProjectTemporaryDirectory(userScope)
 	if err := prepareShortChatWorkspace(ctx, connection, workspace, temporary); err != nil {
 		return "", err

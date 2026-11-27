@@ -1,6 +1,7 @@
 frontend/node_modules/
 frontend/dist/
 frontend/public/pdfjs/
+frontend/public/office/
 frontend/*.tsbuildinfo
 backend/zentrale
 *.duckdb

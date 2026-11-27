@@ -24,6 +24,7 @@ import type { Message } from "../src/generated";
 function previousMessages(): Message[] {
   return transcript.messages.slice(0, 3).map((message) => ({
     ...message,
+    lineageId: message.id,
     activities: [],
     attachments: [],
     callId: "",

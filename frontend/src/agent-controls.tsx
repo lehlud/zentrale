@@ -25,6 +25,8 @@ export function AgentControls({
   headerRef,
   focusAgentSwitcher,
   onAgentSwitcherFocus,
+  onExport,
+  branchSwitcher,
   children: headerContent,
 }: {
   current?: Agent;
@@ -36,6 +38,8 @@ export function AgentControls({
   headerRef: RefObject<HTMLDivElement | null>;
   focusAgentSwitcher: boolean;
   onAgentSwitcherFocus: () => void;
+  onExport?: () => void;
+  branchSwitcher?: ReactNode;
   children?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -71,6 +75,7 @@ export function AgentControls({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {branchSwitcher}
           <Link
             href={editorLaunchHref(
               project.id,
@@ -131,6 +136,15 @@ export function AgentControls({
                       onAction={() => setModelAgentId(current.id)}
                     >
                       <Label>{t("Modelle ändern")}</Label>
+                    </Dropdown.Item>
+                  )}
+                  {current && onExport && (
+                    <Dropdown.Item
+                      id="export-html"
+                      className="min-h-11"
+                      onAction={onExport}
+                    >
+                      <Label>{t("Als HTML exportieren")}</Label>
                     </Dropdown.Item>
                   )}
                   <Dropdown.Item

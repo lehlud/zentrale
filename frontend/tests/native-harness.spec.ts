@@ -38,6 +38,7 @@ for (const english of [false, true]) {
       extra: Partial<Message> = {},
     ): Message => ({
       id: `native-${sequence}`,
+      lineageId: `native-${sequence}`,
       agentId: agent.id,
       role,
       content,

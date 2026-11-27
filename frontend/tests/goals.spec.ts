@@ -67,6 +67,7 @@ for (const english of [false, true])
           change: null,
           changes: [],
           ...transcript.messages[0],
+          lineageId: transcript.messages[0].id,
           toolName: transcript.messages[0].toolName ?? "",
           content: goal.objective,
         },
@@ -79,6 +80,7 @@ for (const english of [false, true])
           ...transcript.messages[1],
           toolName: transcript.messages[1].toolName ?? "",
           id: "candidate",
+          lineageId: "candidate",
           content: label(
             "Der Benchmark ist fertig.",
             "The benchmark is finished.",

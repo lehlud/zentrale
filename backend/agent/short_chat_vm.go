@@ -52,9 +52,7 @@ func (engine *Engine) RunShortChatCommand(
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	// The runner accepts at most 80 characters, including its project- prefix.
-	userScope := "shortchat-" + shortChatDigest(engine.installationID, chat.ChatOwnerID)[:56]
-	chatDirectory := "chat-" + shortChatDigest(userScope, chat.ID)
+	userScope, chatDirectory := engine.shortChatWorkspace(chat)
 	entry, _ := engine.vmOperations.LoadOrStore(userScope, &vmOperation{gate: make(chan struct{}, 1)})
 	operation := entry.(*vmOperation)
 	if err := operation.Lock(ctx); err != nil {
@@ -205,10 +203,17 @@ func (engine *Engine) verifyShortChatVMOwner(chat domain.Agent) error {
 	var stored domain.Agent
 	if chat.ChatOwnerID == "" || chat.ProjectID != "" ||
 		engine.Store.Load("agent", chat.ID, &stored) != nil ||
-		stored.ChatOwnerID != chat.ChatOwnerID || stored.ProjectID != "" {
+		stored.ChatOwnerID != chat.ChatOwnerID || stored.ProjectID != "" ||
+		stored.Role != "main" || stored.ParentID != "" {
 		return errors.New("short chat is unavailable")
 	}
 	return engine.activeChatOwner(stored)
+}
+
+func (engine *Engine) shortChatWorkspace(chat domain.Agent) (string, string) {
+	// The runner accepts at most 80 characters, including its project- prefix.
+	scope := "shortchat-" + shortChatDigest(engine.installationID, chat.ChatOwnerID)[:56]
+	return scope, "chat-" + shortChatDigest(scope, chat.ID)
 }
 
 func (engine *Engine) loadShortChatPlacement(ownerID, machineID, poolID string) (shortChatVMPlacement, bool, error) {

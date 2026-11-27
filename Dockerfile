@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
 
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS office-assets
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY frontend/scripts/prepare-office.py frontend/scripts/office-* /src/
+RUN --mount=type=cache,target=/var/cache/office \
+    python3 /src/prepare-office.py /out/office /var/cache/office
+
 FROM node:26-bookworm-slim AS frontend
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -40,6 +48,7 @@ COPY deploy/humanizer/modal_app.py deploy/humanizer/batch_runtime.py /opt/zentra
 COPY --from=backend /out/zentrale /usr/local/bin/zentrale
 COPY --from=backend /out/import-duckdb /usr/local/bin/import-duckdb
 COPY --from=frontend /src/frontend/dist/ ./frontend/
+COPY --from=office-assets /out/office/ ./frontend/office/
 ENV ZENTRALE_VSCODE_CACHE=/data/cache/vscode
 ENV ZENTRALE_MODAL_PYTHON=/opt/zentrale-modal/bin/python ZENTRALE_MODAL_ASSETS=/opt/zentrale-modal-app
 ENV ZENTRALE_DDGS_PYTHON=/opt/zentrale-search/bin/python

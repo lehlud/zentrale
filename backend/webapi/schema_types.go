@@ -108,6 +108,17 @@ func (builder *schemaBuilder) output(goType reflect.Type) graphql.Output {
 	}
 
 	if goType == reflect.TypeFor[domain.Message]() {
+		fields["lineageId"].Resolve = func(params graphql.ResolveParams) (any, error) {
+			if message, ok := params.Source.(map[string]any); ok {
+				if lineage, _ := message["lineageId"].(string); lineage != "" {
+					return lineage, nil
+				}
+				id, _ := message["id"].(string)
+				return id, nil
+			}
+			return "", nil
+		}
+
 		fields["activities"] = &graphql.Field{
 			Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(builder.output(reflect.TypeFor[domain.ToolActivity]())))),
 			Resolve: func(params graphql.ResolveParams) (any, error) {

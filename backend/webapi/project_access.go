@@ -119,7 +119,7 @@ var (
 )
 
 func canSeeProject(user domain.User, project domain.Project) bool {
-	return user.ID != "" && (user.ID == project.Owner() || slices.Contains(project.MemberIDs, user.ID))
+	return project.HasMember(user.ID)
 }
 
 // projectAccess keeps project viewing, changing settings, and starting remote

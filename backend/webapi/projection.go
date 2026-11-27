@@ -45,7 +45,7 @@ func requestedResourceFields(info graphql.ResolveInfo, provider bool) []string {
 		visit(field.SelectionSet)
 	}
 
-	if selected["change"] || selected["changes"] || selected["activities"] {
+	if selected["change"] || selected["changes"] || selected["activities"] || selected["lineageId"] {
 		selected["id"] = true
 	}
 

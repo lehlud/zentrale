@@ -16,6 +16,54 @@
             }
           },
           {
+            "name": "branchMessageId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "branchMessageLineageId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "branchParentId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "branchRootId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "chatNamed",
             "type": {
               "kind": "NON_NULL",
@@ -310,6 +358,18 @@
           },
           {
             "name": "id",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "lineageId",
             "type": {
               "kind": "NON_NULL",
               "name": null,
@@ -4015,6 +4075,18 @@
             }
           },
           {
+            "name": "lineageId",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "role",
             "type": {
               "kind": "NON_NULL",
@@ -4443,6 +4515,14 @@
             "type": {
               "kind": "OBJECT",
               "name": "ProviderLogin",
+              "ofType": null
+            }
+          },
+          {
+            "name": "branchConversation",
+            "type": {
+              "kind": "OBJECT",
+              "name": "Agent",
               "ofType": null
             }
           },
@@ -6508,6 +6588,25 @@
               "kind": "OBJECT",
               "name": "ConversationBootstrap",
               "ofType": null
+            }
+          },
+          {
+            "name": "conversationBranches",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "NON_NULL",
+                  "name": null,
+                  "ofType": {
+                    "kind": "OBJECT",
+                    "name": "Agent"
+                  }
+                }
+              }
             }
           },
           {

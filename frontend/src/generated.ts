@@ -1,6 +1,10 @@
 // Generated from the Go GraphQL schema. Run make generate.
 export type Agent = {
   approverId: string;
+  branchMessageId: string;
+  branchMessageLineageId: string;
+  branchParentId: string;
+  branchRootId: string;
   chatNamed: boolean;
   chatOwnerId: string;
   chatPinned: boolean;
@@ -27,6 +31,7 @@ export type AgentInput = {
   createdAt: string;
   deliveredAt: string;
   id: string;
+  lineageId: string;
   mode: string;
   projectId: string;
   status: string;
@@ -391,6 +396,7 @@ export type Message = {
   content: string;
   createdAt: string;
   id: string;
+  lineageId: string;
   role: string;
   toolName: string;
   wire: string;
@@ -446,6 +452,7 @@ export type Mutation = {
   beginGitLogin: GitLogin | null;
   beginHuggingFaceLogin: HuggingFaceLogin | null;
   beginProviderLogin: ProviderLogin | null;
+  branchConversation: Agent | null;
   cancelGitLogin: boolean | null;
   cancelGoal: boolean | null;
   cancelInput: boolean | null;
@@ -663,6 +670,7 @@ export type Query = {
   approvals: Array<Approval | null> | null;
   commitIdentity: CommitIdentity | null;
   conversationBootstrap: ConversationBootstrap | null;
+  conversationBranches: Array<Agent>;
   conversationModelPresets: Array<ModelChoice | null> | null;
   conversationModels: ModelDefaults | null;
   editorSession: EditorSession | null;

@@ -1,5 +1,5 @@
 import { Accordion, Button } from "@heroui/react";
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 
 import {
   parseJSON,
@@ -61,7 +61,8 @@ const ToolEntry = memo(function ToolEntry({
   message: Pick<
     Message,
     "id" | "toolName" | "content" | "change" | "changes" | "activities"
-  >;
+  > &
+    Partial<Pick<Message, "agentId" | "attachments">>;
   call?: ToolCall;
   onInspect?: (wire: string) => void;
   hasParentChanges?: boolean;
@@ -181,11 +182,14 @@ const ToolEntry = memo(function ToolEntry({
                           hasChanges={changes.length > 0 || hasParentChanges}
                         />
                       )}
-                    <ActivityResult
-                      name={call?.name || message.toolName}
-                      value={outcome.result}
-                      failed={Boolean(outcome.error)}
-                    />
+                    {message.toolName !== "deliver_file" ||
+                    !message.attachments?.length ? (
+                      <ActivityResult
+                        name={call?.name || message.toolName}
+                        value={outcome.result}
+                        failed={Boolean(outcome.error)}
+                      />
+                    ) : null}
                     {outcome.error && (
                       <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-danger [overflow-wrap:anywhere]">
                         {t(errorSummary)}
@@ -221,6 +225,14 @@ const ToolEntry = memo(function ToolEntry({
           )}
         </Accordion.Item>
       </Accordion>
+      {message.toolName === "deliver_file" &&
+      message.agentId &&
+      message.attachments?.length ? (
+        <AttachmentList
+          attachments={message.attachments}
+          agentId={message.agentId}
+        />
+      ) : null}
       {call?.name !== "apply_patch" &&
         call?.name !== "code_mode" &&
         changes.map((change) => <FileDiff key={change.id} change={change} />)}
@@ -422,12 +434,14 @@ export const AgentConversation = memo(function AgentConversation({
   onInspect,
   projectDirectory = "",
   projectId = "",
+  renderUserMessage,
 }: {
   messages: Message[];
   working: boolean;
   onInspect?: (wire: string) => void;
   projectDirectory?: string;
   projectId?: string;
+  renderUserMessage?: (message: Message, content: ReactNode) => ReactNode;
 }) {
   const { t, showDiagnostics } = useI18n();
   const { callsByMessage, resultCalls, completed } = useMemo(
@@ -439,7 +453,12 @@ export const AgentConversation = memo(function AgentConversation({
       [
         ...messages
           .filter((message) => {
-            if (message.content || message.role === "tool") return true;
+            if (
+              message.content ||
+              message.role === "tool" ||
+              message.attachments?.length
+            )
+              return true;
             const calls = callsByMessage.get(message.id) ?? [];
             return (
               calls.some((call) => !completed.has(call)) ||
@@ -499,7 +518,7 @@ export const AgentConversation = memo(function AgentConversation({
                   );
                 }
 
-                if (!message.content) {
+                if (!message.content && !message.attachments?.length) {
                   const pending = calls.filter((call) => !completed.has(call));
                   if (pending.length) {
                     return (
@@ -596,7 +615,14 @@ export const AgentConversation = memo(function AgentConversation({
                         <MessageTime message={message} />
                       </span>
                     </div>
-                    <MessageContent message={message} feedback={feedback} />
+                    {user && renderUserMessage ? (
+                      renderUserMessage(
+                        message,
+                        <MessageContent message={message} />,
+                      )
+                    ) : (
+                      <MessageContent message={message} feedback={feedback} />
+                    )}
                     {showDiagnostics && onInspect && !user && message.wire && (
                       <Button
                         className="mt-1 min-h-11 text-xs text-muted"

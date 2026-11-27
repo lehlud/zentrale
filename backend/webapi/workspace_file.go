@@ -30,6 +30,8 @@ func (server *Server) workspaceFile(c echo.Context) error {
 		limit = 2 << 20
 	case "pdf":
 		limit = 32 << 20
+	case "office", "image":
+		limit = 25 << 20
 	}
 	err := server.Engine.ReadWorkspaceFile(r.Context(), c.Param("project"), query.Get("agent"), query.Get("path"), limit, func(name string, size int64, source io.Reader) error {
 		response.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))

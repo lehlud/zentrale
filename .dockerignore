@@ -31,6 +31,7 @@
 backend/zentrale
 frontend/dist
 frontend/public/pdfjs
+frontend/public/office
 frontend/artifacts
 frontend/playwright-report
 frontend/test-results

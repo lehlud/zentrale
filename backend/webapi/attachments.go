@@ -3,6 +3,7 @@ package webapi
 import (
 	"context"
 	"errors"
+	"mime"
 	"net/http"
 	"time"
 
@@ -34,6 +35,10 @@ func (server *Server) attachment(requestContext echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "attachment target rejected")
 	}
 	if r.Method == http.MethodGet {
+		if r.URL.Query().Get("download") == "1" {
+			return server.downloadDeliveredAttachment(requestContext)
+		}
+
 		metadata, data, err := server.Engine.AttachmentImage(requestContext.Param("agent"), requestContext.Param("id"))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, "image not found")
@@ -62,4 +67,20 @@ func (server *Server) attachment(requestContext echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	return requestContext.JSON(http.StatusOK, metadata)
+}
+
+func (server *Server) downloadDeliveredAttachment(requestContext echo.Context) error {
+	metadata, data, err := server.Engine.DeliveredAttachment(requestContext.Param("agent"), requestContext.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "delivered file not found")
+	}
+
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": metadata.Name})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	headers := requestContext.Response().Header()
+	headers.Set("Content-Disposition", disposition)
+	headers.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	return requestContext.Blob(http.StatusOK, "application/octet-stream", data)
 }

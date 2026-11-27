@@ -32,21 +32,26 @@ def send_file(root, relative, limit):
         print("missing", flush=True)
         return
 
-    with os.fdopen(descriptor, "rb") as source:
-        metadata = os.fstat(source.fileno())
+    try:
+        metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             print("missing", flush=True)
-        elif metadata.st_size > limit:
+            return
+        if metadata.st_size > limit:
             print("too_large", flush=True)
-        else:
-            remaining = metadata.st_size
-            print(remaining, flush=True)
+            return
+
+        remaining = metadata.st_size
+        print(remaining, flush=True)
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
             while remaining:
                 data = source.read(min(remaining, 65536))
                 if not data:
                     break
                 sys.stdout.buffer.write(data)
                 remaining -= len(data)
+    finally:
+        os.close(descriptor)
 
 
 send_file(sys.argv[1], sys.argv[2], int(sys.argv[3]))

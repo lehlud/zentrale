@@ -32,6 +32,13 @@ make run
 
 Prefer containers? Follow the [Docker setup](docs/getting-started.md#docker).
 
+The container includes a read-only Euro-Office preview for Word, Excel and
+PowerPoint files. Conversion and viewing happen in the browser, not on a
+document server. For a native build, run `python3 frontend/scripts/prepare-office.py`
+once before `make run` (downloads the pinned CryptPad browser bundle). An HTML
+chat export includes referenced attachments; Office files in an offline export
+are downloadable rather than rendered by the Office bundle.
+
 Open **[localhost:8080](http://localhost:8080)**. Set up your login, connect a model
 provider and an SSH machine, then create a project and start a conversation.
 

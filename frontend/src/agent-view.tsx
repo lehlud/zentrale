@@ -1,4 +1,4 @@
-import { Button } from "@heroui/react";
+import { Button, Dropdown, Label } from "@heroui/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAPI, useQuery } from "./api";
@@ -23,6 +23,15 @@ import { LiveAssistantResponse } from "./live-assistant-response";
 import { AgentComposer } from "./agent-composer";
 import { useStableValue } from "./stable-data";
 import { AgentGoal } from "./agent-goal";
+import { Icon } from "./icons";
+import { downloadTranscript } from "./transcript-export";
+import {
+  BranchableMessage,
+  BranchSwitcher,
+  useConversationBranches,
+} from "./conversation-branches";
+import { parseJSON } from "./agent-activity";
+import { record } from "./activity-values";
 import { SidebarToggle } from "./shell";
 
 export function AgentView({
@@ -52,7 +61,7 @@ export function AgentView({
   managedTranscript?: boolean;
   readOnly?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale, theme, showDiagnostics } = useI18n();
 
   const api = useAPI();
   const { params } = useRoute();
@@ -69,11 +78,27 @@ export function AgentView({
     kind?: "model";
   } | null>(null);
   const action = useAction();
+  const exportAction = useAction();
+  const exportHTML = () => {
+    void exportAction.run(
+      () => downloadTranscript(agentId, { locale, theme, showDiagnostics }),
+      "export",
+      { announce: false },
+    );
+  };
   const connectionChallenge = data?.agentRunState?.hostKey.publicKey
     ? data.agentRunState.hostKey
     : undefined;
   const current = useStableValue(
     data?.agent ?? agents?.find((agent) => agent.id === agentId),
+  );
+  const branches = useConversationBranches(agentId, current?.role === "main");
+  const branchSwitcher = (
+    <BranchSwitcher
+      branches={branches}
+      current={agentId}
+      projectId={project?.id ?? ""}
+    />
   );
   const agentError = current?.error;
   const agentFailure =
@@ -153,6 +178,8 @@ export function AgentView({
           headerRef={viewport.header}
           focusAgentSwitcher={Boolean(focusAgentSwitcher)}
           onAgentSwitcherFocus={onAgentSwitcherFocus}
+          onExport={exportHTML}
+          branchSwitcher={branchSwitcher}
           current={current}
           agents={agents}
           onSelect={onSelect}
@@ -182,6 +209,7 @@ export function AgentView({
           <h1 className="min-w-0 flex-1 truncate text-lg font-medium">
             {current?.name || t("Kurzchat")}
           </h1>
+          {branchSwitcher}
           {current?.status === "running" && (
             <Button
               variant="ghost"
@@ -198,8 +226,33 @@ export function AgentView({
               {t("Stoppen")}
             </Button>
           )}
+          {current && (
+            <Dropdown>
+              <Button
+                isIconOnly
+                variant="ghost"
+                className="min-h-11 min-w-11 shrink-0"
+                aria-label={t("Unterhaltungsaktionen")}
+                isDisabled={exportAction.busy}
+              >
+                <Icon name="more" className="size-5" />
+              </Button>
+              <Dropdown.Popover placement="bottom end">
+                <Dropdown.Menu aria-label={t("Unterhaltungsaktionen")}>
+                  <Dropdown.Item
+                    id="export-html"
+                    className="min-h-11"
+                    onAction={exportHTML}
+                  >
+                    <Label>{t("Als HTML exportieren")}</Label>
+                  </Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
+          )}
         </header>
       )}
+      <Failure message={exportAction.error} />
       <div
         role="region"
         aria-label={t("Agentenverlauf")}
@@ -241,6 +294,24 @@ export function AgentView({
             projectId={project?.id}
             working={current?.status === "running"}
             onInspect={inspectModel}
+            renderUserMessage={
+              current?.role === "main"
+                ? (message, content) =>
+                    record(parseJSON(message.content)).kind ===
+                    "user_question_answer" ? (
+                      content
+                    ) : (
+                      <BranchableMessage
+                        message={message}
+                        branches={branches}
+                        projectId={project?.id ?? ""}
+                        disabled={readOnly || current.status === "running"}
+                      >
+                        {content}
+                      </BranchableMessage>
+                    )
+                : undefined
+            }
           />
         )}
         {data?.questions

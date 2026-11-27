@@ -39,6 +39,7 @@ async function connectionFixture(page: Page) {
 
     if (query.includes("submitInput(")) {
       const receipt: AgentInput = {
+        lineageId: "",
         id: variables.id,
         agentId: variables.agentId,
         text: variables.text,

@@ -27,20 +27,37 @@ function savedPreference(key: string, fallback: string) {
   }
 }
 
-export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>(() =>
-    savedPreference("zentrale-locale", "de") === "en" ? "en" : "de",
+export type PreferenceSnapshot = Pick<
+  Preferences,
+  "locale" | "theme" | "showDiagnostics"
+>;
+
+export function PreferencesProvider({
+  children,
+  snapshot,
+}: {
+  children: ReactNode;
+  snapshot?: PreferenceSnapshot;
+}) {
+  const [locale, setLocale] = useState<Locale>(
+    () =>
+      snapshot?.locale ??
+      (savedPreference("zentrale-locale", "de") === "en" ? "en" : "de"),
   );
-  const [theme, setTheme] = useState<Theme>(() =>
-    savedPreference(
-      "zentrale-theme",
-      matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
-    ) === "light"
-      ? "light"
-      : "dark",
+  const [theme, setTheme] = useState<Theme>(
+    () =>
+      snapshot?.theme ??
+      (savedPreference(
+        "zentrale-theme",
+        matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+      ) === "light"
+        ? "light"
+        : "dark"),
   );
   const [showDiagnostics, setShowDiagnostics] = useState(
-    () => savedPreference("zentrale-log-diagnostics", "false") === "true",
+    () =>
+      snapshot?.showDiagnostics ??
+      savedPreference("zentrale-log-diagnostics", "false") === "true",
   );
 
   useEffect(() => {
@@ -49,6 +66,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.classList.toggle("light", theme === "light");
 
+    if (snapshot) return;
+
     try {
       localStorage.setItem("zentrale-locale", locale);
       localStorage.setItem("zentrale-theme", theme);
@@ -56,7 +75,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     } catch {
       /* Storage may be disabled by browser policy. */
     }
-  }, [locale, theme, showDiagnostics]);
+  }, [locale, theme, showDiagnostics, snapshot]);
 
   return (
     <PreferencesContext.Provider

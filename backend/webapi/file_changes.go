@@ -10,14 +10,24 @@ import (
 // Diffs are UI records, not part of the provider transcript. Load them once per
 // requested message batch, rather than issuing a query for each nested field.
 func (server *Server) attachFileChanges(messages []map[string]any, info graphql.ResolveInfo) error {
-	if nestedResourceFields(info, "activities") != nil {
-		ids := []string{}
-		for _, message := range messages {
-			if id, ok := message["id"].(string); ok {
-				ids = append(ids, id)
-			}
+	fields := nestedResourceFields(info, "change")
+	for _, field := range nestedResourceFields(info, "changes") {
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
 		}
+	}
+	return server.enrichMessages(messages, nestedResourceFields(info, "activities") != nil, fields)
+}
 
+func (server *Server) enrichMessages(messages []map[string]any, activities bool, fields []string) error {
+	ids := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if id, ok := message["id"].(string); ok {
+			ids = append(ids, id)
+		}
+	}
+
+	if activities {
 		rows, err := server.Store.ResourcesByID("tool_activity", ids, []string{"id", "activities"})
 		if err != nil {
 			return err
@@ -35,24 +45,8 @@ func (server *Server) attachFileChanges(messages []map[string]any, info graphql.
 		}
 	}
 
-	fields := nestedResourceFields(info, "change")
-	allFields := nestedResourceFields(info, "changes")
-	if fields == nil && allFields == nil {
+	if len(fields) == 0 {
 		return nil
-	}
-
-	for _, field := range allFields {
-		if !slices.Contains(fields, field) {
-			fields = append(fields, field)
-		}
-	}
-
-	ids := make([]string, 0, len(messages))
-
-	for _, message := range messages {
-		if id, ok := message["id"].(string); ok {
-			ids = append(ids, id)
-		}
 	}
 
 	if !slices.Contains(fields, "id") {

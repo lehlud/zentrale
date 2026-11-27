@@ -9,6 +9,7 @@ type AgentInput struct {
 	ID        string `json:"id"`
 	AgentID   string `json:"agentId"`
 	ProjectID string `json:"projectId"`
+	LineageID string `json:"lineageId,omitempty"` // Branch edits keep the replaced message's lineage.
 
 	Text          string       `json:"text"`
 	Mode          string       `json:"mode"`

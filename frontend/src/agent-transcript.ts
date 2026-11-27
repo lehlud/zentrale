@@ -11,7 +11,7 @@ import type {
 export const agentFields =
   "id name role status parentId approverId projectId providerId modelId machineId error contextStart summary";
 
-export const messageFields = `id agentId role content wire callId toolName createdAt
+export const messageFields = `id lineageId agentId role content wire callId toolName createdAt
     attachments { id name mimeType size path machineId }
     activities { name arguments content network justification }
     change { id path kind patch added removed truncated notice }

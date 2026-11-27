@@ -37,6 +37,7 @@ for (const english of [false, true]) {
         const id = "mcp-" + messages.length;
         const base: Message = {
           id,
+          lineageId: id,
           agentId: agent.id,
           role: "assistant",
           content: "",

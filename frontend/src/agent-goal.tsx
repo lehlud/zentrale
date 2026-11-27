@@ -1,12 +1,13 @@
 import { Accordion, Button, Card, Chip } from "@heroui/react";
 
 import type { Goal } from "./generated";
-import { useAPI } from "./api";
+import { useOptionalAPI } from "./api";
 import { goalStatusLabels } from "./goal-format";
 
 // A goal moves from the live footer into the immutable timeline on completion.
 // Preserve a reader's disclosure choice across that move and virtualization.
 const disclosures = new WeakMap<object, Set<string>>();
+const offlineDisclosures = new Set<string>();
 import { useI18n } from "./preferences";
 import { Failure, useAction } from "./ui";
 
@@ -24,9 +25,9 @@ export function AgentGoal({
   compact?: boolean;
 }) {
   const { t } = useI18n();
-  const api = useAPI();
-  if (!disclosures.has(api)) disclosures.set(api, new Set());
-  const expanded = disclosures.get(api)!;
+  const api = useOptionalAPI();
+  if (api && !disclosures.has(api)) disclosures.set(api, new Set());
+  const expanded = api ? disclosures.get(api)! : offlineDisclosures;
   const action = useAction();
   const status =
     reviewing && goal.status === "active" ? "reviewing" : goal.status;
@@ -95,7 +96,7 @@ export function AgentGoal({
                     </p>
                   </div>
                 )}
-                {!terminal && (
+                {api && !terminal && (
                   <div className="flex flex-wrap gap-2">
                     {goal.status === "active" && (
                       <Button

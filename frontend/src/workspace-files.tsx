@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { MessageMarkdown } from "./message-markdown";
+import { isOfficeFile, OfficeDocument } from "./office-preview";
 import { useI18n } from "./preferences";
 import { WorkspaceFileContext, workspaceFileURL } from "./workspace-file-links";
 
@@ -51,10 +52,12 @@ export function WorkspaceFiles({
   );
 }
 
-type Preview = "pdf" | "markdown" | "text";
+type Preview = "pdf" | "markdown" | "text" | "office" | "image";
 
 function previewType(path: string): Preview | undefined {
   const name = path.split("/").at(-1)?.toLowerCase() ?? "";
+  if (isOfficeFile(name)) return "office";
+  if (/\.(?:png|jpe?g|gif|webp)$/.test(name)) return "image";
   if (name.endsWith(".pdf")) return "pdf";
   if (/\.(?:md|markdown|mdown)$/.test(name)) return "markdown";
   if (
@@ -82,6 +85,7 @@ function WorkspaceFileDialog({
   const name = path.split("/").at(-1) ?? path;
   const [preview, setPreview] = useState<{
     text?: string;
+    image?: string;
     error?: string;
   }>({});
   const activeDownload = useRef<AbortController | null>(null);
@@ -118,16 +122,28 @@ function WorkspaceFileDialog({
   };
 
   useEffect(() => {
-    if (!format || format === "pdf") return;
+    if (!format || format === "pdf" || format === "office") return;
     const request = new AbortController();
+    let image: string | undefined;
     void (async () => {
       try {
-        const response = await fetch(`${url}&preview=text`, {
-          signal: request.signal,
-        });
+        const response = await fetch(
+          `${url}&preview=${format === "image" ? "image" : "text"}`,
+          {
+            signal: request.signal,
+          },
+        );
         if (!response.ok) {
           if (!request.signal.aborted)
             setPreview({ error: fileError(response.status, true) });
+          return;
+        }
+        if (format === "image") {
+          const blob = await response.blob();
+          if (!request.signal.aborted) {
+            image = URL.createObjectURL(blob);
+            setPreview({ image });
+          }
           return;
         }
         const text = await response.text();
@@ -137,7 +153,10 @@ function WorkspaceFileDialog({
           setPreview({ error: "Die Datei konnte nicht geladen werden." });
       }
     })();
-    return () => request.abort();
+    return () => {
+      request.abort();
+      if (image) URL.revokeObjectURL(image);
+    };
   }, [format, url]);
 
   const loading = (
@@ -189,6 +208,8 @@ function WorkspaceFileDialog({
             <div className="min-h-0 flex-1 overflow-auto">
               {format === "pdf" ? (
                 <PDFViewer name={name} url={url} onClose={onClose} />
+              ) : format === "office" ? (
+                <OfficeDocument name={name} url={`${url}&preview=office`} />
               ) : !format ? (
                 <p className="p-4 text-sm text-muted">
                   {t("Für diesen Dateityp gibt es keine Vorschau.")}
@@ -197,6 +218,14 @@ function WorkspaceFileDialog({
                 <p role="alert" className="p-4 text-sm text-danger">
                   {t(preview.error)}
                 </p>
+              ) : preview.image ? (
+                <div className="flex h-full items-center justify-center p-4">
+                  <img
+                    src={preview.image}
+                    alt={name}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
               ) : preview.text !== undefined ? (
                 <div className="mx-auto max-w-5xl p-4 sm:p-8">
                   {format === "markdown" ? (

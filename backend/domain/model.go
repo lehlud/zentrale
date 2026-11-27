@@ -1,7 +1,10 @@
 // Package domain defines the resources shared by the harness and its API.
 package domain
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Storage roots expose only a managed subdirectory of the current project.
 type StorageVolume struct {
@@ -117,6 +120,10 @@ func (project Project) Owner() string {
 		return InitialUserID
 	}
 	return project.OwnerID
+}
+
+func (project Project) HasMember(userID string) bool {
+	return userID != "" && (userID == project.Owner() || slices.Contains(project.MemberIDs, userID))
 }
 
 func (project Project) RequiresTenantIsolation() bool {
@@ -254,6 +261,12 @@ type Agent struct {
 	ChatPinned     bool   `json:"chatPinned"`
 	ChatNamed      bool   `json:"chatNamed,omitempty"` // A standalone chat was explicitly named.
 
+	// Conversation lineage is independent of ParentID (agent delegation).
+	BranchRootID           string `json:"branchRootId,omitempty"`
+	BranchParentID         string `json:"branchParentId,omitempty"`
+	BranchMessageID        string `json:"branchMessageId,omitempty"`
+	BranchMessageLineageID string `json:"branchMessageLineageId,omitempty"`
+
 	Role       string `json:"role"`
 	ProviderID string `json:"providerId"`
 	ModelID    string `json:"modelId"`
@@ -271,6 +284,8 @@ type Message struct {
 	ID      string `json:"id"`
 	AgentID string `json:"agentId"`
 	Role    string `json:"role"`
+	// Empty for originals; copies and edited versions share the original ID.
+	LineageID string `json:"lineageId,omitempty"`
 
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -280,6 +295,13 @@ type Message struct {
 	ToolName    string            `json:"toolName,omitempty"`
 	Attachments []Attachment      `json:"attachments"`
 	Images      []AttachmentImage `json:"-"`
+}
+
+func (message Message) Lineage() string {
+	if message.LineageID != "" {
+		return message.LineageID
+	}
+	return message.ID
 }
 
 type Note struct {

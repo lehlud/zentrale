@@ -20,6 +20,7 @@ function message(
   return {
     ...transcript.messages[0],
     id,
+    lineageId: id,
     role,
     content,
     wire: "",

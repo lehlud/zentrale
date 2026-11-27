@@ -87,6 +87,7 @@ for (const english of [false, true]) {
               text: variables.text,
               mode: variables.mode,
               attachmentIds: variables.attachmentIds ?? [],
+              lineageId: "",
               attachments: [],
               projectId: project.id,
               status: variables.mode === "queue" ? "queued" : "pending",

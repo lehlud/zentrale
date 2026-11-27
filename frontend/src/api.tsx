@@ -495,6 +495,11 @@ export function useAPI() {
   return api;
 }
 
+// Read-only renderers can also run without an API, in a downloaded transcript.
+export function useOptionalAPI() {
+  return useContext(APIContext);
+}
+
 export function useQuery<T>(
   query: string,
   variables: Record<string, unknown> = {},
