@@ -680,6 +680,104 @@ for (const surface of ["command", "markdown", "file"] as const) {
   });
 }
 
+for (const nested of [false, true]) {
+  test(`failed patch shows colored edits and counts ${nested ? "inside a tool batch" : "when denied"}`, async ({
+    page,
+    context,
+  }) => {
+    const patch = [
+      "*** Begin Patch",
+      "*** Update File: settings.txt",
+      "@@",
+      " +unchanged",
+      "-old setting",
+      "+new setting",
+      "*** Add File: notes.txt",
+      "+new note",
+      "*** End Patch",
+    ].join("\n");
+    const error = "settings.txt: patch context did not match";
+    const content = JSON.stringify({
+      error: nested ? error : `auto-approval denied: ${error}`,
+    });
+    const call = message("failed-patch-call", "assistant", "", 1);
+    const result = message(
+      "failed-patch-result",
+      "tool",
+      nested ? "{}" : content,
+      2,
+    );
+    result.callId = "failed-patch";
+    result.toolName = nested ? "code_mode" : "apply_patch";
+    call.wire = JSON.stringify([
+      {
+        type: "function_call",
+        call_id: result.callId,
+        name: result.toolName,
+        arguments: JSON.stringify(
+          nested ? { code: "print('batch')" } : { input: patch },
+        ),
+      },
+    ]);
+    if (nested) {
+      result.activities = [
+        {
+          name: "apply_patch",
+          arguments: JSON.stringify({ input: patch }),
+          content,
+          network: false,
+          justification: "",
+        },
+      ];
+      result.change = {
+        id: "other-file",
+        agentId: agent.id,
+        messageId: result.id,
+        createdAt: result.createdAt,
+        path: "already-applied.txt",
+        kind: "created",
+        added: 1,
+        removed: 0,
+        truncated: false,
+        notice: "",
+        patch: "@@ -0,0 +1 @@\n+applied separately\n",
+      };
+    }
+
+    await fixture(page, [call, result]);
+    if (nested) {
+      await page.getByRole("button", { name: /Werkzeuge kombinieren/ }).click();
+      await expect(
+        page.getByRole("region", {
+          name: "Dateiänderungen: already-applied.txt",
+        }),
+      ).toBeVisible();
+    }
+    await page.getByRole("button", { name: /Dateien ändern/ }).click();
+
+    const preview = page.getByLabel("Codeblock: Patch", { exact: true });
+    const caption = preview.locator("..").locator("figcaption");
+    await expect(caption.getByText("+2", { exact: true })).toBeVisible();
+    await expect(caption.getByText("−1", { exact: true })).toBeVisible();
+    await expect(preview.locator(".bg-success-soft")).toHaveText([
+      "+new setting",
+      "+new note",
+    ]);
+    await expect(preview.locator(".bg-danger-soft")).toHaveText([
+      "-old setting",
+    ]);
+    await expect(page.getByText(error, { exact: true })).toBeVisible();
+
+    if (!nested) {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await caption.getByRole("button", { name: "Kopieren" }).click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        patch,
+      );
+    }
+  });
+}
+
 test("diff here-docs highlight both language versions independently", async ({
   page,
 }) => {

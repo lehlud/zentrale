@@ -100,6 +100,8 @@ const ToolEntry = memo(function ToolEntry({
     : message.change
       ? [message.change]
       : [];
+  const hasAppliedChanges =
+    !outcome.error && (changes.length > 0 || hasParentChanges);
 
   return (
     <li className="my-0.5 min-w-0">
@@ -179,7 +181,7 @@ const ToolEntry = memo(function ToolEntry({
                           arguments={call.arguments}
                           network={call.network}
                           justification={call.justification}
-                          hasChanges={changes.length > 0 || hasParentChanges}
+                          hasChanges={hasAppliedChanges}
                         />
                       )}
                     {message.toolName !== "deliver_file" ||

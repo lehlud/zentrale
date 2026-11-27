@@ -214,7 +214,7 @@ export function ActivityRequest({
         />
       )}
       {patch !== undefined && (!hasChanges || showDiagnostics) && (
-        <CodeSnippet text={patch} label="Patch" />
+        <CodeSnippet text={patch} label="Patch" highlightPatch />
       )}
       <ActivityFields
         value={{

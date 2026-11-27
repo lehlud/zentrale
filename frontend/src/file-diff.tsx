@@ -3,6 +3,7 @@ import { MoreButton } from "./batches";
 import { useState } from "react";
 
 import type { FileChange } from "./generated";
+import { DiffStats, diffTone } from "./diff-presentation";
 import { useI18n } from "./preferences";
 import { useProjectPath } from "./project-path";
 import { DiffSyntax, SyntaxTokens, type SyntaxToken } from "./syntax";
@@ -82,18 +83,7 @@ export function FileDiff({ change }: { change: FileChange }) {
   const lines = patchLines(change.patch);
   const renderRows = (highlighted?: SyntaxToken[][]) =>
     lines.slice(0, visibleLines).map((line, index) => (
-      <tr
-        key={index}
-        className={
-          line.kind === "added"
-            ? "bg-success-soft text-success-soft-foreground"
-            : line.kind === "removed"
-              ? "bg-danger-soft text-danger-soft-foreground"
-              : line.kind === "hunk"
-                ? "bg-accent/5 text-accent"
-                : "text-foreground"
-        }
-      >
+      <tr key={index} className={diffTone[line.kind]}>
         <td className="w-10 min-w-10 select-none px-2 text-right">
           {line.oldLine}
         </td>
@@ -144,12 +134,7 @@ export function FileDiff({ change }: { change: FileChange }) {
             <span className="sr-only">
               {t(kinds[change.kind] ?? "Geändert")}
             </span>
-            <span className="shrink-0 rounded bg-success-soft px-1.5 py-0.5 text-success-soft-foreground">
-              +{change.added}
-            </span>
-            <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-danger-soft-foreground">
-              −{change.removed}
-            </span>
+            <DiffStats added={change.added} removed={change.removed} />
             <Accordion.Indicator className="shrink-0 text-muted" />
           </Accordion.Trigger>
         </Accordion.Heading>
