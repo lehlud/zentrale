@@ -61,6 +61,29 @@ mean the public HTTPS origin is missing or mismatched: TLS termination leaves
 the backend's connection as HTTP. The terminal error dialog distinguishes this
 from an expired session and a missing route. Do not disable origin checks.
 
+### Coolify with GHCR and local KVM
+
+Use [`ghcr-compose.yaml`](../ghcr-compose.yaml) as the Compose definition. It
+pulls `ghcr.io/lehlud/zentrale:latest`, keeps `/data` in a named volume, and
+exposes the service through Coolify's proxy rather than publishing a host port.
+
+1. The Coolify deployment host needs Linux x86-64 and a working `/dev/kvm`.
+   On that host, run `stat -c %g /dev/kvm`. Set `KVM_GID` to the returned
+   number in Coolify's **Environment Variables** (for example, `994`).
+2. Configure an HTTPS domain for `zentrale`, at the root path.
+   [`SERVICE_URL_ZENTRALE_8080`](https://coolify.io/docs/knowledge-base/docker/compose)
+   routes the public URL to port `8080` in the container and supplies
+   `ZENTRALE_ORIGIN`. Session cookies require HTTPS by default. If you
+   intentionally use HTTP for a local test, set `ZENTRALE_SECURE_COOKIE=false`.
+3. Select **Consistent name (no rolling updates)** and deploy. If replacing an
+   existing installation, keep its current `/data` volume rather than creating
+   an empty one. Then enable **Zentrale (local)** under **Admin settings → Short
+   chats** if you want to run code locally.
+
+The Compose file requires `/dev/kvm` even if local code execution is disabled in
+the app. On hosts without KVM, omit the `devices`, `group_add`, and `KVM_GID`
+entries or use the `docker run` example above.
+
 ## Build and run
 
 Install Go 1.27.3 or newer with CGO and a C/C++ toolchain, Node.js 22.12 or newer,

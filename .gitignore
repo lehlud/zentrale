@@ -19,5 +19,6 @@ frontend/artifacts/
 __pycache__/
 *.pdf
 *.yaml
+!/ghcr-compose.yaml
 !deploy/humanizer/cog.yaml
 .env*

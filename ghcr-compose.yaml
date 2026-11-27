@@ -1,0 +1,23 @@
+services:
+  zentrale:
+    image: ghcr.io/lehlud/zentrale:latest
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+
+    environment:
+      SERVICE_URL_ZENTRALE_8080: /
+      ZENTRALE_ORIGIN: "${SERVICE_URL_ZENTRALE_8080:-}"
+      ZENTRALE_SECURE_COOKIE: "${ZENTRALE_SECURE_COOKIE:-true}"
+      KVM_GID: "${KVM_GID:?}"
+
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "${KVM_GID}"
+
+    volumes:
+      - zentrale-data:/data
+
+volumes:
+  zentrale-data:
