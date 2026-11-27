@@ -714,6 +714,7 @@ export type Query = {
   sandboxStatuses: Array<SandboxStatus | null> | null;
   shortChat: Agent | null;
   shortChatLocalAvailable: boolean | null;
+  shortChatLocalIssue: string | null;
   shortChatModelOptions: ModelPresetPolicy | null;
   shortChats: Array<Agent | null> | null;
   shortChatSettings: ShortChatSettings | null;

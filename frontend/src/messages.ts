@@ -960,6 +960,8 @@ Object.assign(english, {
     "Choose how long short chats are kept and where they can run code. Replies and file shares do not start a VM.",
   "Zentrale (lokal)": "Zentrale (local)",
   "Zentrale (KVM nicht verfügbar)": "Zentrale (KVM unavailable)",
+  "Zentrale (lokal) ist nicht verfügbar: {reason}":
+    "Zentrale (local) is unavailable: {reason}",
   "Chat-Aufbewahrung (Tage)": "Chat retention (days)",
   "Gepinnte Chats bleiben erhalten. Eine neue Nachricht startet die volle Frist neu. Nach dem Entpinnen bleibt mindestens die halbe Frist.":
     "Pinned chats are kept. A new message restarts the full period. Unpinning leaves at least half the period.",

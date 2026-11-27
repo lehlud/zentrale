@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -77,8 +78,10 @@ func (engine *Engine) SaveShortChatSettings(settings ShortChatSettings) (ShortCh
 	if settings.Local && (settings.MachineID != "" || settings.PoolID != "") {
 		return settings, errors.New("select one short-chat execution target")
 	}
-	if settings.Local && !remote.LocalShortChatAvailable() {
-		return settings, errors.New("local short-chat VMs require usable /dev/kvm and the managed QEMU runner")
+	if settings.Local {
+		if err := remote.CheckLocalShortChat(context.Background()); err != nil {
+			return settings, err
+		}
 	}
 
 	if (settings.MachineID != "" && settings.PoolID != "") || strings.Contains(settings.MachineID, "/") {

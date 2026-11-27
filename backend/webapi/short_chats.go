@@ -16,8 +16,17 @@ func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields)
 	chatType := builder.output(reflect.TypeFor[domain.Agent]())
 	queries["shortChatLocalAvailable"] = &graphql.Field{
 		Type: graphql.Boolean,
-		Resolve: adminOnly(func(_ graphql.ResolveParams) (any, error) {
-			return remote.LocalShortChatAvailable(), nil
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
+			return remote.CheckLocalShortChat(params.Context) == nil, nil
+		}),
+	}
+	queries["shortChatLocalIssue"] = &graphql.Field{
+		Type: graphql.String,
+		Resolve: adminOnly(func(params graphql.ResolveParams) (any, error) {
+			if err := remote.CheckLocalShortChat(params.Context); err != nil {
+				return err.Error(), nil
+			}
+			return nil, nil
 		}),
 	}
 	queries["shortChatSettings"] = &graphql.Field{

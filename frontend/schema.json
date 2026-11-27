@@ -7062,6 +7062,14 @@
             }
           },
           {
+            "name": "shortChatLocalIssue",
+            "type": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          {
             "name": "shortChatModelOptions",
             "type": {
               "kind": "OBJECT",

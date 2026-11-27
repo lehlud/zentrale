@@ -17,13 +17,15 @@ export function ShortChatSettings() {
       retentionDays: number;
       vmLifetimeDays: number;
     };
-    shortChatLocalAvailable: boolean;
+    shortChatLocalIssue: string | null;
     projectTargets: { id: string; name: string; kind: string }[];
   }>(
-    "query{shortChatSettings{local machineId poolId retentionDays vmLifetimeDays} shortChatLocalAvailable projectTargets{id name kind}}",
+    "query{shortChatSettings{local machineId poolId retentionDays vmLifetimeDays} shortChatLocalIssue projectTargets{id name kind}}",
   );
 
   const settings = data?.shortChatSettings;
+  const localIssue = data?.shortChatLocalIssue;
+  const localAvailable = localIssue === null;
   const active = settings?.local
     ? "local"
     : settings?.machineId
@@ -61,14 +63,19 @@ export function ShortChatSettings() {
               key: "target",
               label: t("Codeausführung"),
               type: "select",
+              description: localIssue
+                ? t("Zentrale (lokal) ist nicht verfügbar: {reason}", {
+                    reason: localIssue,
+                  })
+                : undefined,
               options: [
                 { key: "off", label: t("Deaktiviert") },
-                ...(data?.shortChatLocalAvailable || settings.local
+                ...(localAvailable || settings.local
                   ? [
                       {
                         key: "local",
                         label: t(
-                          data?.shortChatLocalAvailable
+                          localAvailable
                             ? "Zentrale (lokal)"
                             : "Zentrale (KVM nicht verfügbar)",
                         ),

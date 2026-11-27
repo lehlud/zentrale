@@ -59,10 +59,11 @@ test("a member can create a private short chat, not a project", async ({
     ).toHaveCount(0);
     const denied = await page.request.post("/graphql", {
       data: {
-        query: "{shortChatSettings{retentionDays} shortChatLocalAvailable}",
+        query:
+          "{shortChatSettings{retentionDays} shortChatLocalAvailable shortChatLocalIssue}",
       },
     });
-    expect((await denied.json()).errors).toHaveLength(2);
+    expect((await denied.json()).errors).toHaveLength(3);
     await page
       .getByRole("link", { name: "Neue Unterhaltung", exact: true })
       .click();
@@ -152,9 +153,9 @@ test("an admin can configure short-chat and VM retention", async ({ page }) => {
       : 'mutation{login(password:"browser test password")}',
   );
 
-  const { shortChatLocalAvailable } = await graphql<{
-    shortChatLocalAvailable: boolean;
-  }>(page.request, "{shortChatLocalAvailable}");
+  const { shortChatLocalIssue } = await graphql<{
+    shortChatLocalIssue: string | null;
+  }>(page.request, "{shortChatLocalIssue}");
   await page.goto("/#/admin-settings");
   const configure = page.getByRole("button", {
     name: "Kurzchats konfigurieren",
@@ -165,11 +166,21 @@ test("an admin can configure short-chat and VM retention", async ({ page }) => {
   const lifetime = dialog.getByLabel("VM-Lebensdauer (Tage)");
   await expect(retention).toHaveValue("45");
   await expect(lifetime).toHaveValue("7");
+  if (shortChatLocalIssue !== null) {
+    await expect(
+      dialog.getByText(
+        `Zentrale (lokal) ist nicht verfügbar: ${shortChatLocalIssue}`,
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible();
+  }
 
   await dialog.getByRole("button", { name: "Codeausführung" }).click();
   await expect(
     page.getByRole("option", { name: "Zentrale (lokal)" }),
-  ).toHaveCount(shortChatLocalAvailable ? 1 : 0);
+  ).toHaveCount(shortChatLocalIssue === null ? 1 : 0);
   await page.getByRole("option", { name: "Deaktiviert" }).click();
   await retention.fill("60");
   await lifetime.fill("14");

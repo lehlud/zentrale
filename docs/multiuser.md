@@ -66,6 +66,8 @@ Code execution can be disabled, run on one managed MicroVM machine or pool, or r
 
 On Linux x86-64, the container includes the managed QEMU runner. To enable the local option, start the container with `--init --device /dev/kvm --group-add "$(stat -c %g /dev/kvm)"` in addition to its usual arguments. The container's unprivileged process must be able to open the device; a privileged container is not required. In Compose, use `init: true`, `devices: ["/dev/kvm:/dev/kvm"]` and add the host KVM device's group ID under `group_add`. Zentrale offers the option only when its KVM/runner check passes. The initial code invocation prepares the guest image and needs access to the managed runner's usual artifact mirrors. Local workspaces and guest disks default to `/data/short-chat-vms` in the container (`ZENTRALE_SHORT_CHAT_VM_DIR` overrides this). Give that directory persistent space and keep it private to Zentrale.
 
+If **Code execution** reports `Permission denied` even though the container can list `/dev/kvm`, check that `id` inside the container includes the numeric group shown by `stat -c %g /dev/kvm`. After correcting `group_add`, recreate the service container (a restart alone does not apply new group settings). Keep the existing data volume.
+
 ## File shares
 
 Administrators can configure read-only SMB, SFTP, and WebDAV shares for short chats. Endpoints take the form `smb://host/share`, `sftp://host:22`, or `https://host/dav`; SFTP configuration also requires the expected SHA-256 host key fingerprint. Prefer HTTPS for WebDAV; HTTP sends credentials and data without transport encryption. Use a dedicated service account with the smallest useful permissions.

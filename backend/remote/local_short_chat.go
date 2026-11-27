@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -17,18 +18,46 @@ import (
 // LocalShortChatMachineID never refers to an SSH machine or a project target.
 const LocalShortChatMachineID = "@zentrale"
 
-func LocalShortChatAvailable() bool {
-	info, err := os.Stat("/dev/kvm")
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 || runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		return false
+// CheckLocalShortChat runs only the prerequisites probe. It never provisions
+// a workspace, downloads an image, or starts a guest.
+func CheckLocalShortChat(ctx context.Context) error {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return errors.New("the managed MicroVM runner requires Linux x86-64")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	info, err := os.Stat("/dev/kvm")
+	if errors.Is(err, os.ErrNotExist) {
+		return errors.New("/dev/kvm is not present; pass the device through to the container")
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeCharDevice == 0 {
+		return errors.New("/dev/kvm is not a character device")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	// The existing runner checks KVM permissions, API version and QEMU.
-	// Selecting never provisions, downloads or boots a guest.
-	output, err := exec.CommandContext(ctx, "python3", "-I", "-c", microVMBootstrap(), "select").Output()
-	return err == nil && strings.TrimSpace(string(output)) == SandboxMicroVM
+
+	// Unlike "select", "ensure" reports the reason when a prerequisite fails.
+	command := exec.CommandContext(ctx, "python3", "-I", "-c", microVMBootstrap(), "ensure")
+	var output, diagnostics limitedOutput
+	command.Stdout, command.Stderr = &output, &diagnostics
+	command.WaitDelay = time.Second
+	if err := command.Run(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("local MicroVM check: %w", ctx.Err())
+		}
+		if detail := strings.TrimSpace(diagnostics.String()); detail != "" {
+			return errors.New(strings.SplitN(detail, "\n", 2)[0])
+		}
+		return fmt.Errorf("could not run the local MicroVM check: %w", err)
+	}
+
+	if strings.TrimSpace(output.String()) != SandboxMicroVM {
+		return errors.New("unexpected result from the local MicroVM check")
+	}
+	return nil
 }
 
 func LocalShortChatConnection(installationID string) (*Connection, domain.Machine, error) {
