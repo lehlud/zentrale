@@ -296,19 +296,18 @@ export function AgentView({
             onInspect={inspectModel}
             renderUserMessage={
               current?.role === "main"
-                ? (message, content) =>
+                ? (message, renderBubble) =>
                     record(parseJSON(message.content)).kind ===
                     "user_question_answer" ? (
-                      content
+                      renderBubble()
                     ) : (
                       <BranchableMessage
                         message={message}
                         branches={branches}
                         projectId={project?.id ?? ""}
                         disabled={readOnly || current.status === "running"}
-                      >
-                        {content}
-                      </BranchableMessage>
+                        renderBubble={renderBubble}
+                      />
                     )
                 : undefined
             }

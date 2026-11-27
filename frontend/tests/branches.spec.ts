@@ -87,10 +87,27 @@ for (const short of [false, true]) {
         ? `/#/chats/${original.id}`
         : `/#/projects/${project.id}?agent=${original.id}`,
     );
-    await expect(
-      page.getByText("Ursprüngliche Frage", { exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Nachricht bearbeiten" }).click();
+    const originalMessage = page.locator(
+      `[data-message-id="user-${original.id}"]`,
+    );
+    const bubble = originalMessage.locator('[data-slot="user-message-bubble"]');
+    await expect(bubble).toHaveText("Ursprüngliche Frage");
+
+    const editButton = originalMessage.getByRole("button", {
+      name: "Nachricht bearbeiten",
+    });
+    const forkButton = originalMessage.getByRole("button", {
+      name: "Hier abzweigen",
+    });
+    const bubbleBox = (await bubble.boundingBox())!;
+    for (const button of [editButton, forkButton]) {
+      await expect(button).toBeVisible();
+      expect((await button.boundingBox())!.y).toBeGreaterThanOrEqual(
+        bubbleBox.y + bubbleBox.height,
+      );
+    }
+
+    await editButton.click();
     const edit = page.getByRole("textbox", { name: "Nachricht bearbeiten" });
     await expect(edit).toBeFocused();
     await edit.fill("Bearbeitete Frage");

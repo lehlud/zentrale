@@ -441,7 +441,10 @@ export const AgentConversation = memo(function AgentConversation({
   onInspect?: (wire: string) => void;
   projectDirectory?: string;
   projectId?: string;
-  renderUserMessage?: (message: Message, content: ReactNode) => ReactNode;
+  renderUserMessage?: (
+    message: Message,
+    renderBubble: (content?: ReactNode) => ReactNode,
+  ) => ReactNode;
 }) {
   const { t, showDiagnostics } = useI18n();
   const { callsByMessage, resultCalls, completed } = useMemo(
@@ -595,13 +598,24 @@ export const AgentConversation = memo(function AgentConversation({
                   feedback?.kind === "subagent_question" ||
                   feedback?.kind === "parent_question_answer";
 
+                const renderBubble = (
+                  content: ReactNode = <MessageContent message={message} />,
+                ) => (
+                  <div
+                    data-slot="user-message-bubble"
+                    className="ml-auto w-fit max-w-full rounded-3xl bg-surface-secondary px-5 py-3"
+                  >
+                    {content}
+                  </div>
+                );
+
                 return (
                   <li
                     key={message.id}
                     data-message-id={message.id}
                     className={
                       user
-                        ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] rounded-3xl bg-surface-secondary px-5 py-3 first:mt-0"
+                        ? "my-6 ml-auto w-fit min-w-0 max-w-[90%] first:mt-0"
                         : question
                           ? "min-w-0 py-0.5"
                           : "min-w-0 py-5"
@@ -615,10 +629,11 @@ export const AgentConversation = memo(function AgentConversation({
                         <MessageTime message={message} />
                       </span>
                     </div>
-                    {user && renderUserMessage ? (
-                      renderUserMessage(
-                        message,
-                        <MessageContent message={message} />,
+                    {user ? (
+                      renderUserMessage ? (
+                        renderUserMessage(message, renderBubble)
+                      ) : (
+                        renderBubble()
                       )
                     ) : (
                       <MessageContent message={message} feedback={feedback} />

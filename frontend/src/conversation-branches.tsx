@@ -101,13 +101,13 @@ export function BranchSwitcher({
 
 export function BranchableMessage({
   message,
-  children,
+  renderBubble,
   branches,
   projectId,
   disabled,
 }: {
   message: Message;
-  children: ReactNode;
+  renderBubble: (content?: ReactNode) => ReactNode;
   branches: Branch[];
   projectId: string;
   disabled: boolean;
@@ -122,6 +122,7 @@ export function BranchableMessage({
     message.lineageId || message.id,
   );
   const index = versions.indexOf(message.agentId);
+  const canSwitch = index >= 0 && versions.length > 1;
 
   function fork(text: string | null) {
     void action.run(
@@ -142,47 +143,47 @@ export function BranchableMessage({
 
   return (
     <>
-      {edit === null ? (
-        children
-      ) : (
-        <form
-          className="grid min-w-0 gap-2 sm:min-w-80"
-          onSubmit={(event) => {
-            event.preventDefault();
-            fork(edit);
-          }}
-        >
-          <textarea
-            autoFocus
-            className="min-h-24 min-w-0 resize-y rounded-lg border border-border bg-surface p-2"
-            aria-label={t("Nachricht bearbeiten")}
-            value={edit}
-            onChange={(event) => setEdit(event.target.value)}
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              isDisabled={action.busy}
-              onPress={() => setEdit(null)}
+      {edit === null
+        ? renderBubble()
+        : renderBubble(
+            <form
+              className="grid min-w-0 gap-2 sm:min-w-80"
+              onSubmit={(event) => {
+                event.preventDefault();
+                fork(edit);
+              }}
             >
-              {t("Abbrechen")}
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              isPending={action.busy}
-              isDisabled={!edit.trim() && !message.attachments?.length}
-            >
-              {t("Speichern und senden")}
-            </Button>
-          </div>
-        </form>
-      )}
-      {edit === null && (
+              <textarea
+                autoFocus
+                className="min-h-24 min-w-0 resize-y rounded-lg border border-border bg-surface p-2"
+                aria-label={t("Nachricht bearbeiten")}
+                value={edit}
+                onChange={(event) => setEdit(event.target.value)}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  isDisabled={action.busy}
+                  onPress={() => setEdit(null)}
+                >
+                  {t("Abbrechen")}
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  isPending={action.busy}
+                  isDisabled={!edit.trim() && !message.attachments?.length}
+                >
+                  {t("Speichern und senden")}
+                </Button>
+              </div>
+            </form>,
+          )}
+      {edit === null && (canSwitch || !disabled) && (
         <div className="mt-1 flex items-center justify-end gap-1 text-xs text-muted">
-          {index >= 0 && versions.length > 1 && (
+          {canSwitch && (
             <div
               className="flex items-center"
               aria-label={t("Unterhaltungszweige")}
