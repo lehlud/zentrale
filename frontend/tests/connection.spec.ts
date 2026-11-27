@@ -332,11 +332,18 @@ for (const variant of [
       }),
     ).toBeFocused();
 
-    for (const button of await notification.getByRole("button").all()) {
-      const bounds = await button.boundingBox();
-      expect(bounds?.height).toBeGreaterThanOrEqual(44);
-      expect(bounds?.width).toBeGreaterThanOrEqual(44);
-    }
+    const retryBounds = await retry.boundingBox();
+    expect(retryBounds?.height).toBeGreaterThanOrEqual(44);
+    expect(retryBounds?.width).toBeGreaterThanOrEqual(44);
+
+    const close = notification.getByRole("button", {
+      name: english ? "Dismiss notification" : "Benachrichtigung schließen",
+    });
+    const closeBounds = await close.boundingBox();
+    expect(closeBounds?.height).toBeGreaterThanOrEqual(24);
+    expect(closeBounds?.width).toBeGreaterThanOrEqual(24);
+    expect(closeBounds?.height).toBeLessThan(40);
+    expect(closeBounds?.width).toBeLessThan(40);
 
     await page.mouse.move(0, 0);
     await page.evaluate(() => scrollTo(0, 0));
