@@ -100,6 +100,18 @@
             }
           },
           {
+            "name": "chatUnpinnedAt",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "contextStart",
             "type": {
               "kind": "NON_NULL",
@@ -7042,6 +7054,14 @@
             }
           },
           {
+            "name": "shortChatLocalAvailable",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "shortChatModelOptions",
             "type": {
               "kind": "OBJECT",
@@ -7550,6 +7570,18 @@
       {
         "fields": [
           {
+            "name": "local",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              }
+            }
+          },
+          {
             "name": "machineId",
             "type": {
               "kind": "NON_NULL",
@@ -7569,6 +7601,30 @@
               "ofType": {
                 "kind": "SCALAR",
                 "name": "String",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "retentionDays",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              }
+            }
+          },
+          {
+            "name": "vmLifetimeDays",
+            "type": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "Int",
                 "ofType": null
               }
             }
@@ -7582,6 +7638,14 @@
         "fields": null,
         "inputFields": [
           {
+            "name": "local",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          {
             "name": "machineId",
             "type": {
               "kind": "SCALAR",
@@ -7594,6 +7658,22 @@
             "type": {
               "kind": "SCALAR",
               "name": "String",
+              "ofType": null
+            }
+          },
+          {
+            "name": "retentionDays",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          },
+          {
+            "name": "vmLifetimeDays",
+            "type": {
+              "kind": "SCALAR",
+              "name": "Int",
               "ofType": null
             }
           }

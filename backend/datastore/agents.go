@@ -97,6 +97,9 @@ func removeAgents(transaction *sql.Tx, ids []string) error {
 		if err := queueVMRemovals(transaction, "json_extract(data,'$.agentId') IN "+in, args...); err != nil {
 			return err
 		}
+		if err := queueShortChatRemovals(transaction, in, args); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec("DELETE FROM attachment_blobs WHERE agent_id IN "+in, args...); err != nil {
 			return err
 		}
@@ -114,6 +117,25 @@ func removeAgents(transaction *sql.Tx, ids []string) error {
 	}
 
 	return nil
+}
+
+func queueShortChatRemovals(tx *sql.Tx, in string, args []any) error {
+	_, err := tx.Exec(`INSERT INTO resources(kind,id,parent_id,data)
+	 SELECT 'short_chat_cleanup',a.id,'',json_object('id',a.id,'ownerId',vm.id,
+	 'memberId',json_extract(vm.data,'$.memberId'))
+	 FROM resources a JOIN resources vm ON vm.kind='short_chat_vm_placement'
+	 AND vm.id=json_extract(a.data,'$.chatOwnerId')
+	 WHERE a.kind='agent' AND a.id IN `+in+`
+	 AND coalesce(json_extract(a.data,'$.projectId'),'')=''
+	 AND json_extract(a.data,'$.role')='main' AND a.parent_id=''
+	 ON CONFLICT(kind,id) DO NOTHING`, args...)
+	return err
+}
+
+func (instance *Instance) PendingShortChatCleanup() ([]map[string]any, error) {
+	return instance.queryResources(`SELECT data FROM resources WHERE kind='short_chat_cleanup'
+	 AND (json_extract(data,'$.retryAt') IS NULL OR julianday(json_extract(data,'$.retryAt'))<=julianday('now'))
+	 ORDER BY created_at,id LIMIT 100`)
 }
 
 // The outbox and logical deletion commit together. Cleanup survives restarts;

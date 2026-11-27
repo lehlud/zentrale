@@ -161,11 +161,15 @@ var compressedMicroVMBundle = sync.OnceValue(func() string {
 })
 
 func microVMCommand(action string, machines ...domain.Machine) string {
+	return "python3 -I -c " + Quote(microVMBootstrap(machines...)) + " " + Quote(action)
+}
+
+func microVMBootstrap(machines ...domain.Machine) string {
 	options, err := json.Marshal(microVMOptions(machines...))
 	if err != nil {
 		panic(err)
 	}
-	bootstrap := `import base64,json,sys,types
+	return `import base64,json,sys,types
 try:
     from lzma import decompress
 except ImportError:
@@ -181,7 +185,6 @@ except ImportError:
     exec(compile(bundle[key], '<zentrale-' + name + '>', 'exec'), module.__dict__)
 sys.argv.insert(2,json.dumps(bundle['configuration']))
 exec(compile(bundle['runner'],'<zentrale-microvm>','exec'))`
-	return "python3 -I -c " + Quote(bootstrap) + " " + Quote(action)
 }
 
 func PrepareProjectScratchCommand(directory string) string {
@@ -214,6 +217,14 @@ func managedMicroVMCommand(
 	machine domain.Machine,
 	execution Execution,
 ) (string, error) {
+	invocation, err := stageMicroVM(ctx, connection, machine, execution)
+	if err != nil {
+		return "", err
+	}
+	return "exec " + microVMCommand("run", machine) + " " + Quote(invocation), nil
+}
+
+func stageMicroVM(ctx context.Context, connection *Connection, machine domain.Machine, execution Execution) (string, error) {
 	output, err := microVMAction(ctx, connection, machine, "stage", execution)
 	if err != nil {
 		return "", fmt.Errorf("prepare managed MicroVM invocation: %w", err)
@@ -226,7 +237,7 @@ func managedMicroVMCommand(
 		return "", fmt.Errorf("invalid managed MicroVM control path: %q", invocation)
 	}
 
-	return "exec " + microVMCommand("run", machine) + " " + Quote(invocation), nil
+	return invocation, nil
 }
 
 func microVMAction(
@@ -274,7 +285,14 @@ func microVMAction(
 	}
 
 	var output string
-	if startupProgress(ctx) == nil {
+	if connection.localShortChatRoot != "" {
+		switch action {
+		case "stage", "prepare", "reset", "info", "stop", "remove":
+			output, err = runLocalMicroVM(ctx, connection, machine, action, bytes.NewReader(payload), "")
+		default:
+			return "", errors.New("invalid local MicroVM control action")
+		}
+	} else if startupProgress(ctx) == nil {
 		output, err = RunPipe(ctx, connection, microVMCommand(action, machine), strings.NewReader(string(payload)))
 	} else {
 		var reported [len(managedVMStartupPhases)]sync.Once

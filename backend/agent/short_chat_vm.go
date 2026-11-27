@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -63,6 +64,13 @@ func (engine *Engine) RunShortChatCommand(
 	if err := engine.verifyShortChatVMOwner(chat); err != nil {
 		return "", err
 	}
+	settings, err := engine.ShortChatSettings()
+	if err != nil {
+		return "", err
+	}
+	if err := engine.expireShortChatVM(ctx, chat.ChatOwnerID, userScope, settings.VMLifetimeDays); err != nil {
+		return "", errors.New("could not retire the expired short-chat VM")
+	}
 	placement, pinned, err := engine.loadShortChatPlacement(chat.ChatOwnerID, machineID, poolID)
 	if err != nil {
 		return "", err
@@ -76,11 +84,17 @@ func (engine *Engine) RunShortChatCommand(
 	} else {
 		target.PoolIDs = []string{poolID}
 	}
-	connection, machine, err := engine.Remote.ConnectForJob(ctx, target, userScope, placement.MemberID, false, nil)
+	var connection *remote.Connection
+	var machine domain.Machine
+	if machineID == remote.LocalShortChatMachineID {
+		connection, machine, err = remote.LocalShortChatConnection(engine.installationID)
+	} else {
+		connection, machine, err = engine.Remote.ConnectForJob(ctx, target, userScope, placement.MemberID, false, nil)
+		defer engine.Remote.Release(userScope)
+	}
 	if err != nil {
 		return "", shortChatVMFailure(ctx)
 	}
-	defer engine.Remote.Release(userScope)
 	defer connection.Close()
 
 	if _, err := remote.ShortChatMachine(machine); err != nil {
@@ -141,19 +155,26 @@ func (engine *Engine) writeChatAttachments(output io.Writer, chatID string, atta
 }
 
 func (engine *Engine) reconcileShortChatVMs(ctx context.Context) {
-	rows, err := engine.listAll(shortChatVMKind, nil)
+	settings, err := engine.ShortChatSettings()
+	if err != nil {
+		return
+	}
+	owners, err := engine.Store.ShortChatVMOwners()
 	if err != nil {
 		return
 	}
 
-	for _, row := range rows {
-		ownerID := stringArg(row, "id")
-		scope := "shortchat-" + shortChatDigest(engine.installationID, ownerID)[:56]
+	for _, ownerID := range owners {
+		scope, _ := engine.shortChatWorkspace(domain.Agent{ChatOwnerID: ownerID})
 		entry, _ := engine.vmOperations.LoadOrStore(scope, &vmOperation{gate: make(chan struct{}, 1)})
 		operation := entry.(*vmOperation)
 		select {
 		case operation.gate <- struct{}{}:
-			engine.stopIdleShortChatVM(ctx, ownerID, scope)
+			if err := engine.expireShortChatVM(ctx, ownerID, scope, settings.VMLifetimeDays); err == nil {
+				engine.stopIdleShortChatVM(ctx, ownerID, scope)
+			} else {
+				slog.Warn("could not retire an expired short-chat VM", "error", err)
+			}
 			operation.Unlock()
 		case <-ctx.Done():
 			return
@@ -161,6 +182,34 @@ func (engine *Engine) reconcileShortChatVMs(ctx context.Context) {
 			// A command owns this user's VM; never interrupt it.
 		}
 	}
+}
+
+// The per-owner VM operation lock is held by the caller. Idle stops and new
+// commands never renew the lifetime of the disk or its shared scratch data.
+func (engine *Engine) expireShortChatVM(ctx context.Context, ownerID, scope string, days int) error {
+	cutoff := time.Now().Add(-time.Duration(days) * shortChatDay)
+	expired, err := engine.Store.ShortChatVMExpired(ownerID, cutoff)
+	if err != nil || !expired {
+		return err
+	}
+
+	var placement shortChatVMPlacement
+	if err := engine.Store.Load(shortChatVMKind, ownerID, &placement); err != nil {
+		return err
+	}
+
+	cleanup, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	connection, machine, err := engine.dialShortChatVM(cleanup, placement.MemberID)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	if err := remote.RemoveShortChatVM(cleanup, connection, machine, scope); err != nil {
+		return err
+	}
+
+	return engine.Store.Remove(shortChatVMKind, ownerID)
 }
 
 func (engine *Engine) stopIdleShortChatVM(ctx context.Context, ownerID, scope string) {
@@ -177,18 +226,9 @@ func (engine *Engine) stopIdleShortChatVM(ctx context.Context, ownerID, scope st
 		return
 	}
 
-	machine, err := engine.Remote.Connector.Machine(placement.MemberID)
-	if err != nil {
-		return
-	}
-	machine, err = remote.ShortChatMachine(machine)
-	if err != nil {
-		return
-	}
-
 	stop, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	connection, err := engine.Remote.Connector.Dial(stop, placement.MemberID)
+	connection, machine, err := engine.dialShortChatVM(stop, placement.MemberID)
 	if err != nil {
 		return
 	}
@@ -197,6 +237,24 @@ func (engine *Engine) stopIdleShortChatVM(ctx context.Context, ownerID, scope st
 		placement.Stopped = true
 		_ = engine.Store.Save(shortChatVMKind, ownerID, "", placement)
 	}
+}
+
+func (engine *Engine) dialShortChatVM(ctx context.Context, memberID string) (*remote.Connection, domain.Machine, error) {
+	if memberID == remote.LocalShortChatMachineID {
+		return remote.LocalShortChatConnection(engine.installationID)
+	}
+
+	machine, err := engine.Remote.Connector.Machine(memberID)
+	if err != nil {
+		return nil, machine, err
+	}
+	machine, err = remote.ShortChatMachine(machine)
+	if err != nil {
+		return nil, machine, err
+	}
+
+	connection, err := engine.Remote.Connector.Dial(ctx, memberID)
+	return connection, machine, err
 }
 
 func (engine *Engine) verifyShortChatVMOwner(chat domain.Agent) error {

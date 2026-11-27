@@ -20,8 +20,10 @@ func (engine *Engine) superviseVMs() {
 
 	for {
 		_ = engine.Store.PruneTerminalAttachments()
+		engine.pruneShortChats(engine.ctx, time.Now().UTC())
 		engine.reconcileVMs(engine.ctx)
 		engine.reconcileShortChatVMs(engine.ctx)
+		engine.cleanupShortChatDirectories(engine.ctx)
 		select {
 		case <-engine.ctx.Done():
 			return

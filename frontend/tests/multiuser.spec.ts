@@ -57,6 +57,12 @@ test("a member can create a private short chat, not a project", async ({
     await expect(
       page.getByRole("button", { name: "Admin", exact: true }),
     ).toHaveCount(0);
+    const denied = await page.request.post("/graphql", {
+      data: {
+        query: "{shortChatSettings{retentionDays} shortChatLocalAvailable}",
+      },
+    });
+    expect((await denied.json()).errors).toHaveLength(2);
     await page
       .getByRole("link", { name: "Neue Unterhaltung", exact: true })
       .click();
@@ -132,4 +138,50 @@ test("a member can create a private short chat, not a project", async ({
   } finally {
     await administrator.close();
   }
+});
+
+test("an admin can configure short-chat and VM retention", async ({ page }) => {
+  const { status } = await graphql<{ status: { needsSetup: boolean } }>(
+    page.request,
+    "{status{needsSetup}}",
+  );
+  await graphql(
+    page.request,
+    status.needsSetup
+      ? 'mutation{setup(password:"browser test password",commitIdentity:{name:"Browser Test Agent",email:"browser-agent@example.test"})}'
+      : 'mutation{login(password:"browser test password")}',
+  );
+
+  const { shortChatLocalAvailable } = await graphql<{
+    shortChatLocalAvailable: boolean;
+  }>(page.request, "{shortChatLocalAvailable}");
+  await page.goto("/#/admin-settings");
+  const configure = page.getByRole("button", {
+    name: "Kurzchats konfigurieren",
+  });
+  await configure.click();
+  const dialog = page.getByRole("dialog", { name: "Kurzchats konfigurieren" });
+  const retention = dialog.getByLabel("Chat-Aufbewahrung (Tage)");
+  const lifetime = dialog.getByLabel("VM-Lebensdauer (Tage)");
+  await expect(retention).toHaveValue("45");
+  await expect(lifetime).toHaveValue("7");
+
+  await dialog.getByRole("button", { name: "Codeausführung" }).click();
+  await expect(
+    page.getByRole("option", { name: "Zentrale (lokal)" }),
+  ).toHaveCount(shortChatLocalAvailable ? 1 : 0);
+  await page.getByRole("option", { name: "Deaktiviert" }).click();
+  await retention.fill("60");
+  await lifetime.fill("14");
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+
+  await page.reload();
+  await configure.click();
+  await expect(retention).toHaveValue("60");
+  await expect(lifetime).toHaveValue("14");
+  await graphql(
+    page.request,
+    "mutation{saveShortChatSettings(input:{retentionDays:45,vmLifetimeDays:7}){retentionDays vmLifetimeDays}}",
+  );
 });

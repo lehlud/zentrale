@@ -8,6 +8,7 @@ export type Agent = {
   chatNamed: boolean;
   chatOwnerId: string;
   chatPinned: boolean;
+  chatUnpinnedAt: string;
   contextStart: number;
   contextTokens: number;
   contextWindow: number | null;
@@ -712,6 +713,7 @@ export type Query = {
   recentMessages: Array<Message | null> | null;
   sandboxStatuses: Array<SandboxStatus | null> | null;
   shortChat: Agent | null;
+  shortChatLocalAvailable: boolean | null;
   shortChatModelOptions: ModelPresetPolicy | null;
   shortChats: Array<Agent | null> | null;
   shortChatSettings: ShortChatSettings | null;
@@ -742,12 +744,18 @@ export type SandboxStatus = {
   mode: string;
 };
 export type ShortChatSettings = {
+  local: boolean;
   machineId: string;
   poolId: string;
+  retentionDays: number;
+  vmLifetimeDays: number;
 };
 export type ShortChatSettingsInput = {
+  local?: boolean | null;
   machineId?: string | null;
   poolId?: string | null;
+  retentionDays?: number | null;
+  vmLifetimeDays?: number | null;
 };
 export type Source = {
   bindingId: string;

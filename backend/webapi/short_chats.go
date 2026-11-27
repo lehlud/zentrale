@@ -8,11 +8,18 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/lehlud/zentrale/agent"
 	"github.com/lehlud/zentrale/domain"
+	"github.com/lehlud/zentrale/remote"
 )
 
 func (builder *schemaBuilder) shortChatFields(queries, mutations graphql.Fields) {
 	server := builder.server
 	chatType := builder.output(reflect.TypeFor[domain.Agent]())
+	queries["shortChatLocalAvailable"] = &graphql.Field{
+		Type: graphql.Boolean,
+		Resolve: adminOnly(func(_ graphql.ResolveParams) (any, error) {
+			return remote.LocalShortChatAvailable(), nil
+		}),
+	}
 	queries["shortChatSettings"] = &graphql.Field{
 		Type: builder.output(reflect.TypeFor[agent.ShortChatSettings]()),
 		Resolve: adminOnly(func(_ graphql.ResolveParams) (any, error) {

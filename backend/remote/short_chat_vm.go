@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"time"
 
@@ -32,11 +35,15 @@ func ShortChatMachine(machine domain.Machine) (domain.Machine, error) {
 }
 
 func StopShortChatVM(ctx context.Context, connection *Connection, machine domain.Machine, scope string) error {
+	return shortChatVMLifecycle(ctx, connection, machine, scope, "stop")
+}
+
+func shortChatVMLifecycle(ctx context.Context, connection *Connection, machine domain.Machine, scope, action string) error {
 	workspace, err := ShortChatWorkspacePath(connection, scope)
 	if err != nil {
 		return err
 	}
-	_, err = ManageMicroVM(ctx, connection, machine, "stop", Execution{
+	_, err = ManageMicroVM(ctx, connection, machine, action, Execution{
 		AgentID: EditorScopeID(scope, ""), ProjectID: scope,
 		Workspace:          workspace,
 		TemporaryDirectory: connection.ProjectTemporaryDirectory(scope),
@@ -50,6 +57,9 @@ func ShortChatWorkspacePath(connection *Connection, scope string) (string, error
 	if connection == nil || !shortChatScopePattern.MatchString(scope) ||
 		!shortChatInstallationPattern.MatchString(connection.InstallationID()) {
 		return "", errors.New("invalid short-chat VM scope")
+	}
+	if connection.localShortChatRoot != "" {
+		return filepath.Join(connection.localShortChatRoot, "workspaces", scope), nil
 	}
 
 	return "/tmp/zentrale-" + connection.InstallationID() + "-workspace-" + scope, nil
@@ -86,13 +96,23 @@ func RunShortChatVM(
 			"tar -xf - -C /tmp/attachments --no-same-owner --no-same-permissions || exit 78\n" + command
 	}
 
-	wrapped, level, err := Sandbox(ctx, connection, machine, Execution{
+	execution := Execution{
 		AgentID:            EditorScopeID(userScope, ""),
 		ProjectID:          userScope,
 		Workspace:          workspace,
 		TemporaryDirectory: temporary,
 		Command:            shortChatGuestCommand(chatDirectory, command),
-	})
+	}
+	if connection.localShortChatRoot != "" {
+		invocation, err := stageMicroVM(ctx, connection, machine, execution)
+		if err != nil {
+			return "", err
+		}
+		commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return runLocalMicroVM(commandContext, connection, machine, "run", attachments, invocation)
+	}
+	wrapped, level, err := Sandbox(ctx, connection, machine, execution)
 	if err != nil {
 		return "", err
 	}
@@ -116,6 +136,13 @@ except FileExistsError:
 info = os.lstat(path)
 if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
     raise SystemExit("short-chat workspace is not a private directory")`
+	if connection.localShortChatRoot != "" {
+		if err := os.MkdirAll(filepath.Dir(workspace), 0700); err != nil {
+			return err
+		}
+		script := createPrivateWorkspace + "\n" + projectScratchScript + "\nprepare_project_scratch(Path(sys.argv[2]))"
+		return exec.CommandContext(ctx, "python3", "-I", "-c", script, workspace, temporary).Run()
+	}
 	prepare := "python3 -c " + Quote(createPrivateWorkspace) + " " + Quote(workspace) +
 		" && " + PrepareProjectScratchCommand(temporary)
 	_, err := Run(ctx, connection, prepare)

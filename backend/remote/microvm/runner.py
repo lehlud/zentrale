@@ -326,13 +326,21 @@ def private_directory(directory, *, create=True):
 
 
 def disk_cache_directory():
+    local = os.environ.get("ZENTRALE_LOCAL_VM_ROOT")
+    if local:
+        return Path(local) / "disks"
     return Path("/var/tmp") / ("zentrale-microvm-disks-" + str(os.getuid()))
 
 
 def cache_directory(writable_roots=()):
     # One location per SSH user protects concurrent projects too. Choosing a
     # different cache for a broad workspace would expose another VM's cache.
-    candidate = Path("/tmp") / ("zentrale-microvm-" + str(os.getuid()))
+    local = os.environ.get("ZENTRALE_LOCAL_VM_ROOT")
+    candidate = (
+        Path(local) / "runtime"
+        if local
+        else Path("/tmp") / ("zentrale-microvm-" + str(os.getuid()))
+    )
     cache = private_directory(candidate)
     if any(within(root, cache) for root in writable_roots):
         raise RuntimeError(

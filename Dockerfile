@@ -32,6 +32,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 python3-venv \
+        qemu-system-x86 qemu-utils e2fsprogs kmod mount \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 zentrale \
     && useradd --uid 10001 --gid zentrale --home-dir /data \
@@ -52,6 +53,7 @@ COPY --from=office-assets /out/office/ ./frontend/office/
 ENV ZENTRALE_VSCODE_CACHE=/data/cache/vscode
 ENV ZENTRALE_MODAL_PYTHON=/opt/zentrale-modal/bin/python ZENTRALE_MODAL_ASSETS=/opt/zentrale-modal-app
 ENV ZENTRALE_DDGS_PYTHON=/opt/zentrale-search/bin/python
+ENV ZENTRALE_SHORT_CHAT_VM_DIR=/data/short-chat-vms
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8080

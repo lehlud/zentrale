@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lehlud/zentrale/domain"
@@ -87,7 +88,11 @@ func (engine *Engine) SetShortChatPinned(ownerID, id string, pinned bool) error 
 		return nil
 	}
 
-	return engine.patchAgent(id, map[string]any{"chatPinned": pinned})
+	fields := map[string]any{"chatPinned": pinned}
+	if !pinned {
+		fields["chatUnpinnedAt"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	return engine.patchAgent(id, fields)
 }
 
 func (engine *Engine) shortChatTools(chatID string) []providers.Tool {
@@ -206,10 +211,12 @@ func (engine *Engine) shortChatTool(ctx context.Context, chat domain.Agent, call
 			return nil, err
 		}
 		current, err := engine.ShortChatSettings()
-		if err != nil || current != settings {
+		machineID, poolID := settings.executionTarget()
+		currentMachineID, currentPoolID := current.executionTarget()
+		if err != nil || currentMachineID != machineID || currentPoolID != poolID {
 			return nil, errors.New("short-chat execution target changed during review")
 		}
-		return engine.RunShortChatCommand(ctx, chat, settings.MachineID, settings.PoolID, command, ids...)
+		return engine.RunShortChatCommand(ctx, chat, machineID, poolID, command, ids...)
 	case domain.DeliverFileTool:
 		return engine.deliverShortChatFile(ctx, chat, path)
 	case humanizerAction:

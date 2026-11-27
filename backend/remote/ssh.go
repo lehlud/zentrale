@@ -33,15 +33,16 @@ func (e *HostKeyError) Error() string {
 }
 
 type Connection struct {
-	machineID      string
-	Client         *ssh.Client
-	daemon         *daemonClient
-	store          *datastore.Instance
-	installationID string
-	chain          []*ssh.Client
-	shared         *sharedConnection
-	closed         sync.Once
-	released       atomic.Bool
+	machineID          string
+	Client             *ssh.Client
+	daemon             *daemonClient
+	store              *datastore.Instance
+	installationID     string
+	localShortChatRoot string
+	chain              []*ssh.Client
+	shared             *sharedConnection
+	closed             sync.Once
+	released           atomic.Bool
 }
 
 func (connection *Connection) InstallationID() string { return connection.installationID }

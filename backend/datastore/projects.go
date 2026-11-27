@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"errors"
+	"time"
 
 	"github.com/lehlud/zentrale/domain"
 )
@@ -46,6 +47,53 @@ func (i *Instance) ShortChats(userID string, limit, offset int, fields []string,
 
 	query += ` ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`
 	return i.queryResources(query, append(args, limit, offset)...)
+}
+
+// ExpiredShortChats returns a keyset page of unpinned short chats whose most
+// recent message (or creation time for empty chats) predates the cutoff.
+func (i *Instance) ExpiredShortChats(before, unpinnedBefore time.Time, after string, limit int) ([]map[string]any, error) {
+	cutoff := before.UTC().Format("2006-01-02 15:04:05.000+00:00")
+	const query = `SELECT json_object('id',a.id) FROM resources AS a
+		WHERE a.kind='agent' AND a.parent_id='' AND a.id>?
+		AND coalesce(json_extract(a.data,'$.chatOwnerId'),'')<>''
+		AND coalesce(json_extract(a.data,'$.projectId'),'')=''
+		AND json_extract(a.data,'$.role')='main'
+		AND coalesce(json_extract(a.data,'$.chatPinned'),0)=0 AND a.created_at<=?
+		AND coalesce(julianday(json_extract(a.data,'$.chatUnpinnedAt')),0)<=julianday(?)
+		AND NOT EXISTS (
+			SELECT 1 FROM resources AS m WHERE m.parent_id=a.id AND m.created_at>?
+			AND (m.kind='agent_input' OR (m.kind='message' AND json_extract(m.data,'$.role')='user'))
+		)
+		ORDER BY a.id
+		LIMIT ?`
+	return i.queryResources(query, after, cutoff, unpinnedBefore.UTC().Format(time.RFC3339Nano), cutoff, limit)
+}
+
+func (i *Instance) ShortChatVMExpired(ownerID string, cutoff time.Time) (bool, error) {
+	var expired bool
+	err := i.readDB().QueryRow(`SELECT EXISTS (SELECT 1 FROM resources
+	 WHERE kind='short_chat_vm_placement' AND id=? AND created_at<=?)`,
+		ownerID, cutoff.UTC().Format("2006-01-02 15:04:05.000+00:00")).Scan(&expired)
+	return expired, err
+}
+
+func (i *Instance) ShortChatVMOwners() ([]string, error) {
+	rows, err := i.readDB().Query(`SELECT id FROM resources WHERE kind='short_chat_vm_placement' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
 }
 
 // ProjectActivityCandidates returns only live/recoverable agent rows in the

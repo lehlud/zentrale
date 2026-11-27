@@ -260,6 +260,7 @@ type Agent struct {
 	ChatOwnerID    string `json:"chatOwnerId,omitempty"` // Set only for a standalone short chat.
 	ChatPinned     bool   `json:"chatPinned"`
 	ChatNamed      bool   `json:"chatNamed,omitempty"` // A standalone chat was explicitly named.
+	ChatUnpinnedAt string `json:"chatUnpinnedAt,omitempty"`
 
 	// Conversation lineage is independent of ParentID (agent delegation).
 	BranchRootID           string `json:"branchRootId,omitempty"`

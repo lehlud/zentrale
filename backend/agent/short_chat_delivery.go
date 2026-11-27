@@ -69,7 +69,11 @@ func (engine *Engine) deliverShortChatFile(ctx context.Context, chat domain.Agen
 		return delivery, errors.New("short-chat execution is disabled")
 	}
 
-	placement, pinned, err := engine.loadShortChatPlacement(chat.ChatOwnerID, settings.MachineID, settings.PoolID)
+	if err := engine.expireShortChatVM(ctx, chat.ChatOwnerID, scope, settings.VMLifetimeDays); err != nil {
+		return delivery, errors.New("could not retire the expired short-chat VM")
+	}
+	machineID, poolID := settings.executionTarget()
+	placement, pinned, err := engine.loadShortChatPlacement(chat.ChatOwnerID, machineID, poolID)
 	if err != nil {
 		return delivery, err
 	}
@@ -77,29 +81,9 @@ func (engine *Engine) deliverShortChatFile(ctx context.Context, chat domain.Agen
 		return delivery, errShortChatFileNotFound
 	}
 
-	machine, err := engine.Remote.Connector.Machine(placement.MemberID)
-	if err != nil {
-		return delivery, errors.New("the existing short-chat compute target is unavailable")
-	}
-	if _, err := remote.ShortChatMachine(machine); err != nil {
-		return delivery, err
-	}
-
-	connection, err := engine.Remote.Connector.Dial(ctx, placement.MemberID)
-	if err != nil {
-		return delivery, errors.New("could not reach the existing short-chat compute target")
-	}
-	defer connection.Close()
-
-	workspace, err := remote.ShortChatWorkspacePath(connection, scope)
-	if err != nil {
-		return delivery, err
-	}
-
 	// Include the chat directory in the descriptor-relative traversal; even
 	// if it has been replaced by a symlink, the reader rejects the entire path.
-	command := workspaceFileCommand(workspace, chatDirectory+"/"+filename, MaxAttachmentBytes)
-	err = streamWorkspaceFile(ctx, connection, command, MaxAttachmentBytes, func(size int64, stream io.Reader) error {
+	err = engine.streamShortChatFile(ctx, placement.MemberID, scope, chatDirectory+"/"+filename, func(size int64, stream io.Reader) error {
 		id := domain.DeliveredAttachmentPrefix + NewID()
 		attachment, err := engine.uploadAttachment(ctx, chat.ID, id, path.Base(filename), size, stream)
 		if err != nil {
@@ -121,4 +105,22 @@ func (engine *Engine) deliverShortChatFile(ctx context.Context, chat domain.Agen
 		// never expose as workspace paths or URLs.
 		return delivery, errors.New("could not read and store the generated file")
 	}
+}
+
+func (engine *Engine) streamShortChatFile(ctx context.Context, memberID, scope, relative string, send func(int64, io.Reader) error) error {
+	connection, _, err := engine.dialShortChatVM(ctx, memberID)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	workspace, err := remote.ShortChatWorkspacePath(connection, scope)
+	if err != nil {
+		return err
+	}
+
+	if memberID == remote.LocalShortChatMachineID {
+		return streamLocalChatFile(workspace, relative, send)
+	}
+	command := workspaceFileCommand(workspace, relative, MaxAttachmentBytes)
+	return streamWorkspaceFile(ctx, connection, command, MaxAttachmentBytes, send)
 }

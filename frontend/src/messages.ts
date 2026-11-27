@@ -955,6 +955,19 @@ Object.assign(english, {
 Object.assign(english, {
   "Projekt-VM zurücksetzen": "Reset project VM",
   "Fernmaschine oder Pool": "Remote machine or pool",
+  "Kurzchats konfigurieren": "Configure short chats",
+  "Lege fest, wie lange Kurzchats bleiben und wo sie bei Bedarf Code ausführen. Für Antworten und Dateifreigaben wird keine VM gestartet.":
+    "Choose how long short chats are kept and where they can run code. Replies and file shares do not start a VM.",
+  "Zentrale (lokal)": "Zentrale (local)",
+  "Zentrale (KVM nicht verfügbar)": "Zentrale (KVM unavailable)",
+  "Chat-Aufbewahrung (Tage)": "Chat retention (days)",
+  "Gepinnte Chats bleiben erhalten. Eine neue Nachricht startet die volle Frist neu. Nach dem Entpinnen bleibt mindestens die halbe Frist.":
+    "Pinned chats are kept. A new message restarts the full period. Unpinning leaves at least half the period.",
+  "VM-Lebensdauer (Tage)": "VM lifetime (days)",
+  "Pro Benutzer wird erst bei Bedarf eine VM erstellt. Nach Ablauf werden VM und Arbeitsdateien entfernt; Chat-Anhänge bleiben im Chat.":
+    "Each user gets a VM only when needed. At expiry, the VM and its working files are removed; chat attachments stay in the chat.",
+  "Gib ganze Tage zwischen 1 und 3650 ein.":
+    "Enter a whole number of days between 1 and 3650.",
   "Automatisch erfordert eine VM. Fehlen die Voraussetzungen, wird die Ausführung gestoppt.":
     "Automatic mode requires a VM. Execution stops if its prerequisites are unavailable.",
   Fernmaschine: "Remote machine",
