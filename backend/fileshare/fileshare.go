@@ -66,6 +66,7 @@ type Config struct {
 // path segments, usable as relative path components in subsequent calls.
 type Entry struct {
 	Name  string `json:"name"`
+	Path  string `json:"path"`
 	Label string `json:"label,omitempty"`
 	IsDir bool   `json:"isDir"`
 	Size  int64  `json:"size"`
@@ -203,6 +204,13 @@ func (s *Share) List(ctx context.Context, appUsername, relativePath string) ([]E
 	}
 
 	slices.SortFunc(entries, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
+	prefix := relativePath
+	if prefix != "" {
+		prefix += "/"
+	}
+	for i := range entries {
+		entries[i].Path = prefix + entries[i].Name
+	}
 	return entries, nil
 }
 
@@ -212,6 +220,20 @@ func (s *Share) Read(ctx context.Context, appUsername, relativePath string, maxB
 	if maxBytes <= 0 || maxBytes > MaxReadBytes {
 		return nil, fmt.Errorf("fileshare read limit must be between 1 and %d bytes", MaxReadBytes)
 	}
+	return s.read(ctx, appUsername, relativePath, readWindow{limit: maxBytes})
+}
+
+// ReadChunk returns up to limit+1 bytes, including one lookahead byte to report
+// whether there is more data. The offset and limit apply to the extracted text
+// for an indexed DomainShare document, and to file bytes otherwise.
+func (s *Share) ReadChunk(ctx context.Context, appUsername, relativePath string, offset, limit int64) ([]byte, error) {
+	if offset < 0 || offset > MaxReadBytes || limit <= 0 || limit >= MaxReadBytes {
+		return nil, ErrInvalidPath
+	}
+	return s.read(ctx, appUsername, relativePath, readWindow{offset: offset, limit: limit, partial: true})
+}
+
+func (s *Share) read(ctx context.Context, appUsername, relativePath string, window readWindow) ([]byte, error) {
 	if relativePath == "" {
 		return nil, ErrInvalidPath
 	}
@@ -226,16 +248,46 @@ func (s *Share) Read(ctx context.Context, appUsername, relativePath string, maxB
 
 	switch s.protocol {
 	case ProtocolSMB:
-		return s.readSMB(ctx, path, maxBytes)
+		return s.readSMB(ctx, path, window)
 	case ProtocolSFTP:
-		return s.readSFTP(ctx, path, maxBytes)
+		return s.readSFTP(ctx, path, window)
 	case ProtocolWebDAV:
-		return s.readDAV(ctx, root, path, maxBytes)
+		return s.readDAV(ctx, root, path, window)
 	case ProtocolDomainShare:
-		return s.readDomainShare(ctx, appUsername, path, maxBytes)
+		return s.readDomainShare(ctx, appUsername, path, window)
 	default:
 		return nil, ErrUnavailable
 	}
+}
+
+type readWindow struct {
+	offset  int64
+	limit   int64
+	partial bool
+}
+
+func (w readWindow) exceeds(size int64) bool {
+	return !w.partial && size > w.limit
+}
+
+func (w readWindow) read(ctx context.Context, source io.Reader) ([]byte, error) {
+	if !w.partial {
+		return readBounded(ctx, source, w.limit)
+	}
+
+	if w.offset > 0 {
+		if file, ok := source.(io.Seeker); ok {
+			if _, err := file.Seek(w.offset, io.SeekStart); err != nil {
+				return nil, operationError(ctx)
+			}
+		} else if _, err := io.CopyN(io.Discard, source, w.offset); err != nil {
+			if errors.Is(err, io.EOF) && ctx.Err() == nil {
+				return nil, nil
+			}
+			return nil, operationError(ctx)
+		}
+	}
+	return readBounded(ctx, io.LimitReader(source, w.limit+1), w.limit+1)
 }
 
 func (s *Share) resolve(appUsername, relative string) (root, full []string, err error) {

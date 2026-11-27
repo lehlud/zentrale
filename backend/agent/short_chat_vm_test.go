@@ -187,7 +187,15 @@ func checkShortChatShareWithoutVM(t *testing.T, engine *Engine, chat domain.Agen
 	got, err := engine.shortChatTool(context.Background(), chat, providers.Call{
 		Name: "share_read", Arguments: map[string]any{"shareId": share.ID, "path": "note.txt"},
 	})
-	if err != nil || got != "share-only data" {
+	if err != nil || got != (shareExcerpt{Text: "share-only data"}) {
 		t.Fatalf("share read without a VM: got=%v err=%v", got, err)
+	}
+
+	got, err = engine.shortChatTool(t.Context(), chat, providers.Call{
+		Name: "share_read", Arguments: map[string]any{"shareId": share.ID, "path": "note.txt", "offset": 6, "limit": 4},
+	})
+	excerpt, ok := got.(shareExcerpt)
+	if err != nil || !ok || excerpt.Text != "only" || excerpt.Offset != 6 || excerpt.NextOffset == nil || *excerpt.NextOffset != 10 {
+		t.Fatalf("share excerpt without a VM: got=%+v err=%v", got, err)
 	}
 }

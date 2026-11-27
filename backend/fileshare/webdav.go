@@ -64,7 +64,7 @@ func (s *Share) listDAV(ctx context.Context, root, path []string) ([]Entry, erro
 	return s.propfind(ctx, path, true, true)
 }
 
-func (s *Share) readDAV(ctx context.Context, root, path []string, maxBytes int64) ([]byte, error) {
+func (s *Share) readDAV(ctx context.Context, root, path []string, window readWindow) ([]byte, error) {
 	if err := s.verifyDAVAncestors(ctx, root, path); err != nil {
 		return nil, err
 	}
@@ -81,10 +81,10 @@ func (s *Share) readDAV(ctx context.Context, root, path []string, maxBytes int64
 	if response.StatusCode != http.StatusOK {
 		return nil, davStatusError(response.StatusCode)
 	}
-	if response.ContentLength > maxBytes {
+	if window.exceeds(response.ContentLength) {
 		return nil, ErrTooLarge
 	}
-	return readBounded(ctx, response.Body, maxBytes)
+	return window.read(ctx, response.Body)
 }
 
 func (s *Share) verifyDAVAncestors(ctx context.Context, root, path []string) error {

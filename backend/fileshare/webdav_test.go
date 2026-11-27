@@ -73,7 +73,7 @@ func TestWebDAVListsAndReadsOnlyScopedResources(t *testing.T) {
 	}
 
 	entries, err := share.List(context.Background(), "alice", "")
-	if err != nil || len(entries) != 2 || entries[0] != (Entry{Name: "a note.txt", Size: 3}) ||
+	if err != nil || len(entries) != 2 || entries[0] != (Entry{Name: "a note.txt", Path: "a note.txt", Size: 3}) ||
 		entries[1].Name != "folder" || !entries[1].IsDir || gets.Load() != 0 {
 		t.Fatalf("entries=%+v GETs=%d err=%v", entries, gets.Load(), err)
 	}
@@ -86,6 +86,11 @@ func TestWebDAVListsAndReadsOnlyScopedResources(t *testing.T) {
 	data, err = share.Read(context.Background(), "alice", "a note.txt", 2)
 	if !errors.Is(err, ErrTooLarge) || data != nil {
 		t.Fatalf("data=%q err=%v", data, err)
+	}
+
+	data, err = share.ReadChunk(t.Context(), "alice", entries[0].Path, 1, 1)
+	if err != nil || string(data) != "bc" {
+		t.Fatalf("chunk with lookahead=%q err=%v", data, err)
 	}
 }
 

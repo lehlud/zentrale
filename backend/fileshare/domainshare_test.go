@@ -53,7 +53,7 @@ func TestDomainShareListsReadsAndSearchesForTheCaller(t *testing.T) {
 				fmt.Fprint(w, `{"items":[],"nextCursor":null}`)
 				return
 			}
-			fmt.Fprintf(w, `{"items":[{"id":"%s","name":"notes.pdf","source":"Private"}],"nextCursor":"next:page"}`, id)
+			fmt.Fprintf(w, `{"items":[{"id":"%s","name":"notes.pdf","source":"Private","sourceId":"private:%s","path":"A/notes.pdf","snippet":"Budget details"}],"nextCursor":"next:page"}`, id, username)
 		case domainShareAPIPrefix + "/documents/" + id:
 			if username != "alice" {
 				w.WriteHeader(http.StatusNotFound)
@@ -75,7 +75,7 @@ func TestDomainShareListsReadsAndSearchesForTheCaller(t *testing.T) {
 	ctx := t.Context()
 	for _, username := range []string{"alice", "bob"} {
 		roots, err := share.List(ctx, username, "")
-		if err != nil || len(roots) != 1 || roots[0] != (Entry{Name: "private:" + username, Label: "Private", IsDir: true}) {
+		if err != nil || len(roots) != 1 || roots[0] != (Entry{Name: "private:" + username, Path: "private:" + username, Label: "Private", IsDir: true}) {
 			t.Fatalf("unexpected visible roots for %s: %+v, %v", username, roots, err)
 		}
 		items, err := share.List(ctx, username, roots[0].Name)
@@ -108,13 +108,25 @@ func TestDomainShareListsReadsAndSearchesForTheCaller(t *testing.T) {
 	if err != nil || len(next.Items) != 0 || next.NextCursor != "" {
 		t.Fatalf("search did not forward cursor: %+v, %v", next, err)
 	}
-	path := page.Items[0].Path
+	item := page.Items[0]
+	path := item.TextPath
+	if item.Path != "private:alice/A/notes.pdf" || path != "@document/"+id || item.Snippet != "Budget details" {
+		t.Fatalf("incorrect search result: %+v", item)
+	}
 	data, err := share.Read(ctx, "alice", path, 64)
 	if err != nil || string(data) != "indexed notes" {
 		t.Fatalf("incorrect indexed text: %q, %v", data, err)
 	}
 	if _, err := share.Read(ctx, "bob", path, 64); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-account indexed document access: %v", err)
+	}
+
+	data, err = share.ReadChunk(ctx, "alice", path, 8, 3)
+	if err != nil || string(data) != "note" {
+		t.Fatalf("incorrect indexed text chunk including lookahead: %q, %v", data, err)
+	}
+	if _, err := share.ReadChunk(ctx, "bob", path, 8, 3); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-account indexed chunk access: %v", err)
 	}
 }
 

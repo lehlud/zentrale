@@ -119,7 +119,7 @@ func (s *Share) listSMB(ctx context.Context, parts []string) ([]Entry, error) {
 	return entries, nil
 }
 
-func (s *Share) readSMB(ctx context.Context, parts []string, maxBytes int64) ([]byte, error) {
+func (s *Share) readSMB(ctx context.Context, parts []string, window readWindow) ([]byte, error) {
 	client, closeClient, err := s.connectSMB(ctx)
 	if err != nil {
 		return nil, err
@@ -132,10 +132,14 @@ func (s *Share) readSMB(ctx context.Context, parts []string, maxBytes int64) ([]
 	}
 	defer closePath()
 
-	if file.EndOfFile > uint64(maxBytes) {
+	if !window.partial && file.EndOfFile > uint64(window.limit) {
 		return nil, ErrTooLarge
 	}
-	var offset uint64
+	offset := uint64(window.offset)
+	if window.partial && offset >= file.EndOfFile {
+		return nil, nil
+	}
+	window.offset = 0 // SMB can start the first network read at the requested offset.
 	reader := smbReader(func(p []byte) (int, error) {
 		n, err := file.ReadFileContext(ctx, p, offset)
 		offset += uint64(n)
@@ -144,7 +148,7 @@ func (s *Share) readSMB(ctx context.Context, parts []string, maxBytes int64) ([]
 		}
 		return n, err
 	})
-	return readBounded(ctx, reader, maxBytes)
+	return window.read(ctx, reader)
 }
 
 type smbReader func([]byte) (int, error)

@@ -82,7 +82,7 @@ func (s *Share) listSFTP(ctx context.Context, parts []string) ([]Entry, error) {
 	return entries, nil
 }
 
-func (s *Share) readSFTP(ctx context.Context, parts []string, maxBytes int64) ([]byte, error) {
+func (s *Share) readSFTP(ctx context.Context, parts []string, window readWindow) ([]byte, error) {
 	client, closeClient, err := s.connectSFTP(ctx)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (s *Share) readSFTP(ctx context.Context, parts []string, maxBytes int64) ([
 	if err != nil {
 		return nil, err
 	}
-	if beforeOpen.Size() > maxBytes {
+	if window.exceeds(beforeOpen.Size()) {
 		return nil, ErrTooLarge
 	}
 	file, err := client.Open(absoluteSFTPPath(parts))
@@ -117,7 +117,7 @@ func (s *Share) readSFTP(ctx context.Context, parts []string, maxBytes int64) ([
 		return nil, ErrUnsafePath
 	}
 
-	data, err := readBounded(ctx, file, maxBytes)
+	data, err := window.read(ctx, file)
 	if err != nil {
 		return nil, err
 	}

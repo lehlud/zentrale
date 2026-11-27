@@ -18,7 +18,7 @@ const (
 
 var domainShareDocumentID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-func (s *Share) domainShareGet(ctx context.Context, username, operation string, query url.Values, limit int64) ([]byte, error) {
+func (s *Share) domainShareGet(ctx context.Context, username, operation string, query url.Values, window readWindow) ([]byte, error) {
 	if username == "" || len(username) > 256 || strings.ContainsAny(username, "/@") || strings.ContainsFunc(username, unicode.IsControl) {
 		return nil, ErrAccessDenied
 	}
@@ -46,14 +46,14 @@ func (s *Share) domainShareGet(ctx context.Context, username, operation string, 
 	if response.StatusCode != http.StatusOK {
 		return nil, davStatusError(response.StatusCode)
 	}
-	if response.ContentLength > limit {
+	if window.exceeds(response.ContentLength) {
 		return nil, ErrTooLarge
 	}
-	return readBounded(ctx, response.Body, limit)
+	return window.read(ctx, response.Body)
 }
 
 func (s *Share) domainShareJSON(ctx context.Context, username, operation string, query url.Values, out any) error {
-	body, err := s.domainShareGet(ctx, username, operation, query, maxDomainShareMetadata)
+	body, err := s.domainShareGet(ctx, username, operation, query, readWindow{limit: maxDomainShareMetadata})
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (s *Share) listDomainShare(ctx context.Context, username string, path []str
 	}
 }
 
-func (s *Share) readDomainShare(ctx context.Context, username string, path []string, limit int64) ([]byte, error) {
+func (s *Share) readDomainShare(ctx context.Context, username string, path []string, window readWindow) ([]byte, error) {
 	if len(path) < 2 {
 		return nil, ErrInvalidPath
 	}
@@ -131,20 +131,19 @@ func (s *Share) readDomainShare(ctx context.Context, username string, path []str
 		if document.Text == "" {
 			return nil, ErrNotFound
 		}
-		if int64(len(document.Text)) > limit {
-			return nil, ErrTooLarge
-		}
-		return []byte(document.Text), nil
+		return window.read(ctx, strings.NewReader(document.Text))
 	}
 
 	query := url.Values{"source": {path[0]}, "path": {strings.Join(path[1:], "/")}}
-	return s.domainShareGet(ctx, username, "/file", query, limit)
+	return s.domainShareGet(ctx, username, "/file", query, window)
 }
 
 type ShareSearchResult struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
-	Path   string `json:"path"`
+	Name     string `json:"name"`
+	Source   string `json:"source"`
+	Path     string `json:"path"`
+	TextPath string `json:"textPath,omitempty"`
+	Snippet  string `json:"snippet,omitempty"`
 }
 
 type ShareSearchPage struct {
@@ -170,7 +169,7 @@ func (s *Share) Search(ctx context.Context, username, terms, cursor string) (Sha
 		query.Set("cursor", cursor)
 	}
 	var response struct {
-		Items            []struct{ ID, Name, Source string }
+		Items            []struct{ ID, Name, Source, SourceID, Path, Snippet string }
 		NextCursor       string
 		SearchIncomplete bool
 	}
@@ -182,11 +181,27 @@ func (s *Share) Search(ctx context.Context, username, terms, cursor string) (Sha
 	}
 	result := ShareSearchPage{Items: []ShareSearchResult{}, NextCursor: response.NextCursor, Incomplete: response.SearchIncomplete}
 	for _, item := range response.Items {
-		if domainShareDocumentID.MatchString(item.ID) {
-			result.Items = append(result.Items, ShareSearchResult{
-				Name: item.Name, Source: item.Source, Path: domainShareDocumentRoot + "/" + item.ID,
-			})
+		if !domainShareDocumentID.MatchString(item.ID) {
+			continue
 		}
+
+		resultItem := ShareSearchResult{
+			Name: item.Name, Source: item.Source, Path: domainShareDocumentRoot + "/" + item.ID,
+		}
+		if item.Path != "" && item.SourceID != domainShareDocumentRoot && validSegment(item.SourceID, s.protocol) {
+			path := item.SourceID + "/" + item.Path
+			if _, _, err := s.resolve(username, path); err == nil {
+				resultItem.Path, resultItem.TextPath = path, resultItem.Path
+			}
+		}
+		for i := range item.Snippet {
+			if i >= 640 {
+				item.Snippet = item.Snippet[:i]
+				break
+			}
+		}
+		resultItem.Snippet = item.Snippet
+		result.Items = append(result.Items, resultItem)
 	}
 	return result, nil
 }

@@ -63,12 +63,16 @@ func TestSFTPVerifiesHostKeyAndRejectsSymlinks(t *testing.T) {
 	}
 
 	entries, err := share.List(ctx, "alice", "")
-	if err != nil || len(entries) != 1 || entries[0] != (Entry{Name: "note.txt", Size: 4}) {
+	if err != nil || len(entries) != 1 || entries[0] != (Entry{Name: "note.txt", Path: "note.txt", Size: 4}) {
 		t.Fatalf("entries=%+v err=%v", entries, err)
 	}
 	data, err := share.Read(ctx, "alice", "note.txt", 4)
 	if err != nil || string(data) != "file" {
 		t.Fatalf("data=%q err=%v", data, err)
+	}
+	data, err = share.ReadChunk(ctx, "alice", entries[0].Path, 2, 1)
+	if err != nil || string(data) != "le" {
+		t.Fatalf("chunk with lookahead=%q err=%v", data, err)
 	}
 
 	for _, tc := range [][2]string{

@@ -2,6 +2,8 @@
 
 `fileshare.New` validates a server-side `Config` without connecting to the share. `List` returns immediate children of a path; pass an empty path to list the configured root. `Read` requires a relative file path and a positive byte cap (at most 16 MiB). Both operations have a 20-second deadline, or the caller's earlier deadline. Pass the authenticated application's username separately from the share's credentials.
 
+Short-chat tools return paths relative to the configured share, never host filesystem paths. DomainShare search returns the original file's `path` and, when available separately, the `textPath` for its indexed text. Search snippets can answer some questions without a read. `share_read` returns a 4 KiB excerpt by default (maximum 8 KiB), with a byte `nextOffset` when another excerpt is available. DomainShare's extracted-text API currently returns a whole document to the backend; Zentrale passes only the requested excerpt to the model.
+
 | Protocol | Endpoint | Root | Authentication |
 | --- | --- | --- | --- |
 | SMB | `smb://files.example:445/team` | `exports/{username}` relative to the named share | NTLM credentials, optionally `DOMAIN\user`; SMB 2/3 with signing; no DFS |
