@@ -53,7 +53,7 @@ python {code,venv,timeout_ms}
 venv_create {packages:[string],timeout_ms}
 venv_cleanup {id}
 container {runtime,arguments:[string],timeout_ms}
-websearch {query}: ` + publicSearchQueryHelp + `
+websearch {query,exact?:boolean}: ` + publicSearchQueryHelp + " " + publicSearchExactHelp + `
 webfetch {url,raw}
 github {method,path,body}
 clone_source {sourceId,timeout_ms}

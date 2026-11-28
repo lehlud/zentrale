@@ -109,7 +109,10 @@ func (engine *Engine) shortChatTools(chatID string) []providers.Tool {
 	}}
 	tools = append(tools,
 		providers.Tool{Name: "web_search", Description: "Search the public web for current information without starting the code environment.",
-			Schema: objectSchema(map[string]any{"query": textProperty(publicSearchQueryHelp)}, "query")},
+			Schema: objectSchema(map[string]any{
+				"query": textProperty(publicSearchQueryHelp),
+				"exact": map[string]any{"type": "boolean", "description": publicSearchExactHelp},
+			}, "query")},
 		providers.Tool{Name: "web_read", Description: "Read text and links from a public web page without starting the code environment.",
 			Schema: objectSchema(map[string]any{"url": textProperty("Public HTTP(S) URL")}, "url")},
 	)
@@ -219,7 +222,7 @@ func (engine *Engine) shortChatTool(ctx context.Context, chat domain.Agent, call
 		return engine.Store.ShortChatPassage(ctx, stringArg(call.Arguments, "documentId"), int(section))
 	case "web_search":
 		reportPhase("web_search")
-		return searchPublicWeb(ctx, chatWebClient, stringArg(call.Arguments, "query"))
+		return searchPublicWeb(ctx, chatWebClient, stringArg(call.Arguments, "query"), boolArg(call.Arguments, "exact"))
 	case "web_read":
 		reportPhase("web_read")
 		return fetchChatWeb(ctx, stringArg(call.Arguments, "url"))

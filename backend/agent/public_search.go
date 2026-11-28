@@ -7,14 +7,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 )
 
 const publicSearchQueryHelp = "Use short public search terms, never secrets or private file contents. " +
-	"Quote full names. If several people match, narrow the query with a known detail or a known source (site:example.org), or ask for context. " +
+	"Start with unquoted keywords, including full names. Add one known detail or a known source (site:example.org) to distinguish people. " +
+	"Use separate queries for alternative spellings or sources. " +
 	"Do not guess which person is meant."
+
+const publicSearchExactHelp = "Use only when the user explicitly asks for an exact wording. Put the required phrase in double quotes."
 
 type webSearchResult struct {
 	Title       string `json:"title"`
@@ -34,7 +38,23 @@ type searchSource struct {
 	find func(context.Context, *http.Client, string) ([]webSearchResult, error)
 }
 
-func searchPublicWeb(ctx context.Context, client *http.Client, query string) (webSearchResponse, error) {
+func searchPublicWeb(ctx context.Context, client *http.Client, query string, exact bool) (webSearchResponse, error) {
+	query = strings.TrimSpace(searchQuoteReplacer.Replace(query))
+	if len(query) == 0 || len(query) > 512 {
+		return webSearchResponse{}, errors.New("search requires 1–512 bytes of search terms")
+	}
+	if quotes := strings.Count(query, `"`); exact && (quotes < 2 || quotes%2 != 0) {
+		return webSearchResponse{}, errors.New("exact search requires a phrase in paired double quotes")
+	}
+	var preferred func(webSearchResult) bool
+	if !exact && strings.Contains(query, `"`) {
+		preferred = searchMatcher(query)
+		query = strings.Join(strings.Fields(strings.ReplaceAll(query, `"`, " ")), " ")
+		if query == "" {
+			return webSearchResponse{}, errors.New("search requires 1–512 bytes of search terms")
+		}
+	}
+
 	var sources []searchSource
 	braveKey := strings.TrimSpace(os.Getenv("ZENTRALE_BRAVE_SEARCH_API_KEY"))
 	site := siteNavigationDomain(query)
@@ -50,15 +70,10 @@ func searchPublicWeb(ctx context.Context, client *http.Client, query string) (we
 		return webSearchResponse{}, errors.New("public web search is not configured; set ZENTRALE_DDGS_PYTHON or ZENTRALE_BRAVE_SEARCH_API_KEY")
 	}
 
-	return searchFromSources(ctx, client, query, sources)
+	return searchFromSources(ctx, client, query, preferred, sources)
 }
 
-func searchFromSources(ctx context.Context, client *http.Client, query string, sources []searchSource) (webSearchResponse, error) {
-	query = strings.TrimSpace(query)
-	if len(query) == 0 || len(query) > 512 {
-		return webSearchResponse{}, errors.New("search requires 1–512 bytes of search terms")
-	}
-
+func searchFromSources(ctx context.Context, client *http.Client, query string, preferred func(webSearchResult) bool, sources []searchSource) (webSearchResponse, error) {
 	matches := searchMatcher(query)
 	var failures, checked []string
 
@@ -77,6 +92,11 @@ func searchFromSources(ctx context.Context, client *http.Client, query string, s
 
 		checked = append(checked, source.name)
 		if results := relevantResults(items, matches); len(results) > 0 {
+			if preferred != nil {
+				sort.SliceStable(results, func(i, j int) bool {
+					return preferred(results[i]) && !preferred(results[j])
+				})
+			}
 			return webSearchResponse{Source: source.name, Results: results, Unavailable: failures}, nil
 		}
 	}
@@ -112,22 +132,30 @@ var searchQuoteReplacer = strings.NewReplacer("“", `"`, "”", `"`, "„", `"`
 
 func searchMatcher(query string) func(webSearchResult) bool {
 	parts := strings.Split(searchQuoteReplacer.Replace(query), `"`)
-	var phrases []string
+	var phrases [][]string
 	terms := make(map[string]bool)
-	var site string
-	stop := " a an the of in at on to and is who what how der die das ein eine ist wer was wie und von für im zu "
+	var sites []string
+	stop := " a an the of in at on to and or is who what how der die das ein eine ist wer was wie und oder von für im zu "
 
 	for i, part := range parts {
 		if i%2 == 1 && i+1 < len(parts) {
 			if words := normalizedWords(part); len(words) > 0 {
-				phrases = append(phrases, " "+strings.Join(words, " ")+" ")
+				phrase := " " + strings.Join(words, " ") + " "
+				if last := len(phrases) - 1; last >= 0 && strings.EqualFold(strings.TrimSpace(parts[i-1]), "or") {
+					phrases[last] = append(phrases[last], phrase)
+				} else {
+					phrases = append(phrases, []string{phrase})
+				}
 			}
 			continue
 		}
 
 		for _, field := range strings.Fields(part) {
 			if host, ok := strings.CutPrefix(strings.ToLower(field), "site:"); ok && host != "" && !strings.ContainsAny(host, "/:") {
-				site = host
+				sites = append(sites, host)
+				continue
+			}
+			if strings.HasPrefix(field, "-") {
 				continue
 			}
 			for _, word := range normalizedWords(field) {
@@ -139,21 +167,35 @@ func searchMatcher(query string) func(webSearchResult) bool {
 	}
 
 	return func(item webSearchResult) bool {
-		if site != "" {
+		if len(sites) != 0 {
 			link, err := url.Parse(item.URL)
 			if err != nil {
 				return false
 			}
-			if !inSearchDomain(link.Hostname(), site) {
+			inScope := false
+			for _, site := range sites {
+				if inSearchDomain(link.Hostname(), site) {
+					inScope = true
+					break
+				}
+			}
+			if !inScope {
 				return false
 			}
 		}
 
 		if len(phrases) > 0 {
-			for _, phrase := range phrases {
-				title := " " + strings.Join(normalizedWords(item.Title), " ") + " "
-				snippet := " " + strings.Join(normalizedWords(item.Description), " ") + " "
-				if !strings.Contains(title, phrase) && !strings.Contains(snippet, phrase) {
+			title := " " + strings.Join(normalizedWords(item.Title), " ") + " "
+			snippet := " " + strings.Join(normalizedWords(item.Description), " ") + " "
+			for _, alternatives := range phrases {
+				found := false
+				for _, phrase := range alternatives {
+					if strings.Contains(title, phrase) || strings.Contains(snippet, phrase) {
+						found = true
+						break
+					}
+				}
+				if !found {
 					return false
 				}
 			}
@@ -161,7 +203,7 @@ func searchMatcher(query string) func(webSearchResult) bool {
 		}
 
 		if len(terms) == 0 {
-			return site != ""
+			return len(sites) != 0
 		}
 		found := map[string]bool{}
 		for _, word := range normalizedWords(item.Title + " " + item.Description + " " + item.URL) {

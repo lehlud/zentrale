@@ -41,13 +41,69 @@ func TestPublicWebSearchReturnsStructuredResults(t *testing.T) {
 		]}}`)
 	})}
 
-	result, err := searchPublicWeb(t.Context(), client, " Go docs & examples ")
+	result, err := searchPublicWeb(t.Context(), client, " Go docs & examples ", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	results := result.Results
 	if result.Source != "Brave Search API" || len(results) != 1 || results[0].URL != "https://go.dev/doc/" || results[0].Description != "Language documentation" {
 		t.Fatalf("unexpected search result: %#v", result)
+	}
+}
+
+func TestPublicWebSearchTreatsQuotesAsPreference(t *testing.T) {
+	const quoted = `site:example.org "Mira Rosenfeld"`
+	const plain = "site:example.org Mira Rosenfeld"
+	const literal = "https://example.org/record"
+	const variant = "https://example.org/archive"
+	for _, exact := range []bool{false, true} {
+		name, wantQuery, wantURLs := "ordinary search", plain, []string{literal, variant}
+		if exact {
+			name, wantQuery, wantURLs = "requested exact wording", quoted, []string{literal}
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("ZENTRALE_DDGS_PYTHON", "")
+			t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "fixture-key")
+			calls := 0
+			client := &http.Client{Transport: webTransportFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if actual := request.URL.Query().Get("q"); actual != wantQuery {
+					t.Errorf("provider query=%q, want %q", actual, wantQuery)
+				}
+				return webFixture(request, 200, "application/json", `{"web":{"results":[
+				  {"title":"Rosenfeld, Mira","url":"https://example.org/archive"},
+				  {"title":"Mira Rosenfeld","url":"https://elsewhere.example/record"},
+				  {"title":"Mira Rosenfeld","url":"https://example.org/record"},
+				  {"title":"Mira Schneider","url":"https://example.org/other"}
+				]}}`)
+			})}
+			result, err := searchPublicWeb(t.Context(), client, `site:example.org „Mira Rosenfeld“`, exact)
+			var urls []string
+			for _, item := range result.Results {
+				urls = append(urls, item.URL)
+			}
+			if err != nil || calls != 1 || strings.Join(urls, ",") != strings.Join(wantURLs, ",") {
+				t.Fatalf("results=%+v, requests=%d, err=%v", result, calls, err)
+			}
+		})
+	}
+}
+
+func TestPublicWebQuoteAlternativesRespectSiteScope(t *testing.T) {
+	query := `"Mira Rosenfeld" OR "Rosenfeld, Mira" site:example.org OR site:archives.example`
+	matches := searchMatcher(query)
+	for _, tc := range []struct {
+		title, host string
+		want        bool
+	}{
+		{"Mira Rosenfeld", "example.org", true},
+		{"Rosenfeld, Mira", "archives.example", true},
+		{"Mira Rosenfeld", "outside.example", false},
+		{"Mira Schneider", "example.org", false},
+	} {
+		if got := matches(webSearchResult{Title: tc.title, URL: "https://" + tc.host}); got != tc.want {
+			t.Errorf("title=%q, host=%q: match=%v, want %v", tc.title, tc.host, got, tc.want)
+		}
 	}
 }
 
@@ -98,7 +154,7 @@ func TestPublicWebSearchQueriesAtMostOneFallback(t *testing.T) {
 				return webFixture(request, tc.braveStatus, "application/json", tc.braveBody)
 			})}
 
-			result, err := searchPublicWeb(t.Context(), client, query)
+			result, err := searchPublicWeb(t.Context(), client, query, true)
 			calls, readErr := os.ReadFile(callsFile)
 			if readErr != nil {
 				t.Fatal(readErr)
@@ -190,7 +246,7 @@ func TestPublicWebSearchAPIKeyIsNotForwardedThroughRedirect(t *testing.T) {
 		return response, err
 	})}
 
-	_, err := searchPublicWeb(t.Context(), client, "Go documentation")
+	_, err := searchPublicWeb(t.Context(), client, "Go documentation", false)
 	if strings.Join(hosts, ",") != "api.search.brave.com" || err == nil || strings.Contains(err.Error(), "fixture-key") {
 		t.Fatalf("the redirect must not be followed: %v, %v", hosts, err)
 	}
@@ -223,7 +279,7 @@ func TestPublicWebSearchFallsBackToTheRequestedSitesLinks(t *testing.T) {
 		return webFixture(request, http.StatusOK, "text/html", homepage)
 	})}
 
-	result, err := searchPublicWeb(t.Context(), client, query)
+	result, err := searchPublicWeb(t.Context(), client, query, false)
 	if calls != 1 || err != nil || result.Source != "example.org (site links)" || len(result.Results) != 1 || result.Results[0].URL != "https://example.org/doc" {
 		t.Fatalf("expected one relevant same-site link, got %v with %d requests (%v)", result, calls, err)
 	}
@@ -240,7 +296,7 @@ func TestPublicWebSiteFallbackRejectsCrossSiteRedirects(t *testing.T) {
 		response.Header.Set("Location", "https://elsewhere.example/doc")
 		return response, err
 	})}
-	_, err := searchPublicWeb(t.Context(), client, "docs site:example.org")
+	_, err := searchPublicWeb(t.Context(), client, "docs site:example.org", false)
 	if strings.Join(hosts, ",") != "example.org" || err == nil {
 		t.Fatalf("the fallback must not follow cross-site redirects: %v, %v", hosts, err)
 	}
@@ -316,7 +372,7 @@ func TestPublicWebLiveSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 
-	result, err := searchPublicWeb(ctx, chatWebClient, "Go documentation site:go.dev")
+	result, err := searchPublicWeb(ctx, chatWebClient, "Go documentation site:go.dev", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +380,7 @@ func TestPublicWebLiveSmoke(t *testing.T) {
 		t.Fatalf("the public search did not find relevant Go documentation: %#v", result)
 	}
 
-	result, err = searchPublicWeb(ctx, chatWebClient, `"Nonexistent Marzipan Observatory QVX7049"`)
+	result, err = searchPublicWeb(ctx, chatWebClient, `"Nonexistent Marzipan Observatory QVX7049"`, true)
 	if err != nil || len(result.Results) != 0 || result.Note == "" {
 		t.Fatalf("expected no exact hits: %#v, %v", result, err)
 	}
@@ -342,7 +398,7 @@ func TestPublicWebSiteLiveSmoke(t *testing.T) {
 	t.Setenv("ZENTRALE_DDGS_PYTHON", "")
 	t.Setenv("ZENTRALE_BRAVE_SEARCH_API_KEY", "")
 
-	result, err := searchPublicWeb(t.Context(), chatWebClient, "Go documentation site:go.dev")
+	result, err := searchPublicWeb(t.Context(), chatWebClient, "Go documentation site:go.dev", false)
 	if err != nil || result.Source != "go.dev (site links)" {
 		t.Fatalf("site fallback failed: %+v, %v", result, err)
 	}
@@ -362,7 +418,7 @@ func TestPublicWebDDGSLiveSmoke(t *testing.T) {
 		t.Skip("set ZENTRALE_TEST_DDGS_QUERY, ZENTRALE_TEST_DDGS_URL, and ZENTRALE_DDGS_PYTHON to test a real DDGS result")
 	}
 
-	result, err := searchPublicWeb(t.Context(), chatWebClient, query)
+	result, err := searchPublicWeb(t.Context(), chatWebClient, query, false)
 	if err != nil {
 		t.Fatal(err)
 	}
