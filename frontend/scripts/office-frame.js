@@ -18,3 +18,16 @@ window.addEventListener("message", (event) => {
     images.set(name, url);
   }
 });
+
+window.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key !== "Escape" || event.repeat) return;
+    // Give the editor's menus and controls the first chance to handle Escape.
+    setTimeout(() => {
+      if (!event.defaultPrevented)
+        parent.postMessage({ type: "zentrale:office-dismiss" }, parentOrigin);
+    }, 0);
+  },
+  true,
+);

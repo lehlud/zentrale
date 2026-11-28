@@ -6,6 +6,7 @@ export type WorkspaceFileLinks = {
   agentId: string;
   directory: string;
   open: (path: string) => void;
+  warm?: (path: string) => void;
 };
 
 export const WorkspaceFileContext = createContext<WorkspaceFileLinks | null>(

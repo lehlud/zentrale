@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { bootstrapData, isTranscriptQuery } from "./fixtures/bootstrap-data";
 import { installPushFixture } from "./fixtures/push-fixture";
@@ -10,6 +11,76 @@ import {
   project,
   transcript,
 } from "./fixtures/visual-data";
+
+test("workspace Office links reuse a warmed editor and read the current file", async ({
+  page,
+}) => {
+  const fixtures = process.env.ZENTRALE_OFFICE_FIXTURES;
+  test.skip(!fixtures, "Office fixture directory is required.");
+  const workbook = await readFile(join(fixtures!, "sample.xlsx"));
+  const resolve = (query: string) => {
+    if (query.includes("status{"))
+      return { status: { authenticated: true, needsSetup: false } };
+    if (isTranscriptQuery(query))
+      return bootstrapData(query, {
+        ...transcript,
+        messages: [
+          {
+            ...transcript.messages[0],
+            id: "office-link",
+            role: "assistant",
+            content: "[Anleitung](docs/guide.md)",
+            wire: "",
+          },
+        ],
+      });
+    if (query.includes("agents(projectId:")) return { project, agents };
+    return config;
+  };
+  await installPushFixture(page, resolve);
+  await page.route("**/graphql", async (route) => {
+    await route.fulfill({
+      json: { data: resolve(route.request().postDataJSON().query) },
+    });
+  });
+  let downloads = 0;
+  await page.route("**/workspace-file/**", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.get("path") === "docs/guide.md")
+      return route.fulfill({ body: "# Anleitung\n\n[Tabelle](prices.xlsx)" });
+    expect(query.get("path")).toBe("docs/prices.xlsx");
+    expect(query.get("preview")).toBe("office");
+    downloads++;
+    return route.fulfill({
+      contentType: "application/octet-stream",
+      body: workbook,
+    });
+  });
+
+  await page.goto(`/#/projects/${project.id}?agent=${agent.id}`);
+  await page.getByRole("link", { name: "Anleitung" }).click();
+  const guide = page.getByRole("dialog", { name: "guide.md" });
+  const prices = guide.getByRole("link", { name: "Tabelle" });
+  await prices.hover();
+  const spare = page.locator('iframe[title="Euro-Office"]');
+  await expect(spare).toHaveAttribute("src", /spreadsheeteditor/);
+  const warmFrame = await (await spare.elementHandle()).contentFrame();
+  expect(downloads).toBe(0);
+  await prices.click();
+  const preview = page.getByRole("dialog", { name: "prices.xlsx" });
+  const frame = preview.locator("iframe");
+  await expect(frame).toBeVisible({ timeout: 30_000 });
+  expect(await (await frame.elementHandle()).contentFrame()).toBe(warmFrame);
+
+  await preview.getByRole("button", { name: "Zurück" }).click();
+  await expect(guide).toBeVisible();
+  await prices.click();
+  await expect(frame).toBeVisible({ timeout: 30_000 });
+  expect(downloads).toBe(2);
+  await page.keyboard.press("Escape");
+  await expect(preview).not.toBeVisible();
+  await expect(guide).toBeVisible();
+});
 
 function twoPagePDF() {
   const drawing = "0 0 0 rg 32 48 128 64 re f\n";

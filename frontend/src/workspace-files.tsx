@@ -1,6 +1,7 @@
 import { Button, Modal } from "@heroui/react";
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -9,7 +10,7 @@ import {
 } from "react";
 
 import { MessageMarkdown } from "./message-markdown";
-import { isOfficeFile, OfficeDocument } from "./office-preview";
+import { isOfficeFile, OpenOfficePreview } from "./office-preview";
 import { useI18n } from "./preferences";
 import { WorkspaceFileContext, workspaceFileURL } from "./workspace-file-links";
 
@@ -26,15 +27,30 @@ export function WorkspaceFiles({
 }) {
   const [stack, setStack] = useState<{ id: number; path: string }[]>([]);
   const next = useRef(0);
-  const open = useCallback((path: string) => {
-    const id = next.current++;
-    setStack((files) => [...files, { id, path }]);
-  }, []);
+  const office = useContext(OpenOfficePreview);
+  const openOffice = office?.open;
+  const warm = office?.warm;
+  const open = useCallback(
+    (path: string) => {
+      if (openOffice && isOfficeFile(path)) {
+        const url = workspaceFileURL(projectId, agentId, path);
+        openOffice({
+          name: path.split("/").at(-1) ?? path,
+          url: `${url}&preview=office`,
+          workspace: { path, download: url, nested: stack.length > 0 },
+        });
+        return;
+      }
+      const id = next.current++;
+      setStack((files) => [...files, { id, path }]);
+    },
+    [agentId, openOffice, projectId, stack.length],
+  );
   const close = (id: number) =>
     setStack((files) => (files.at(-1)?.id === id ? files.slice(0, -1) : files));
   const links = useMemo(
-    () => ({ projectId, agentId, directory, open }),
-    [projectId, agentId, directory, open],
+    () => ({ projectId, agentId, directory, open, warm }),
+    [projectId, agentId, directory, open, warm],
   );
   return (
     <WorkspaceFileContext.Provider value={links}>
@@ -52,11 +68,10 @@ export function WorkspaceFiles({
   );
 }
 
-type Preview = "pdf" | "markdown" | "text" | "office" | "image";
+type Preview = "pdf" | "markdown" | "text" | "image";
 
 function previewType(path: string): Preview | undefined {
   const name = path.split("/").at(-1)?.toLowerCase() ?? "";
-  if (isOfficeFile(name)) return "office";
   if (/\.(?:png|jpe?g|gif|webp)$/.test(name)) return "image";
   if (name.endsWith(".pdf")) return "pdf";
   if (/\.(?:md|markdown|mdown)$/.test(name)) return "markdown";
@@ -122,7 +137,7 @@ function WorkspaceFileDialog({
   };
 
   useEffect(() => {
-    if (!format || format === "pdf" || format === "office") return;
+    if (!format || format === "pdf") return;
     const request = new AbortController();
     let image: string | undefined;
     void (async () => {
@@ -208,8 +223,6 @@ function WorkspaceFileDialog({
             <div className="min-h-0 flex-1 overflow-auto">
               {format === "pdf" ? (
                 <PDFViewer name={name} url={url} onClose={onClose} />
-              ) : format === "office" ? (
-                <OfficeDocument name={name} url={`${url}&preview=office`} />
               ) : !format ? (
                 <p className="p-4 text-sm text-muted">
                   {t("Für diesen Dateityp gibt es keine Vorschau.")}

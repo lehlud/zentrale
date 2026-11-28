@@ -54,8 +54,13 @@ def editor_asset(path):
 def install(output, cache):
     cache.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
+    fingerprint = hashlib.sha256()
+    for source in (Path(__file__), HERE / "office-frame.js", HERE / "office-worker.js", HERE / "office-notices.txt"):
+        fingerprint.update(source.read_bytes())
+    version = fingerprint.hexdigest()[:20]
     with tempfile.TemporaryDirectory(dir=output.parent) as stage:
-        root = Path(stage) / "office"
+        staging = Path(stage) / "office"
+        root = staging / version
         with archive(EDITOR, cache) as bundle:
             bundle.extractall(root, [p for p in bundle.namelist() if editor_asset(p)])
         with archive(CONVERTER, cache) as bundle:
@@ -89,9 +94,10 @@ def install(output, cache):
         compress_asset(root / "x2t/x2t.js")
         compress_asset(root / "x2t/x2t.wasm")
 
+        (staging / "VERSION").write_text(version)
         if output.exists():
             shutil.rmtree(output)
-        root.rename(output)
+        staging.rename(output)
 
 
 def compress_asset(path):

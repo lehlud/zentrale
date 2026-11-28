@@ -258,6 +258,7 @@ export const english: Record<string, string> = {
     "The file was not found in the project.",
   "Die Datei konnte nicht geladen werden.": "The file could not be loaded.",
   "Datei wird geladen …": "Loading file …",
+  "Office-Vorschau wird gestartet …": "Starting Office preview …",
   "Für diesen Dateityp gibt es keine Vorschau.":
     "This file type has no preview.",
   Herunterladen: "Download",

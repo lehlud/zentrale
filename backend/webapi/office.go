@@ -6,11 +6,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 )
+
+var officeBundleVersion = regexp.MustCompile(`^[0-9a-f]{20}$`)
 
 // Office is a static browser bundle. This route never takes documents, reads
 // application data, or forwards requests to an Office service.
@@ -21,6 +24,15 @@ func (server *Server) officeAsset(c echo.Context) error {
 		return echo.ErrNotFound
 	}
 	filename := filepath.Join(server.Frontend, "office", filepath.FromSlash(asset))
+	version, _, _ := strings.Cut(asset, "/")
+	versioned := officeBundleVersion.MatchString(version)
+	// Older open tabs still request the unversioned paths. Serve the current
+	// bundle there without assigning a long lifetime to those URLs.
+	if asset != "VERSION" && !versioned {
+		if current, err := os.ReadFile(filepath.Join(server.Frontend, "office", "VERSION")); err == nil && officeBundleVersion.Match(current) {
+			filename = filepath.Join(server.Frontend, "office", string(current), filepath.FromSlash(asset))
+		}
+	}
 	if info, err := os.Stat(filename); err != nil || !info.Mode().IsRegular() {
 		return echo.ErrNotFound
 	}
@@ -51,6 +63,11 @@ func (server *Server) officeAsset(c echo.Context) error {
 		"worker-src blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'" + framePolicy
 
 	headers := c.Response().Header()
+	if versioned {
+		headers.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		headers.Set("Cache-Control", "no-cache")
+	}
 	headers.Set("Content-Security-Policy", policy)
 	headers.Set("Access-Control-Allow-Origin", "*")
 	headers.Set("Referrer-Policy", "no-referrer")

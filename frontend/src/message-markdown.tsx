@@ -122,6 +122,8 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           target={path ? undefined : "_blank"}
           rel={path ? undefined : "noopener noreferrer"}
           className="inline break-all text-sm underline underline-offset-4"
+          onFocus={path ? () => files.warm?.(path) : undefined}
+          onPointerEnter={path ? () => files.warm?.(path) : undefined}
           onClick={
             path
               ? (event) => {

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { attachmentPath, isPreviewImage, type Attachment } from "./attachments";
 import { ImagePreview } from "./image-preview";
 import { Icon } from "./icons";
@@ -19,11 +19,19 @@ export function AttachmentList({
 }) {
   const { t } = useI18n();
   const archive = useContext(ArchivedAttachments);
-  const openOffice = useContext(OpenOfficePreview);
+  const officePreview = useContext(OpenOfficePreview);
   const [preview, setPreview] = useState<{
     name: string;
     src: string;
   }>();
+  const warm = officePreview?.warm;
+  const officeName =
+    archive === null
+      ? attachments.find((attachment) => isOfficeFile(attachment.name))?.name
+      : undefined;
+  useEffect(() => {
+    if (officeName) warm?.(officeName);
+  }, [officeName, warm]);
   if (!attachments.length) return null;
   return (
     <>
@@ -75,11 +83,16 @@ export function AttachmentList({
                 <Icon name="file" className="size-7" />
               )}
               <span className="min-w-0">
-                {office && download && openOffice ? (
+                {office && download && officePreview ? (
                   <button
                     type="button"
                     className="block max-w-full cursor-pointer truncate text-left text-sm underline"
-                    onClick={() => openOffice(attachment.name, download)}
+                    onClick={() =>
+                      officePreview.open({
+                        name: attachment.name,
+                        url: download,
+                      })
+                    }
                   >
                     {attachment.name}
                   </button>

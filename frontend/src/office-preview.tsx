@@ -3,11 +3,15 @@ import {
   createContext,
   useCallback,
   useEffect,
+  useEffectEvent,
   useId,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+
+import { createPortal } from "react-dom";
 
 import { MAX_ATTACHMENT_BYTES } from "./attachments";
 import { useI18n } from "./preferences";
@@ -56,98 +60,77 @@ async function documentBytes(url: string, signal: AbortSignal) {
   return new Blob(chunks).arrayBuffer();
 }
 
-export function OfficeDocument({ name, url }: { name: string; url: string }) {
+type OfficeFile = {
+  name: string;
+  url: string;
+  workspace?: { path: string; download: string; nested: boolean };
+};
+
+type OfficeSlot = {
+  id: number;
+  editor: string;
+  file?: OfficeFile & { scope: string };
+  used: number;
+  failed?: boolean;
+};
+
+let officeRoot: Promise<URL> | undefined;
+
+function officeAssets() {
+  const root = new URL("/office/", location.href);
+  return (officeRoot ??= fetch(new URL("VERSION", root), { cache: "no-cache" })
+    .then(async (response) => {
+      if (!response.ok) return root;
+      const version = (await response.text()).trim();
+      return /^[a-f0-9]{20}$/.test(version)
+        ? new URL(`${version}/`, root)
+        : root;
+    })
+    .catch(() => {
+      officeRoot = undefined;
+      return root;
+    }));
+}
+
+function OfficeDocument({
+  editor,
+  file,
+  onReady,
+  onError,
+}: {
+  editor: string;
+  file?: OfficeFile;
+  onReady: () => void;
+  onError: () => void;
+}) {
   const { t, locale } = useI18n();
   const frame = useRef<HTMLIFrameElement>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading",
-  );
+  const runtime = useRef<Promise<void>>(null);
+  const active = useRef<AbortController>(null);
+  const [status, setStatus] = useState<
+    "starting" | "loading" | "ready" | "error"
+  >("starting");
+  const url = file?.url;
+  const name = file?.name;
+  const finish = useEffectEvent((result: "ready" | "error") => {
+    if (active.current?.signal.aborted) return;
+    active.current?.abort();
+    setStatus(result);
+    if (result === "ready") onReady();
+    else onError();
+  });
 
   useEffect(() => {
-    const request = new AbortController();
-    const extension = extensionOf(name);
     const child = frame.current;
-    if (!child || !isOfficeFile(name)) return;
-
-    const root = new URL("/office/", location.href);
-    const entry = new URL(
-      `web-apps/apps/${editors[extension]}/main/index.html`,
-      root,
-    );
-    entry.search = new URLSearchParams({
-      lang: locale,
-      parentOrigin: location.origin,
-      frameEditorId: "zentrale-office-preview",
-      mode: "view",
-    }).toString();
-
-    let worker: Worker | undefined;
-    let converted: ConvertedDocument | undefined;
-    let appReady = false;
-    const timer = window.setTimeout(fail, 60_000);
-
-    function fail() {
-      request.abort();
-      worker?.terminate();
-      window.clearTimeout(timer);
-      setStatus("error");
-    }
-
-    function send(command: string, data: unknown) {
-      // The trusted editor is in a sandboxed iframe with an opaque origin.
-      child?.contentWindow?.postMessage(JSON.stringify({ command, data }), "*");
-    }
-
-    function open() {
-      if (!appReady || !converted || !child?.contentWindow) return;
-
-      const { binary, images } = converted;
-      converted = undefined;
-      child.contentWindow.postMessage(
-        { type: "zentrale:office-images", images },
-        "*",
-        images.map((image) => image[2]),
-      );
-      send("init", {
-        config: {
-          lang: locale,
-          mode: "view",
-          user: { id: "viewer", name: "Zentrale" },
-          customization: {
-            compactToolbar: false,
-            hideRightMenu: false,
-            plugins: false,
-            macros: false,
-            chat: false,
-          },
-        },
-      });
-      send("openDocument", {
-        doc: {
-          title: name,
-          fileType: extension,
-          key: "local-preview",
-          permissions: {
-            edit: false,
-            print: false,
-            download: false,
-            comment: false,
-          },
-        },
-      });
-      child.contentWindow.postMessage(
-        { command: "openDocumentFromBinary", data: binary },
-        "*",
-        [binary],
-      );
-    }
+    if (!child) return;
+    let disposed = false;
+    let started: () => void;
+    runtime.current = new Promise<void>((resolve) => {
+      started = resolve;
+    });
 
     function onMessage(event: MessageEvent) {
-      if (
-        event.source !== child?.contentWindow ||
-        event.origin !== "null" ||
-        request.signal.aborted
-      )
+      if (event.source !== child?.contentWindow || event.origin !== "null")
         return;
       if (typeof event.data !== "string") return;
 
@@ -160,14 +143,15 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
 
       switch (message?.event) {
         case "onAppReady":
-          appReady = true;
-          open();
+          started();
+          setStatus((current) =>
+            current === "starting" ? "loading" : current,
+          );
           break;
         case "cryptPadSendMessageFromOO":
           if (message.data?.msg?.type === "auth") {
-            // The fork's local collaboration protocol needs an initial viewer
-            // session; no socket, server callback or saving is involved.
-            send("cryptPadMessageToOO", {
+            // Supply the viewer's local collaboration session inside the opaque frame.
+            sendToOffice(child, "cryptPadMessageToOO", {
               type: "auth",
               result: 1,
               sessionId: "local-preview",
@@ -181,68 +165,77 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
           }
           break;
         case "onDocumentReady":
-          window.clearTimeout(timer);
-          setStatus("ready");
+          finish("ready");
           break;
         case "onError":
-          fail();
+          finish("error");
           break;
       }
     }
 
-    setStatus("loading");
     window.addEventListener("message", onMessage);
-    child.src = entry.href;
-
-    async function convert() {
-      try {
-        const converter = new Worker(new URL("x2t/preview-worker.js", root));
-        worker = converter;
-        converter.onerror = fail;
-        converter.onmessage = ({ data }) => {
-          converter.terminate();
-          if (request.signal.aborted) return;
-          if (!(data.binary instanceof ArrayBuffer)) {
-            fail();
-            return;
-          }
-          converted = data;
-          open();
-        };
-        const bytes = await documentBytes(url, request.signal);
-        if (request.signal.aborted) return;
-        converter.postMessage({ extension, bytes }, [bytes]);
-      } catch {
-        if (!request.signal.aborted) fail();
-      }
-    }
-    void convert();
-
+    void officeAssets().then((root) => {
+      if (disposed) return;
+      const entry = new URL(`web-apps/apps/${editor}/main/index.html`, root);
+      entry.search = new URLSearchParams({
+        lang: locale,
+        parentOrigin: location.origin,
+        frameEditorId: "zentrale-office-preview",
+        mode: "view",
+      }).toString();
+      child.src = entry.href;
+    });
     return () => {
-      request.abort();
-      window.clearTimeout(timer);
-      worker?.terminate();
+      disposed = true;
       window.removeEventListener("message", onMessage);
     };
-  }, [locale, name, url]);
+  }, [editor, locale]);
+
+  useEffect(() => {
+    const child = frame.current;
+    const started = runtime.current;
+    if (!url || !name || !child || !started) return;
+    const request = new AbortController();
+    active.current = request;
+    const timer = window.setTimeout(() => finish("error"), 60_000);
+    request.signal.addEventListener("abort", () => window.clearTimeout(timer), {
+      once: true,
+    });
+
+    void Promise.all([
+      convertOfficeFile(url, extensionOf(name), request),
+      started,
+    ])
+      .then(([document]) => {
+        if (!request.signal.aborted)
+          showOfficeFile(child, name, locale, document);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) finish("error");
+      });
+
+    return () => request.abort();
+  }, [name, url, locale]);
 
   return (
     <div className="relative h-full min-h-0">
-      {status !== "error" && (
-        <iframe
-          ref={frame}
-          title={`Euro-Office · ${name}`}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          className={`absolute inset-0 size-full border-0 ${status === "ready" ? "" : "invisible"}`}
-        />
-      )}
-      {status === "loading" && (
+      <iframe
+        ref={frame}
+        title={name ? `Euro-Office · ${name}` : "Euro-Office"}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        className={`absolute inset-0 size-full border-0 ${status === "ready" ? "" : "invisible"}`}
+      />
+      {file && (status === "loading" || status === "starting") && (
         <p className="p-4 text-sm text-muted" role="status">
-          {t("Datei wird geladen …")}
+          {t(
+            status === "starting"
+              ? "Office-Vorschau wird gestartet …"
+              : "Datei wird geladen …",
+          )}
         </p>
       )}
-      {status === "error" && (
+      {file && status === "error" && (
         <p className="p-4 text-sm text-danger" role="alert">
           {t(
             "Die Office-Vorschau konnte nicht geöffnet werden. Du kannst die Datei herunterladen.",
@@ -253,9 +246,100 @@ export function OfficeDocument({ name, url }: { name: string; url: string }) {
   );
 }
 
-export const OpenOfficePreview = createContext<
-  ((name: string, url: string) => void) | null
->(null);
+async function convertOfficeFile(
+  url: string,
+  extension: string,
+  request: AbortController,
+): Promise<ConvertedDocument> {
+  let worker: Worker | undefined;
+  try {
+    return await new Promise((resolve, reject) => {
+      request.signal.addEventListener(
+        "abort",
+        () => reject(request.signal.reason),
+        { once: true },
+      );
+      const runtime = officeAssets().then((root) => {
+        request.signal.throwIfAborted();
+        const converter = new Worker(new URL("x2t/preview-worker.js", root));
+        worker = converter;
+        converter.onerror = reject;
+        converter.onmessage = ({ data }) => {
+          if (data.binary instanceof ArrayBuffer) resolve(data);
+          else reject(new Error("Office conversion failed"));
+        };
+        return converter;
+      });
+      void Promise.all([runtime, documentBytes(url, request.signal)])
+        .then(([converter, bytes]) => {
+          request.signal.throwIfAborted();
+          converter.postMessage({ extension, bytes }, [bytes]);
+        })
+        .catch(reject);
+    });
+  } finally {
+    worker?.terminate();
+  }
+}
+
+function showOfficeFile(
+  child: HTMLIFrameElement,
+  name: string,
+  locale: string,
+  { binary, images }: ConvertedDocument,
+) {
+  child.contentWindow?.postMessage(
+    { type: "zentrale:office-images", images },
+    "*",
+    images.map((image) => image[2]),
+  );
+  sendToOffice(child, "init", {
+    config: {
+      lang: locale,
+      mode: "view",
+      user: { id: "viewer", name: "Zentrale" },
+      customization: {
+        compactToolbar: false,
+        hideRightMenu: false,
+        plugins: false,
+        macros: false,
+        chat: false,
+      },
+    },
+  });
+  sendToOffice(child, "openDocument", {
+    doc: {
+      title: name,
+      fileType: extensionOf(name),
+      key: "local-preview",
+      permissions: {
+        edit: false,
+        print: false,
+        download: false,
+        comment: false,
+      },
+    },
+  });
+  child.contentWindow?.postMessage(
+    { command: "openDocumentFromBinary", data: binary },
+    "*",
+    [binary],
+  );
+}
+
+function sendToOffice(
+  child: HTMLIFrameElement | null,
+  command: string,
+  data: unknown,
+) {
+  // The trusted editor is in a sandboxed iframe with an opaque origin.
+  child?.contentWindow?.postMessage(JSON.stringify({ command, data }), "*");
+}
+
+export const OpenOfficePreview = createContext<{
+  open: (file: OfficeFile) => void;
+  warm: (name: string) => void;
+} | null>(null);
 
 export function OfficePreviews({
   scope,
@@ -264,54 +348,140 @@ export function OfficePreviews({
   scope: string;
   children: ReactNode;
 }) {
-  const [file, setFile] = useState<{
-    scope: string;
-    name: string;
-    url: string;
-    open: boolean;
-  }>();
+  const [{ slots, selected }, setSessions] = useState<{
+    slots: OfficeSlot[];
+    selected?: number;
+  }>({ slots: [] });
+  const clock = useRef(0);
+  const { locale } = useI18n();
+
+  const warmEditor = useCallback((editor: string) => {
+    const id = ++clock.current;
+    setSessions((current) => {
+      if (current.slots.some((slot) => !slot.file)) return current;
+      return {
+        ...current,
+        slots: [...current.slots, { id, editor, used: id }],
+      };
+    });
+  }, []);
+  const warm = useCallback(
+    (name: string) => {
+      const editor = editors[extensionOf(name)];
+      if (editor) warmEditor(editor);
+    },
+    [warmEditor],
+  );
+
   const open = useCallback(
-    (name: string, url: string) => {
-      setFile({ scope, name, url, open: true });
+    (file: OfficeFile) => {
+      const editor = editors[extensionOf(file.name)];
+      if (!editor) return;
+      const used = ++clock.current;
+      setSessions(({ slots }) => {
+        const existing =
+          !file.workspace &&
+          slots.find(
+            (slot) =>
+              !slot.failed &&
+              slot.file?.url === file.url &&
+              slot.file.scope === scope,
+          );
+        if (existing) {
+          return {
+            slots: slots.map((slot) =>
+              slot.id === existing.id ? { ...slot, used } : slot,
+            ),
+            selected: existing.id,
+          };
+        }
+
+        const spare = slots.find(
+          (slot) => !slot.file && slot.editor === editor,
+        );
+        const next = {
+          id: spare?.id ?? used,
+          editor,
+          used,
+          file: { ...file, scope },
+        };
+        const previous = slots
+          .filter(
+            (slot) =>
+              slot.file?.scope === scope &&
+              slot.file.url !== file.url &&
+              !slot.failed &&
+              !slot.file.workspace,
+          )
+          .sort((a, b) => b.used - a.used)[0];
+        // Keep the previous attachment. Preserve DOM order so moving an
+        // iframe never causes the browser to destroy its browsing context.
+        const nextSlots = slots.flatMap((slot) =>
+          slot === spare ? [next] : slot === previous ? [slot] : [],
+        );
+        if (!spare) nextSlots.push(next);
+        return { slots: nextSlots, selected: next.id };
+      });
     },
     [scope],
   );
-  const close = useCallback(() => {
-    setFile((current) => current && { ...current, open: false });
-  }, []);
 
   useEffect(() => {
-    if (!file) return;
-    if (file.scope !== scope) {
-      setFile(undefined);
-      return;
-    }
-    if (file.open) return;
-    // Retain just the most recent viewer in memory for a short reopen.
-    const timeout = window.setTimeout(() => setFile(undefined), 45_000);
-    return () => window.clearTimeout(timeout);
-  }, [file, scope]);
+    setSessions(({ slots }) => ({
+      slots: slots.filter((slot) => !slot.file || slot.file.scope === scope),
+    }));
+  }, [scope]);
 
+  const close = useCallback(() => {
+    setSessions(({ slots }) => ({
+      slots: slots.filter((slot) => !slot.file?.workspace),
+    }));
+  }, []);
+  const fail = useCallback((id: number) => {
+    officeRoot = undefined;
+    setSessions((current) => ({
+      ...current,
+      slots: current.slots.flatMap((slot) =>
+        slot.id !== id ? [slot] : slot.file ? [{ ...slot, failed: true }] : [],
+      ),
+    }));
+  }, []);
+  const controls = useMemo(() => ({ open, warm }), [open, warm]);
   return (
-    <OpenOfficePreview.Provider value={open}>
+    <OpenOfficePreview.Provider value={controls}>
       {children}
-      {file?.scope === scope && (
-        <OfficePreview key={file.url} {...file} onClose={close} />
+      {createPortal(
+        slots.map(({ id, editor, file }) => (
+          <OfficePreview
+            key={`${locale}/${id}`}
+            editor={editor}
+            file={file}
+            open={id === selected && file?.scope === scope}
+            onClose={close}
+            onReady={() => warmEditor(editor)}
+            onError={() => fail(id)}
+          />
+        )),
+        document.body,
       )}
     </OpenOfficePreview.Provider>
   );
 }
 
 function OfficePreview({
-  name,
-  url,
+  editor,
+  file,
   open,
   onClose,
+  onReady,
+  onError,
 }: {
-  name: string;
-  url: string;
+  editor: string;
+  file?: OfficeFile;
   open: boolean;
   onClose: () => void;
+  onReady: () => void;
+  onError: () => void;
 }) {
   const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -321,34 +491,70 @@ function OfficePreview({
     if (!element) return;
     if (open && !element.open) element.showModal();
     if (!open && element.open) element.close();
-  }, [open]);
+    if (!open) return;
+    function dismissFromFrame(event: MessageEvent) {
+      if (
+        event.origin === "null" &&
+        event.source === element?.querySelector("iframe")?.contentWindow &&
+        event.data?.type === "zentrale:office-dismiss"
+      ) {
+        element?.close();
+        onClose();
+      }
+    }
+    window.addEventListener("message", dismissFromFrame);
+    return () => window.removeEventListener("message", dismissFromFrame);
+  }, [onClose, open]);
+  const dismiss = () => {
+    dialog.current?.close();
+    onClose();
+  };
   return (
     <dialog
       ref={dialog}
+      data-react-aria-top-layer
       aria-labelledby={heading}
       className="m-0 h-dvh w-full max-h-none max-w-none overflow-hidden bg-background p-0 text-foreground open:flex open:flex-col"
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        dismiss();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
       }}
     >
       <header className="flex shrink-0 items-center gap-3 border-b border-border p-3">
-        <h2 id={heading} className="min-w-0 flex-1 truncate font-medium">
-          {name}
-        </h2>
-        <a
-          href={url}
-          download={name}
-          className="shrink-0 text-sm text-accent underline-offset-4 hover:underline"
-        >
-          {t("Herunterladen")}
-        </a>
-        <Button variant="ghost" size="sm" onPress={onClose}>
-          {t("Schließen")}
+        <div className="min-w-0 flex-1">
+          <h2 id={heading} className="truncate font-medium">
+            {file?.name}
+          </h2>
+          {file?.workspace && file.workspace.path !== file.name && (
+            <p className="truncate text-xs text-muted">{file.workspace.path}</p>
+          )}
+        </div>
+        {file && (
+          <a
+            href={file.workspace?.download ?? file.url}
+            download={file.name}
+            className="shrink-0 text-sm text-accent underline-offset-4 hover:underline"
+          >
+            {t("Herunterladen")}
+          </a>
+        )}
+        <Button variant="ghost" size="sm" onPress={dismiss}>
+          {t(file?.workspace?.nested ? "Zurück" : "Schließen")}
         </Button>
       </header>
       <div className="min-h-0 flex-1">
-        <OfficeDocument name={name} url={url} />
+        <OfficeDocument
+          editor={editor}
+          file={file}
+          onReady={onReady}
+          onError={onError}
+        />
       </div>
     </dialog>
   );

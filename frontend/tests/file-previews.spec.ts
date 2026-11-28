@@ -119,6 +119,30 @@ test("an image attachment opens in a dialog, not a new tab", async ({
 });
 
 const fixtureDirectory = process.env.ZENTRALE_OFFICE_FIXTURES;
+
+test("versioned Office assets are reused from the browser cache after a reload", async ({
+  page,
+}) => {
+  test.skip(!fixtureDirectory, "Office assets are required.");
+  await page.goto("/office/VERSION");
+  const version = (await page.locator("body").innerText()).trim();
+  expect(version).toMatch(/^[0-9a-f]{20}$/);
+  const asset = `/office/${version}/x2t/x2t.js`;
+  const load = () =>
+    page.evaluate(async (path) => {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`Asset returned ${response.status}`);
+      await response.arrayBuffer();
+      const url = new URL(path, location.href).href;
+      return (
+        performance.getEntriesByName(url).at(-1) as PerformanceResourceTiming
+      ).transferSize;
+    }, asset);
+  expect(await load()).toBeGreaterThan(0);
+  await page.reload();
+  expect(await load()).toBe(0);
+});
+
 for (const extension of ["xlsx", "docx", "pptx"]) {
   test(`renders ${extension} locally, including a delivered file`, async ({
     page,
@@ -165,18 +189,19 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
     });
     await openChat(page, [input], output);
 
+    let firstFrame;
     if (extension === "xlsx") {
       const open = page.getByRole("button", { name: input.name, exact: true });
-      const converterModule = page.waitForResponse(
-        (response) =>
-          new URL(response.url()).pathname === "/office/x2t/x2t.wasm",
+      const converterModule = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/x2t/x2t.wasm"),
       );
       await open.click();
       const preview = page.getByRole("dialog", { name: input.name });
       await expect(preview.locator("iframe")).toBeVisible({ timeout: 30_000 });
-      expect((await converterModule).headers()["content-encoding"]).toBe(
-        "gzip",
-      );
+      const module = await converterModule;
+      expect(module.url()).toMatch(/\/office\/[0-9a-f]{20}\/x2t\/x2t\.wasm$/);
+      expect(module.headers()["content-encoding"]).toBe("gzip");
+      expect(module.headers()["cache-control"]).toContain("immutable");
       await expect(
         preview
           .frameLocator("iframe")
@@ -191,6 +216,9 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
       ).toBeVisible();
       const initialLoad = { downloads, converterStarts };
       expect(initialLoad).toEqual({ downloads: 1, converterStarts: 1 });
+      firstFrame = await (
+        await preview.locator("iframe").elementHandle()
+      ).contentFrame();
       await preview.getByRole("button", { name: "Schließen" }).click();
       await expect(preview).not.toBeVisible();
       await open.click();
@@ -199,6 +227,11 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
       await page.keyboard.press("Escape");
       await expect(preview).not.toBeVisible();
     }
+    const spare = page.locator('iframe[title="Euro-Office"]');
+    const warmFrame =
+      extension === "xlsx"
+        ? await (await spare.elementHandle()).contentFrame()
+        : null;
     await page.getByRole("button", { name: output.name, exact: true }).click();
     const preview = page.getByRole("dialog", { name: output.name });
     await expect(preview.locator("iframe")).toBeVisible({ timeout: 30_000 });
@@ -209,6 +242,20 @@ for (const extension of ["xlsx", "docx", "pptx"]) {
     const download = page.waitForEvent("download");
     await preview.getByRole("link", { name: "Herunterladen" }).click();
     expect((await download).suggestedFilename()).toBe(output.name);
+    if (extension === "xlsx") {
+      expect(
+        await (await preview.locator("iframe").elementHandle()).contentFrame(),
+      ).toBe(warmFrame);
+      await preview.getByRole("button", { name: "Schließen" }).click();
+      const beforeReopen = { downloads, converterStarts };
+      await page.getByRole("button", { name: input.name, exact: true }).click();
+      const reopened = page.getByRole("dialog", { name: input.name });
+      await expect(reopened.locator("iframe")).toBeVisible();
+      expect(
+        await (await reopened.locator("iframe").elementHandle()).contentFrame(),
+      ).toBe(firstFrame);
+      expect({ downloads, converterStarts }).toEqual(beforeReopen);
+    }
     expect(outside).toEqual([]);
   });
 }
